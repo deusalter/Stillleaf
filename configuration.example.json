@@ -1,0 +1,11 @@
+{
+  "dailyGoalMinutes": 20,
+  "calendarTimezone": "America/Los_Angeles",
+  "uncertaintyThresholdMinutes": 20,
+  "checkpointSeconds": 15,
+  "discordEnabled": false,
+  "discordApplicationID": "",
+  "discordAssetKey": "books",
+  "externalCoverLookup": false,
+  "note": "Illustrative settings only. Configure the application using its Settings screen. No tokens are used."
+}
