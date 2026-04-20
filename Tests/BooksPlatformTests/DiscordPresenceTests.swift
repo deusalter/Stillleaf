@@ -45,7 +45,7 @@ final class DiscordPresenceTests: XCTestCase {
         XCTAssertEqual(activity["type"] as? Int, 0)
         XCTAssertEqual(activity["details"] as? String, "Reading The Left Hand of Darkness")
         XCTAssertEqual(activity["state"] as? String, "Ursula K. Le Guin • Page 12 of 286")
-        XCTAssertEqual(activity["party"] as? [String: Any], nil)
+        XCTAssertNil(activity["party"])
         XCTAssertEqual(assets["large_image"], "books")
         XCTAssertLessThanOrEqual(Date().timeIntervalSince1970 - Double(timestamps["start"]!), 126)
         XCTAssertGreaterThanOrEqual(Date().timeIntervalSince1970 - Double(timestamps["start"]!), 124)
