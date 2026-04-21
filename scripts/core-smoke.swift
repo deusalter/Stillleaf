@@ -60,6 +60,8 @@ do {
     try engine!.process(input(start, 100, book))
     try tick(engine!, book: book, start: start, uptime: 100, seconds: 5)
     try engine!.process(TrackingInput(date: start.addingTimeInterval(5), uptime: 105, pauseReason: .background))
+    try require(engine!.snapshot.phase == .paused && engine!.snapshot.book == book && engine!.snapshot.mode == .automatic,
+                "background pause discarded the last reading snapshot")
     try engine!.process(input(start.addingTimeInterval(65), 165, book, activity: true))
     try tick(engine!, book: book, start: start.addingTimeInterval(65), uptime: 165, seconds: 2)
     try engine!.checkpoint(date: start.addingTimeInterval(67), uptime: 167)

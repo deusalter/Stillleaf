@@ -104,8 +104,10 @@ public final class TrackingEngine {
         if eligible { try start(input, reuseSessionID: resumableSession(for: input)) }
         else {
             snapshot.phase = .paused
-            snapshot.book = input.book
-            snapshot.mode = input.mode
+            if let book = input.book {
+                snapshot.book = book
+                snapshot.mode = input.mode
+            }
             snapshot.pauseReason = input.pauseReason ?? .stopped
         }
     }
