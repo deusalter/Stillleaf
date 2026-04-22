@@ -96,7 +96,7 @@ final class AppModel: ObservableObject {
         if try store.archive().goals.isEmpty {
             try store.setGoal(GoalChange(effectiveDay: ReadingStatistics.dayKey(Date(), timezoneID: zone), minutes: goalMinutes))
         }
-        ready = true
+        ready = startTracking
         syncGoalFromHistory()
         if startTracking {
         registerObservers()
