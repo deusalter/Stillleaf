@@ -31,6 +31,10 @@ codesign --force --sign - --timestamp=none "$app_dir/Contents/MacOS/books-diagno
 codesign --force --sign - --timestamp=none "$app_dir/Contents/MacOS/BooksPresence"
 codesign --force --sign - --timestamp=none "$app_dir"
 
+archive_path="$dist_dir/BooksPresence-$(uname -m).zip"
+ditto -c -k --sequesterRsrc --keepParent "$app_dir" "$archive_path"
+
 print "Created $app_dir"
+print "Downloadable archive: $archive_path"
 print "Move BooksPresence.app to /Applications or ~/Applications yourself, then open it."
 print "The package does not install a global service or enable login startup automatically."

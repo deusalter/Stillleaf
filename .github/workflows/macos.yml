@@ -20,5 +20,5 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: BooksPresence-macOS-development
-          path: dist/BooksPresence.app
+          path: dist/BooksPresence-*.zip
 # CI does not grant Accessibility access or validate a live Books/Discord session.
