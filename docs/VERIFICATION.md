@@ -19,7 +19,7 @@ Date: 2026-09-17. Host: Apple Silicon, macOS 26.0.1, Apple Books 8.0. The source
 | Accessibility trust | **Unavailable to the diagnostic/tracker process** in current runs |
 | GUI control automation | Computer-use service timed out; no click-through or screenshot result claimed |
 
-Local `swift test` cannot execute because this Command Line Tools installation lacks XCTest and SwiftPM's SDK PlatformPath support. The assertion harness is a separate local check, **not a substitute claim that XCTest ran locally**. The macOS GitHub Actions workflow runs the XCTest suites and release build; remote results are recorded after push.
+Local `swift test` cannot execute because this Command Line Tools installation lacks XCTest and SwiftPM's SDK PlatformPath support. The assertion harness is a separate local check, **not a substitute claim that XCTest ran locally**. The [macOS CI run for 3173557](https://github.com/deusalter/BooksPresence/actions/runs/35288060693) passed all 28 XCTest cases, the release build, development app packaging and artifact upload. Subsequent commits run the same checks; consult the repository Checks tab for the final branch result.
 
 ## Important review fixes
 
@@ -46,4 +46,10 @@ No iPhone/iPad backfill, external artwork lookup, artwork upload, or live Discor
 
 ## Data-handling notes
 
-Only synthetic fixtures are committed. Personal catalog paths/titles/artwork and diagnostic output stay outside Git. App-owned directory mode is 0700 and database/cache files are restricted. User-selected exports/backups are private files but remain at their chosen destinations; app deletion cannot remove external copies, filesystem snapshots or SSD remnants. Artwork references are archived; copying the local cache is necessary when migrating image bytes to another Mac.
+Only synthetic fixtures are committed. Personal catalog paths/titles/artwork and diagnostic output stay outside Git. After relaunch, `stat` verified support-directory mode 0700 and database/WAL/SHM modes 0600; the cover cache directory was 0700. User-selected exports/backups are private files but remain at their chosen destinations; app deletion cannot remove external copies, filesystem snapshots or SSD remnants. Artwork references are archived; copying the local cache is necessary when migrating image bytes to another Mac.
+
+## Repository and execution
+
+Private repository: [deusalter/BooksPresence](https://github.com/deusalter/BooksPresence), branch `main`. The existing HTTPS OAuth credential lacked `workflow` scope; the existing, authenticated SSH credential successfully pushed source and Actions without requesting broader token permissions. Commit messages use the configured user identity and real timestamps, with no attribution trailers.
+
+Requested Sol High and Terra High worker overrides were accepted by the delegation tool. Primary model/reasoning configuration was not independently exposed. Independent code review ended with no open critical or important findings after fixes; live integrations remain subject to the checks listed above.

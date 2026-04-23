@@ -22,18 +22,18 @@
 ## Work packages and acceptance gates
 
 - [x] Inspect real host, empty repository, Git identity, GitHub authentication, Books bundle, read-only catalog schema, and Accessibility trust.
-- [ ] Root: runnable privacy-limited diagnostic and capability table. `swift run books-diagnostic` must distinguish unavailable access from missing optional fields. Probe only actual installed APIs and schema.
-- [ ] Sol High: core storage, engine, statistics and tests. Own `Sources/BooksCore/{ReadingStore,TrackingEngine,ReadingStatistics}.swift` and `Tests/BooksCoreTests`. Contracts above are binding. Exercise pause exclusion, DST, midnight, recovery, corrections, goals, overlap rejection and duplicate-safe round trips.
-- [ ] Terra High: native views in `Sources/BooksPresence/*View.swift`; follow AppModel contract. Today, History, Library/details, Review, Health, Settings, menu popover and separate privacy controls must be accessible.
-- [ ] Root: metadata/cover adapters and integration AppModel. Reject uncertain window identification; preserve IDs, exact artwork, source dates, and exclusions. Add focused synthetic adapter tests.
-- [ ] Terra High: optional Discord IPC, singleton, login and packaging. Use official IPC fields, generic configured asset, disabled by default; no upload. Test partial frames, clear, reconnect and pause-adjusted timers. Build an LSUIElement app without initial windows.
-- [ ] Root: integrate, run build/tests, inspect UI and process lifecycle, document verified vs untested behavior, package app, add macOS CI.
-- [ ] Sol High fresh reviewer: inspect actual code and evidence for data loss, overlap, migration, recovery, privacy and test gaps. Fix concrete findings, rerun affected checks.
-- [ ] Root: inspect intended staged contents, factual commit messages, push coherent verified milestones, and confirm remote SHA.
+- [x] Root: runnable privacy-limited diagnostic and capability table. `swift run books-diagnostic` must distinguish unavailable access from missing optional fields. Probe only actual installed APIs and schema.
+- [x] Sol High: core storage, engine, statistics and tests. Own `Sources/BooksCore/{ReadingStore,TrackingEngine,ReadingStatistics}.swift` and `Tests/BooksCoreTests`. Contracts above are binding. Exercise pause exclusion, DST, midnight, recovery, corrections, goals, overlap rejection and duplicate-safe round trips.
+- [x] Terra High: native views in `Sources/BooksPresence/*View.swift`; follow AppModel contract. Today, History, Library/details, Review, Health, Settings, menu popover and separate privacy controls must be accessible.
+- [x] Root: metadata/cover adapters and integration AppModel. Reject uncertain window identification; preserve IDs, exact artwork, source dates, and exclusions. Add focused synthetic adapter tests.
+- [x] Terra High: optional Discord IPC, singleton, login and packaging. Use official IPC fields, generic configured asset, disabled by default; no upload. Test partial frames, clear, reconnect and pause-adjusted timers. Build an LSUIElement app without initial windows.
+- [x] Root: integrate, run build/tests, inspect UI and process lifecycle, document verified vs untested behavior, package app, add macOS CI.
+- [x] Sol High fresh reviewer: inspect actual code and evidence for data loss, overlap, migration, recovery, privacy and test gaps. Fix concrete findings, rerun affected checks.
+- [x] Root: inspect intended staged contents, factual commit messages, push coherent verified milestones, and confirm remote SHA.
 
 ## Evidence ledger
 
-Initial host: macOS 26.0.1 arm64, Books 8.0. Installed CLT Swift 5.8.1 uses swift-frontend symlinks; direct swiftc compiles, use swift-build/swift-test binaries if driver commands fail. AX trust is false in the initial CLI probe. Books running, catalog readable with 100 asset records; asset IDs/path/title/author/progress columns verified. Catalog has no populated ZCOVERURL values. Books.plist exists with actual path and book-info keys. No scripting dictionary or NSAppleScriptEnabled declaration found; sdef unavailable without full Xcode. Raw personal output is never committed.
+Initial host: macOS 26.0.1 arm64, Books 8.0. Installed CLT Swift 5.8.1 uses swift-frontend symlinks; direct swiftc compiles, use swift-build/swift-test binaries if driver commands fail. AX trust is false in the initial CLI probe. Books running, catalog readable with asset records; asset IDs/path/title/author/progress columns verified. Catalog has no populated ZCOVERURL values. Books.plist exists with actual path and book-info keys. No scripting dictionary or NSAppleScriptEnabled declaration found; sdef unavailable without full Xcode. Raw personal output is never committed.
 
 ## Integration decisions
 
@@ -42,3 +42,5 @@ Initial host: macOS 26.0.1 arm64, Books 8.0. Installed CLT Swift 5.8.1 uses swif
 - Local direct compiler builds and separate behavioral harnesses replace unavailable local XCTest execution; genuine XCTest runs in remote macOS CI.
 - User reported computer-use access enabled, but tracker AX trust remained false and CUA queries timed out. Continue without screenshot or live reader claims.
 - Root/worker review fixes are documented in VERIFICATION.md; no personal probe output enters Git.
+
+Completion evidence: local check-local harnesses passed; independent review has no open critical/important findings; remote macOS CI run 35288060693 passed 28 XCTest cases, release build and package. Live reader/Discord/visual checks remain explicitly listed in VERIFICATION.md.
