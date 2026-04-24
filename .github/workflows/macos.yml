@@ -15,6 +15,8 @@ jobs:
         run: swift test --parallel
       - name: Release build
         run: swift build -c release
+      - name: Native model and view self-check
+        run: .build/release/BooksPresence --self-test-ui
       - name: Package development app
         run: scripts/package-app.sh
       - uses: actions/upload-artifact@v4

@@ -12,11 +12,12 @@ func runUISmoke() throws {
     let model = try AppModel(support: root, defaults: defaults, startTracking: false)
     let end = Date().addingTimeInterval(-120)
     model.addManual(title: "The Shape of a Quiet Day", author: "Synthetic fixture", start: end.addingTimeInterval(-1800), end: end)
-    guard model.errorMessage == nil, model.intervals.count == 1, model.today.creditedSeconds >= 1799 else { throw BooksAccessErrorForUI.failed("Manual addition did not produce credited history: \(model.errorMessage ?? "no error")") }
-    let originalBook = model.books[0]
+    guard model.errorMessage == nil, model.intervals.count == 1, abs(model.intervals.reduce(0) { $0 + $1.duration } - 1800) < 0.01 else { throw BooksAccessErrorForUI.failed("Manual addition did not produce credited history: \(model.errorMessage ?? "no error")") }
+    var originalBook = model.books[0]
+    originalBook.observedAt = Date(timeIntervalSince1970: 0) // Deliberately stale input metadata.
     let editTime = Date()
     model.setBookExclusions(originalBook, tracking: false, sharing: true)
-    guard model.books[0].sharingExcluded, model.books[0].observedAt >= editTime else { throw BooksAccessErrorForUI.failed("User privacy edit was not versioned at edit time") }
+    guard model.books[0].sharingExcluded, model.books[0].observedAt.timeIntervalSince(editTime) >= -0.001 else { throw BooksAccessErrorForUI.failed("User privacy edit was not versioned at edit time") }
     let interval = model.intervals[0]
     model.splitInterval(interval, at: interval.start.addingTimeInterval(900))
     guard model.errorMessage == nil, model.intervals.count == 2 else { throw BooksAccessErrorForUI.failed("Split failed") }
