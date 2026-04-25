@@ -34,6 +34,7 @@ public final class ReadingStore {
         self.url = url
         self.encoder = JSONEncoder()
         self.decoder = JSONDecoder()
+        encoder.outputFormatting = [.sortedKeys]
         encoder.dateEncodingStrategy = .millisecondsSince1970
         decoder.dateDecodingStrategy = .millisecondsSince1970
 
@@ -100,7 +101,7 @@ public final class ReadingStore {
 
     public func appendInterval(_ interval: ReadingInterval) throws {
         if let existing: ReadingInterval = try decodedRow(table: "intervals", id: interval.id) {
-            guard existing == interval else { throw ReadingStoreError.conflict("interval id \(interval.id) already exists") }
+            guard try canonicallyEqual(existing, interval) else { throw ReadingStoreError.conflict("interval id \(interval.id) already exists") }
             return
         }
         let insertion = try validateEffectiveInsertion(interval)
@@ -131,7 +132,7 @@ public final class ReadingStore {
     public func correct(_ correction: IntervalCorrection) throws {
         var prospective = try archive()
         if let existing = prospective.corrections.first(where: { $0.id == correction.id }) {
-            guard existing == correction else { throw ReadingStoreError.conflict("correction id \(correction.id) already exists") }
+            guard try canonicallyEqual(existing, correction) else { throw ReadingStoreError.conflict("correction id \(correction.id) already exists") }
             return
         }
         prospective.corrections.append(correction)
@@ -367,6 +368,10 @@ public final class ReadingStore {
 
     private func encode<T: Encodable>(_ value: T) throws -> Data { try encoder.encode(value) }
 
+    private func canonicallyEqual<T: Codable>(_ lhs: T, _ rhs: T) throws -> Bool {
+        try Self.canonicalData(lhs) == Self.canonicalData(rhs)
+    }
+
     private func validate(book: BookRecord) throws {
         guard !book.id.isEmpty, !book.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, Self.validDate(book.observedAt) else {
             throw ReadingStoreError.invalidData("book id and title are required")
@@ -406,7 +411,7 @@ public final class ReadingStore {
 
     private func insertUnique<T: Codable & Equatable>(table: String, id: String, payload: Data, value: T) throws {
         if let existing: T = try decodedRow(table: table, id: id) {
-            guard existing == value else { throw ReadingStoreError.conflict("\(table) id \(id) already exists") }
+            guard try canonicallyEqual(existing, value) else { throw ReadingStoreError.conflict("\(table) id \(id) already exists") }
             return
         }
         switch table {
@@ -453,7 +458,7 @@ public final class ReadingStore {
         }
         for interval in snapshot.intervals {
             if allowIdentical, let existing: ReadingInterval = try decodedRow(table: "intervals", id: interval.id) {
-                guard existing == interval else { throw ReadingStoreError.conflict("interval id \(interval.id) already exists") }
+                guard try canonicallyEqual(existing, interval) else { throw ReadingStoreError.conflict("interval id \(interval.id) already exists") }
             } else { try insertInterval(interval) }
         }
         for correction in snapshot.corrections { try insertUnique(table: "corrections", id: correction.id, payload: try encode(correction), value: correction) }
@@ -659,13 +664,13 @@ public final class ReadingStore {
         return result
     }
 
-    private static func mergeRows<T: Equatable>(_ lhs: [T], _ rhs: [T], id: KeyPath<T, String>, label: String) throws -> [T] {
+    private static func mergeRows<T: Codable & Equatable>(_ lhs: [T], _ rhs: [T], id: KeyPath<T, String>, label: String) throws -> [T] {
         var result = lhs
         var positions = Dictionary(uniqueKeysWithValues: lhs.enumerated().map { ($0.element[keyPath: id], $0.offset) })
         for row in rhs {
             let key = row[keyPath: id]
             if let position = positions[key] {
-                guard result[position] == row else { throw ReadingStoreError.conflict("\(label) id \(key) has different content") }
+                guard try canonicalData(result[position]) == canonicalData(row) else { throw ReadingStoreError.conflict("\(label) id \(key) has different content") }
             } else {
                 positions[key] = result.count
                 result.append(row)
@@ -702,6 +707,15 @@ public final class ReadingStore {
     private static func validDate(_ date: Date) -> Bool {
         let value = date.timeIntervalSince1970
         return value.isFinite && value >= -2_208_988_800 && value <= 7_258_118_400 // 1900-01-01 through 2200-01-01 UTC.
+    }
+
+    // Compare the serialized form rather than Date's bits: decoding a millisecond Double can
+    // move Date by one ULP, while re-encoding it produces the same durable JSON representation.
+    private static func canonicalData<T: Encodable>(_ value: T) throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        encoder.dateEncodingStrategy = .millisecondsSince1970
+        return try encoder.encode(value)
     }
 
     private static func substantiveBook(_ book: BookRecord) -> String {

@@ -25,6 +25,8 @@ Local `swift test` cannot execute because this Command Line Tools installation l
 
 Independent review identified and implementation corrected: split/reassignment deletion resurrecting originals or deleting unrelated siblings; wall-clock ordering of corrections/goals/merges/recovery; backward-clock interval overlap; unsafe backup over the live database; zero-minute imported goals; loss of cached covers on transient access failure; incorrect Discord timestamp units and IPC partial-frame handling; app-ID changes and status reporting; reversed pause control; missing daily traceability; and private data-directory permissions. Focused regression checks cover the core cases.
 
+Duplicate-ID checks compare canonical serialized records so fractional timestamp round-off cannot turn an identical retry into a conflict. Regression coverage includes a known non-exact `Date` round trip, repeated event/interval/correction insertion, repeated JSON import, and adjacent submillisecond intervals. The archive keeps its original fractional-millisecond timestamp representation.
+
 Checkpoint insert validation uses an in-memory ordered effective-interval cache, avoiding a full-history decode for each checkpoint. Calendar totals split intervals in one pass. Presentation refreshes at checkpoint cadence while active and on state/day changes while paused. Very large archive presentation/import/restore remains synchronous and has not been stress-tested at multi-million-record scale.
 
 ## Bounds and recovery semantics

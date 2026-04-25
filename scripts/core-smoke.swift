@@ -56,6 +56,20 @@ do {
         try store.appendInterval(ReadingInterval(sessionID: "invalid-inflated", bookID: book.id, start: start, end: start.addingTimeInterval(10), duration: 30, timezoneID: "UTC", mode: .imported))
         throw SmokeFailure.failed("inflated monotonic duration was accepted")
     } catch is ReadingStoreError {}
+
+    let fractionalStore = try ReadingStore(url: root.appendingPathComponent("fractional.sqlite"))
+    let fractionalDate = Date(timeIntervalSince1970: Double(bitPattern: 4_745_293_308_205_202_240))
+    let fractionalBook = BookRecord(id: "fractional", title: "Fractional", observedAt: fractionalDate)
+    try fractionalStore.saveBook(fractionalBook)
+    let fractionalEvent = AuditEvent(id: "fractional-event", date: fractionalDate, kind: "synthetic", detail: "duplicate")
+    try fractionalStore.appendEvent(fractionalEvent)
+    try fractionalStore.appendEvent(fractionalEvent)
+    let fractionalInterval = ReadingInterval(id: "fractional-interval", sessionID: "fractional-session", bookID: fractionalBook.id, start: fractionalDate, end: fractionalDate.addingTimeInterval(1.0000003), duration: 1, timezoneID: "UTC", mode: .imported)
+    try fractionalStore.appendInterval(fractionalInterval)
+    try fractionalStore.appendInterval(fractionalInterval)
+    let fractionalArchive = try fractionalStore.archive()
+    try require(fractionalArchive.events.filter { $0.id == fractionalEvent.id }.count == 1 && fractionalArchive.intervals.count == 1,
+                "fractional timestamp duplicate was not canonicalized")
     var engine: TrackingEngine? = try TrackingEngine(store: store, timezoneID: "UTC", uncertaintyThreshold: 3, checkpointSeconds: 3)
     try engine!.process(input(start, 100, book))
     try tick(engine!, book: book, start: start, uptime: 100, seconds: 5)
