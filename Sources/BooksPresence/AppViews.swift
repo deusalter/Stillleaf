@@ -242,18 +242,24 @@ struct ReadingEmptyState: View {
 }
 
 enum ReadingPalette {
-    private static func adaptive(_ light: (Double, Double, Double), _ dark: (Double, Double, Double)) -> Color {
+    private static func adaptive(_ light: UInt32, _ dark: UInt32) -> Color {
         Color(NSColor(name: nil) { appearance in
-            let rgb = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light
-            return NSColor(srgbRed: rgb.0, green: rgb.1, blue: rgb.2, alpha: 1)
+            let hex = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light
+            return NSColor(srgbRed: Double((hex >> 16) & 0xff) / 255,
+                           green: Double((hex >> 8) & 0xff) / 255,
+                           blue: Double(hex & 0xff) / 255, alpha: 1)
         })
     }
-    static let paper = adaptive((0.961, 0.945, 0.910), (0.10, 0.12, 0.11))
-    static let parchment = adaptive((0.914, 0.882, 0.810), (0.19, 0.21, 0.18))
-    static let ink = adaptive((0.137, 0.180, 0.161), (0.91, 0.92, 0.87))
-    static let moss = adaptive((0.322, 0.443, 0.384), (0.52, 0.70, 0.59))
-    static let ochre = adaptive((0.725, 0.533, 0.298), (0.82, 0.65, 0.39))
-    static let fadedInk = adaptive((0.345, 0.384, 0.355), (0.68, 0.72, 0.66))
+    static let paper = adaptive(0xE6DADF, 0x241C26)
+    static let surface = adaptive(0xF0E7EB, 0x302532)
+    static let elevated = adaptive(0xE2D1D9, 0x3D2F3D)
+    static let sidebar = adaptive(0xD7C4CE, 0x2A202D)
+    static let parchment = adaptive(0xCEB5C1, 0x503B4A)
+    static let ink = adaptive(0x352432, 0xF6ECF1)
+    static let moss = adaptive(0x8B4F42, 0xE0AE96)
+    static let ochre = adaptive(0x606825, 0xC9CE89)
+    static let fadedInk = adaptive(0x715A6A, 0xC4ADBD)
+    static let border = adaptive(0xC9AEBE, 0x564151)
 }
 
 enum ReadingFormat {

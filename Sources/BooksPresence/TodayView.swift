@@ -136,14 +136,22 @@ struct BookCoverView: View {
             } else {
                 ZStack {
                     ReadingPalette.parchment
-                    VStack(spacing: 7) {
-                        Image(systemName: "book.closed")
-                            .font(.system(size: max(18, dimensions.width * 0.32)))
-                        Text("Cover unavailable")
-                            .font(.caption2).multilineTextAlignment(.center)
+                    HStack(spacing: 0) {
+                        Rectangle().fill(ReadingPalette.moss.opacity(0.3)).frame(width: 6)
+                        Rectangle().fill(ReadingPalette.ink.opacity(0.08)).frame(width: 1)
+                        Spacer()
                     }
-                    .foregroundStyle(ReadingPalette.fadedInk)
-                    .padding(5)
+                    VStack(spacing: 8) {
+                        Image(systemName: "book.closed")
+                            .font(.system(size: max(16, dimensions.width * 0.22), weight: .light))
+                        if size != .compact {
+                            Text(book?.title ?? "Your next read")
+                                .font(.system(size: size == .large ? 13 : 11, weight: .medium, design: .serif))
+                                .multilineTextAlignment(.center).lineLimit(3)
+                        }
+                    }
+                    .foregroundStyle(ReadingPalette.ink.opacity(0.78))
+                    .padding(.leading, 7).padding(8)
                 }
             }
         }
@@ -215,8 +223,8 @@ struct PageHeading: View {
     let subtitle: String
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
-            Text(title).font(.system(size: 34, weight: .medium, design: .serif))
-            Text(subtitle).font(.callout).foregroundStyle(.secondary)
+            Text(title).font(.system(size: 30, weight: .medium, design: .serif))
+            Text(subtitle).font(.callout).foregroundStyle(ReadingPalette.fadedInk)
         }
     }
 }
@@ -224,8 +232,8 @@ struct PageHeading: View {
 extension View {
     func readingPanel() -> some View {
         padding(20)
-            .background(Color.white.opacity(0.46), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(ReadingPalette.ink.opacity(0.10)))
+            .background(ReadingPalette.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(ReadingPalette.border.opacity(0.7)))
     }
 }
 

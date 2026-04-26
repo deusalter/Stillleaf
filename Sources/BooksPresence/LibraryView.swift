@@ -64,8 +64,8 @@ struct BookLibraryCard: View {
             }
             .frame(maxWidth: .infinity, minHeight: 112, alignment: .leading)
             .padding(12)
-            .background(Color.white.opacity(0.46), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(ReadingPalette.ink.opacity(0.1)))
+            .background(ReadingPalette.surface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(ReadingPalette.border.opacity(0.7)))
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Open \(book.title)")
@@ -129,7 +129,7 @@ struct BookDetailView: View {
                             Toggle("Exclude this book from Discord sharing", isOn: exclusionBinding(tracking: false))
                             Text("These controls do not erase recorded history.")
                                 .font(.caption).foregroundStyle(.secondary)
-                        }.padding(.top, 4)
+                        }.toggleStyle(.switch).padding(.top, 4)
                     }
 
                     HStack(spacing: 12) {
