@@ -4,259 +4,410 @@ import BooksCore
 @MainActor
 struct HistoryView: View {
     @ObservedObject var model: AppModel
-    @State private var selectedDay: DailyTotal?
+    @State private var navigation: CalendarNavigation
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private var weekSeconds: Double { totals.inCurrentWeek.reduce(0) { $0 + $1.creditedSeconds } }
-    private var monthSeconds: Double { totals.inCurrentMonth.reduce(0) { $0 + $1.creditedSeconds } }
-    private var totals: HistoryPeriodTotals { HistoryPeriodTotals(days: model.days, timezoneID: model.timezoneID) }
+    init(model: AppModel, initialScale: CalendarScale = .month) {
+        self.model = model
+        _navigation = State(initialValue: CalendarNavigation(timezoneID: model.timezoneID, scale: initialScale))
+    }
+
+    private var visibleDays: [DailyTotal] {
+        model.days.filter { day in
+            guard let date = date(for: day.day) else { return false }
+            return date >= navigation.period.start && date < navigation.period.end
+        }
+    }
+
+    private var creditedSeconds: Double { visibleDays.reduce(0) { $0 + $1.creditedSeconds } }
+    private var uncertainSeconds: Double { visibleDays.reduce(0) { $0 + $1.uncertainSeconds } }
+    private var activeDays: Int { visibleDays.filter { $0.creditedSeconds > 0 || $0.uncertainSeconds > 0 }.count }
+    private var todayStart: Date { navigation.calendar.startOfDay(for: Date()) }
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 26) {
-                PageHeading(title: "History", subtitle: "Totals are built from credited interval fragments in your selected calendar timezone.")
-                HStack(spacing: 16) {
-                    HistoryMetric(title: "This week", value: ReadingFormat.duration(weekSeconds))
-                    HistoryMetric(title: "This month", value: ReadingFormat.duration(monthSeconds))
-                    HistoryMetric(title: "Recorded days", value: "\(model.days.filter { $0.creditedSeconds > 0 || $0.uncertainSeconds > 0 }.count)")
+            VStack(alignment: .leading, spacing: 20) {
+                PageHeading(title: "History", subtitle: "Explore your reading, one day at a time.")
+                HStack(spacing: 12) {
+                    HistoryMetric(title: "Credited", value: ReadingFormat.duration(creditedSeconds))
+                    HistoryMetric(title: "Awaiting review", value: ReadingFormat.duration(uncertainSeconds))
+                    HistoryMetric(title: navigation.scale == .day ? "Books" : "Active days", value: navigation.scale == .day ? "\(dayBookCount)" : "\(activeDays)")
                 }
-
-                HistoryCalendar(days: model.days, open: { selectedDay = $0 })
-                    .readingPanel()
-
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Daily ledger").font(.system(.title2, design: .serif))
-                    Text("Each row can be traced back to the sessions in Library and Review.")
-                        .font(.callout).foregroundStyle(.secondary)
-                    if model.days.isEmpty {
-                        ReadingEmptyState(title: "No recorded days", symbol: "calendar.badge.clock", message: "Reading time will appear here after a credited or uncertain interval is saved.")
-                            .padding(.vertical, 32)
-                    } else {
-                        VStack(spacing: 0) {
-                            ForEach(model.days.reversed()) { day in
-                                DailyLedgerRow(day: day, open: { selectedDay = day })
-                                Divider()
-                            }
+                VStack(alignment: .leading, spacing: 16) {
+                    HistoryCalendarToolbar(navigation: navigation, isNextEnabled: canMoveForward, setScale: { setScale($0) }, previous: { move(-1) }, next: { move(1) }, today: { goToToday() })
+                    Group {
+                        switch navigation.scale {
+                        case .month:
+                            HistoryMonthCalendar(navigation: navigation, days: daysByKey, today: todayStart, select: { select($0, scale: .day) })
+                        case .week:
+                            HistoryWeekCalendar(navigation: navigation, days: daysByKey, today: todayStart, select: { select($0, scale: .day) })
+                        case .year:
+                            HistoryYearCalendar(navigation: navigation, days: daysByKey, today: todayStart, select: { select($0, scale: .month) })
+                        case .day:
+                            HistoryDayDetail(model: model, date: navigation.periodStart, navigation: navigation, back: { setScale(.month) })
                         }
-                        .readingPanel()
                     }
+                    .id("\(navigation.scale.rawValue)-\(navigation.dayKey(for: navigation.periodStart))")
+                    .transition(reduceMotion ? .identity : .opacity.combined(with: .scale(scale: 0.985)))
                 }
+                .readingPanel()
+                Text("Calendar timezone: \(model.timezoneID)")
+                    .font(.caption).foregroundStyle(.secondary)
             }
-            .padding(32)
-            .frame(maxWidth: 960, alignment: .leading)
+            .padding(28)
+            .frame(maxWidth: 1060, alignment: .leading)
         }
-        .sheet(item: $selectedDay) { day in
-            DayDetailView(model: model, day: day)
-        }
+        .animation(reduceMotion ? nil : .spring(response: 0.34, dampingFraction: 0.86), value: navigation)
+        .onChange(of: model.timezoneID) { timezoneID in navigation.timezoneID = timezoneID }
     }
-}
 
-struct HistoryPeriodTotals {
-    let inCurrentWeek: [DailyTotal]
-    let inCurrentMonth: [DailyTotal]
-
-    init(days: [DailyTotal], timezoneID: String, now: Date = Date()) {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(identifier: timezoneID) ?? .current
-        let week = calendar.dateInterval(of: .weekOfYear, for: now)
-        let month = calendar.dateInterval(of: .month, for: now)
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = calendar.timeZone
-        formatter.dateFormat = "yyyy-MM-dd"
-        let dated = days.compactMap { day -> (DailyTotal, Date)? in
-            guard let date = formatter.date(from: day.day) else { return nil }
-            return (day, date)
-        }
-        inCurrentWeek = dated.filter { week?.contains($0.1) == true }.map(\.0)
-        inCurrentMonth = dated.filter { month?.contains($0.1) == true }.map(\.0)
+    private var daysByKey: [String: DailyTotal] { Dictionary(uniqueKeysWithValues: model.days.map { ($0.day, $0) }) }
+    private var dayBookCount: Int {
+        guard navigation.scale == .day else { return 0 }
+        let resolver = BookMergeResolver(merges: model.merges)
+        let entries = DayContribution.forDay(navigation.dayKey(for: navigation.periodStart), timezoneID: model.timezoneID, intervals: model.displayIntervals)
+        return Set(entries.map { resolver.resolvedID(for: $0.interval.bookID) }).count
     }
+    private var canMoveForward: Bool {
+        let current = CalendarNavigation(timezoneID: model.timezoneID, anchor: Date(), scale: navigation.scale)
+        return navigation.periodStart < current.periodStart
+    }
+    private func date(for key: String) -> Date? {
+        let parts = key.split(separator: "-").compactMap { Int($0) }
+        guard parts.count == 3 else { return nil }
+        return navigation.calendar.date(from: DateComponents(year: parts[0], month: parts[1], day: parts[2]))
+    }
+    private func mutateNavigation(_ change: (inout CalendarNavigation) -> Void) {
+        var updated = navigation; updated.timezoneID = model.timezoneID; change(&updated); navigation = updated
+    }
+    private func setScale(_ scale: CalendarScale) { mutateNavigation { $0.setScale(scale) } }
+    private func select(_ date: Date, scale: CalendarScale) { guard date <= todayStart else { return }; mutateNavigation { $0.select(date, scale: scale) } }
+    private func move(_ amount: Int) { guard amount < 0 || canMoveForward else { return }; mutateNavigation { $0.move(by: amount) } }
+    private func goToToday() { mutateNavigation { $0.goToToday() } }
 }
 
 struct HistoryMetric: View {
     let title: String
     let value: String
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title).font(.callout).foregroundStyle(.secondary)
-            Text(value).font(.system(.title, design: .serif)).monospacedDigit()
+        VStack(alignment: .leading, spacing: 5) {
+            Text(title).font(.caption).foregroundStyle(.secondary)
+            Text(value).font(.system(.title3, design: .serif)).monospacedDigit()
         }
-        .frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
-        .readingPanel()
+        .frame(maxWidth: .infinity, minHeight: 30, alignment: .leading)
+        .padding(14)
+        .background(ReadingPalette.surface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(ReadingPalette.border.opacity(0.7)))
     }
 }
 
-struct HistoryCalendar: View {
-    let days: [DailyTotal]
-    let open: (DailyTotal) -> Void
-    private let columns = Array(repeating: GridItem(.flexible(minimum: 58), spacing: 8), count: 7)
-
+private struct HistoryCalendarToolbar: View {
+    let navigation: CalendarNavigation
+    let isNextEnabled: Bool
+    let setScale: (CalendarScale) -> Void
+    let previous: () -> Void
+    let next: () -> Void
+    let today: () -> Void
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("Reading calendar").font(.system(.title2, design: .serif))
+            HStack(spacing: 10) {
+                Button(action: previous) { Image(systemName: "chevron.left") }.accessibilityLabel("Previous \(navigation.scale.title.lowercased())")
+                Button(action: next) { Image(systemName: "chevron.right") }.disabled(!isNextEnabled).accessibilityLabel("Next \(navigation.scale.title.lowercased())")
+                Text(navigation.title).font(.system(.title2, design: .serif))
                 Spacer()
-                LegendDot(color: ReadingPalette.moss, text: "Goal met")
-                LegendDot(color: ReadingPalette.ochre, text: "Reading recorded")
-                LegendDot(color: ReadingPalette.fadedInk.opacity(0.45), text: "Uncertain")
+                Button("Today", action: today).controlSize(.small)
             }
-            if days.isEmpty {
-                Text("No calendar entries yet.").foregroundStyle(.secondary).padding(.vertical, 20)
-            } else {
-                LazyVGrid(columns: columns, spacing: 8) {
-                    ForEach(days) { day in
-                        CalendarDayCell(day: day, open: { open(day) })
+            Picker("Calendar scale", selection: Binding(get: { navigation.scale }, set: { setScale($0) })) {
+                ForEach(CalendarScale.allCases) { scale in Text(scale.title).tag(scale) }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .accessibilityLabel("Calendar scale")
+        }
+    }
+}
+
+private struct HistoryMonthCalendar: View {
+    let navigation: CalendarNavigation
+    let days: [String: DailyTotal]
+    let today: Date
+    let select: (Date) -> Void
+    private let columns = Array(repeating: GridItem(.flexible(minimum: 74), spacing: 7), count: 7)
+    var body: some View {
+        VStack(spacing: 7) {
+            LazyVGrid(columns: columns, spacing: 7) {
+                ForEach(weekdayNames, id: \.self) { weekday in
+                    Text(weekday).font(.caption.weight(.medium)).foregroundStyle(.secondary).frame(maxWidth: .infinity)
+                }
+                ForEach(navigation.monthCells) { cell in
+                    HistoryMonthDayCell(cell: cell, dayNumber: navigation.calendar.component(.day, from: cell.date), timezoneID: navigation.timezoneID, total: days[navigation.dayKey(for: cell.date)], isToday: navigation.isSameDay(cell.date, today), isFuture: cell.date > today, select: { select(cell.date) })
+                }
+            }
+            HistoryLegend()
+        }
+    }
+    private var weekdayNames: [String] {
+        let formatter = DateFormatter(); formatter.locale = Locale.current
+        let symbols = formatter.shortWeekdaySymbols ?? []
+        let first = navigation.calendar.firstWeekday - 1
+        return Array(symbols[first...] + symbols[..<first])
+    }
+}
+
+private struct HistoryMonthDayCell: View {
+    let cell: CalendarMonthCell
+    let dayNumber: Int
+    let timezoneID: String
+    let total: DailyTotal?
+    let isToday: Bool
+    let isFuture: Bool
+    let select: () -> Void
+    private var accent: Color {
+        guard let total else { return ReadingPalette.ink.opacity(0.12) }
+        if total.qualifies { return ReadingPalette.moss }
+        if total.creditedSeconds > 0 { return ReadingPalette.ochre }
+        if total.uncertainSeconds > 0 { return ReadingPalette.fadedInk }
+        return ReadingPalette.ink.opacity(0.12)
+    }
+    var body: some View {
+        Button(action: select) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("\(dayNumber)").font(.callout.weight(isToday ? .bold : .regular))
+                if let total, total.creditedSeconds > 0 {
+                    Text(HistoryDuration.creditedMinutes(total.creditedSeconds)).font(.caption.weight(.medium)).monospacedDigit().lineLimit(1)
+                } else if total?.uncertainSeconds ?? 0 > 0 {
+                    Image(systemName: "clock.badge.questionmark").font(.caption2)
+                } else { Spacer(minLength: 0) }
+                Capsule().fill(accent).frame(height: 3)
+            }
+            .foregroundStyle(cell.isInMonth ? ReadingPalette.ink : ReadingPalette.fadedInk)
+            .frame(maxWidth: .infinity, minHeight: 58, alignment: .leading).padding(7)
+            .background(ReadingPalette.ink.opacity(cell.isInMonth ? 0.045 : 0.025), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous).stroke(isToday ? ReadingPalette.moss : .clear, lineWidth: isToday ? 1.5 : 0))
+            .opacity(isFuture ? 0.75 : 1)
+        }
+        .buttonStyle(.plain).disabled(isFuture).accessibilityLabel(accessibilityText)
+    }
+    private var accessibilityText: String {
+        let total = total ?? DailyTotal(day: "", creditedSeconds: 0, uncertainSeconds: 0, manualSeconds: 0, goalMinutes: 0)
+        return "\(HistoryCalendarFormat.longDate(cell.date, timezoneID: timezoneID)): \(ReadingFormat.duration(total.creditedSeconds)) credited\(total.uncertainSeconds > 0 ? ", \(ReadingFormat.duration(total.uncertainSeconds)) awaiting review" : "")"
+    }
+}
+
+private struct HistoryWeekCalendar: View {
+    let navigation: CalendarNavigation
+    let days: [String: DailyTotal]
+    let today: Date
+    let select: (Date) -> Void
+    private var highestDuration: Double { max(1, navigation.weekDates.compactMap { days[navigation.dayKey(for: $0)]?.creditedSeconds }.max() ?? 0) }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .bottom, spacing: 8) {
+                ForEach(navigation.weekDates, id: \.self) { date in
+                    let total = days[navigation.dayKey(for: date)]
+                    Button { select(date) } label: {
+                        VStack(spacing: 7) {
+                            Text(HistoryCalendarFormat.weekday(date, timezoneID: navigation.timezoneID)).font(.caption).foregroundStyle(.secondary)
+                            Text("\(navigation.calendar.component(.day, from: date))").font(.callout.weight(navigation.isSameDay(date, today) ? .bold : .regular))
+                            Spacer(minLength: 0)
+                            RoundedRectangle(cornerRadius: 4, style: .continuous).fill(readColor(total)).frame(height: barHeight(total))
+                            Text(ReadingFormat.duration(total?.creditedSeconds ?? 0)).font(.caption2).monospacedDigit().lineLimit(1)
+                        }
+                        .frame(maxWidth: .infinity, minHeight: 146).padding(8)
+                        .background(ReadingPalette.ink.opacity(navigation.isSameDay(date, today) ? 0.09 : 0.035), in: RoundedRectangle(cornerRadius: 9, style: .continuous)).opacity(date > today ? 0.75 : 1)
+                    }
+                    .buttonStyle(.plain).disabled(date > today).accessibilityLabel("Show \(HistoryCalendarFormat.longDate(date, timezoneID: navigation.timezoneID))")
+                }
+            }
+            HistoryLegend()
+        }
+    }
+    private func barHeight(_ total: DailyTotal?) -> CGFloat { guard let total else { return 5 }; return CGFloat(max(5, min(72, total.creditedSeconds / highestDuration * 72))) }
+    private func readColor(_ total: DailyTotal?) -> Color {
+        guard let total else { return ReadingPalette.ink.opacity(0.12) }
+        if total.qualifies { return ReadingPalette.moss }
+        if total.creditedSeconds > 0 { return ReadingPalette.ochre }
+        if total.uncertainSeconds > 0 { return ReadingPalette.fadedInk }
+        return ReadingPalette.ink.opacity(0.12)
+    }
+}
+
+private struct HistoryYearCalendar: View {
+    let navigation: CalendarNavigation
+    let days: [String: DailyTotal]
+    let today: Date
+    let select: (Date) -> Void
+    private let columns = Array(repeating: GridItem(.flexible(minimum: 180), spacing: 12), count: 3)
+    var body: some View {
+        LazyVGrid(columns: columns, spacing: 12) {
+            ForEach(navigation.yearMonths, id: \.self) { month in HistoryMiniMonth(navigation: navigation, month: month, days: days, today: today, select: { select(month) }) }
+        }
+    }
+}
+
+private struct HistoryMiniMonth: View {
+    let navigation: CalendarNavigation
+    let month: Date
+    let days: [String: DailyTotal]
+    let today: Date
+    let select: () -> Void
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: 2), count: 7)
+    private var monthNavigation: CalendarNavigation { CalendarNavigation(timezoneID: navigation.timezoneID, anchor: month, scale: .month) }
+    private var isFuture: Bool {
+        let currentMonth = navigation.calendar.dateInterval(of: .month, for: today)?.start ?? today
+        return month > currentMonth
+    }
+    var body: some View {
+        Button(action: select) {
+            VStack(alignment: .leading, spacing: 7) {
+                HStack {
+                    Text(HistoryCalendarFormat.month(month, timezoneID: navigation.timezoneID)).font(.headline)
+                    Spacer()
+                    Text(ReadingFormat.duration(monthCreditedSeconds)).font(.caption).monospacedDigit().foregroundStyle(.secondary)
+                }
+                LazyVGrid(columns: columns, spacing: 2) {
+                    ForEach(monthNavigation.monthCells) { cell in
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 1.5, style: .continuous).fill(color(for: cell))
+                            if cell.isInMonth {
+                                Text("\(navigation.calendar.component(.day, from: cell.date))")
+                                    .font(.system(size: 8, weight: .medium, design: .rounded))
+                                    .foregroundStyle(textColor(for: cell))
+                            }
+                        }
+                        .frame(height: 16)
+                        .opacity(cell.isInMonth ? 1 : 0.22)
                     }
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading).padding(10)
+            .background(ReadingPalette.ink.opacity(0.035), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+            .opacity(isFuture ? 0.75 : 1)
         }
+        .buttonStyle(.plain).disabled(isFuture).accessibilityLabel("Open \(HistoryCalendarFormat.month(month, timezoneID: navigation.timezoneID))")
+    }
+    private func color(for cell: CalendarMonthCell) -> Color {
+        guard let total = days[navigation.dayKey(for: cell.date)] else { return ReadingPalette.ink.opacity(0.10) }
+        if total.qualifies { return ReadingPalette.moss }
+        if total.creditedSeconds > 0 { return ReadingPalette.ochre }
+        if total.uncertainSeconds > 0 { return ReadingPalette.fadedInk }
+        return ReadingPalette.ink.opacity(0.10)
+    }
+    private func textColor(for cell: CalendarMonthCell) -> Color {
+        guard let total = days[navigation.dayKey(for: cell.date)],
+              total.creditedSeconds > 0 || total.uncertainSeconds > 0 else { return ReadingPalette.ink }
+        return ReadingPalette.paper
+    }
+    private var monthCreditedSeconds: Double {
+        monthNavigation.monthCells
+            .filter(\.isInMonth)
+            .compactMap { days[navigation.dayKey(for: $0.date)]?.creditedSeconds }
+            .reduce(0, +)
     }
 }
 
-struct LegendDot: View {
+private struct HistoryLegend: View {
+    var body: some View {
+        HStack(spacing: 14) {
+            LegendDot(color: ReadingPalette.moss, text: "Goal met")
+            LegendDot(color: ReadingPalette.ochre, text: "Reading recorded")
+            LegendDot(color: ReadingPalette.fadedInk, text: "Awaiting review")
+        }.frame(maxWidth: .infinity, alignment: .trailing)
+    }
+}
+
+private struct LegendDot: View {
     let color: Color
     let text: String
-    var body: some View {
-        HStack(spacing: 4) {
-            Circle().fill(color).frame(width: 7, height: 7)
-            Text(text).font(.caption).foregroundStyle(.secondary)
-        }
-    }
-}
-
-struct CalendarDayCell: View {
-    let day: DailyTotal
-    let open: () -> Void
-    private var color: Color {
-        if day.qualifies { return ReadingPalette.moss }
-        if day.creditedSeconds > 0 { return ReadingPalette.ochre }
-        if day.uncertainSeconds > 0 { return ReadingPalette.fadedInk.opacity(0.48) }
-        return ReadingPalette.ink.opacity(0.08)
-    }
-    var body: some View {
-        Button(action: open) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(ReadingFormat.day(day.day)).font(.caption).lineLimit(1)
-                Text(ReadingFormat.duration(day.creditedSeconds)).font(.caption2).monospacedDigit().lineLimit(1)
-                if day.uncertainSeconds > 0 {
-                    Image(systemName: "clock.badge.questionmark").font(.caption2)
-                }
-            }
-            .foregroundStyle(day.creditedSeconds == 0 && day.uncertainSeconds == 0 ? .secondary : Color.white)
-            .frame(maxWidth: .infinity, minHeight: 58, alignment: .leading)
-            .padding(7)
-            .background(color, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("\(day.day): \(ReadingFormat.duration(day.creditedSeconds)) credited\(day.uncertainSeconds > 0 ? ", \(ReadingFormat.duration(day.uncertainSeconds)) awaiting review" : "")")
-    }
-}
-
-struct DailyLedgerRow: View {
-    let day: DailyTotal
-    let open: () -> Void
-    var body: some View {
-        Button(action: open) {
-            HStack(spacing: 18) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(ReadingFormat.day(day.day)).font(.headline)
-                    Text(day.qualifies ? "Goal met" : "Goal \(ReadingFormat.duration(day.goalMinutes * 60))")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                Spacer()
-                LabeledValue(label: "Credited", value: ReadingFormat.duration(day.creditedSeconds))
-                if day.manualSeconds > 0 { LabeledValue(label: "Manual", value: ReadingFormat.duration(day.manualSeconds)) }
-                if day.uncertainSeconds > 0 { LabeledValue(label: "Awaiting review", value: ReadingFormat.duration(day.uncertainSeconds)) }
-            }
-            .padding(.vertical, 10)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Show contributing records for \(day.day)")
-    }
+    var body: some View { HStack(spacing: 4) { RoundedRectangle(cornerRadius: 1, style: .continuous).fill(color).frame(width: 9, height: 5); Text(text).font(.caption).foregroundStyle(.secondary) } }
 }
 
 @MainActor
-struct DayDetailView: View {
+private struct HistoryDayDetail: View {
     @ObservedObject var model: AppModel
-    let day: DailyTotal
-    @Environment(\.dismiss) private var dismiss
+    let date: Date
+    let navigation: CalendarNavigation
+    let back: () -> Void
     @State private var reviewInterval: ReadingInterval?
-
-    private var contributions: [DayContribution] {
-        DayContribution.forDay(day.day, timezoneID: model.timezoneID, intervals: model.displayIntervals)
+    private var dayKey: String { navigation.dayKey(for: date) }
+    private var total: DailyTotal? { model.days.first { $0.day == dayKey } }
+    private var contributions: [DayContribution] { DayContribution.forDay(dayKey, timezoneID: model.timezoneID, intervals: model.displayIntervals) }
+    private var bookContributions: [HistoryBookContribution] {
+        let resolver = BookMergeResolver(merges: model.merges)
+        let grouped = Dictionary(grouping: contributions, by: { resolver.resolvedID(for: $0.interval.bookID) })
+        let summaries: [HistoryBookContribution] = grouped.map { entry in
+            let credited = entry.value
+                .filter { $0.interval.disposition == .credited }
+                .reduce(0.0) { result, contribution in result + contribution.clippedSeconds }
+            let uncertain = entry.value
+                .filter { $0.interval.disposition == .uncertain }
+                .reduce(0.0) { result, contribution in result + contribution.clippedSeconds }
+            return HistoryBookContribution(bookID: entry.key, creditedSeconds: credited, uncertainSeconds: uncertain)
+        }
+        return summaries.sorted { $0.totalSeconds > $1.totalSeconds }
     }
-
     var body: some View {
-        VStack(spacing: 0) {
+        VStack(alignment: .leading, spacing: 16) {
             HStack {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(ReadingFormat.day(day.day)).font(.system(.title2, design: .serif))
-                    Text("Records contributing to this calendar day").font(.callout).foregroundStyle(.secondary)
+                    Text("Day detail").font(.system(.title3, design: .serif))
+                    Text("A session crossing midnight is shown only for its overlap with this calendar day.").font(.caption).foregroundStyle(.secondary)
                 }
-                Spacer()
-                Button("Done") { dismiss() }
+                Spacer(); Button("Month", action: back).controlSize(.small)
             }
-            .padding(20)
-            Divider()
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    HStack(spacing: 16) {
-                        HistoryMetric(title: "Credited", value: ReadingFormat.duration(day.creditedSeconds))
-                        HistoryMetric(title: "Manual", value: ReadingFormat.duration(day.manualSeconds))
-                        HistoryMetric(title: "Awaiting review", value: ReadingFormat.duration(day.uncertainSeconds))
+            if contributions.isEmpty {
+                ReadingEmptyState(title: "No reading recorded", symbol: "calendar.badge.clock", message: "There are no saved reading spans for this day.")
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Books").font(.headline)
+                    ForEach(bookContributions) { contribution in
+                        let book = model.books.first { $0.id == contribution.bookID }
+                        HStack {
+                            Text(book?.title ?? "Unknown book").font(.callout.weight(.medium)); Spacer()
+                            if contribution.creditedSeconds > 0 { Text("Credited \(ReadingFormat.duration(contribution.creditedSeconds))") }
+                            if contribution.uncertainSeconds > 0 { Text("Review \(ReadingFormat.duration(contribution.uncertainSeconds))") }
+                        }.font(.caption).foregroundStyle(.secondary)
                     }
-                    Text("A span crossing midnight is clipped to this day. Its displayed contribution uses the same duration proportion as the daily total.")
-                        .font(.callout).foregroundStyle(.secondary)
-
-                    if contributions.isEmpty {
-                        ReadingEmptyState(title: "No contributing records", symbol: "clock", message: "No saved reading span overlaps this calendar day.")
-                    } else {
-                        VStack(alignment: .leading, spacing: 8) {
-                            ForEach(contributions) { contribution in
-                                DayContributionRow(model: model, contribution: contribution, review: { reviewInterval = contribution.interval })
-                                Divider()
-                            }
-                        }
-                        .readingPanel()
+                }.padding(12).background(ReadingPalette.ink.opacity(0.035), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Contributing sessions").font(.headline)
+                    ForEach(contributions) { contribution in
+                        DayContributionRow(model: model, contribution: contribution, timezoneID: model.timezoneID, review: { reviewInterval = contribution.interval })
+                        if contribution.id != contributions.last?.id { Divider() }
                     }
                 }
-                .padding(24)
             }
         }
-        .frame(width: 680, height: 620)
-        .background(ReadingPalette.paper)
-        .tint(ReadingPalette.moss)
-        .sheet(item: $reviewInterval) { interval in
-            IntervalReviewEditor(model: model, interval: interval)
-        }
+        .sheet(item: $reviewInterval) { interval in IntervalReviewEditor(model: model, interval: interval) }
     }
+}
+
+private struct HistoryBookContribution: Identifiable {
+    let bookID: String
+    let creditedSeconds: Double
+    let uncertainSeconds: Double
+    var id: String { bookID }
+    var totalSeconds: Double { creditedSeconds + uncertainSeconds }
 }
 
 struct DayContribution: Identifiable {
     let interval: ReadingInterval
     let clippedSeconds: TimeInterval
     var id: String { interval.id }
-
     static func forDay(_ key: String, timezoneID: String, intervals: [ReadingInterval]) -> [DayContribution] {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(identifier: timezoneID) ?? .current
+        var calendar = Calendar(identifier: .gregorian); calendar.timeZone = TimeZone(identifier: timezoneID) ?? .current
         let components = key.split(separator: "-").compactMap { Int($0) }
-        guard components.count == 3,
-              let dayStart = calendar.date(from: DateComponents(year: components[0], month: components[1], day: components[2])),
-              let dayEnd = calendar.date(byAdding: .day, value: 1, to: dayStart) else { return [] }
+        guard components.count == 3, let dayStart = calendar.date(from: DateComponents(year: components[0], month: components[1], day: components[2])), let dayEnd = calendar.date(byAdding: .day, value: 1, to: dayStart) else { return [] }
         return intervals.compactMap { interval in
-            let overlapStart = max(interval.start, dayStart)
-            let overlapEnd = min(interval.end, dayEnd)
+            let overlapStart = max(interval.start, dayStart); let overlapEnd = min(interval.end, dayEnd)
             if overlapEnd > overlapStart {
                 let wallSeconds = interval.end.timeIntervalSince(interval.start)
                 let clipped = wallSeconds > 0 ? interval.duration * overlapEnd.timeIntervalSince(overlapStart) / wallSeconds : interval.duration
                 return DayContribution(interval: interval, clippedSeconds: clipped)
             }
-            if interval.start == interval.end && interval.start >= dayStart && interval.start < dayEnd {
-                return DayContribution(interval: interval, clippedSeconds: interval.duration)
-            }
+            if interval.start == interval.end && interval.start >= dayStart && interval.start < dayEnd { return DayContribution(interval: interval, clippedSeconds: interval.duration) }
             return nil
-        }
-        .sorted { $0.interval.start > $1.interval.start }
+        }.sorted { $0.interval.start > $1.interval.start }
     }
 }
 
@@ -264,9 +415,12 @@ struct DayContribution: Identifiable {
 struct DayContributionRow: View {
     @ObservedObject var model: AppModel
     let contribution: DayContribution
+    let timezoneID: String
     let review: () -> Void
-
-    private var book: BookRecord? { model.books.first { $0.id == contribution.interval.bookID } }
+    private var book: BookRecord? {
+        let resolvedID = BookMergeResolver(merges: model.merges).resolvedID(for: contribution.interval.bookID)
+        return model.books.first { $0.id == resolvedID }
+    }
     private var treatment: String {
         switch contribution.interval.disposition {
         case .credited: return contribution.interval.mode == .manual ? "Manual credited" : "Credited"
@@ -274,20 +428,42 @@ struct DayContributionRow: View {
         case .excluded: return "Excluded from totals"
         }
     }
-
     var body: some View {
-        HStack(alignment: .top, spacing: 14) {
+        HStack(alignment: .top, spacing: 12) {
             BookCoverView(book: book, size: .compact)
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 3) {
                 Text(book?.title ?? "Unknown book").font(.headline)
-                Text("Full span: \(ReadingFormat.date(contribution.interval.start)) – \(ReadingFormat.date(contribution.interval.end))")
-                    .font(.caption).foregroundStyle(.secondary)
-                Text("\(treatment) on this day: \(ReadingFormat.duration(contribution.clippedSeconds))")
-                    .font(.callout).monospacedDigit()
+                Text("\(HistoryDateFormat.time(contribution.interval.start, timezoneID: timezoneID)) – \(HistoryDateFormat.time(contribution.interval.end, timezoneID: timezoneID))").font(.caption).foregroundStyle(.secondary)
+                Text("\(treatment) on this day: \(ReadingFormat.duration(contribution.clippedSeconds))").font(.callout).monospacedDigit()
             }
-            Spacer(minLength: 0)
-            Button("Review", action: review).controlSize(.small)
-        }
-        .padding(.vertical, 4)
+            Spacer(minLength: 0); Button("Review", action: review).controlSize(.small)
+        }.padding(.vertical, 4)
+    }
+}
+
+private enum HistoryDateFormat {
+    static func time(_ date: Date, timezoneID: String) -> String {
+        let formatter = DateFormatter(); formatter.locale = Locale.current; formatter.timeZone = TimeZone(identifier: timezoneID) ?? .current; formatter.dateStyle = .none; formatter.timeStyle = .short
+        return formatter.string(from: date)
+    }
+}
+
+private enum HistoryDuration {
+    static func creditedMinutes(_ seconds: TimeInterval) -> String {
+        "\(max(1, Int((seconds / 60).rounded())))m"
+    }
+}
+
+private enum HistoryCalendarFormat {
+    static func weekday(_ date: Date, timezoneID: String) -> String { format(date, timezoneID: timezoneID, pattern: "EEEEE") }
+    static func month(_ date: Date, timezoneID: String) -> String { format(date, timezoneID: timezoneID, pattern: "MMMM") }
+    static func longDate(_ date: Date, timezoneID: String) -> String { format(date, timezoneID: timezoneID, pattern: "EEEE, MMMM d, yyyy") }
+
+    private static func format(_ date: Date, timezoneID: String, pattern: String) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale.current
+        formatter.timeZone = TimeZone(identifier: timezoneID) ?? .current
+        formatter.dateFormat = pattern
+        return formatter.string(from: date)
     }
 }
