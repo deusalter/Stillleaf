@@ -307,8 +307,9 @@ final class AppModel: ObservableObject {
             defaults.set(goalMinutes, forKey: "goalMinutes"); defaults.set(timezoneID, forKey: "timezoneID"); defaults.set(uncertaintyMinutes, forKey: "uncertaintyMinutes")
             defaults.set(discordApplicationID, forKey: "discordApplicationID"); defaults.set(discordAssetKey, forKey: "discordAssetKey")
             if LoginService.enabled != launchAtLogin { try LoginService.setEnabled(launchAtLogin) }
-            launchAtLogin = LoginService.enabled
         }
+        // Show the actual registration state even if macOS rejected a change.
+        launchAtLogin = LoginService.enabled
         publishPresence()
     }
     func setBookExclusions(_ book: BookRecord, tracking: Bool, sharing: Bool) {
