@@ -68,6 +68,10 @@ struct BooksPresenceMain {
             do { try runUISmoke(); exit(0) }
             catch { fputs("ui-smoke failed: \(error)\n", stderr); exit(1) }
         }
+        if let argument = CommandLine.arguments.firstIndex(of: "--render-ui"), argument + 1 < CommandLine.arguments.count {
+            do { try renderUIPreviews(to: URL(fileURLWithPath: CommandLine.arguments[argument + 1], isDirectory: true)); exit(0) }
+            catch { fputs("ui-render failed: \(error)\n", stderr); exit(1) }
+        }
         let delegate = AppDelegate()
         application.delegate = delegate
         withExtendedLifetime(delegate) { application.run() }
