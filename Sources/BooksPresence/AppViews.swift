@@ -5,7 +5,17 @@ import BooksCore
 @MainActor
 struct DashboardView: View {
     @ObservedObject var model: AppModel
-    @State private var section: DashboardSection = .today
+    @State private var section: DashboardSection
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private let initialCalendarScale: CalendarScale
+    private let initialSettingsCategory: SettingsCategory
+
+    init(model: AppModel, initialSection: DashboardSection = .today, initialCalendarScale: CalendarScale = .month, initialSettingsCategory: SettingsCategory = .reading) {
+        self.model = model
+        _section = State(initialValue: initialSection)
+        self.initialCalendarScale = initialCalendarScale
+        self.initialSettingsCategory = initialSettingsCategory
+    }
     @State private var sheet: DashboardSheet?
     @State private var deleteAllConfirmation = false
     @State private var uninstallConfirmation = false
@@ -13,6 +23,7 @@ struct DashboardView: View {
     var body: some View {
         NavigationSplitView {
             DashboardSidebar(selection: $section, model: model)
+                .navigationSplitViewColumnWidth(min: 205, ideal: 225, max: 260)
         } detail: {
             VStack(spacing: 0) {
                 if let error = model.errorMessage, !error.isEmpty {
@@ -21,18 +32,24 @@ struct DashboardView: View {
                 Group {
                     switch section {
                     case .today: TodayView(model: model, present: { sheet = $0 })
-                    case .history: HistoryView(model: model)
+                    case .history: HistoryView(model: model, initialScale: initialCalendarScale)
                     case .library: LibraryView(model: model, present: { sheet = $0 })
                     case .review: ReviewView(model: model, present: { sheet = $0 })
                     case .health: HealthView(model: model)
-                    case .settings: SettingsView(model: model, present: { sheet = $0 }, deleteAll: { deleteAllConfirmation = true }, uninstall: { uninstallConfirmation = true })
+                    case .settings: SettingsView(model: model, present: { sheet = $0 }, deleteAll: { deleteAllConfirmation = true }, uninstall: { uninstallConfirmation = true }, initialCategory: initialSettingsCategory)
                     }
                 }
+                .id(section)
+                .transition(.opacity)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .background(ReadingPalette.paper)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: section)
         }
         .navigationSplitViewStyle(.balanced)
-        .frame(minWidth: 860, minHeight: 620)
+        .frame(minWidth: 920, minHeight: 660)
+        .foregroundStyle(ReadingPalette.ink)
+        .toggleStyle(.switch)
         .tint(ReadingPalette.moss)
         .sheet(item: $sheet) { item in
             dashboardSheet(item)
@@ -77,71 +94,63 @@ struct PopoverView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            HStack(alignment: .top, spacing: 12) {
+            HStack {
+                Label("BooksPresence", systemImage: "book.closed.fill")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(ReadingPalette.fadedInk)
+                Spacer()
+                Button { model.showDashboard() } label: { Image(systemName: "arrow.up.forward.app") }
+                    .buttonStyle(.plain).help("Open dashboard")
+                    .accessibilityLabel("Open dashboard")
+            }
+            HStack(alignment: .top, spacing: 14) {
                 BookCoverView(book: model.snapshot.book, size: .compact)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(model.snapshot.book?.title ?? "Waiting for a reading window")
-                        .font(.system(.headline, design: .serif))
-                        .lineLimit(2)
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(model.snapshot.book?.title ?? "Ready when you are")
+                        .font(.system(size: 17, weight: .medium, design: .serif)).lineLimit(2)
                     if let author = model.snapshot.book?.author, !author.isEmpty {
-                        Text(author).foregroundStyle(.secondary).lineLimit(1)
+                        Text(author).font(.callout).foregroundStyle(.secondary).lineLimit(1)
                     }
                     ActivityStateLabel(snapshot: model.snapshot)
                 }
                 Spacer(minLength: 0)
             }
-
             HStack(spacing: 0) {
-                CompactMetric(value: ReadingFormat.duration(model.snapshot.sessionSeconds), label: "session")
-                Divider().frame(height: 34)
-                CompactMetric(value: ReadingFormat.duration(model.today.creditedSeconds), label: "today")
-                Divider().frame(height: 34)
-                CompactMetric(value: "\(model.streak.current)", label: "goal streak")
+                CompactMetric(value: ReadingFormat.duration(model.snapshot.sessionSeconds), label: "This session")
+                CompactMetric(value: ReadingFormat.duration(model.today.creditedSeconds), label: "Today")
+                CompactMetric(value: "\(model.streak.current) days", label: "Streak")
             }
-
+            .padding(.vertical, 10)
+            .background(ReadingPalette.surface, in: RoundedRectangle(cornerRadius: 10))
             GoalProgressView(day: model.today)
-
-            if model.manualActive {
-                Button("Stop manual reading") { model.stopManual() }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-            } else {
-                Button("Start manual reading") { showingManualStart = true }
-                    .buttonStyle(.bordered)
-                    .controlSize(.large)
+            VStack(spacing: 12) {
+                Toggle(isOn: Binding(get: { model.trackingEnabled }, set: { model.trackingEnabled = $0; model.saveSettings() })) {
+                    Label("Track reading", systemImage: "timer")
+                }
+                Toggle(isOn: Binding(get: { model.discordEnabled }, set: { model.discordEnabled = $0; model.saveSettings() })) {
+                    Label("Share with Discord", systemImage: "bubble.left.and.bubble.right")
+                }
             }
-
-            Toggle("Pause tracking", isOn: trackingBinding)
-            Toggle("Share activity with Discord", isOn: $model.discordEnabled)
-                .onChange(of: model.discordEnabled) { _ in model.saveSettings() }
-            Text(model.discordStatus)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
-
-            Divider()
+            .toggleStyle(.switch).controlSize(.small)
             HStack {
-                Button("Open dashboard") { model.showDashboard() }
+                Button(model.manualActive ? "Stop manual reading" : "Read manually") {
+                    if model.manualActive { model.stopManual() } else { showingManualStart = true }
+                }
+                .buttonStyle(.borderedProminent)
                 Spacer()
-                Button("Quit") { model.quit() }
+                Button("Quit") { model.quit() }.buttonStyle(.borderless)
             }
         }
         .padding(18)
-        .frame(width: 330)
+        .frame(width: 350)
+        .foregroundStyle(ReadingPalette.ink)
         .background(ReadingPalette.paper)
         .tint(ReadingPalette.moss)
         .sheet(isPresented: $showingManualStart) { ManualStartView(model: model) }
     }
-
-    private var trackingBinding: Binding<Bool> {
-        Binding(get: { !model.trackingEnabled }, set: { paused in
-            model.trackingEnabled = !paused
-            model.saveSettings()
-        })
-    }
 }
 
-private enum DashboardSection: String, CaseIterable, Identifiable {
+enum DashboardSection: String, CaseIterable, Identifiable {
     case today, history, library, review, health, settings
     var id: String { rawValue }
     var title: String {
@@ -183,28 +192,92 @@ enum DashboardSheet: Identifiable {
 private struct DashboardSidebar: View {
     @Binding var selection: DashboardSection
     @ObservedObject var model: AppModel
+    @FocusState private var focusedSection: DashboardSection?
 
     var body: some View {
-        List(selection: $selection) {
-            Section {
-                ForEach(DashboardSection.allCases) { item in
-                    Label(item.title, systemImage: item.symbol).tag(item)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 10) {
+                Image(systemName: "book.closed.fill")
+                    .font(.system(size: 19, weight: .medium))
+                    .foregroundStyle(ReadingPalette.moss)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("BooksPresence").font(.system(size: 14, weight: .semibold))
+                    Text("Your reading journal").font(.system(size: 11)).foregroundStyle(ReadingPalette.fadedInk)
                 }
             }
-            Section("Tracking") {
-                Toggle("Tracking enabled", isOn: Binding(get: { model.trackingEnabled }, set: { enabled in
-                    model.trackingEnabled = enabled
-                    model.saveSettings()
-                }))
-                Toggle("Discord sharing", isOn: Binding(get: { model.discordEnabled }, set: { enabled in
-                    model.discordEnabled = enabled
-                    model.saveSettings()
-                }))
+            .padding(.horizontal, 18).padding(.top, 24).padding(.bottom, 24)
+            VStack(spacing: 5) {
+                ForEach(DashboardSection.allCases) { item in
+                    Button { selection = item } label: {
+                        HStack(spacing: 11) {
+                            Image(systemName: item.symbol).font(.system(size: 16, weight: .medium)).frame(width: 22)
+                            Text(item.title).font(.system(size: 13, weight: selection == item ? .semibold : .regular))
+                            Spacer(minLength: 0)
+                            if item == .review, !model.uncertainIntervals.isEmpty {
+                                Text("\(model.uncertainIntervals.count)")
+                                    .font(.system(size: 10, weight: .semibold)).padding(.horizontal, 6).padding(.vertical, 2)
+                                    .background(ReadingPalette.ochre.opacity(0.18), in: Capsule())
+                            }
+                        }
+                        .foregroundStyle(selection == item ? ReadingPalette.ink : ReadingPalette.fadedInk)
+                        .padding(.horizontal, 12).padding(.vertical, 11)
+                        .background(selection == item ? ReadingPalette.moss.opacity(0.18) : .clear,
+                                    in: RoundedRectangle(cornerRadius: 8))
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .focusable()
+                    .focused($focusedSection, equals: item)
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(focusedSection == item ? ReadingPalette.moss : .clear, lineWidth: 2))
+                    .accessibilityLabel(item.title)
+                    .accessibilityAddTraits(selection == item ? .isSelected : [])
+                    .accessibilityIdentifier("navigation-\(item.rawValue)")
+                }
             }
+            .padding(.horizontal, 10)
+            .onMoveCommand { direction in
+                guard direction == .up || direction == .down,
+                      let index = DashboardSection.allCases.firstIndex(of: focusedSection ?? selection) else { return }
+                let next = max(0, min(DashboardSection.allCases.count - 1, index + (direction == .down ? 1 : -1)))
+                selection = DashboardSection.allCases[next]
+                focusedSection = selection
+            }
+            Spacer(minLength: 28)
+            VStack(alignment: .leading, spacing: 14) {
+                Button { selection = .health } label: {
+                    HStack(spacing: 6) {
+                        Circle().fill(model.snapshot.phase == .reading ? ReadingPalette.moss : ReadingPalette.fadedInk).frame(width: 6, height: 6)
+                        Text(trackingStatus)
+                            .font(.system(size: 11, weight: .medium)).foregroundStyle(ReadingPalette.fadedInk)
+                    }
+                }
+                .buttonStyle(.plain).help("View tracking status")
+                Toggle("Track reading", isOn: Binding(get: { model.trackingEnabled }, set: { model.trackingEnabled = $0; model.saveSettings() }))
+                Toggle("Discord sharing", isOn: Binding(get: { model.discordEnabled }, set: { model.discordEnabled = $0; model.saveSettings() }))
+            }
+            .font(.system(size: 12)).toggleStyle(.switch).controlSize(.small)
+            .padding(14)
+            .background(ReadingPalette.surface, in: RoundedRectangle(cornerRadius: 12))
+            .padding(12)
+            Text("History stored on this Mac")
+                .font(.system(size: 10)).foregroundStyle(ReadingPalette.fadedInk)
+                .frame(maxWidth: .infinity).padding(.bottom, 16)
         }
-        .listStyle(.sidebar)
-        .navigationTitle("BooksPresence")
-        .frame(minWidth: 190)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(ReadingPalette.sidebar)
+    }
+
+    private var trackingStatus: String {
+        if !model.trackingEnabled { return "Tracking paused" }
+        if model.snapshot.phase == .reading { return "Reading now" }
+        if model.snapshot.phase == .uncertain { return "Review suggested" }
+        switch model.snapshot.pauseReason {
+        case .permissionLost: return "Access needed"
+        case .background: return "Waiting for Books"
+        case .locked, .displayAsleep: return "Tracking paused"
+        case .captureFailure: return "Check tracking status"
+        default: return "Waiting for a book"
+        }
     }
 }
 
