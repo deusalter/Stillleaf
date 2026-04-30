@@ -24,19 +24,27 @@ func runUISmoke() throws {
     let later = model.intervals.max { $0.start < $1.start }!
     model.deleteSession(later.sessionID)
     guard model.errorMessage == nil, model.intervals.count == 1, abs(model.intervals[0].duration - 900) < 0.01 else { throw BooksAccessErrorForUI.failed("Split-session deletion changed the surviving history") }
-    let views: [(String, AnyView)] = [
+    var views: [(String, AnyView)] = [
         ("today", AnyView(TodayView(model: model, present: { _ in }))),
-        ("history", AnyView(HistoryView(model: model))),
         ("library", AnyView(LibraryView(model: model, present: { _ in }))),
         ("review", AnyView(ReviewView(model: model, present: { _ in }))),
         ("popover", AnyView(PopoverView(model: model)))
     ]
-    for (name, view) in views {
-        let hosting = NSHostingView(rootView: view)
-        hosting.frame = NSRect(x: 0, y: 0, width: name == "popover" ? 360 : 1000, height: name == "popover" ? 500 : 740)
-        hosting.layoutSubtreeIfNeeded()
-        guard hosting.fittingSize.width.isFinite else { throw BooksAccessErrorForUI.failed("Invalid \(name) layout") }
-        print("ui-smoke: \(name) view instantiated and laid out")
+    for scale in CalendarScale.allCases {
+        views.append(("history-\(scale.rawValue)", AnyView(HistoryView(model: model, initialScale: scale))))
+    }
+    for category in SettingsCategory.allCases {
+        views.append(("settings-\(category.rawValue)", AnyView(SettingsView(model: model, present: { _ in }, deleteAll: {}, uninstall: {}, initialCategory: category))))
+    }
+    for dark in [false, true] {
+        NSApp.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+        for (name, view) in views {
+            let hosting = NSHostingView(rootView: view.environment(\.colorScheme, dark ? .dark : .light))
+            hosting.frame = NSRect(x: 0, y: 0, width: name == "popover" ? 350 : 690, height: name == "popover" ? 500 : 660)
+            hosting.layoutSubtreeIfNeeded()
+            guard hosting.fittingSize.width.isFinite else { throw BooksAccessErrorForUI.failed("Invalid \(name) layout") }
+            print("ui-smoke: \(name) \(dark ? "dark" : "light") instantiated and laid out")
+        }
     }
     model.shutdown()
     print("ui-smoke: model correction/deletion and native view layout checks passed (synthetic data; no screenshots)")
