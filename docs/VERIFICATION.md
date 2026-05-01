@@ -29,6 +29,14 @@ Duplicate-ID checks compare canonical serialized records so fractional timestamp
 
 Checkpoint insert validation uses an in-memory ordered effective-interval cache, avoiding a full-history decode for each checkpoint. Calendar totals split intervals in one pass. Presentation refreshes at checkpoint cadence while active and on state/day changes while paused. Very large archive presentation/import/restore remains synchronous and has not been stress-tested at multi-million-record scale.
 
+## Calendar and settings revision
+
+The revised UI uses an appearance-aware plum/copper palette, bounded month/week/day/year calendars, rectangular year cells, native switches, and stable Reading/Discord/Data settings tabs. Calendar navigation has eleven new XCTest regressions for leap days, six-week grids, selected dates, DST, timezone changes and cross-year labels. The standalone calendar harness passed locally alongside the existing storage and Discord harnesses.
+
+The native self-check instantiated eleven primary view configurations in both light and dark appearances. App-owned views were also rendered to PNGs with an isolated synthetic database, and the month/day/year/settings layouts were visually inspected. This needs no screen-capture permission and does not touch personal history. The computer-use service remained disconnected; live click-through, animation smoothness and VoiceOver operation are not claimed as verified. Navigation animations respect Reduce Motion, and sidebar keyboard navigation and selected-control semantics were independently reviewed in code.
+
+Review corrected an inclusive calendar end boundary, labels using the wrong timezone, preferred-day loss after February or timezone changes, low-contrast year cells, a misleading privacy footer, settings selection semantics, and failed login registration leaving the switch in the requested rather than actual state. Local builds and scoped independent review passed; the repository Actions result records the pushed revision's XCTest outcome.
+
 ## Bounds and recovery semantics
 
 Within supported operation, ticks are no more than five seconds apart. Checkpoints occur at 15 seconds of accumulated time, so a crash's uncommitted tail is less than 20 seconds under that cadence. A tick gap exceeding five seconds is an outage; that gap is not credited. A persisted start/checkpoint without a closing marker produces a recovery event with an **unknown** tail duration, never estimated downtime. Uncertain time is separate and excluded until reviewed.
@@ -52,6 +60,6 @@ Only synthetic fixtures are committed. Personal catalog paths/titles/artwork and
 
 ## Repository and execution
 
-Private repository: [deusalter/BooksPresence](https://github.com/deusalter/BooksPresence), branch `main`. The existing HTTPS OAuth credential lacked `workflow` scope; the existing, authenticated SSH credential successfully pushed source and Actions without requesting broader token permissions. Commit messages use the configured user identity and real timestamps, with no attribution trailers.
+Private repository: [deusalter/BooksPresence](https://github.com/deusalter/BooksPresence), branch `main`. The existing HTTPS OAuth credential lacked `workflow` scope; the existing, authenticated SSH credential successfully pushed source and Actions without requesting broader token permissions. Commit messages use the configured user identity, with no attribution trailers. At the owner's later request, historical commit timestamps are reassigned across June–September 2026; they do not establish when implementation or verification occurred. A local recovery reference preserves the original history.
 
 Requested Sol High and Terra High worker overrides were accepted by the delegation tool. Primary model/reasoning configuration was not independently exposed. Independent code review ended with no open critical or important findings after fixes; live integrations remain subject to the checks listed above.

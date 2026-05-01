@@ -51,11 +51,11 @@ Manual reading is labeled and still pauses for explicit pause, lock and sleep. A
 ## History and controls
 
 - Today: credited goal progress, current interval, current/longest streak, manual time.
-- History: calendar and day/week/month totals; daily details link to contributing records.
+- History: a month calendar by default, with animated Day / Week / Month / Year views. Move between periods, return to Today, open a month from the year, or select a date to see books and contributing sessions. Navigation respects the selected timezone and macOS Reduce Motion.
 - Library: exact accessible local covers, per-book time, first/last dates, observed progress and timeline.
 - Review: confirm/trim/discard uncertainty; adjust, split, reassign, exclude or delete records.
 - Health: access failures, known gaps, recovery events and last successful capture. An empty day is distinct from a known outage.
-- Settings: goals, calendar timezone, uncertainty threshold, privacy, login, data operations.
+- Settings: Reading / Discord / Data categories, native tracking and sharing switches, goal presets, time-zone search, and clearly applied settings changes. Discord can be configured before sharing is enabled.
 
 Goal changes are effective today and forward. Yesterday's completed streak survives while today is pending. Calendar splitting uses actual local-midnight boundaries, including DST. Unresolved time is excluded and relevant streak uncertainty is flagged. A timezone change explicitly regroups history in the selected calendar timezone; it is audited, and existing goal effective-day strings remain unchanged.
 
@@ -100,3 +100,13 @@ Exact local covers stay local. There is no artwork publishing/upload flow in thi
 This release observes this Mac only. It does not backfill or claim iPhone/iPad activity. Saved Books progress can be stale and is labeled accordingly; no pages-read differences or words-per-minute claims are made. Page/location collection is omitted until a trustworthy live source is verified. Books' private catalog schema may change: the adapter checks required columns and fails closed.
 
 Source layout: `BooksCore` owns evidence/storage/statistics; `BooksPlatform` owns macOS/Books/Discord adapters; `BooksPresence` owns lifecycle and native views. The binding requirements are preserved in [the product specification](docs/PRODUCT_SPEC.md).
+
+## UI development
+
+`scripts/check-local.sh` checks calendar navigation and lays out all four calendar views, all settings categories, and the other primary views in both appearances. To render native previews with synthetic reading data, run:
+
+```sh
+.build/local/BooksPresence --render-ui .local/ui-previews
+```
+
+This renders app-owned views to PNGs; it does not capture your screen, open your personal history, or start tracking. Generated previews are ignored by Git.
