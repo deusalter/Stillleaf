@@ -39,6 +39,35 @@ public final class BooksCatalog {
             return values
         }
     }
+    /// Used only after the focused window passes the Books 8 reader-structure check.
+    /// Titles select a unique local EPUB; stable asset IDs continue to own all history.
+    func lookup(readerTitle: String) throws -> (book: BookRecord, assetURL: URL, progress: ProgressObservation?)? {
+        guard !readerTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        let fields = try columns()
+        guard Set(["ZASSETID", "ZTITLE", "ZAUTHOR", "ZPATH"]).isSubset(of: fields) else {
+            throw BooksAccessError.unavailable("This Books catalog schema is unsupported; automatic identity matching is paused.")
+        }
+        let path: String? = try withDatabase { db in
+            var statement: OpaquePointer?
+            guard sqlite3_prepare_v2(db, "SELECT ZPATH FROM ZBKLIBRARYASSET WHERE ZTITLE = ? LIMIT 2", -1, &statement, nil) == SQLITE_OK else {
+                throw BooksAccessError.unavailable("Books metadata query failed.")
+            }
+            defer { sqlite3_finalize(statement) }
+            sqlite3_bind_text(statement, 1, readerTitle, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            guard sqlite3_step(statement) == SQLITE_ROW else { return nil }
+            let path = sqlite3_column_text(statement, 0).map { String(cString: $0) }
+            guard sqlite3_step(statement) == SQLITE_DONE else {
+                throw BooksAccessError.unavailable("More than one Books edition has this title. Use manual reading to choose the book; automatic tracking is paused.")
+            }
+            return path
+        }
+        guard let path, let url = BooksCapture.documentURL(path), url.pathExtension.lowercased() == "epub",
+              FileManager.default.fileExists(atPath: url.path), var match = try lookup(documentURL: url),
+              match.book.title == readerTitle else { return nil }
+        match.book.source = "Books catalog / Books 8.0 structural reader inference and unique title"
+        return match
+    }
+
     public func lookup(documentURL: URL) throws -> (book: BookRecord, assetURL: URL, progress: ProgressObservation?)? {
         guard documentURL.isFileURL else { return nil }
         let fields = try columns()

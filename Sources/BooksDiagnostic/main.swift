@@ -8,7 +8,7 @@ let appURL = URL(fileURLWithPath: "/System/Applications/Books.app")
 let bundle = Bundle(url: appURL)
 let catalog = BooksCatalog()
 var report: [String: Any] = [
-    "reportVersion": 1,
+    "reportVersion": 2,
     "observedAt": ISO8601DateFormatter().string(from: Date()),
     "macOS": ProcessInfo.processInfo.operatingSystemVersionString,
     "booksVersion": bundle?.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "not installed",
@@ -19,10 +19,10 @@ var report: [String: Any] = [
     "sessionUnlocked": SystemEligibility.unlocked,
     "windows": BooksCapture.windowReport(includeMetadata: includeMetadata),
     "privacy": "No prose, screenshots, keystrokes, unrelated app titles, database writes or network calls. Metadata excluded unless requested.",
-    "readerRule": "Focused AXDocument must exactly match a unique catalog asset path; otherwise automatic tracking pauses.",
+    "readerRule": "Exact focused AXDocument match, or a bounded Books 8.0 EPUB reader-structure inference plus one exact local catalog title. Ambiguous and unsupported windows pause.",
     "livePage": "untested / not collected",
     "savedProgressFreshness": "unverified; never used as proof of current reading",
-    "multiWindowBehavior": "focused window implementation; live verification requires Accessibility permission"
+    "multiWindowBehavior": "focused window only; revalidated after matching"
 ]
 do {
     let columns = try catalog.columns()
