@@ -117,6 +117,7 @@ public final class DiscordPresence {
 
     private let queue = DispatchQueue(label: "BooksPresence.discord-ipc", qos: .utility)
     private let stateLock = NSLock()
+    private let socketOpener: () -> Int32?
     private var statusValue = "Discord sharing is off"
     private var desired: DesiredActivity?
     private var generation: UInt64 = 0
@@ -131,9 +132,17 @@ public final class DiscordPresence {
     private var reconnectDelay: TimeInterval = 1
     private var reconnectWorkItem: DispatchWorkItem?
     private var publishWorkItem: DispatchWorkItem?
+    private var pendingPublishNonce: String?
+    private var transportDiagnosticStatus: String?
     private var stopped = false
 
-    public init() {}
+    public init() {
+        socketOpener = openDiscordSocket
+    }
+
+    init(socketOpener: @escaping () -> Int32?) {
+        self.socketOpener = socketOpener
+    }
 
     public var status: String {
         stateLock.lock(); defer { stateLock.unlock() }
@@ -225,9 +234,16 @@ public final class DiscordPresence {
     private func publish(_ activity: DesiredActivity) {
         guard ready, isCurrent(activity) else { return }
         do {
-            enqueue(DiscordRPCFrame(opcode: .frame, payload: try DiscordActivityPayload.make(book: activity.book, progress: activity.progress, elapsed: activity.elapsed, applicationID: activity.applicationID, assetKey: activity.assetKey)))
+            let payload = try DiscordActivityPayload.make(book: activity.book, progress: activity.progress, elapsed: activity.elapsed, applicationID: activity.applicationID, assetKey: activity.assetKey)
+            guard let nonce = DiscordActivityPayload.nonce(in: payload) else {
+                setStatus("Could not prepare Discord activity")
+                return
+            }
+            pendingPublishNonce = nonce
+            transportDiagnosticStatus = nil
             lastPublish = Date()
-            setStatus("Discord activity shared")
+            setStatus("Discord activity sent; waiting for confirmation")
+            enqueue(DiscordRPCFrame(opcode: .frame, payload: payload))
         } catch {
             setStatus("Could not prepare Discord activity")
         }
@@ -235,6 +251,7 @@ public final class DiscordPresence {
 
     private func clearImmediately() {
         publishWorkItem?.cancel()
+        pendingPublishNonce = nil
         guard ready else { return }
         // `outbound` may be the unwritten tail of an already-started activity
         // frame. Replacing it with a clear frame would corrupt the IPC stream.
@@ -262,7 +279,15 @@ public final class DiscordPresence {
     }
 
     private func connect(applicationID: String) {
-        guard socketFD == -1, !applicationID.isEmpty, let fd = openDiscordSocket() else {
+        // A scheduled reconnect is the next transport attempt, so it can replace
+        // a previous peer diagnostic with its own connection result.
+        transportDiagnosticStatus = nil
+        guard socketFD == -1, !applicationID.isEmpty, let fd = socketOpener() else {
+            scheduleReconnect()
+            return
+        }
+        guard configureDiscordSocket(fd) else {
+            Darwin.close(fd)
             scheduleReconnect()
             return
         }
@@ -270,6 +295,8 @@ public final class DiscordPresence {
         connectedApplicationID = applicationID
         parser = DiscordRPCFrameParser()
         ready = false
+        pendingPublishNonce = nil
+        transportDiagnosticStatus = nil
         configureSources(for: fd)
         do {
             enqueue(DiscordRPCFrame(opcode: .handshake, payload: try DiscordActivityPayload.handshake(applicationID: applicationID)))
@@ -297,12 +324,12 @@ public final class DiscordPresence {
             if count > 0 {
                 for frame in parser.append(Data(bytes.prefix(Int(count)))) { handle(frame) }
             } else if count == 0 {
-                disconnect(scheduleReconnect: currentDesired() != nil)
+                disconnect(scheduleReconnect: currentDesired() != nil, status: transportDiagnosticStatus ?? "Discord connection closed")
                 return
             } else if errno == EAGAIN || errno == EWOULDBLOCK {
                 return
             } else {
-                disconnect(scheduleReconnect: currentDesired() != nil)
+                disconnect(scheduleReconnect: currentDesired() != nil, status: "Discord connection lost")
                 return
             }
         }
@@ -313,7 +340,8 @@ public final class DiscordPresence {
         case .ping:
             enqueue(DiscordRPCFrame(opcode: .pong, payload: frame.payload))
         case .close:
-            disconnect(scheduleReconnect: currentDesired() != nil)
+            let status = discordCloseStatus(from: frame.payload) ?? transportDiagnosticStatus ?? "Discord connection closed"
+            disconnect(scheduleReconnect: currentDesired() != nil, status: status)
         case .frame:
             guard let object = try? JSONSerialization.jsonObject(with: frame.payload) as? [String: Any] else { return }
             if object["evt"] as? String == "READY" {
@@ -321,7 +349,22 @@ public final class DiscordPresence {
                 reconnectDelay = 1
                 if let activity = currentDesired() { publish(activity) }
             } else if object["evt"] as? String == "ERROR" {
-                setStatus("Discord rejected the activity update")
+                // Discord can deliver an error for a previous request after a newer
+                // activity is already waiting for its acknowledgement. Only a
+                // nonce-less connection error or the current request may affect UI.
+                if let nonce = object["nonce"] as? String {
+                    guard nonce == pendingPublishNonce else { return }
+                    pendingPublishNonce = nil
+                }
+                let status = discordErrorStatus(from: object)
+                transportDiagnosticStatus = status
+                setStatus(status)
+            } else if object["cmd"] as? String == "SET_ACTIVITY",
+                      let nonce = object["nonce"] as? String,
+                      nonce == pendingPublishNonce {
+                pendingPublishNonce = nil
+                transportDiagnosticStatus = nil
+                setStatus("Discord activity shared")
             }
         case .handshake, .pong: break
         }
@@ -339,16 +382,21 @@ public final class DiscordPresence {
             }
             if written > 0 { outbound.removeSubrange(0..<written) }
             else if written == -1 && (errno == EAGAIN || errno == EWOULDBLOCK) { return }
-            else { disconnect(scheduleReconnect: currentDesired() != nil); return }
+            else { disconnect(scheduleReconnect: currentDesired() != nil, status: "Discord connection lost"); return }
         }
     }
 
-    private func disconnect(scheduleReconnect shouldReconnect: Bool) {
+    private func disconnect(scheduleReconnect shouldReconnect: Bool, status: String? = nil) {
+        if let status {
+            transportDiagnosticStatus = status
+            setStatus(status)
+        }
         readSource?.cancel(); readSource = nil
         writeSource?.cancel(); writeSource = nil
         if socketFD != -1 { Darwin.close(socketFD); socketFD = -1 }
         connectedApplicationID = nil
         ready = false
+        pendingPublishNonce = nil
         outbound.removeAll(keepingCapacity: false)
         if shouldReconnect && !stopped { scheduleReconnect() }
     }
@@ -365,7 +413,7 @@ public final class DiscordPresence {
         }
         reconnectWorkItem = work
         queue.asyncAfter(deadline: .now() + delay, execute: work)
-        setStatus("Discord unavailable; retrying")
+        if transportDiagnosticStatus == nil { setStatus("Discord unavailable; retrying") }
     }
 }
 
@@ -381,6 +429,31 @@ private extension Data {
         let fourth = index(first, offsetBy: 3)
         return UInt32(self[first]) | UInt32(self[second]) << 8 | UInt32(self[third]) << 16 | UInt32(self[fourth]) << 24
     }
+}
+
+private extension DiscordActivityPayload {
+    static func nonce(in payload: Data) -> String? {
+        (try? JSONSerialization.jsonObject(with: payload) as? [String: Any])?["nonce"] as? String
+    }
+}
+
+private func discordErrorStatus(from object: [String: Any]) -> String {
+    guard let message = discordDiagnosticMessage(from: object) else { return "Discord rejected the activity update" }
+    return "Discord rejected activity: \(message)"
+}
+
+private func discordCloseStatus(from payload: Data) -> String? {
+    guard let object = try? JSONSerialization.jsonObject(with: payload) as? [String: Any],
+          let message = discordDiagnosticMessage(from: object) else { return nil }
+    return "Discord connection closed: \(message)"
+}
+
+private func discordDiagnosticMessage(from object: [String: Any]) -> String? {
+    let raw = (object["data"] as? [String: Any])?["message"] as? String ?? object["message"] as? String
+    let safe = raw?.unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) }.map(String.init).joined()
+        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    guard !safe.isEmpty else { return nil }
+    return String(safe.prefix(160))
 }
 
 private func openDiscordSocket() -> Int32? {
@@ -412,6 +485,15 @@ private func connectUnixSocket(path: String) -> Int32? {
         }
     }
     guard result == 0 else { Darwin.close(fd); return nil }
-    _ = fcntl(fd, F_SETFL, O_NONBLOCK)
     return fd
+}
+
+@discardableResult
+func configureDiscordSocket(_ fd: Int32) -> Bool {
+    guard fd >= 0 else { return false }
+    var enabled: Int32 = 1
+    guard Darwin.setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &enabled, socklen_t(MemoryLayout<Int32>.size)) == 0 else { return false }
+    let flags = fcntl(fd, F_GETFL)
+    guard flags >= 0, fcntl(fd, F_SETFL, flags | O_NONBLOCK) == 0 else { return false }
+    return true
 }
