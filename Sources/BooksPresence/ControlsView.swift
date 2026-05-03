@@ -340,14 +340,22 @@ struct SettingsView: View {
             }
             applyBar(action: { applyReadingDrafts() }, label: "Apply reading changes", valid: readingDraftsAreValid)
 
-            SettingsSectionHeading(title: "Accessibility", subtitle: "Automatic capture asks macOS for permission. Without it, tracking pauses and records the issue for review.")
+            SettingsSectionHeading(title: "Accessibility", subtitle: "Automatic capture needs macOS permission. The status below reflects the access currently granted to BooksPresence.")
             settingsCard {
-                SettingRow(icon: "accessibility", title: "Accessibility access", description: "Request access or open the macOS Privacy settings to change it.") {
-                    HStack(spacing: 8) {
-                        Button("Request access") { model.requestAccessibility() }
-                        Button("Open settings") { model.openAccessibilitySettings() }
+                if model.accessibilityGranted {
+                    SettingRow(icon: "checkmark.shield.fill", title: "Accessibility access granted", description: "BooksPresence can automatically check eligible Apple Books activity while tracking is on.") {
+                        Label("Granted", systemImage: "checkmark.circle.fill")
+                            .font(.callout)
+                            .foregroundStyle(ReadingPalette.moss)
                     }
-                    .controlSize(.small)
+                } else {
+                    SettingRow(icon: "accessibility", title: "Accessibility access needed", description: "Automatic capture is unavailable until you allow BooksPresence in macOS Privacy settings.") {
+                        HStack(spacing: 8) {
+                            Button("Request access") { model.requestAccessibility() }
+                            Button("Open settings") { model.openAccessibilitySettings() }
+                        }
+                        .controlSize(.small)
+                    }
                 }
             }
         }
@@ -380,7 +388,17 @@ struct SettingsView: View {
                         }
                     }
                     .padding(.vertical, 2)
-                    if !model.discordEnabled {
+                    if model.discordNeedsSetup {
+                        VStack(alignment: .leading, spacing: 5) {
+                            Label("Discord sharing needs an Application ID before it can show your activity.", systemImage: "exclamationmark.triangle.fill")
+                                .font(.callout)
+                                .foregroundStyle(ReadingPalette.moss)
+                            Link("Open Discord Developer Portal", destination: URL(string: "https://discord.com/developers/applications")!)
+                                .font(.caption)
+                        }
+                        .padding(.leading, 44)
+                        .padding(.bottom, 13)
+                    } else if !model.discordEnabled {
                         Label("Sharing is off. You can configure Discord now, then turn sharing on when you are ready.", systemImage: "info.circle")
                             .font(.callout)
                             .foregroundStyle(.secondary)
@@ -389,11 +407,15 @@ struct SettingsView: View {
                     }
                     settingDivider
                     SettingRow(icon: "dot.radiowaves.left.and.right", title: "Connection status", description: "See the current Discord connection state.") {
-                        Text(model.discordStatus)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.trailing)
-                            .frame(maxWidth: 245, alignment: .trailing)
+                        VStack(alignment: .trailing, spacing: 4) {
+                            Text(model.discordStatus)
+                            if let result = model.lastDiscordResult {
+                                Text("Last result: \(result)").foregroundStyle(.secondary)
+                            }
+                        }
+                        .font(.caption)
+                        .multilineTextAlignment(.trailing)
+                        .frame(maxWidth: 245, alignment: .trailing)
                     }
                 }
             }

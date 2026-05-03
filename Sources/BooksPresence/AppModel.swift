@@ -19,10 +19,14 @@ final class AppModel: ObservableObject {
     @Published private(set) var lastCapture: Date?
     @Published var errorMessage: String?
     @Published private(set) var discordStatus = "Discord sharing is off."
+    @Published private(set) var lastDiscordResult: String?
+    @Published private(set) var accessibilityGranted = BooksCapture.isTrusted
+    var automaticTrackingNeedsAccess: Bool { trackingEnabled && !manualActive && !accessibilityGranted }
+    var discordNeedsSetup: Bool { discordEnabled && discordApplicationID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     @Published var trackingEnabled = true { didSet { if ready { defaults.set(trackingEnabled, forKey: "trackingEnabled"); if !trackingEnabled { pause(.disabled) }; tick() } } }
     @Published var discordEnabled = false { didSet { if ready { defaults.set(discordEnabled, forKey: "discordEnabled"); publishPresence() } } }
     @Published var discordApplicationID = ""
-    @Published var discordAssetKey = "books"
+    @Published var discordAssetKey = ""
     @Published var goalMinutes: Double = 20
     @Published var timezoneID = TimeZone.current.identifier
     @Published var uncertaintyMinutes: Double = 20
@@ -89,7 +93,7 @@ final class AppModel: ObservableObject {
         trackingEnabled = defaults.object(forKey: "trackingEnabled") as? Bool ?? true
         discordEnabled = defaults.bool(forKey: "discordEnabled")
         discordApplicationID = defaults.string(forKey: "discordApplicationID") ?? ""
-        discordAssetKey = defaults.string(forKey: "discordAssetKey") ?? "books"
+        discordAssetKey = defaults.string(forKey: "discordAssetKey") ?? ""
         goalMinutes = defaults.object(forKey: "goalMinutes") as? Double ?? 20
         savedGoal = goalMinutes
         launchAtLogin = LoginService.enabled
@@ -113,7 +117,7 @@ final class AppModel: ObservableObject {
             catch { errorMessage = "Login startup needs setup: \(error.localizedDescription). Enable it in Settings after installing the app." }
         }
         tick()
-        } else { refresh() }
+        } else { refresh(); refreshDiscordStatus() }
     }
 
     private func registerObservers() {
@@ -156,6 +160,7 @@ final class AppModel: ObservableObject {
     }
     private func tick() {
         guard ready else { return }
+        accessibilityGranted = BooksCapture.isTrusted
         windowObserver?.refresh()
         if let reason = commonPauseReason() { pause(reason); return }
         if let book = manualBook { apply(book: book, progress: nil, mode: .manual, reason: book.trackingExcluded ? .excludedBook : nil, health: "Manual reading is active. Time is inferred until you stop or pause."); return }
@@ -196,7 +201,7 @@ final class AppModel: ObservableObject {
         do {
             try engine.process(TrackingInput(book: book, mode: mode, pauseReason: reason, relevantActivity: relevant, progress: progress))
             snapshot = engine.snapshot
-            recordHealth(reason)
+            recordHealth(reason, verifiedCapture: mode == .automatic && book != nil && reason == nil)
             if Date().timeIntervalSince(lastRefresh) >= 15 || previousPhase != snapshot.phase || previousBookID != snapshot.book?.id { refresh() }
             publishPresence()
         } catch { trackingFailure(error) }
@@ -210,15 +215,17 @@ final class AppModel: ObservableObject {
             recordHealth(reason)
             if changed || today.day != ReadingStatistics.dayKey(Date(), timezoneID: timezoneID) { refresh() }
         } catch { trackingFailure(error) }
-        discord.clear(); discordStatus = discordEnabled ? "Reading is paused; presence is cleared." : "Discord sharing is off."
+        if changed { rememberDiscordResult(); discord.clear() }
+        refreshDiscordStatus()
     }
-    private func recordHealth(_ reason: PauseReason?) {
-        guard reason != lastHealthReason else { return }
-        if [.permissionLost, .captureFailure].contains(reason) || [.permissionLost, .captureFailure].contains(lastHealthReason) {
-            do { try store.appendEvent(AuditEvent(kind: reason == nil || reason == .background ? "trackingAccessRestored" : "trackingGap", detail: reason?.rawValue ?? "capture restored")) }
-            catch { errorMessage = "Could not persist data health: \(error)" }
-        }
-        lastHealthReason = reason
+    private func recordHealth(_ reason: PauseReason?, verifiedCapture: Bool = false) {
+        // Switching away from Books is not evidence that missing access recovered.
+        let isFailure = reason == .permissionLost || reason == .captureFailure
+        guard (isFailure && reason != lastHealthReason) || (verifiedCapture && lastHealthReason != nil) else { return }
+        do {
+            try store.appendEvent(AuditEvent(kind: isFailure ? "trackingGap" : "trackingAccessRestored", detail: isFailure ? reason!.rawValue : "capture restored"))
+            lastHealthReason = isFailure ? reason : nil
+        } catch { errorMessage = "Could not persist data health: \(error)" }
     }
     private func trackingFailure(_ error: Error) {
         errorMessage = "Tracking stopped because evidence could not be saved: \(error)"
@@ -229,7 +236,45 @@ final class AppModel: ObservableObject {
         let active = snapshot.phase == .reading && trackingEnabled
         let currentBook = snapshot.book.flatMap { current in books.first { $0.id == current.id } ?? current }
         discord.update(book: active ? currentBook : nil, progress: latestProgress?.reliable == true ? latestProgress : nil, elapsed: snapshot.sessionSeconds, enabled: discordEnabled && active, applicationID: discordApplicationID, assetKey: discordAssetKey)
-        discordStatus = discord.status
+        refreshDiscordStatus()
+    }
+    private func rememberDiscordResult() {
+        let status = discord.status
+        if status == "Discord activity shared" || status.contains("rejected") || status.contains("unavailable") || status.contains("connection closed") || status.contains("connection lost") {
+            lastDiscordResult = status
+        }
+    }
+    private func refreshDiscordStatus() {
+        rememberDiscordResult()
+        if !discordEnabled { discordStatus = "Discord sharing is off." }
+        else if discordNeedsSetup { discordStatus = "Discord application ID needed." }
+        else if snapshot.book?.sharingExcluded == true { discordStatus = "This book is excluded from Discord sharing." }
+        else if snapshot.phase != .reading || !trackingEnabled { discordStatus = "Waiting for active reading in Books." }
+        else { discordStatus = discord.status }
+    }
+    /// Opt-in diagnostics from the actual GUI process, whose macOS permission may differ from a CLI helper.
+    func writeStatusReport(to url: URL) throws {
+        let report: [String: Any] = [
+            "processID": ProcessInfo.processInfo.processIdentifier,
+            "observedAt": ISO8601DateFormatter().string(from: Date()),
+            "accessibilityGranted": accessibilityGranted,
+            "trackingEnabled": trackingEnabled,
+            "booksForeground": SystemEligibility.booksForeground,
+            "phase": snapshot.phase.rawValue,
+            "pauseReason": snapshot.pauseReason?.rawValue ?? "none",
+            "hasMatchedBook": snapshot.book != nil,
+            "sessionSeconds": snapshot.sessionSeconds,
+            "savedIntervalCount": intervals.count,
+            "lastCapture": lastCapture.map { ISO8601DateFormatter().string(from: $0) } ?? "none",
+            "health": health,
+            "discordEnabled": discordEnabled,
+            "discordIDConfigured": !discordApplicationID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            "discordStatus": discordStatus,
+            "lastDiscordResult": lastDiscordResult ?? "none"
+        ]
+        let data = try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys])
+        try data.write(to: url, options: [.atomic])
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
     }
     func refresh() {
         do {
@@ -296,7 +341,7 @@ final class AppModel: ObservableObject {
         try encoder.encode(archive).write(to: url, options: .atomic)
         try store.importJSON(from: url)
     }
-    func requestAccessibility() { BooksCapture.requestAccess() }
+    func requestAccessibility() { BooksCapture.requestAccess(); accessibilityGranted = BooksCapture.isTrusted; openAccessibilitySettings() }
     func openAccessibilitySettings() { NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!) }
     func saveSettings() {
         guard goalMinutes.isFinite, goalMinutes >= 1, goalMinutes <= 1440, TimeZone(identifier: timezoneID) != nil, uncertaintyMinutes.isFinite, uncertaintyMinutes >= 1, uncertaintyMinutes <= 240 else { errorMessage = "Choose a goal from 1–1440 minutes, a valid timezone, and an uncertainty threshold from 1–240 minutes."; return }

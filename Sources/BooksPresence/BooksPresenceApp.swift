@@ -10,6 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let popover = NSPopover()
     private var dashboard: NSWindow?
     private var shutdownSignal: DispatchSourceSignal?
+    private var diagnosticTimer: Timer?
     func applicationDidFinishLaunching(_ notification: Notification) {
         signal(SIGTERM, SIG_IGN)
         let termination = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
@@ -30,7 +31,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             statusItem = item
             popover.contentSize = NSSize(width: 350, height: 430)
             popover.behavior = .transient
-            popover.contentViewController = NSHostingController(rootView: PopoverView(model: state))
+            let controller = NSHostingController(rootView: PopoverView(model: state))
+            controller.sizingOptions = [.preferredContentSize]
+            popover.contentViewController = controller
+            // Explicit developer diagnostic, overwritten in place; normal launches create no report.
+            let arguments = CommandLine.arguments
+            if let index = arguments.firstIndex(of: "--status-report"), index + 1 < arguments.count {
+                let url = URL(fileURLWithPath: arguments[index + 1])
+                try state.writeStatusReport(to: url)
+                diagnosticTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak state] _ in
+                    Task { @MainActor [weak state] in try? state?.writeStatusReport(to: url) }
+                }
+            }
         } catch let error as POSIXError where error.code == .EWOULDBLOCK {
             NSApp.terminate(nil)
         } catch {
@@ -40,7 +52,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc private func togglePopover() {
         guard let button = statusItem?.button else { return }
         if popover.isShown { popover.performClose(nil) }
-        else { popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY); NSApp.activate(ignoringOtherApps: true) }
+        else { popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY) }
     }
     func showDashboard() {
         guard let model else { return }

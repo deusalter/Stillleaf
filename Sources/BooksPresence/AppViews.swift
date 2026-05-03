@@ -132,6 +132,27 @@ struct PopoverView: View {
                 }
             }
             .toggleStyle(.switch).controlSize(.small)
+            if model.automaticTrackingNeedsAccess {
+                PopoverSetupNotice(
+                    icon: "accessibility",
+                    title: "Accessibility access needed",
+                    description: "BooksPresence cannot automatically capture reading until macOS grants access."
+                ) {
+                    Button("Request access") { model.requestAccessibility() }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                }
+            }
+            if model.discordNeedsSetup {
+                PopoverSetupNotice(
+                    icon: "key.horizontal",
+                    title: "Discord needs an Application ID",
+                    description: "Add the ID for your Discord application before activity can be shared."
+                ) {
+                    Link("Open developer portal", destination: URL(string: "https://discord.com/developers/applications")!)
+                        .font(.caption)
+                }
+            }
             HStack {
                 Button(model.manualActive ? "Stop manual reading" : "Read manually") {
                     if model.manualActive { model.stopManual() } else { showingManualStart = true }
@@ -147,6 +168,31 @@ struct PopoverView: View {
         .background(ReadingPalette.paper)
         .tint(ReadingPalette.moss)
         .sheet(isPresented: $showingManualStart) { ManualStartView(model: model) }
+    }
+}
+
+private struct PopoverSetupNotice<Accessory: View>: View {
+    let icon: String
+    let title: String
+    let description: String
+    @ViewBuilder let accessory: () -> Accessory
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 9) {
+            Image(systemName: icon)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(ReadingPalette.moss)
+                .frame(width: 18)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title).font(.callout.weight(.semibold))
+                Text(description).font(.caption).foregroundStyle(ReadingPalette.fadedInk)
+                    .fixedSize(horizontal: false, vertical: true)
+                accessory()
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(11)
+        .background(ReadingPalette.moss.opacity(0.13), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 }
 

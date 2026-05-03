@@ -10,6 +10,13 @@ func runUISmoke() throws {
     let defaults = UserDefaults(suiteName: suite)!
     defer { try? FileManager.default.removeItem(at: root); defaults.removePersistentDomain(forName: suite) }
     let model = try AppModel(support: root, defaults: defaults, startTracking: false)
+    model.discordEnabled = true
+    model.discordApplicationID = ""
+    model.saveSettings()
+    guard model.discordNeedsSetup, model.discordStatus == "Discord application ID needed." else { throw BooksAccessErrorForUI.failed("Missing Discord setup was hidden while reading is inactive") }
+    guard model.discordAssetKey.isEmpty else { throw BooksAccessErrorForUI.failed("Optional Discord artwork must not require an unconfigured asset") }
+    model.discordEnabled = false
+    model.saveSettings()
     let end = Date().addingTimeInterval(-120)
     model.addManual(title: "The Shape of a Quiet Day", author: "Synthetic fixture", start: end.addingTimeInterval(-1800), end: end)
     guard model.errorMessage == nil, model.intervals.count == 1, abs(model.intervals.reduce(0) { $0 + $1.duration } - 1800) < 0.01 else { throw BooksAccessErrorForUI.failed("Manual addition did not produce credited history: \(model.errorMessage ?? "no error")") }
