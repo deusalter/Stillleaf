@@ -21,6 +21,7 @@ fi
 rm -rf "$app_dir"
 mkdir -p "$app_dir/Contents/MacOS" "$app_dir/Contents/Resources" "$app_dir/Contents/Frameworks"
 cp "$root_dir/assets/Info.plist" "$app_dir/Contents/Info.plist"
+cp "$root_dir/assets/BooksPresence.icns" "$app_dir/Contents/Resources/BooksPresence.icns"
 cp "$binary_dir/BooksPresence" "$app_dir/Contents/MacOS/BooksPresence"
 cp "$binary_dir/books-diagnostic" "$app_dir/Contents/MacOS/books-diagnostic"
 cp "$binary_dir/libBooksCore.dylib" "$app_dir/Contents/Frameworks/libBooksCore.dylib"
