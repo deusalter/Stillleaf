@@ -269,8 +269,8 @@ final class AppModel: ObservableObject {
             "health": health,
             "discordEnabled": discordEnabled,
             "discordIDConfigured": !discordApplicationID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-            "discordStatus": discordStatus,
-            "lastDiscordResult": lastDiscordResult ?? "none"
+            "discordActivityAcknowledged": discordStatus == "Discord activity shared",
+            "lastDiscordActivityAcknowledged": lastDiscordResult == "Discord activity shared"
         ]
         let data = try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys])
         try data.write(to: url, options: [.atomic])
