@@ -2,7 +2,7 @@
 
 A native macOS menu-bar reading journal for Apple Books, with optional Discord Rich Presence. Reading history stays on this Mac. Automatic time is **inferred reading activity**, not proof of attention.
 
-**Integration status:** this Mac's Books 8.0 catalog is readable. Live Accessibility reader detection is not yet verified: the diagnostic reports that the tracker process lacks access. Automatic tracking fails closed when it cannot uniquely identify the focused reading document. Manual reading works independently. See [capabilities](docs/CAPABILITIES.md) and [verification](docs/VERIFICATION.md).
+**Integration status:** the diagnostic has matched a live local EPUB in Books 8.0 and rejected its Library window. This reader omits `AXDocument`, so a version-scoped structural inference supplements exact document-path matching. Automatic tracking still requires Accessibility access for the packaged app itself and pauses for unsupported or ambiguous windows. Manual reading works independently. See [capabilities](docs/CAPABILITIES.md) and [verification](docs/VERIFICATION.md).
 
 ## Build and run
 
@@ -28,7 +28,7 @@ open dist/BooksPresence.app
 
 The local builder bypasses SwiftPM using `swiftc`. The check script runs independent assertion executables because this host does not have XCTest. GitHub Actions runs the actual XCTest suites on a full macOS/Xcode runner.
 
-Move the app to `~/Applications` or `/Applications` before configuring permissions and login startup. This is an **ad-hoc signed development build**, not a notarized release. A distribution build requires your own Developer ID and notarization; no signing credentials are stored here.
+Move the app to `~/Applications` or `/Applications` before configuring permissions and login startup. This is an **ad-hoc signed development build**, not a notarized release. Rebuilding or replacing it may require re-enabling its Accessibility entry and reopening the app. A distribution build requires your own Developer ID and notarization; no signing credentials are stored here.
 
 ## First use
 
@@ -42,7 +42,7 @@ Closing the dashboard leaves tracking running. Quit stops the tracker. A per-use
 
 ## What counts
 
-Automatic eligibility requires Books foreground, a focused file document matched to one stable Books asset, an awake display, an unlocked user session, permission, and enabled tracking. Library/store, unidentified windows and background Books do not count. Workspace and Accessibility notifications supplement a one-second eligibility poll.
+Automatic eligibility requires Books foreground, a focused reader matched to one stable Books asset, an awake display, an unlocked user session, permission, and enabled tracking. Library/store, unidentified windows and background Books do not count. Workspace and Accessibility notifications supplement a one-second eligibility poll. Books 8.0 EPUB windows without a document path use a bounded structural check, followed by one exact unique catalog-title match. Duplicate titles, library navigation, minimized/modal windows and incomplete scans are rejected. History continues to use stable asset IDs.
 
 No keyboard/mouse inactivity cutoff stops ordinary reading. After the configurable conservative threshold (20 minutes by default) with no relevant interaction or reliable navigation evidence, subsequent intervals are **uncertain** and excluded. A review badge and grouped spans allow confirmation, trimming or discard without notification spam. Returning does not retroactively confirm uncertain time.
 
@@ -87,7 +87,7 @@ dist/BooksPresence.app/Contents/MacOS/books-diagnostic
 .build/local/books-diagnostic --include-metadata
 ```
 
-The diagnostic reports the actual installed version, trust, foreground/session/display state, window-level document availability and verified catalog columns. It does not read book prose, take screenshots, use OCR, enumerate unrelated app titles or write to Books databases. No scripting properties are assumed.
+The diagnostic reports the actual installed version, trust, foreground/session/display state, window-level document availability and verified catalog columns. Opt-in metadata also reports reader-structure eligibility; it never reads book text or web content. A CLI helper can have different macOS permissions from the GUI app. For explicit local troubleshooting, launch the packaged app with `--status-report /path/to/status.json`; it overwrites one private report containing tracking/Discord state, without titles, asset IDs or credentials. Normal launches write no report. It does not read book prose, take screenshots, use OCR, enumerate unrelated app titles or write to Books databases. No scripting properties are assumed.
 
 ## Discord
 
