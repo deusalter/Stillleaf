@@ -5,11 +5,14 @@ import BooksCore
 public struct CaptureResult {
     public var book: BookRecord?
     public var progress: ProgressObservation?
+    /// Ephemeral reader-navigation evidence. This is deliberately separate from
+    /// persisted progress because reflowable EPUB page numbers are not stable.
+    public var navigationToken: String?
     public var pauseReason: PauseReason?
     public var health: String
     public var observedAt: Date
-    public init(book: BookRecord? = nil, progress: ProgressObservation? = nil, pauseReason: PauseReason? = nil, health: String, observedAt: Date = Date()) {
-        self.book = book; self.progress = progress; self.pauseReason = pauseReason; self.health = health; self.observedAt = observedAt
+    public init(book: BookRecord? = nil, progress: ProgressObservation? = nil, navigationToken: String? = nil, pauseReason: PauseReason? = nil, health: String, observedAt: Date = Date()) {
+        self.book = book; self.progress = progress; self.navigationToken = navigationToken; self.pauseReason = pauseReason; self.health = health; self.observedAt = observedAt
     }
 }
 
@@ -47,6 +50,7 @@ public final class BooksCapture {
         let documentResult = AXUIElementCopyAttributeValue(window, kAXDocumentAttribute as CFString, &initialDocument)
         do {
             var matched: (book: BookRecord, assetURL: URL, progress: ProgressObservation?)?
+            var navigationToken: String?
             if documentResult == .success {
                 // A supplied but unsupported document must not fall back to a weaker title match.
                 if let document = initialDocument as? String, let url = Self.documentURL(document) { matched = try catalog.lookup(documentURL: url) }
@@ -54,6 +58,7 @@ public final class BooksCapture {
                 let evidence = Self.readerEvidence(window)
                 if evidence.permitsUniqueTitleMatch, let title = initialTitle {
                     matched = try catalog.lookup(readerTitle: title)
+                    navigationToken = evidence.pageNavigationToken
                 }
             }
             guard var match = matched else {
@@ -77,7 +82,7 @@ public final class BooksCapture {
                 }
             }
             if let cover = try? covers?.cover(bookID: match.book.id, assetURL: match.assetURL) { match.book.coverPath = cover.path; match.book.coverSource = cover.source }
-            return CaptureResult(book: match.book, progress: match.progress, health: documentResult == .success ? "Reader matched by document path to a stable Books asset. Time is inferred reading activity." : "Books 8.0 reader inferred from window structure and a unique catalog title. Time is inferred reading activity.")
+            return CaptureResult(book: match.book, progress: match.progress, navigationToken: navigationToken, health: documentResult == .success ? "Reader matched by document path to a stable Books asset. Time is inferred reading activity." : "Books 8.0 reader inferred from window structure and a unique catalog title. Time is inferred reading activity.")
         } catch { return CaptureResult(pauseReason: .captureFailure, health: error.localizedDescription) }
     }
     public static func documentURL(_ value: String) -> URL? {
@@ -95,10 +100,12 @@ public final class BooksCapture {
             subrole: attribute(window, kAXSubroleAttribute) as? String,
             minimized: (attribute(window, kAXMinimizedAttribute) as? Bool) ?? true,
             modal: (attribute(window, kAXModalAttribute) as? Bool) ?? true,
-            webAreaCount: 0, hasVisibleReaderWebArea: false, hasLibraryNavigation: false, inspectionComplete: true)
+            webAreaCount: 0, visibleReaderWebAreaCount: 0, hasLibraryNavigation: false,
+            inspectionComplete: true, pageNavigationToken: nil)
         guard evidence.identifier == "SceneWindow", version == "8.0" else { return evidence }
         let started = ProcessInfo.processInfo.systemUptime
         var visited = Set<CFHashCode>()
+        var pageTokens: [String] = []
         func visit(_ element: AXUIElement, ancestors: [String]) {
             let depth = ancestors.count
             guard !evidence.hasLibraryNavigation, evidence.inspectionComplete else { return }
@@ -124,8 +131,18 @@ public final class BooksCapture {
                     let value = unsafeBitCast(rawSize, to: AXValue.self)
                     if AXValueGetType(value) == .cgSize, AXValueGetValue(value, .cgSize, &size), size.width > 0, size.height > 0,
                        ancestors == ["AXWindow"] + Array(repeating: "AXGroup", count: 6) {
-                        evidence.hasVisibleReaderWebArea = true
+                        evidence.visibleReaderWebAreaCount += 1
                     }
+                }
+                return
+            }
+            if role == "AXStaticText", ancestors == ["AXWindow"] + Array(repeating: "AXGroup", count: 4) {
+                // Books exposes the page marker as a description on this exact
+                // footer path. Never request AXValue or descend into the label.
+                var rawDescription: CFTypeRef?
+                if AXUIElementCopyAttributeValue(element, kAXDescriptionAttribute as CFString, &rawDescription) == .success,
+                   let token = BooksPageNavigationToken.parse(description: rawDescription as? String) {
+                    pageTokens.append(token)
                 }
                 return
             }
@@ -139,6 +156,7 @@ public final class BooksCapture {
         }
         visit(window, ancestors: [])
         if ProcessInfo.processInfo.systemUptime - started >= 0.35 { evidence.inspectionComplete = false }
+        if evidence.inspectionComplete, pageTokens.count == 1 { evidence.pageNavigationToken = pageTokens[0] }
         return evidence
     }
 
@@ -158,8 +176,10 @@ public final class BooksCapture {
                 item["document"] = attribute(window, kAXDocumentAttribute) as? String
                 item["identifier"] = attribute(window, "AXIdentifier") as? String
                 let evidence = readerEvidence(window)
-                item["readerStructure"] = ["webAreaCount": evidence.webAreaCount, "hasVisibleReaderWebArea": evidence.hasVisibleReaderWebArea, "modal": evidence.modal, "hasLibraryNavigation": evidence.hasLibraryNavigation,
-                    "inspectionComplete": evidence.inspectionComplete, "permitsUniqueTitleMatch": evidence.permitsUniqueTitleMatch] as [String: Any]
+                item["readerStructure"] = ["webAreaCount": evidence.webAreaCount, "visibleReaderWebAreaCount": evidence.visibleReaderWebAreaCount,
+                    "hasPageNavigationToken": evidence.pageNavigationToken != nil, "modal": evidence.modal,
+                    "hasLibraryNavigation": evidence.hasLibraryNavigation, "inspectionComplete": evidence.inspectionComplete,
+                    "permitsUniqueTitleMatch": evidence.permitsUniqueTitleMatch] as [String: Any]
             }
             return item
         }

@@ -6,8 +6,8 @@ import CSQLite
 final class BooksReaderTests: XCTestCase {
     private var observedReader: BooksReaderEvidence {
         BooksReaderEvidence(booksVersion: "8.0", identifier: "SceneWindow", role: "AXWindow", subrole: "AXStandardWindow",
-            minimized: false, modal: false, webAreaCount: 1, hasVisibleReaderWebArea: true,
-            hasLibraryNavigation: false, inspectionComplete: true)
+            minimized: false, modal: false, webAreaCount: 1, visibleReaderWebAreaCount: 1,
+            hasLibraryNavigation: false, inspectionComplete: true, pageNavigationToken: "books8-page:52")
     }
 
     func testObservedBooksReaderRequiresEveryStructuralGuard() {
@@ -15,12 +15,40 @@ final class BooksReaderTests: XCTestCase {
         let mutations: [(inout BooksReaderEvidence) -> Void] = [
             { $0.booksVersion = "8.1" }, { $0.identifier = nil }, { $0.role = "AXGroup" },
             { $0.subrole = "AXDialog" }, { $0.minimized = true }, { $0.modal = true },
-            { $0.webAreaCount = 0 }, { $0.webAreaCount = 2 }, { $0.hasVisibleReaderWebArea = false },
+            { $0.webAreaCount = 0; $0.visibleReaderWebAreaCount = 0 },
+            { $0.webAreaCount = 2; $0.visibleReaderWebAreaCount = 1 },
+            { $0.visibleReaderWebAreaCount = 0 },
             { $0.hasLibraryNavigation = true }, { $0.inspectionComplete = false }
         ]
         for mutate in mutations {
             var evidence = observedReader; mutate(&evidence)
             XCTAssertFalse(evidence.permitsUniqueTitleMatch)
+        }
+    }
+
+    func testReaderAcceptsOneOrTwoMatchingVisibleWebAreasOnly() {
+        var evidence = observedReader
+        evidence.webAreaCount = 1; evidence.visibleReaderWebAreaCount = 1
+        XCTAssertTrue(evidence.permitsUniqueTitleMatch)
+        evidence.webAreaCount = 2; evidence.visibleReaderWebAreaCount = 2
+        XCTAssertTrue(evidence.permitsUniqueTitleMatch)
+        evidence.webAreaCount = 3; evidence.visibleReaderWebAreaCount = 3
+        XCTAssertFalse(evidence.permitsUniqueTitleMatch)
+        evidence.webAreaCount = 2; evidence.visibleReaderWebAreaCount = 1
+        XCTAssertFalse(evidence.permitsUniqueTitleMatch)
+    }
+
+    func testPageNavigationTokenAcceptsOnlyTheObservedEnglishFormat() {
+        XCTAssertEqual(BooksPageNavigationToken.parse(description: "Page 52"), "books8-page:52")
+        XCTAssertEqual(BooksPageNavigationToken.parse(description: "Page 00052"), "books8-page:52")
+
+        let rejected: [String?] = [
+            nil, "", "Page ", "Page 0", "Page -1", "page 52", "Page\t52", "Page 52\n",
+            "Page 52 of 300", "Chapter Page 52", "Page fifty-two", "Page ５２", "Page 1234567890",
+            "Page 52\u{0000}Hidden prose", "Page 52\u{202E}"
+        ]
+        for description in rejected {
+            XCTAssertNil(BooksPageNavigationToken.parse(description: description), "Unexpectedly accepted \(String(describing: description))")
         }
     }
 

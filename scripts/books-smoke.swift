@@ -3,14 +3,26 @@ import CSQLite
 @testable import BooksPlatform
 
 let reader = BooksReaderEvidence(booksVersion: "8.0", identifier: "SceneWindow", role: "AXWindow", subrole: "AXStandardWindow",
-    minimized: false, modal: false, webAreaCount: 1, hasVisibleReaderWebArea: true, hasLibraryNavigation: false, inspectionComplete: true)
+    minimized: false, modal: false, webAreaCount: 1, visibleReaderWebAreaCount: 1,
+    hasLibraryNavigation: false, inspectionComplete: true, pageNavigationToken: "books8-page:52")
 precondition(reader.permitsUniqueTitleMatch)
 let mutations: [(inout BooksReaderEvidence) -> Void] = [
     { $0.booksVersion = "8.1" }, { $0.identifier = nil }, { $0.role = "AXGroup" }, { $0.subrole = "AXDialog" },
-    { $0.minimized = true }, { $0.modal = true }, { $0.webAreaCount = 0 }, { $0.webAreaCount = 2 },
-    { $0.hasVisibleReaderWebArea = false }, { $0.hasLibraryNavigation = true }, { $0.inspectionComplete = false }
+    { $0.minimized = true }, { $0.modal = true }, { $0.webAreaCount = 0; $0.visibleReaderWebAreaCount = 0 },
+    { $0.webAreaCount = 2; $0.visibleReaderWebAreaCount = 1 }, { $0.visibleReaderWebAreaCount = 0 },
+    { $0.hasLibraryNavigation = true }, { $0.inspectionComplete = false }
 ]
 for mutate in mutations { var evidence = reader; mutate(&evidence); precondition(!evidence.permitsUniqueTitleMatch) }
+var twoPageReader = reader
+twoPageReader.webAreaCount = 2; twoPageReader.visibleReaderWebAreaCount = 2
+precondition(twoPageReader.permitsUniqueTitleMatch)
+var threePageReader = reader
+threePageReader.webAreaCount = 3; threePageReader.visibleReaderWebAreaCount = 3
+precondition(!threePageReader.permitsUniqueTitleMatch)
+precondition(BooksPageNavigationToken.parse(description: "Page 52") == "books8-page:52")
+for description in ["Page 0", "Page -1", "Page\t52", "Page 52 of 300", "Chapter Page 52", "Page ５２", "Page 52\u{0000}Hidden prose"] {
+    precondition(BooksPageNavigationToken.parse(description: description) == nil)
+}
 let root = FileManager.default.temporaryDirectory.appendingPathComponent("BooksPresence-reader-check-\(UUID().uuidString)")
 defer { try? FileManager.default.removeItem(at: root) }
 try FileManager.default.createDirectory(at: root.appendingPathComponent("BKLibrary"), withIntermediateDirectories: true)
