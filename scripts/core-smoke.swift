@@ -47,6 +47,21 @@ do {
     print("storage opened")
     let book = BookRecord(id: "synthetic-book", title: "Synthetic Book", author: "Test Author")
     let start = Date(timeIntervalSince1970: 1_700_000_000)
+    var presence = ReadingPresencePolicy()
+    var presenceSnapshot = TrackerSnapshot(); presenceSnapshot.book = book; presenceSnapshot.phase = .reading
+    presence.observe(bookID: book.id, navigationToken: "page:1", relevantActivity: false, uptime: 100)
+    try require(presence.state(for: presenceSnapshot, book: book, enabled: true, uptime: 101) == .reading, "verified reading is not visible")
+    presenceSnapshot.phase = .paused; presenceSnapshot.pauseReason = .background
+    try require(presence.state(for: presenceSnapshot, book: book, enabled: true, uptime: 1299) == .paused, "background presence disappeared before timeout")
+    try require(presence.state(for: presenceSnapshot, book: book, enabled: true, uptime: 1300) == .hidden, "presence did not expire at twenty minutes")
+    presence.observe(bookID: book.id, navigationToken: "page:1", relevantActivity: true, uptime: 1301)
+    try require(presence.state(for: presenceSnapshot, book: book, enabled: true, uptime: 1301) == .hidden, "pointer activity resurrected an unchanged page")
+    presence.observe(bookID: book.id, navigationToken: "page:2", relevantActivity: false, uptime: 1302)
+    try require(presence.state(for: presenceSnapshot, book: book, enabled: true, uptime: 1303) == .paused, "page turn did not renew presence")
+    presenceSnapshot.pauseReason = .locked
+    try require(presence.state(for: presenceSnapshot, book: book, enabled: true, uptime: 1304) == .hidden, "locked screen retained presence")
+    presenceSnapshot.pauseReason = .background
+    try require(presence.state(for: presenceSnapshot, book: book, enabled: true, uptime: 1305) == .hidden, "cleared presence returned without fresh capture")
     try store.saveBook(book)
     do {
         try store.appendInterval(ReadingInterval(sessionID: "invalid-point", bookID: book.id, start: start, end: start, duration: 1, timezoneID: "UTC", mode: .imported))
