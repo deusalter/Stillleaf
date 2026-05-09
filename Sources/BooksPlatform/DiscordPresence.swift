@@ -50,10 +50,9 @@ struct DiscordRPCFrameParser {
 enum DiscordActivityPayload {
     enum Error: Swift.Error { case missingApplicationID }
 
-    static func make(book: BookRecord, progress: ProgressObservation?, elapsed: TimeInterval, applicationID: String, assetKey: String) throws -> Data {
+    static func make(book: BookRecord, progress: ProgressObservation?, elapsed: TimeInterval, applicationID: String, assetKey: String, paused: Bool = false) throws -> Data {
         guard !applicationID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw Error.missingApplicationID }
-        let progressText = reliableProgressText(progress)
-        let state = [book.author?.trimmingCharacters(in: .whitespacesAndNewlines), progressText]
+        let state = [book.author?.trimmingCharacters(in: .whitespacesAndNewlines), paused ? "Paused" : reliableProgressText(progress)]
             .compactMap { value -> String? in
                 guard let value, !value.isEmpty else { return nil }
                 return value
@@ -62,9 +61,9 @@ enum DiscordActivityPayload {
         var activity: [String: Any] = [
             "type": 0,
             "details": "Reading \(book.title)",
-            "timestamps": ["start": Int(Date().timeIntervalSince1970 - max(0, elapsed))],
             "instance": false
         ]
+        if !paused { activity["timestamps"] = ["start": Int(Date().timeIntervalSince1970 - max(0, elapsed))] }
         if !state.isEmpty { activity["state"] = state }
         if let key = sanitizedAssetKey(assetKey) { activity["assets"] = ["large_image": key] }
         return try json([
@@ -112,6 +111,8 @@ public final class DiscordPresence {
         let elapsed: TimeInterval
         let applicationID: String
         let assetKey: String
+        let paused: Bool
+        let publishImmediately: Bool
         let generation: UInt64
     }
 
@@ -133,6 +134,7 @@ public final class DiscordPresence {
     private var reconnectWorkItem: DispatchWorkItem?
     private var publishWorkItem: DispatchWorkItem?
     private var pendingPublishNonce: String?
+    private var activityMayBeVisible = false
     private var transportDiagnosticStatus: String?
     private var stopped = false
 
@@ -149,7 +151,7 @@ public final class DiscordPresence {
         return statusValue
     }
 
-    public func update(book: BookRecord?, progress: ProgressObservation?, elapsed: TimeInterval, enabled: Bool, applicationID: String, assetKey: String) {
+    public func update(book: BookRecord?, progress: ProgressObservation?, elapsed: TimeInterval, enabled: Bool, applicationID: String, assetKey: String, paused: Bool = false) {
         // Serializing the state change ahead of its work item means a queued, older
         // activity cannot be published after this call disables sharing.
         queue.sync {
@@ -159,7 +161,8 @@ public final class DiscordPresence {
             let currentGeneration = generation
             if enabled, let book, !book.sharingExcluded, !applicationID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 let beginsNewSession = desired == nil || desired?.applicationID != applicationID
-                desired = DesiredActivity(book: book, progress: progress, elapsed: elapsed, applicationID: applicationID, assetKey: assetKey, generation: currentGeneration)
+                let pausedChanged = desired.map { $0.paused != paused } ?? false
+                desired = DesiredActivity(book: book, progress: progress, elapsed: elapsed, applicationID: applicationID, assetKey: assetKey, paused: paused, publishImmediately: pausedChanged, generation: currentGeneration)
                 // Regular tracker ticks must not mask a useful asynchronous state
                 // such as a rejected activity or scheduled reconnect.
                 if beginsNewSession { statusValue = "Connecting to Discord…" }
@@ -215,7 +218,7 @@ public final class DiscordPresence {
         }
         if socketFD == -1 { connect(applicationID: activity.applicationID) }
         guard ready, isCurrent(activity) else { return }
-        let delay = max(0, 15 - Date().timeIntervalSince(lastPublish))
+        let delay = activity.publishImmediately ? 0 : max(0, 15 - Date().timeIntervalSince(lastPublish))
         if delay == 0 {
             publish(activity)
         } else {
@@ -234,12 +237,13 @@ public final class DiscordPresence {
     private func publish(_ activity: DesiredActivity) {
         guard ready, isCurrent(activity) else { return }
         do {
-            let payload = try DiscordActivityPayload.make(book: activity.book, progress: activity.progress, elapsed: activity.elapsed, applicationID: activity.applicationID, assetKey: activity.assetKey)
+            let payload = try DiscordActivityPayload.make(book: activity.book, progress: activity.progress, elapsed: activity.elapsed, applicationID: activity.applicationID, assetKey: activity.assetKey, paused: activity.paused)
             guard let nonce = DiscordActivityPayload.nonce(in: payload) else {
                 setStatus("Could not prepare Discord activity")
                 return
             }
             pendingPublishNonce = nonce
+            activityMayBeVisible = true
             transportDiagnosticStatus = nil
             lastPublish = Date()
             setStatus("Discord activity sent; waiting for confirmation")
@@ -252,7 +256,7 @@ public final class DiscordPresence {
     private func clearImmediately() {
         publishWorkItem?.cancel()
         pendingPublishNonce = nil
-        guard ready else { return }
+        guard ready, activityMayBeVisible else { return }
         // `outbound` may be the unwritten tail of an already-started activity
         // frame. Replacing it with a clear frame would corrupt the IPC stream.
         // Disconnecting clears the connection-owned activity safely instead.
@@ -260,7 +264,13 @@ public final class DiscordPresence {
             disconnect(scheduleReconnect: false)
             return
         }
-        do { enqueue(DiscordRPCFrame(opcode: .frame, payload: try DiscordActivityPayload.clear())) }
+        // Mark this before enqueueing. Repeated disabled/clear updates can arrive
+        // before the write source drains the clear frame, but still need only one.
+        do {
+            let payload = try DiscordActivityPayload.clear()
+            activityMayBeVisible = false
+            enqueue(DiscordRPCFrame(opcode: .frame, payload: payload))
+        }
         catch { setStatus("Could not clear Discord activity") }
     }
 
@@ -296,6 +306,7 @@ public final class DiscordPresence {
         parser = DiscordRPCFrameParser()
         ready = false
         pendingPublishNonce = nil
+        activityMayBeVisible = false
         transportDiagnosticStatus = nil
         configureSources(for: fd)
         do {
@@ -397,6 +408,7 @@ public final class DiscordPresence {
         connectedApplicationID = nil
         ready = false
         pendingPublishNonce = nil
+        activityMayBeVisible = false
         outbound.removeAll(keepingCapacity: false)
         if shouldReconnect && !stopped { scheduleReconnect() }
     }

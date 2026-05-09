@@ -69,6 +69,24 @@ final class DiscordPresenceTests: XCTestCase {
         XCTAssertEqual(activity["details"] as? String, "Reading A Book")
     }
 
+    func testPausedActivityPayloadKeepsAttributionWithoutRunningTime() throws {
+        let book = BookRecord(id: "book-1", title: "A Book", author: "An Author")
+        let payload = try DiscordActivityPayload.make(
+            book: book,
+            progress: ProgressObservation(bookID: book.id, page: 12, totalPages: 286, source: "accessibility", reliable: true),
+            elapsed: 125,
+            applicationID: "123456",
+            assetKey: "books",
+            paused: true
+        )
+        let activity = try activityObject(in: payload)
+
+        XCTAssertEqual(activity["details"] as? String, "Reading A Book")
+        XCTAssertEqual(activity["state"] as? String, "An Author • Paused")
+        XCTAssertNil(activity["timestamps"])
+        XCTAssertEqual((activity["assets"] as? [String: String])?["large_image"], "books")
+    }
+
     func testClearPayloadSetsActivityToNull() throws {
         let object = try JSONSerialization.jsonObject(with: DiscordActivityPayload.clear()) as! [String: Any]
         let args = object["args"] as! [String: Any]
@@ -159,6 +177,112 @@ final class DiscordPresenceTests: XCTestCase {
         presence.shutdown()
     }
 
+    func testPausedTransitionPublishesWithoutWaitingForTheRateLimit() throws {
+        let (client, server) = try socketPair()
+        defer { Darwin.close(server) }
+        var suppliedClient = client
+        let presence = DiscordPresence(socketOpener: {
+            defer { suppliedClient = -1 }
+            return suppliedClient
+        })
+        let readingReceived = expectation(description: "reading activity received")
+        let pausedReceived = expectation(description: "paused activity received")
+        let resumedReceived = expectation(description: "resumed activity received")
+        let serverFinished = expectation(description: "server finished")
+        var serverError: Error?
+
+        DispatchQueue.global().async {
+            defer { serverFinished.fulfill() }
+            do {
+                _ = try readFrame(from: server)
+                try writeFrame(DiscordRPCFrame(opcode: .frame, payload: json(["evt": "READY"])), to: server)
+                let reading = try readFrame(from: server)
+                try writeFrame(DiscordRPCFrame(opcode: .frame, payload: json(["cmd": "SET_ACTIVITY", "nonce": nonce(in: reading.payload)])), to: server)
+                readingReceived.fulfill()
+
+                let paused = try readFrame(from: server)
+                let activity = try activityObject(in: paused.payload)
+                guard activity["state"] as? String == "An Author • Paused", activity["timestamps"] == nil else {
+                    throw SyntheticIPCError.malformedFrame
+                }
+                pausedReceived.fulfill()
+                try writeFrame(DiscordRPCFrame(opcode: .frame, payload: json(["cmd": "SET_ACTIVITY", "nonce": nonce(in: paused.payload)])), to: server)
+
+                let resumed = try readFrame(from: server)
+                let resumedActivity = try activityObject(in: resumed.payload)
+                guard resumedActivity["state"] as? String == "An Author", resumedActivity["timestamps"] != nil else {
+                    throw SyntheticIPCError.malformedFrame
+                }
+                resumedReceived.fulfill()
+                try writeFrame(DiscordRPCFrame(opcode: .frame, payload: json(["cmd": "SET_ACTIVITY", "nonce": nonce(in: resumed.payload)])), to: server)
+            } catch {
+                serverError = error
+            }
+        }
+
+        let book = BookRecord(id: "book", title: "A Book", author: "An Author")
+        presence.update(book: book, progress: nil, elapsed: 0, enabled: true, applicationID: "123", assetKey: "")
+        wait(for: [readingReceived], timeout: 2)
+        XCTAssertTrue(waitUntil { presence.status == "Discord activity shared" })
+
+        presence.update(book: book, progress: nil, elapsed: 0, enabled: true, applicationID: "123", assetKey: "", paused: true)
+        wait(for: [pausedReceived], timeout: 2)
+        XCTAssertTrue(waitUntil { presence.status == "Discord activity shared" })
+        presence.update(book: book, progress: nil, elapsed: 0, enabled: true, applicationID: "123", assetKey: "", paused: false)
+        wait(for: [resumedReceived], timeout: 2)
+        wait(for: [serverFinished], timeout: 2)
+        XCTAssertNil(serverError)
+        XCTAssertTrue(waitUntil { presence.status == "Discord activity shared" })
+        presence.shutdown()
+    }
+
+    func testRepeatedDisableAndClearUpdatesEmitOnlyOneClearFrame() throws {
+        let (client, server) = try socketPair()
+        defer { Darwin.close(server) }
+        var suppliedClient = client
+        let presence = DiscordPresence(socketOpener: {
+            defer { suppliedClient = -1 }
+            return suppliedClient
+        })
+        let activityReceived = expectation(description: "activity received")
+        let clearReceived = expectation(description: "clear received")
+        let serverFinished = expectation(description: "server finished")
+        var serverError: Error?
+
+        DispatchQueue.global().async {
+            defer { serverFinished.fulfill() }
+            do {
+                _ = try readFrame(from: server)
+                try writeFrame(DiscordRPCFrame(opcode: .frame, payload: json(["evt": "READY"])), to: server)
+                let activity = try readFrame(from: server)
+                try writeFrame(DiscordRPCFrame(opcode: .frame, payload: json(["cmd": "SET_ACTIVITY", "nonce": nonce(in: activity.payload)])), to: server)
+                activityReceived.fulfill()
+
+                let clear = try readFrame(from: server)
+                guard try isClearActivity(clear.payload) else { throw SyntheticIPCError.malformedFrame }
+                clearReceived.fulfill()
+                try assertNoFrames(from: server, within: 0.3)
+            } catch {
+                serverError = error
+            }
+        }
+
+        let book = BookRecord(id: "book", title: "A Book")
+        presence.update(book: book, progress: nil, elapsed: 0, enabled: true, applicationID: "123", assetKey: "")
+        wait(for: [activityReceived], timeout: 2)
+        XCTAssertTrue(waitUntil { presence.status == "Discord activity shared" })
+
+        for _ in 0..<3 {
+            presence.update(book: nil, progress: nil, elapsed: 0, enabled: false, applicationID: "123", assetKey: "")
+        }
+        presence.clear()
+        presence.clear()
+
+        wait(for: [clearReceived, serverFinished], timeout: 2)
+        XCTAssertNil(serverError)
+        presence.shutdown()
+    }
+
     func testDiscordSocketsSuppressSigpipeAndUseNonblockingWrites() throws {
         let (client, server) = try socketPair()
         defer { Darwin.close(client); Darwin.close(server) }
@@ -172,7 +296,7 @@ final class DiscordPresenceTests: XCTestCase {
     }
 }
 
-private enum SyntheticIPCError: Error { case systemCallFailed, unexpectedEOF, malformedFrame }
+private enum SyntheticIPCError: Error { case systemCallFailed, unexpectedEOF, malformedFrame, unexpectedFrame }
 
 private func socketPair() throws -> (Int32, Int32) {
     var descriptors = [Int32](repeating: -1, count: 2)
@@ -225,6 +349,42 @@ private func nonce(in payload: Data) throws -> String {
         throw SyntheticIPCError.malformedFrame
     }
     return nonce
+}
+
+private func activityObject(in payload: Data) throws -> [String: Any] {
+    guard let object = try JSONSerialization.jsonObject(with: payload) as? [String: Any],
+          let args = object["args"] as? [String: Any],
+          let activity = args["activity"] as? [String: Any] else { throw SyntheticIPCError.malformedFrame }
+    return activity
+}
+
+private func isClearActivity(_ payload: Data) throws -> Bool {
+    guard let object = try JSONSerialization.jsonObject(with: payload) as? [String: Any],
+          let args = object["args"] as? [String: Any] else { throw SyntheticIPCError.malformedFrame }
+    return args["activity"] is NSNull
+}
+
+private func assertNoFrames(from fd: Int32, within duration: TimeInterval) throws {
+    let flags = fcntl(fd, F_GETFL)
+    guard flags >= 0, fcntl(fd, F_SETFL, flags | O_NONBLOCK) == 0 else { throw SyntheticIPCError.systemCallFailed }
+    defer { _ = fcntl(fd, F_SETFL, flags) }
+    var parser = DiscordRPCFrameParser()
+    let deadline = Date().addingTimeInterval(duration)
+    while Date() < deadline {
+        var bytes = [UInt8](repeating: 0, count: 4096)
+        let count = Darwin.read(fd, &bytes, bytes.count)
+        if count > 0 {
+            if !parser.append(Data(bytes.prefix(Int(count)))).isEmpty { throw SyntheticIPCError.unexpectedFrame }
+        } else if count == -1 && (errno == EAGAIN || errno == EWOULDBLOCK) {
+            usleep(10_000)
+        } else if count == -1 && errno == EINTR {
+            continue
+        } else if count == 0 {
+            return
+        } else {
+            throw SyntheticIPCError.systemCallFailed
+        }
+    }
 }
 
 private func waitUntil(_ predicate: @escaping () -> Bool) -> Bool {
