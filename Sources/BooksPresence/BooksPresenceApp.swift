@@ -7,7 +7,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var instance: SingleInstance?
     private var model: AppModel?
     private var statusItem: NSStatusItem?
-    private let popover = NSPopover()
+    private var menuPanel: StatusMenuPanel?
+    private var menuPanelSizeObservation: NSKeyValueObservation?
+    private var outsideClickMonitor: Any?
+    private var escapeKeyMonitor: Any?
     private var dashboard: NSWindow?
     private var shutdownSignal: DispatchSourceSignal?
     private var diagnosticTimer: Timer?
@@ -29,11 +32,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             item.button?.toolTip = "BooksPresence — reading activity"
             item.button?.target = self; item.button?.action = #selector(togglePopover)
             statusItem = item
-            popover.contentSize = NSSize(width: 350, height: 430)
-            popover.behavior = .transient
-            let controller = NSHostingController(rootView: PopoverView(model: state))
-            controller.sizingOptions = [.preferredContentSize]
-            popover.contentViewController = controller
+            menuPanel = makeMenuPanel(model: state)
             // Explicit developer diagnostic, overwritten in place; normal launches create no report.
             let arguments = CommandLine.arguments
             if let index = arguments.firstIndex(of: "--status-report"), index + 1 < arguments.count {
@@ -50,13 +49,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
     @objc private func togglePopover() {
-        guard let button = statusItem?.button else { return }
-        if popover.isShown { popover.performClose(nil) }
-        else { popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY) }
+        guard let panel = menuPanel else { return }
+        if panel.isVisible { dismissMenuPanel() }
+        else { showMenuPanel() }
     }
     func showDashboard() {
         guard let model else { return }
-        popover.performClose(nil)
+        dismissMenuPanel()
         if dashboard == nil {
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1060, height: 760), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
             window.title = "BooksPresence"; window.titlebarAppearsTransparent = true
@@ -67,7 +66,102 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         dashboard?.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
     }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
-    func applicationWillTerminate(_ notification: Notification) { model?.shutdown() }
+    func applicationWillTerminate(_ notification: Notification) {
+        dismissMenuPanel()
+        menuPanelSizeObservation?.invalidate()
+        model?.shutdown()
+    }
+
+    func windowDidResignKey(_ notification: Notification) {
+        guard let panel = menuPanel, notification.object as? NSWindow === panel else { return }
+        dismissMenuPanel()
+    }
+
+    private func makeMenuPanel(model: AppModel) -> StatusMenuPanel {
+        let panel = StatusMenuPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 350, height: 430),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        panel.isFloatingPanel = true
+        panel.level = .statusBar
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        panel.hidesOnDeactivate = false
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = true
+        panel.delegate = self
+        panel.cancelHandler = { [weak self] in self?.dismissMenuPanel() }
+
+        let controller = NSHostingController(rootView: PopoverView(model: model))
+        controller.sizingOptions = [.preferredContentSize]
+        panel.contentViewController = controller
+        panel.contentView?.wantsLayer = true
+        panel.contentView?.layer?.cornerRadius = 14
+        panel.contentView?.layer?.masksToBounds = true
+        menuPanelSizeObservation = controller.observe(\.preferredContentSize, options: [.initial, .new]) { [weak self, weak panel] controller, _ in
+            Task { @MainActor [weak self, weak panel] in
+                guard let panel, controller.preferredContentSize.width > 0, controller.preferredContentSize.height > 0 else { return }
+                panel.setContentSize(controller.preferredContentSize)
+                if panel.isVisible { self?.positionMenuPanel() }
+            }
+        }
+        return panel
+    }
+
+    private func showMenuPanel() {
+        guard let panel = menuPanel else { return }
+        positionMenuPanel()
+        installMenuDismissalMonitors()
+        panel.makeKeyAndOrderFront(nil)
+    }
+
+    private func dismissMenuPanel() {
+        menuPanel?.orderOut(nil)
+        removeMenuDismissalMonitors()
+    }
+
+    private func positionMenuPanel() {
+        guard let panel = menuPanel, let button = statusItem?.button, let window = button.window else { return }
+        let buttonRect = button.convert(button.bounds, to: nil)
+        let anchor = window.convertToScreen(buttonRect)
+        let visibleFrame = window.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? anchor
+        let panelSize = panel.frame.size
+        let horizontalPadding: CGFloat = 8
+        let x = min(max(anchor.midX - panelSize.width / 2, visibleFrame.minX + horizontalPadding), visibleFrame.maxX - panelSize.width - horizontalPadding)
+        var y = anchor.minY - panelSize.height - 6
+        if y < visibleFrame.minY + horizontalPadding { y = anchor.maxY + 6 }
+        panel.setFrameOrigin(NSPoint(x: x, y: y))
+    }
+
+    private func installMenuDismissalMonitors() {
+        guard outsideClickMonitor == nil, escapeKeyMonitor == nil else { return }
+        outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.dismissMenuPanel() }
+        }
+        escapeKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard event.keyCode == 53, self?.menuPanel?.isVisible == true else { return event }
+            self?.dismissMenuPanel()
+            return nil
+        }
+    }
+
+    private func removeMenuDismissalMonitors() {
+        if let monitor = outsideClickMonitor { NSEvent.removeMonitor(monitor); outsideClickMonitor = nil }
+        if let monitor = escapeKeyMonitor { NSEvent.removeMonitor(monitor); escapeKeyMonitor = nil }
+    }
+}
+
+private final class StatusMenuPanel: NSPanel {
+    var cancelHandler: (() -> Void)?
+
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { false }
+
+    override func cancelOperation(_ sender: Any?) {
+        cancelHandler?()
+    }
 }
 
 @main
