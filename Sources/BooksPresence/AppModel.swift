@@ -59,6 +59,9 @@ final class AppModel: ObservableObject {
     private let captures: BooksCapture
     private let covers: CoverCache
     private let discord = DiscordPresence()
+    private var presencePolicy = ReadingPresencePolicy()
+    private var readingActivityEvidence = ReadingActivityEvidence()
+    private var presenceState: ReadingPresenceState = .hidden
     private let captureQueue = DispatchQueue(label: "BooksPresence.capture", qos: .utility)
     private var captureInFlight = false
     private var captureStarted = Date.distantPast
@@ -75,6 +78,7 @@ final class AppModel: ObservableObject {
     private var lastInputUptime: TimeInterval = 0
     private var lastHealthReason: PauseReason?
     private var latestProgress: ProgressObservation?
+    private var hasPageNavigationSignal = false
     private var savedGoal: Double = 20
 
     init(support: URL, defaults: UserDefaults = .standard, startTracking: Bool = true) throws {
@@ -164,8 +168,12 @@ final class AppModel: ObservableObject {
         windowObserver?.refresh()
         if let reason = commonPauseReason() { pause(reason); return }
         if let book = manualBook { apply(book: book, progress: nil, mode: .manual, reason: book.trackingExcluded ? .excludedBook : nil, health: "Manual reading is active. Time is inferred until you stop or pause."); return }
-        guard SystemEligibility.booksForeground else { pause(.background); return }
-        guard BooksCapture.isTrusted else { health = "Automatic tracking needs Accessibility access. Manual reading is available."; pause(.permissionLost); return }
+        guard accessibilityGranted else { health = "Automatic tracking needs Accessibility access. Manual reading is available."; pause(.permissionLost); return }
+        guard SystemEligibility.booksForeground else {
+            // Input in Discord or another app is not evidence of reading.
+            lastInputUptime = ProcessInfo.processInfo.systemUptime - SystemEligibility.secondsSinceInput
+            pause(.background); return
+        }
         if captureInFlight {
             if Date().timeIntervalSince(captureStarted) > 2 { health = "Books capture is delayed; tracking is paused until fresh evidence arrives."; pause(.captureFailure) }
             return
@@ -186,11 +194,11 @@ final class AppModel: ObservableObject {
                     book = incoming
                 }
                 self.lastCapture = result.pauseReason == nil ? result.observedAt : self.lastCapture
-                self.apply(book: book, progress: result.progress, mode: .automatic, reason: book?.trackingExcluded == true ? .excludedBook : result.pauseReason, health: result.health)
+                self.apply(book: book, progress: result.progress, mode: .automatic, reason: book?.trackingExcluded == true ? .excludedBook : result.pauseReason, health: result.health, navigationToken: result.navigationToken)
             }
         }
     }
-    private func apply(book: BookRecord?, progress: ProgressObservation?, mode: ReadingMode, reason: PauseReason?, health: String) {
+    private func apply(book: BookRecord?, progress: ProgressObservation?, mode: ReadingMode, reason: PauseReason?, health: String, navigationToken: String? = nil) {
         self.health = health; latestProgress = progress
         let uptime = ProcessInfo.processInfo.systemUptime
         let latestInput = uptime - SystemEligibility.secondsSinceInput
@@ -199,7 +207,13 @@ final class AppModel: ObservableObject {
         let previousPhase = snapshot.phase
         let previousBookID = snapshot.book?.id
         do {
-            try engine.process(TrackingInput(book: book, mode: mode, pauseReason: reason, relevantActivity: relevant, progress: progress))
+            var readingActivity = relevant
+            if let book, reason == nil, !book.trackingExcluded {
+                hasPageNavigationSignal = navigationToken != nil
+                readingActivity = readingActivityEvidence.observe(bookID: book.id, navigationToken: navigationToken, relevantActivity: relevant)
+                presencePolicy.observe(bookID: book.id, navigationToken: navigationToken, relevantActivity: relevant, uptime: uptime)
+            }
+            try engine.process(TrackingInput(book: book, mode: mode, pauseReason: reason, relevantActivity: readingActivity, progress: progress))
             snapshot = engine.snapshot
             recordHealth(reason, verifiedCapture: mode == .automatic && book != nil && reason == nil)
             if Date().timeIntervalSince(lastRefresh) >= 15 || previousPhase != snapshot.phase || previousBookID != snapshot.book?.id { refresh() }
@@ -215,8 +229,7 @@ final class AppModel: ObservableObject {
             recordHealth(reason)
             if changed || today.day != ReadingStatistics.dayKey(Date(), timezoneID: timezoneID) { refresh() }
         } catch { trackingFailure(error) }
-        if changed { rememberDiscordResult(); discord.clear() }
-        refreshDiscordStatus()
+        publishPresence()
     }
     private func recordHealth(_ reason: PauseReason?, verifiedCapture: Bool = false) {
         // Switching away from Books is not evidence that missing access recovered.
@@ -230,12 +243,17 @@ final class AppModel: ObservableObject {
     private func trackingFailure(_ error: Error) {
         errorMessage = "Tracking stopped because evidence could not be saved: \(error)"
         health = "Storage requires attention. New time is not being credited."
-        ready = false; timer?.invalidate(); discord.clear()
+        ready = false; timer?.invalidate(); presencePolicy.reset(); presenceState = .hidden; discord.clear()
     }
     private func publishPresence() {
-        let active = snapshot.phase == .reading && trackingEnabled
         let currentBook = snapshot.book.flatMap { current in books.first { $0.id == current.id } ?? current }
-        discord.update(book: active ? currentBook : nil, progress: latestProgress?.reliable == true ? latestProgress : nil, elapsed: snapshot.sessionSeconds, enabled: discordEnabled && active, applicationID: discordApplicationID, assetKey: discordAssetKey)
+        presenceState = presencePolicy.state(for: snapshot, book: currentBook, enabled: trackingEnabled && discordEnabled,
+                                             uptime: ProcessInfo.processInfo.systemUptime)
+        let visible = presenceState != .hidden
+        rememberDiscordResult()
+        discord.update(book: visible ? currentBook : nil, progress: latestProgress?.reliable == true ? latestProgress : nil,
+                       elapsed: snapshot.sessionSeconds, enabled: discordEnabled && visible,
+                       applicationID: discordApplicationID, assetKey: discordAssetKey, paused: presenceState == .paused)
         refreshDiscordStatus()
     }
     private func rememberDiscordResult() {
@@ -249,7 +267,7 @@ final class AppModel: ObservableObject {
         if !discordEnabled { discordStatus = "Discord sharing is off." }
         else if discordNeedsSetup { discordStatus = "Discord application ID needed." }
         else if snapshot.book?.sharingExcluded == true { discordStatus = "This book is excluded from Discord sharing." }
-        else if snapshot.phase != .reading || !trackingEnabled { discordStatus = "Waiting for active reading in Books." }
+        else if presenceState == .hidden { discordStatus = "Waiting for reading activity in Books." }
         else { discordStatus = discord.status }
     }
     /// Opt-in diagnostics from the actual GUI process, whose macOS permission may differ from a CLI helper.
@@ -269,6 +287,8 @@ final class AppModel: ObservableObject {
             "health": health,
             "discordEnabled": discordEnabled,
             "discordIDConfigured": !discordApplicationID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            "discordPresenceState": discordEnabled ? presenceState.rawValue : "hidden",
+            "hasPageNavigationSignal": hasPageNavigationSignal,
             "discordActivityAcknowledged": discordStatus == "Discord activity shared",
             "lastDiscordActivityAcknowledged": lastDiscordResult == "Discord activity shared"
         ]
@@ -310,7 +330,7 @@ final class AppModel: ObservableObject {
     }
     private func stopForMutation() throws {
         captureGeneration += 1
-        try engine.stop(); snapshot = engine.snapshot; discord.clear()
+        try engine.stop(); snapshot = engine.snapshot; readingActivityEvidence = ReadingActivityEvidence(); presencePolicy.reset(); presenceState = .hidden; discord.clear()
     }
     func startManual(title: String, author: String) {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -362,7 +382,7 @@ final class AppModel: ObservableObject {
             var updated = book; updated.observedAt = Date(); updated.trackingExcluded = tracking; updated.sharingExcluded = sharing
             try store.saveBook(updated)
             if manualBook?.id == book.id { manualBook = updated }
-            if snapshot.book?.id == book.id && book.trackingExcluded != tracking { captureGeneration += 1; try engine.stop(); snapshot = engine.snapshot; discord.clear() }
+            if snapshot.book?.id == book.id && book.trackingExcluded != tracking { try stopForMutation() }
         }
         publishPresence(); tick()
     }
