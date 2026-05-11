@@ -165,7 +165,8 @@ struct PopoverView: View {
         .padding(18)
         .frame(width: 350)
         .foregroundStyle(ReadingPalette.ink)
-        .background(ReadingPalette.paper)
+        .background(ReadingPalette.paper, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .tint(ReadingPalette.moss)
         .sheet(isPresented: $showingManualStart) { ManualStartView(model: model) }
     }
@@ -387,6 +388,7 @@ enum ReadingFormat {
         let hours = rounded / 3600
         let minutes = (rounded % 3600) / 60
         if hours > 0 { return "\(hours)h \(minutes)m" }
+        if rounded < 60 { return "\(rounded)s" }
         return "\(minutes)m"
     }
 

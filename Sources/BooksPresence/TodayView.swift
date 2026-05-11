@@ -170,11 +170,29 @@ struct ActivityStateLabel: View {
         switch snapshot.phase {
         case .reading: text = "Recording inferred reading activity"; symbol = "record.circle"
         case .uncertain: text = "Time awaiting review"; symbol = "clock.badge.questionmark"
-        case .paused: text = "Tracking paused"; symbol = "pause.circle"
+        case .paused: text = "Paused • \(activityPauseSummary(snapshot.pauseReason))"; symbol = "pause.circle"
         }
         return Label(text, systemImage: symbol)
             .font(.callout)
             .foregroundStyle(snapshot.phase == .reading ? ReadingPalette.moss : ReadingPalette.fadedInk)
+            .accessibilityLabel(snapshot.phase == .paused ? "Tracking paused: \(activityPauseSummary(snapshot.pauseReason))" : text)
+    }
+}
+
+private func activityPauseSummary(_ reason: PauseReason?) -> String {
+    switch reason {
+    case .disabled: return "Tracking turned off"
+    case .background: return "Books in background"
+    case .noReadingWindow: return "No active reading window"
+    case .locked: return "Mac locked"
+    case .displayAsleep: return "Display asleep"
+    case .permissionLost: return "Accessibility access needed"
+    case .excludedBook: return "Book excluded"
+    case .stopped: return "Session stopped"
+    case .captureFailure: return "Reader needs attention"
+    case .recovery: return "Recovering"
+    case .clockDiscontinuity: return "Clock changed"
+    case nil: return "Waiting for reading"
     }
 }
 

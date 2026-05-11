@@ -420,7 +420,7 @@ struct SettingsView: View {
                 }
             }
             applyBar(action: { applyDiscordDrafts() }, label: "Apply Discord details", valid: true)
-            Text("A book can be excluded from Discord sharing in its details without excluding it from local tracking.")
+            Text("A paused card stays visible for up to 20 minutes after your last page turn or reading activity. A book can be excluded from Discord sharing in its details without excluding it from local tracking.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 2)
