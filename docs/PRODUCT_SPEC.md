@@ -1,3 +1,5 @@
+> September 17 product revision: the owner requested that switching apps retain a clearly paused Discord card, expiring 20 minutes after the last page turn or supported reading activity. Credited reading remains foreground-only. This supersedes immediate presence clearing on ordinary background/window transitions below; explicit stop, privacy exclusions, lock/sleep and access failures still clear immediately.
+
 Build BooksPresence, a polished native macOS reading tracker for Apple Books with optional Discord Rich Presence.
 
 This is a personal reading-history application. Its priorities, in order, are trustworthy tracking, durable records, useful statistics, unobtrusive operation, and Discord sharing.

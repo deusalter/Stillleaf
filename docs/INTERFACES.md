@@ -44,7 +44,7 @@ Engine inputs come at most once per second and immediately on ineligibility. Cre
 
 Root owns `BooksCapture.swift`, `BooksCatalog.swift`, `CoverCache.swift`, `SystemEligibility.swift` and executable diagnostic.
 `BooksCapture.capture() -> CaptureResult` reads only Books AX window metadata and controls, never prose.
-`CaptureResult` contains `book: BookRecord?`, `progress: ProgressObservation?`, `pauseReason: PauseReason?`, `health: String`, `observedAt: Date`. Foreground, lock/display and user controls are applied by AppModel. AXDocument matched exactly to catalog path is initially the only uncalibrated automatic reader identity. Missing trustworthy reader evidence fails closed. No title-only matching.
+`CaptureResult` contains `book: BookRecord?`, `progress: ProgressObservation?`, `pauseReason: PauseReason?`, `health: String`, `observedAt: Date`, and an ephemeral `navigationToken: String?`. Foreground, lock/display and user controls are applied by AppModel. AXDocument matched exactly to catalog path is initially the only uncalibrated automatic reader identity. Missing trustworthy reader evidence fails closed. No title-only matching.
 
 ## App view model (root owns AppModel.swift)
 
@@ -74,3 +74,7 @@ Actions:
 UI owns AppViews.swift and supporting *View.swift files only. Entry points: `DashboardView(model: AppModel)` and `PopoverView(model: AppModel)`.
 
 Lifecycle/presence worker owns DiscordPresence.swift, LoginService.swift, SingleInstance.swift, packaging scripts, assets/Info.plist, and tests for Discord payloads. APIs will be assigned in a later bounded brief. Root owns package/CI, AppDelegate, AppModel and integration.
+
+## Retained Discord activity
+
+`ReadingPresencePolicy` keeps an in-memory last-book navigation token and monotonic activity time. `observe` accepts only fresh eligible reader captures; `state` returns hidden, reading, or paused. Background and temporarily missing reader windows retain a paused card for less than 1200 seconds since activity. The expired observation remains remembered so unchanged polling cannot resurrect the card. Explicit stops, exclusions and security/capture failures hide it. This policy never adds reading intervals. Discord `update` accepts `paused: Bool = false`; paused payloads omit timestamps.

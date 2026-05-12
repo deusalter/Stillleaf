@@ -44,7 +44,7 @@ Closing the dashboard leaves tracking running. Quit stops the tracker. A per-use
 
 Automatic eligibility requires Books foreground, a focused reader matched to one stable Books asset, an awake display, an unlocked user session, permission, and enabled tracking. Library/store, unidentified windows and background Books do not count. Workspace and Accessibility notifications supplement a one-second eligibility poll. Books 8.0 EPUB windows without a document path use a bounded structural check, followed by one exact unique catalog-title match. Duplicate titles, library navigation, minimized/modal windows and incomplete scans are rejected. History continues to use stable asset IDs.
 
-No keyboard/mouse inactivity cutoff stops ordinary reading. After the configurable conservative threshold (20 minutes by default) with no relevant interaction or reliable navigation evidence, subsequent intervals are **uncertain** and excluded. A review badge and grouped spans allow confirmation, trimming or discard without notification spam. Returning does not retroactively confirm uncertain time.
+After the configurable conservative threshold (20 minutes by default) without reading activity, subsequent intervals are **uncertain** and excluded. In the observed Books 8.0 EPUB layout, changes to the separate page footer provide activity evidence; moving the pointer does not renew it. Readers without that metadata use foreground reading interaction as a fallback. A review badge and grouped spans allow confirmation, trimming or discard without notification spam. Returning does not retroactively confirm uncertain time.
 
 Manual reading is labeled and still pauses for explicit pause, lock and sleep. Added past records and time adjustments are explicit manual evidence; overlapping records are rejected. There is no hidden streak repair.
 
@@ -91,13 +91,13 @@ The diagnostic reports the actual installed version, trust, foreground/session/d
 
 ## Discord
 
-Disabled by default; local tracking needs neither Discord nor internet. Supply your own application ID and optionally upload a generic `books` asset to that Discord application's developer settings. Presence uses the documented native IPC route and supported Playing activity type with a “Reading …” detail. It clears on pause or sharing exclusion, rate-limits and reconnects, and uses credited session elapsed time. See [Discord setup and limitations](docs/DISCORD.md).
+Disabled by default; local tracking needs neither Discord nor internet. Supply your own application ID and optionally upload a generic `books` asset to that Discord application's developer settings. Presence uses the documented native IPC route and supported Playing activity type with a “Reading …” detail. Switching apps pauses credited time and keeps the card visible with “Paused”; its running timer is removed. The card expires 20 minutes after the last page turn or supported reading activity. Explicitly disabling tracking/sharing, exclusions, lock/sleep, permission/capture failures and quitting clear it immediately. Activity updates are rate-limited, with prompt pause/resume changes. See [Discord setup and limitations](docs/DISCORD.md).
 
 Exact local covers stay local. There is no artwork publishing/upload flow in this release. A local path is never sent as a Discord image. Live rendering and reconnect checks require a configured application ID and Discord client; these are separate from synthetic protocol tests.
 
 ## Scope
 
-This release observes this Mac only. It does not backfill or claim iPhone/iPad activity. Saved Books progress can be stale and is labeled accordingly; no pages-read differences or words-per-minute claims are made. Page/location collection is omitted until a trustworthy live source is verified. Books' private catalog schema may change: the adapter checks required columns and fails closed.
+This release observes this Mac only. It does not backfill or claim iPhone/iPad activity. Saved Books progress can be stale and is labeled accordingly; no pages-read differences or words-per-minute claims are made. The observed Books 8.0 page footer is used only as an ephemeral navigation signal, not a canonical page count, stored reading-progress metric, or Discord percentage. Books' private catalog schema may change: the adapter checks required columns and fails closed.
 
 Source layout: `BooksCore` owns evidence/storage/statistics; `BooksPlatform` owns macOS/Books/Discord adapters; `BooksPresence` owns lifecycle and native views. The binding requirements are preserved in [the product specification](docs/PRODUCT_SPEC.md).
 
