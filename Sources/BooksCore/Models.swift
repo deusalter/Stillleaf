@@ -53,8 +53,11 @@ public struct GoalChange: Codable, Identifiable, Equatable {
     public var id: String
     public var effectiveDay: String
     public var minutes: Double
+    public var pages: Double?
     public var createdAt: Date
-    public init(id: String = UUID().uuidString, effectiveDay: String, minutes: Double, createdAt: Date = Date()) { self.id = id; self.effectiveDay = effectiveDay; self.minutes = minutes; self.createdAt = createdAt }
+    public init(id: String = UUID().uuidString, effectiveDay: String, minutes: Double, pages: Double? = nil, createdAt: Date = Date()) {
+        self.id = id; self.effectiveDay = effectiveDay; self.minutes = minutes; self.pages = pages; self.createdAt = createdAt
+    }
 }
 public struct AuditEvent: Codable, Identifiable, Equatable {
     public var id: String
@@ -63,8 +66,12 @@ public struct AuditEvent: Codable, Identifiable, Equatable {
     public var bookID: String?
     public var sessionID: String?
     public var detail: String
-    public init(id: String = UUID().uuidString, date: Date = Date(), kind: String, bookID: String? = nil, sessionID: String? = nil, detail: String) {
+    public var pageTurn: PageTurnEvidence?
+    public var completion: BookCompletionEvidence?
+    public var rating: BookRatingEvidence?
+    public init(id: String = UUID().uuidString, date: Date = Date(), kind: String, bookID: String? = nil, sessionID: String? = nil, detail: String, pageTurn: PageTurnEvidence? = nil, completion: BookCompletionEvidence? = nil, rating: BookRatingEvidence? = nil) {
         self.id = id; self.date = date; self.kind = kind; self.bookID = bookID; self.sessionID = sessionID; self.detail = detail
+        self.pageTurn = pageTurn; self.completion = completion; self.rating = rating
     }
 }
 public struct IntervalCorrection: Codable, Identifiable, Equatable {
@@ -129,6 +136,16 @@ public struct DailyTotal: Identifiable {
     public var goalMinutes: Double
     public var qualifies: Bool { creditedSeconds >= goalMinutes * 60 }
     public init(day: String, creditedSeconds: Double, uncertainSeconds: Double, manualSeconds: Double, goalMinutes: Double) { self.day = day; self.creditedSeconds = creditedSeconds; self.uncertainSeconds = uncertainSeconds; self.manualSeconds = manualSeconds; self.goalMinutes = goalMinutes }
+}
+public struct DailyPageTotal: Identifiable, Equatable {
+    public var id: String { day }
+    public var day: String
+    public var pages: Int
+    public var goalPages: Double?
+    public var qualifies: Bool { goalPages.map { $0.isFinite && $0 > 0 && Double(pages) >= $0 } ?? false }
+    public init(day: String, pages: Int, goalPages: Double?) {
+        self.day = day; self.pages = pages; self.goalPages = goalPages
+    }
 }
 public struct StreakSummary {
     public var current: Int

@@ -111,7 +111,17 @@ public final class ReadingStore {
     }
 
     public func appendEvent(_ event: AuditEvent) throws {
-        guard Self.validDate(event.date) else { throw ReadingStoreError.invalidData("event date is outside the supported range") }
+        try Self.validateEvent(event)
+        if event.pageTurn != nil || event.completion != nil || event.rating != nil {
+            guard let bookID = event.bookID, let _: BookRecord = try decodedRow(table: "books", id: bookID) else {
+                throw ReadingStoreError.invalidData("typed event refers to an unknown book")
+            }
+        }
+        if event.pageTurn != nil {
+            guard Self.pageEventHasSourceInterval(event, in: try archive()) else {
+                throw ReadingStoreError.invalidData("page-turn event does not belong to a recorded session interval")
+            }
+        }
         try insertUnique(table: "events", id: event.id, payload: try encode(event), value: event)
     }
 
@@ -123,7 +133,8 @@ public final class ReadingStore {
     }
 
     public func setGoal(_ goal: GoalChange) throws {
-        guard Self.isDayKey(goal.effectiveDay), Self.validDate(goal.createdAt), goal.minutes.isFinite, goal.minutes > 0, goal.minutes <= 1_440 else {
+        guard Self.isDayKey(goal.effectiveDay), Self.validDate(goal.createdAt), goal.minutes.isFinite, goal.minutes > 0, goal.minutes <= 1_440,
+              goal.pages.map({ $0.isFinite && $0 > 0 && $0 <= 1_000_000 }) ?? true else {
             throw ReadingStoreError.invalidData("goal has an invalid day or duration")
         }
         try insertUnique(table: "goals", id: goal.id, payload: try encode(goal), value: goal)
@@ -225,8 +236,8 @@ public final class ReadingStore {
         let bookRows = snapshot.books.map { [$0.id, $0.title, $0.author ?? "", $0.source, Self.iso8601($0.observedAt), $0.coverPath ?? "", $0.coverSource ?? "", String($0.trackingExcluded), String($0.sharingExcluded)] }
         try Self.writeCSV(header: ["id", "title", "author", "source", "observed_at", "cover_path", "cover_source", "tracking_excluded", "sharing_excluded"], rows: bookRows, to: directory.appendingPathComponent("books.csv"))
 
-        let dayRows = snapshot.goals.map { [$0.id, $0.effectiveDay, String($0.minutes), Self.iso8601($0.createdAt)] }
-        try Self.writeCSV(header: ["id", "effective_day", "minutes", "created_at"], rows: dayRows, to: directory.appendingPathComponent("goals.csv"))
+        let dayRows = snapshot.goals.map { [$0.id, $0.effectiveDay, String($0.minutes), $0.pages.map { String($0) } ?? "", Self.iso8601($0.createdAt)] }
+        try Self.writeCSV(header: ["id", "effective_day", "minutes", "pages", "created_at"], rows: dayRows, to: directory.appendingPathComponent("goals.csv"))
 
         let effectiveRows = try effectiveIntervals().map { interval in
             [interval.id, interval.sessionID, interval.bookID, Self.iso8601(interval.start), Self.iso8601(interval.end), String(interval.duration), interval.timezoneID, interval.mode.rawValue, interval.disposition.rawValue]
@@ -238,8 +249,8 @@ public final class ReadingStore {
         }
         try Self.writeCSV(header: ["id", "created_at", "original_interval_ids", "replacement_interval_ids", "reason"], rows: correctionRows, to: directory.appendingPathComponent("corrections.csv"))
 
-        let eventRows = snapshot.events.map { [$0.id, Self.iso8601($0.date), $0.kind, $0.bookID ?? "", $0.sessionID ?? "", $0.detail] }
-        try Self.writeCSV(header: ["id", "date", "kind", "book_id", "session_id", "detail"], rows: eventRows, to: directory.appendingPathComponent("events.csv"))
+        let eventRows = snapshot.events.map(Self.eventCSVRow)
+        try Self.writeCSV(header: ["id", "date", "kind", "book_id", "session_id", "detail", "from_page", "to_page", "pages_read", "visible_pages", "layout_signature", "finished_at", "completion_source", "completion_imported", "rating_state", "rating_value"], rows: eventRows, to: directory.appendingPathComponent("events.csv"))
 
         let progressRows = snapshot.progress.map { [$0.id, $0.bookID, Self.iso8601($0.observedAt), $0.page.map(String.init) ?? "", $0.totalPages.map(String.init) ?? "", $0.fraction.map { String($0) } ?? "", $0.location ?? "", $0.source, String($0.reliable)] }
         try Self.writeCSV(header: ["id", "book_id", "observed_at", "page", "total_pages", "fraction", "location", "source", "reliable"], rows: progressRows, to: directory.appendingPathComponent("progress.csv"))
@@ -622,8 +633,16 @@ public final class ReadingStore {
             try validateInterval(interval)
         }
         for correction in archive.corrections where !validDate(correction.createdAt) { throw ReadingStoreError.invalidData("invalid correction date \(correction.id)") }
-        for goal in archive.goals where !isDayKey(goal.effectiveDay) || !validDate(goal.createdAt) || !goal.minutes.isFinite || goal.minutes <= 0 || goal.minutes > 1_440 { throw ReadingStoreError.invalidData("invalid goal \(goal.id)") }
-        for event in archive.events where !validDate(event.date) { throw ReadingStoreError.invalidData("invalid event date \(event.id)") }
+        for goal in archive.goals where !isDayKey(goal.effectiveDay) || !validDate(goal.createdAt) || !goal.minutes.isFinite || goal.minutes <= 0 || goal.minutes > 1_440 || !(goal.pages.map { $0.isFinite && $0 > 0 && $0 <= 1_000_000 } ?? true) { throw ReadingStoreError.invalidData("invalid goal \(goal.id)") }
+        for event in archive.events {
+            try validateEvent(event)
+            if (event.pageTurn != nil || event.completion != nil || event.rating != nil), event.bookID.map({ books.contains($0) }) != true {
+                throw ReadingStoreError.invalidData("typed event \(event.id) refers to an unknown book")
+            }
+            if event.pageTurn != nil, !pageEventHasSourceInterval(event, in: archive) {
+                throw ReadingStoreError.invalidData("page-turn event \(event.id) has no source session interval")
+            }
+        }
         for progress in archive.progress where !books.contains(progress.bookID) || !validDate(progress.observedAt) || !(progress.fraction.map { $0.isFinite && $0 >= 0 && $0 <= 1 } ?? true) { throw ReadingStoreError.invalidData("invalid progress \(progress.id)") }
         for merge in archive.merges where merge.sourceID == merge.targetID || !books.contains(merge.sourceID) || !books.contains(merge.targetID) || !validDate(merge.date) { throw ReadingStoreError.invalidData("invalid merge \(merge.id)") }
         let effective = try effectiveIntervals(in: archive)
@@ -643,6 +662,51 @@ public final class ReadingStore {
               interval.duration.isFinite, interval.duration > 0,
               interval.duration <= 366 * 86_400, interval.duration <= wallSpan + 2,
               TimeZone(identifier: interval.timezoneID) != nil else { throw ReadingStoreError.invalidData("invalid interval \(interval.id)") }
+    }
+
+    private static func validateEvent(_ event: AuditEvent) throws {
+        guard validDate(event.date) else { throw ReadingStoreError.invalidData("invalid event date \(event.id)") }
+        let typedPayloadCount = [event.pageTurn != nil, event.completion != nil, event.rating != nil].filter { $0 }.count
+        guard typedPayloadCount <= 1 else { throw ReadingStoreError.invalidData("event \(event.id) has multiple typed payloads") }
+        if let evidence = event.pageTurn {
+            guard event.kind == "pageTurn", event.bookID?.isEmpty == false, event.sessionID?.isEmpty == false,
+                  PageTurnTracker.valid(evidence) else {
+                throw ReadingStoreError.invalidData("invalid page-turn event \(event.id)")
+            }
+        } else if event.kind == "pageTurn" {
+            throw ReadingStoreError.invalidData("page-turn event \(event.id) has no typed evidence")
+        } else if let completion = event.completion {
+            let source = completion.source.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard event.kind == "bookCompleted", event.bookID?.isEmpty == false, event.sessionID == nil,
+                  !source.isEmpty, source.count <= 128,
+                  !source.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }),
+                  completion.finishedAt.map({ validDate($0) && $0 <= event.date }) ?? true else {
+                throw ReadingStoreError.invalidData("invalid book-completion event \(event.id)")
+            }
+        } else if event.kind == "bookCompleted" {
+            throw ReadingStoreError.invalidData("book-completion event \(event.id) has no typed evidence")
+        } else if let rating = event.rating {
+            guard event.kind == "bookRated", event.bookID?.isEmpty == false, event.sessionID == nil,
+                  validRating(rating.value) else {
+                throw ReadingStoreError.invalidData("invalid book-rating event \(event.id)")
+            }
+        } else if event.kind == "bookRated" {
+            throw ReadingStoreError.invalidData("book-rating event \(event.id) has no typed evidence")
+        }
+    }
+
+    private static func validRating(_ value: Double?) -> Bool {
+        guard let value else { return true }
+        guard value.isFinite, value >= 0, value <= 5 else { return false }
+        return abs(value * 4 - (value * 4).rounded()) < 0.000_000_1
+    }
+
+    private static func pageEventHasSourceInterval(_ event: AuditEvent, in archive: HistoryArchive) -> Bool {
+        guard event.pageTurn != nil, let bookID = event.bookID, let sessionID = event.sessionID else { return false }
+        return (archive.intervals + archive.corrections.flatMap(\.replacements)).contains { interval in
+            interval.bookID == bookID && interval.sessionID == sessionID && interval.mode == .automatic
+                && abs(event.date.timeIntervalSince(interval.end)) <= 0.001
+        }
     }
 
     private static func merged(_ lhs: HistoryArchive, _ rhs: HistoryArchive) throws -> HistoryArchive {
@@ -724,6 +788,20 @@ public final class ReadingStore {
 
     private static func iso8601(_ date: Date) -> String {
         ISO8601DateFormatter().string(from: date)
+    }
+
+    private static func eventCSVRow(_ event: AuditEvent) -> [String] {
+        var row = [event.id, iso8601(event.date), event.kind, event.bookID ?? "", event.sessionID ?? "", event.detail]
+        if let page = event.pageTurn {
+            row += [String(page.fromPage), String(page.toPage), String(page.pagesRead), String(page.visiblePages), page.layoutSignature]
+        } else { row += ["", "", "", "", ""] }
+        if let completion = event.completion {
+            row += [completion.finishedAt.map(iso8601) ?? "", completion.source, String(completion.imported)]
+        } else { row += ["", "", ""] }
+        if let rating = event.rating {
+            row += [rating.value == nil ? "clear" : "set", rating.value.map { String($0) } ?? ""]
+        } else { row += ["", ""] }
+        return row
     }
 
     private static func writeCSV(header: [String], rows: [[String]], to url: URL) throws {

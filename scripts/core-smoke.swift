@@ -63,6 +63,66 @@ do {
     presenceSnapshot.pauseReason = .background
     try require(presence.state(for: presenceSnapshot, book: book, enabled: true, uptime: 1305) == .hidden, "cleared presence returned without fresh capture")
     try store.saveBook(book)
+
+    var pageTracker = PageTurnTracker()
+    let oneUp = ReaderPagePosition(page: 52, visiblePages: 1, layoutSignature: "one-up")
+    try require(pageTracker.observe(bookID: book.id, sessionID: "page-session", position: oneUp, date: start, uptime: 1) == nil,
+                "first page sample invented a count")
+    let pageEvidence = pageTracker.observe(bookID: book.id, sessionID: "page-session",
+                                           position: ReaderPagePosition(page: 53, visiblePages: 1, layoutSignature: "one-up"),
+                                           date: start.addingTimeInterval(1), uptime: 2)
+    try require(pageEvidence?.pagesRead == 1, "adjacent page turn was not counted")
+    try require(pageTracker.observe(bookID: book.id, sessionID: "page-session",
+                                    position: ReaderPagePosition(page: 80, visiblePages: 1, layoutSignature: "one-up"),
+                                    date: start.addingTimeInterval(2), uptime: 3) == nil, "large page jump was counted")
+
+    let pageStore = try ReadingStore(url: root.appendingPathComponent("pages.sqlite"))
+    try pageStore.saveBook(book)
+    let pageInterval = ReadingInterval(id: "page-interval", sessionID: "page-session", bookID: book.id,
+                                       start: start, end: start.addingTimeInterval(1), duration: 1,
+                                       timezoneID: "UTC", mode: .automatic)
+    try pageStore.appendInterval(pageInterval)
+    try pageStore.appendEvent(AuditEvent(id: "page-event", date: pageInterval.end, kind: "pageTurn", bookID: book.id,
+                                         sessionID: pageInterval.sessionID, detail: "Observed adjacent reader pages.",
+                                         pageTurn: pageEvidence))
+    let pageArchive = try pageStore.archive()
+    let pageIntervals = try pageStore.effectiveIntervals()
+    try require(PageStatistics.pages(events: pageArchive.events, effectiveIntervals: pageIntervals, merges: []) == 1,
+                "durable page evidence was not included in statistics")
+    do {
+        try pageStore.appendEvent(AuditEvent(kind: "pageTurn", bookID: book.id, sessionID: pageInterval.sessionID,
+                                             detail: "fabricated", pageTurn: PageTurnEvidence(fromPage: 1, toPage: 100,
+                                                 pagesRead: 99, visiblePages: 1, layoutSignature: "one-up")))
+        throw SmokeFailure.failed("fabricated large page count was accepted")
+    } catch is ReadingStoreError {}
+    try pageStore.deleteSession(pageInterval.sessionID)
+    let pageArchiveAfterDeletion = try pageStore.archive()
+    try require(pageArchiveAfterDeletion.events.allSatisfy { $0.pageTurn == nil }, "session deletion retained page evidence")
+
+    let historyStore = try ReadingStore(url: root.appendingPathComponent("book-history.sqlite"))
+    try historyStore.saveBook(book)
+    let finishedAt = start.addingTimeInterval(-86_400)
+    let completion = AuditEvent(id: "apple-finished:book:synthetic", date: start, kind: "bookCompleted",
+                                bookID: book.id, detail: "Imported completion metadata.",
+                                completion: BookCompletionEvidence(finishedAt: finishedAt,
+                                    source: "Apple Books", imported: true))
+    try historyStore.appendEvent(completion)
+    try historyStore.appendEvent(completion)
+    try historyStore.appendEvent(AuditEvent(date: start.addingTimeInterval(1), kind: "bookRated", bookID: book.id,
+                                             detail: "User rated book.", rating: BookRatingEvidence(value: 4.25)))
+    let historyArchive = try historyStore.archive()
+    try require(historyArchive.events.filter { $0.id == completion.id }.count == 1,
+                "identical completion import was not idempotent")
+    try require(BookHistory.completedBooks(books: historyArchive.books, events: historyArchive.events).first?.finishedAt == finishedAt,
+                "completion evidence did not produce a finished-book entry")
+    try require(BookHistory.rating(bookID: book.id, events: historyArchive.events) == 4.25,
+                "quarter-star rating did not persist")
+    do {
+        try historyStore.appendEvent(AuditEvent(kind: "bookRated", bookID: book.id, detail: "invalid",
+                                                rating: BookRatingEvidence(value: 4.1)))
+        throw SmokeFailure.failed("non-quarter-step rating was accepted")
+    } catch is ReadingStoreError {}
+
     do {
         try store.appendInterval(ReadingInterval(sessionID: "invalid-point", bookID: book.id, start: start, end: start, duration: 1, timezoneID: "UTC", mode: .imported))
         throw SmokeFailure.failed("zero-span positive-duration interval was accepted")
