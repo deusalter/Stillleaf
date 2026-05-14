@@ -1,4 +1,5 @@
 import Foundation
+import BooksCore
 
 /// A version-scoped fallback for Books 8's Catalyst EPUB reader, which omits AXDocument.
 /// Identity still comes from one exact catalog title match; these markers only classify the window.
@@ -14,6 +15,7 @@ struct BooksReaderEvidence {
     var hasLibraryNavigation: Bool
     var inspectionComplete: Bool
     var pageNavigationToken: String?
+    var pagePosition: ReaderPagePosition? = nil
 
     var permitsUniqueTitleMatch: Bool {
         booksVersion == "8.0" && identifier == "SceneWindow"

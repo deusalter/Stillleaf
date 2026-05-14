@@ -8,11 +8,12 @@ public struct CaptureResult {
     /// Ephemeral reader-navigation evidence. This is deliberately separate from
     /// persisted progress because reflowable EPUB page numbers are not stable.
     public var navigationToken: String?
+    public var pagePosition: ReaderPagePosition?
     public var pauseReason: PauseReason?
     public var health: String
     public var observedAt: Date
-    public init(book: BookRecord? = nil, progress: ProgressObservation? = nil, navigationToken: String? = nil, pauseReason: PauseReason? = nil, health: String, observedAt: Date = Date()) {
-        self.book = book; self.progress = progress; self.navigationToken = navigationToken; self.pauseReason = pauseReason; self.health = health; self.observedAt = observedAt
+    public init(book: BookRecord? = nil, progress: ProgressObservation? = nil, navigationToken: String? = nil, pagePosition: ReaderPagePosition? = nil, pauseReason: PauseReason? = nil, health: String, observedAt: Date = Date()) {
+        self.book = book; self.progress = progress; self.navigationToken = navigationToken; self.pagePosition = pagePosition; self.pauseReason = pauseReason; self.health = health; self.observedAt = observedAt
     }
 }
 
@@ -51,6 +52,7 @@ public final class BooksCapture {
         do {
             var matched: (book: BookRecord, assetURL: URL, progress: ProgressObservation?)?
             var navigationToken: String?
+            var pagePosition: ReaderPagePosition?
             if documentResult == .success {
                 // A supplied but unsupported document must not fall back to a weaker title match.
                 if let document = initialDocument as? String, let url = Self.documentURL(document) { matched = try catalog.lookup(documentURL: url) }
@@ -59,6 +61,7 @@ public final class BooksCapture {
                 if evidence.permitsUniqueTitleMatch, let title = initialTitle {
                     matched = try catalog.lookup(readerTitle: title)
                     navigationToken = evidence.pageNavigationToken
+                    pagePosition = evidence.pagePosition
                 }
             }
             guard var match = matched else {
@@ -82,7 +85,7 @@ public final class BooksCapture {
                 }
             }
             if let cover = try? covers?.cover(bookID: match.book.id, assetURL: match.assetURL) { match.book.coverPath = cover.path; match.book.coverSource = cover.source }
-            return CaptureResult(book: match.book, progress: match.progress, navigationToken: navigationToken, health: documentResult == .success ? "Reader matched by document path to a stable Books asset. Time is inferred reading activity." : "Books 8.0 reader inferred from window structure and a unique catalog title. Time is inferred reading activity.")
+            return CaptureResult(book: match.book, progress: match.progress, navigationToken: navigationToken, pagePosition: pagePosition, health: documentResult == .success ? "Reader matched by document path to a stable Books asset. Time is inferred reading activity." : "Books 8.0 reader inferred from window structure and a unique catalog title. Time is inferred reading activity.")
         } catch { return CaptureResult(pauseReason: .captureFailure, health: error.localizedDescription) }
     }
     public static func documentURL(_ value: String) -> URL? {
@@ -106,6 +109,7 @@ public final class BooksCapture {
         let started = ProcessInfo.processInfo.systemUptime
         var visited = Set<CFHashCode>()
         var pageTokens: [String] = []
+        var paneSizes: [String] = []
         func visit(_ element: AXUIElement, ancestors: [String]) {
             let depth = ancestors.count
             guard !evidence.hasLibraryNavigation, evidence.inspectionComplete else { return }
@@ -132,6 +136,7 @@ public final class BooksCapture {
                     if AXValueGetType(value) == .cgSize, AXValueGetValue(value, .cgSize, &size), size.width > 0, size.height > 0,
                        ancestors == ["AXWindow"] + Array(repeating: "AXGroup", count: 6) {
                         evidence.visibleReaderWebAreaCount += 1
+                        if let signature = sizeSignature(size) { paneSizes.append(signature) }
                     }
                 }
                 return
@@ -157,7 +162,23 @@ public final class BooksCapture {
         visit(window, ancestors: [])
         if ProcessInfo.processInfo.systemUptime - started >= 0.35 { evidence.inspectionComplete = false }
         if evidence.inspectionComplete, pageTokens.count == 1 { evidence.pageNavigationToken = pageTokens[0] }
+        if evidence.permitsUniqueTitleMatch, let token = evidence.pageNavigationToken,
+           let page = Int(token.dropFirst("books8-page:".count)), paneSizes.count == evidence.webAreaCount,
+           let rawWindowSize = attribute(window, kAXSizeAttribute), CFGetTypeID(rawWindowSize) == AXValueGetTypeID() {
+            var windowSize = CGSize.zero
+            let value = unsafeBitCast(rawWindowSize, to: AXValue.self)
+            if AXValueGetType(value) == .cgSize, AXValueGetValue(value, .cgSize, &windowSize), let signature = sizeSignature(windowSize) {
+                evidence.pagePosition = ReaderPagePosition(page: page, visiblePages: evidence.webAreaCount,
+                    layoutSignature: "books8:\(signature):\(paneSizes.sorted().joined(separator: ","))")
+            }
+        }
         return evidence
+    }
+
+    private static func sizeSignature(_ size: CGSize) -> String? {
+        guard size.width.isFinite, size.height.isFinite, size.width > 0, size.height > 0,
+              size.width < 100_000, size.height < 100_000 else { return nil }
+        return "\(Int(size.width.rounded()))x\(Int(size.height.rounded()))"
     }
 
     /// Window metadata by default; opt-in structural metadata never reads prose or AXValue.
