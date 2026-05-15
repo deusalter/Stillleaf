@@ -7,6 +7,15 @@ public enum BooksAccessError: LocalizedError {
     public var errorDescription: String? { if case .unavailable(let message) = self { return message }; return nil }
 }
 
+public struct CatalogFinishedBook {
+    public var book: BookRecord
+    public var finishedAt: Date?
+    public var assetURL: URL?
+    public init(book: BookRecord, finishedAt: Date?, assetURL: URL?) {
+        self.book = book; self.finishedAt = finishedAt; self.assetURL = assetURL
+    }
+}
+
 /// Private, version-dependent metadata adapter. Never opens a Books database for writing.
 public final class BooksCatalog {
     public let documents: URL
@@ -38,6 +47,48 @@ public final class BooksCatalog {
             while sqlite3_step(statement) == SQLITE_ROW { if let p = sqlite3_column_text(statement, 1) { values.insert(String(cString: p)) } }
             return values
         }
+    }
+    /// The explicit finished flag and its saved date are completion metadata,
+    /// never evidence of past reading duration, page counts, or current progress.
+    public func finishedBooks(now: Date = Date()) throws -> [CatalogFinishedBook] {
+        let fields = try columns()
+        guard Set(["ZASSETID", "ZTITLE", "ZAUTHOR", "ZISFINISHED", "ZDATEFINISHED"]).isSubset(of: fields) else {
+            throw BooksAccessError.unavailable("This Books catalog does not expose a supported finished-book timeline.")
+        }
+        return try withDatabase { db in
+            let path = fields.contains("ZPATH") ? "ZPATH" : "NULL"
+            var statement: OpaquePointer?
+            let sql = "SELECT ZASSETID,ZTITLE,ZAUTHOR,ZDATEFINISHED,\(path) FROM ZBKLIBRARYASSET WHERE ZISFINISHED = 1 LIMIT 10001"
+            guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+                throw BooksAccessError.unavailable("The Books finished timeline could not be read.")
+            }
+            defer { sqlite3_finalize(statement) }
+            var results: [CatalogFinishedBook] = []
+            var identifiers = Set<String>()
+            var result = sqlite3_step(statement)
+            while result == SQLITE_ROW {
+                func string(_ index: Int32) -> String? { sqlite3_column_text(statement, index).map { String(cString: $0) } }
+                guard let id = string(0), !id.isEmpty, let title = string(1), !title.isEmpty,
+                      identifiers.insert(id).inserted, results.count < 10_000 else {
+                    throw BooksAccessError.unavailable("The Books finished timeline contains ambiguous entries or exceeds the supported size.")
+                }
+                let seconds = sqlite3_column_type(statement, 3) == SQLITE_NULL ? nil : sqlite3_column_double(statement, 3)
+                let date = Self.completionDate(referenceSeconds: seconds, now: now)
+                let asset = string(4).flatMap(BooksCapture.documentURL)
+                let book = BookRecord(id: "apple-books:\(id)", title: title, author: string(2), source: "Apple Books finished timeline")
+                results.append(CatalogFinishedBook(book: book, finishedAt: date, assetURL: asset))
+                result = sqlite3_step(statement)
+            }
+            guard result == SQLITE_DONE else { throw BooksAccessError.unavailable("The Books finished timeline query was interrupted.") }
+            return results
+        }
+    }
+
+    static func completionDate(referenceSeconds: Double?, now: Date) -> Date? {
+        guard let seconds = referenceSeconds, seconds.isFinite, seconds > 0 else { return nil }
+        let date = Date(timeIntervalSinceReferenceDate: seconds)
+        guard date <= now else { return nil }
+        return date
     }
     /// Used only after the focused window passes the Books 8 reader-structure check.
     /// Titles select a unique local EPUB; stable asset IDs continue to own all history.
