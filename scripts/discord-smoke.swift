@@ -46,6 +46,48 @@ private func pausedPayloadCheck() throws {
     require(activity["timestamps"] == nil, "paused activity must not include a running timestamp")
 }
 
+private func pageActivityPayloadCheck() throws {
+    let book = BookRecord(id: "pages", title: "The Dispossessed", author: "Ursula K. Le Guin")
+    let activePayload = try DiscordActivityPayload.make(book: book, progress: nil, elapsed: 90, applicationID: "123", assetKey: "books", currentPage: 45, pagesTurned: 0)
+    let active = try activityObject(in: activePayload)
+    require(active["details"] as? String == "The Dispossessed", "pages mode did not use the title directly")
+    require(active["state"] as? String == "Ursula K. Le Guin • Page 45 • 0 pages this session", "pages mode omitted author, page, or zero pages")
+    require(active["timestamps"] == nil, "pages mode must not include a running timestamp")
+
+    let pausedPayload = try DiscordActivityPayload.make(book: book, progress: nil, elapsed: 90, applicationID: "123", assetKey: "books", paused: true, currentPage: 45, pagesTurned: 7)
+    let paused = try activityObject(in: pausedPayload)
+    require(paused["state"] as? String == "Ursula K. Le Guin • Page 45 • 7 pages this session • Paused", "paused pages mode is incomplete")
+    require(paused["timestamps"] == nil, "paused pages mode must not include a running timestamp")
+}
+
+private func publicCoverReferenceCheck() throws {
+    let publicCover = "https://images.example.com/covers/the-dispossessed.webp"
+    require(PublicBookCover.assetReference(coverURL: publicCover, assetKey: "books") == publicCover, "public HTTPS cover URL was rejected")
+    require(PublicBookCover.assetReference(coverURL: "file:///Users/me/Covers/book.jpg", assetKey: "books") == "books", "local cover did not fall back to uploaded asset")
+    require(PublicBookCover.assetReference(coverURL: "https://127.0.0.1/book.jpg", assetKey: "") == nil, "private image URL was accepted")
+
+    let book = BookRecord(id: "cover", title: "The Dispossessed")
+    let publicPayload = try DiscordActivityPayload.make(book: book, progress: nil, elapsed: 0, applicationID: "123", assetKey: "books", coverURL: publicCover)
+    let publicActivity = try activityObject(in: publicPayload)
+    require((publicActivity["assets"] as? [String: String])?["large_image"] == publicCover, "public cover URL was not sent as large_image")
+    let payload = try DiscordActivityPayload.make(book: book, progress: nil, elapsed: 0, applicationID: "123", assetKey: "", coverURL: "file:///Users/me/Covers/book.jpg")
+    require(!String(data: payload, encoding: .utf8)!.contains("file:///"), "local cover path reached Discord payload")
+}
+
+private func publicCoverResolverFixtureCheck() throws {
+    let book = BookRecord(id: "resolver", title: "A Book", author: "An Author")
+    let data = try JSONSerialization.data(withJSONObject: ["results": [[
+        "kind": "ebook",
+        "trackName": "A Book",
+        "artistName": "An Author",
+        "artworkUrl100": "https://images.example.com/covers/a-book.jpg"
+    ]]])
+    let source = URL(string: "https://itunes.apple.com/search?media=ebook&entity=ebook&limit=10&term=A%20Book")!
+    let match = try PublicCoverResolver.decodeMatch(book: book, data: data, sourceURL: source)
+    require(match?.url == "https://images.example.com/covers/a-book.jpg", "resolver rejected an exact public e-book result")
+    require(PublicCoverResolver.request(for: BookRecord(id: "no-author", title: "A Book")) == nil, "resolver searched without an author")
+}
+
 private enum SyntheticIPCError: Error { case systemCallFailed, unexpectedEOF, malformedFrame, unexpectedFrame }
 
 private func socketPair() throws -> (Int32, Int32) {
@@ -250,6 +292,9 @@ frameParserCheck()
 do {
     try activityPayloadCheck()
     try pausedPayloadCheck()
+    try pageActivityPayloadCheck()
+    try publicCoverReferenceCheck()
+    try publicCoverResolverFixtureCheck()
     try localIPCConfirmationCheck()
     try repeatedClearCheck()
     print("discord-smoke: passed")

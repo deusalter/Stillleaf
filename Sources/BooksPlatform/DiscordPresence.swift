@@ -50,22 +50,28 @@ struct DiscordRPCFrameParser {
 enum DiscordActivityPayload {
     enum Error: Swift.Error { case missingApplicationID }
 
-    static func make(book: BookRecord, progress: ProgressObservation?, elapsed: TimeInterval, applicationID: String, assetKey: String, paused: Bool = false) throws -> Data {
+    static func make(book: BookRecord, progress: ProgressObservation?, elapsed: TimeInterval, applicationID: String, assetKey: String, paused: Bool = false, coverURL: String? = nil, currentPage: Int? = nil, pagesTurned: Int? = nil) throws -> Data {
         guard !applicationID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw Error.missingApplicationID }
-        let state = [book.author?.trimmingCharacters(in: .whitespacesAndNewlines), paused ? "Paused" : reliableProgressText(progress)]
+        let pagesMode = pagesTurned != nil
+        let rawState = pagesMode
+            ? pageActivityState(book: book, currentPage: currentPage, pagesTurned: pagesTurned!, paused: paused)
+            : [book.author?.trimmingCharacters(in: .whitespacesAndNewlines), paused ? "Paused" : reliableProgressText(progress)]
             .compactMap { value -> String? in
                 guard let value, !value.isEmpty else { return nil }
                 return value
             }
             .joined(separator: " • ")
+        let state = limited(rawState)
         var activity: [String: Any] = [
             "type": 0,
-            "details": "Reading \(book.title)",
+            "details": limited(pagesMode ? book.title : "Reading \(book.title)"),
             "instance": false
         ]
-        if !paused { activity["timestamps"] = ["start": Int(Date().timeIntervalSince1970 - max(0, elapsed))] }
+        if !paused, !pagesMode { activity["timestamps"] = ["start": Int(Date().timeIntervalSince1970 - max(0, elapsed))] }
         if !state.isEmpty { activity["state"] = state }
-        if let key = sanitizedAssetKey(assetKey) { activity["assets"] = ["large_image": key] }
+        if let reference = PublicBookCover.assetReference(coverURL: coverURL, assetKey: assetKey) {
+            activity["assets"] = ["large_image": reference]
+        }
         return try json([
             "cmd": "SET_ACTIVITY",
             "args": ["pid": Int(getpid()), "activity": activity] as [String: Any],
@@ -93,10 +99,17 @@ enum DiscordActivityPayload {
         return nil
     }
 
-    private static func sanitizedAssetKey(_ candidate: String) -> String? {
-        let key = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !key.isEmpty, key.unicodeScalars.allSatisfy({ CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "_-" )).contains($0) }) else { return nil }
-        return key
+    private static func pageActivityState(book: BookRecord, currentPage: Int?, pagesTurned: Int, paused: Bool) -> String {
+        [book.author?.trimmingCharacters(in: .whitespacesAndNewlines), currentPage.flatMap { $0 > 0 ? "Page \($0)" : nil }, "\(max(0, pagesTurned)) pages this session", paused ? "Paused" : nil]
+            .compactMap { value -> String? in
+                guard let value, !value.isEmpty else { return nil }
+                return value
+            }
+            .joined(separator: " • ")
+    }
+
+    private static func limited(_ value: String, maximumLength: Int = 128) -> String {
+        String(value.prefix(maximumLength))
     }
 
     private static func json(_ object: [String: Any]) throws -> Data {
@@ -112,6 +125,9 @@ public final class DiscordPresence {
         let applicationID: String
         let assetKey: String
         let paused: Bool
+        let coverURL: String?
+        let currentPage: Int?
+        let pagesTurned: Int?
         let publishImmediately: Bool
         let generation: UInt64
     }
@@ -151,7 +167,7 @@ public final class DiscordPresence {
         return statusValue
     }
 
-    public func update(book: BookRecord?, progress: ProgressObservation?, elapsed: TimeInterval, enabled: Bool, applicationID: String, assetKey: String, paused: Bool = false) {
+    public func update(book: BookRecord?, progress: ProgressObservation?, elapsed: TimeInterval, enabled: Bool, applicationID: String, assetKey: String, paused: Bool = false, coverURL: String? = nil, currentPage: Int? = nil, pagesTurned: Int? = nil) {
         // Serializing the state change ahead of its work item means a queued, older
         // activity cannot be published after this call disables sharing.
         queue.sync {
@@ -162,7 +178,7 @@ public final class DiscordPresence {
             if enabled, let book, !book.sharingExcluded, !applicationID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 let beginsNewSession = desired == nil || desired?.applicationID != applicationID
                 let pausedChanged = desired.map { $0.paused != paused } ?? false
-                desired = DesiredActivity(book: book, progress: progress, elapsed: elapsed, applicationID: applicationID, assetKey: assetKey, paused: paused, publishImmediately: pausedChanged, generation: currentGeneration)
+                desired = DesiredActivity(book: book, progress: progress, elapsed: elapsed, applicationID: applicationID, assetKey: assetKey, paused: paused, coverURL: coverURL, currentPage: currentPage, pagesTurned: pagesTurned, publishImmediately: pausedChanged, generation: currentGeneration)
                 // Regular tracker ticks must not mask a useful asynchronous state
                 // such as a rejected activity or scheduled reconnect.
                 if beginsNewSession { statusValue = "Connecting to Discord…" }
@@ -237,7 +253,7 @@ public final class DiscordPresence {
     private func publish(_ activity: DesiredActivity) {
         guard ready, isCurrent(activity) else { return }
         do {
-            let payload = try DiscordActivityPayload.make(book: activity.book, progress: activity.progress, elapsed: activity.elapsed, applicationID: activity.applicationID, assetKey: activity.assetKey, paused: activity.paused)
+            let payload = try DiscordActivityPayload.make(book: activity.book, progress: activity.progress, elapsed: activity.elapsed, applicationID: activity.applicationID, assetKey: activity.assetKey, paused: activity.paused, coverURL: activity.coverURL, currentPage: activity.currentPage, pagesTurned: activity.pagesTurned)
             guard let nonce = DiscordActivityPayload.nonce(in: payload) else {
                 setStatus("Could not prepare Discord activity")
                 return

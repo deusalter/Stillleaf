@@ -87,6 +87,43 @@ final class DiscordPresenceTests: XCTestCase {
         XCTAssertEqual((activity["assets"] as? [String: String])?["large_image"], "books")
     }
 
+    func testPageActivityUsesBookTitleAndRetainsZeroPageCountWithoutTimestamp() throws {
+        let book = BookRecord(id: "book-1", title: "A Book", author: "An Author")
+        let payload = try DiscordActivityPayload.make(
+            book: book,
+            progress: nil,
+            elapsed: 125,
+            applicationID: "123456",
+            assetKey: "books",
+            currentPage: 12,
+            pagesTurned: 0
+        )
+        let activity = try activityObject(in: payload)
+
+        XCTAssertEqual(activity["details"] as? String, "A Book")
+        XCTAssertEqual(activity["state"] as? String, "An Author • Page 12 • 0 pages this session")
+        XCTAssertNil(activity["timestamps"])
+    }
+
+    func testPausedPageActivityIncludesPausedStateWithoutTimestamp() throws {
+        let book = BookRecord(id: "book-1", title: "A Book", author: "An Author")
+        let payload = try DiscordActivityPayload.make(
+            book: book,
+            progress: nil,
+            elapsed: 125,
+            applicationID: "123456",
+            assetKey: "books",
+            paused: true,
+            currentPage: 12,
+            pagesTurned: 7
+        )
+        let activity = try activityObject(in: payload)
+
+        XCTAssertEqual(activity["details"] as? String, "A Book")
+        XCTAssertEqual(activity["state"] as? String, "An Author • Page 12 • 7 pages this session • Paused")
+        XCTAssertNil(activity["timestamps"])
+    }
+
     func testClearPayloadSetsActivityToNull() throws {
         let object = try JSONSerialization.jsonObject(with: DiscordActivityPayload.clear()) as! [String: Any]
         let args = object["args"] as! [String: Any]
