@@ -199,11 +199,11 @@ public enum PageStatistics {
             let resolvedBook = resolver.resolve(eventBook)
             guard requestedBook.map({ resolvedBook == $0 }) ?? true else { return nil }
             // Event dates are recorded at checkpoint end boundaries. `contains`
-            // is intentionally inclusive; `contains(where:)` still counts once
-            // when two adjacent fragments share that boundary.
+            // is start-exclusive so excluding the fragment that ended at an
+            // event cannot retain it through the next fragment's start.
             guard intervals.contains(where: { interval in
                 interval.sessionID == eventSession && resolver.resolve(interval.bookID) == resolvedBook
-                    && event.date >= interval.start && event.date <= interval.end
+                    && event.date > interval.start && event.date <= interval.end
             }) else { return nil }
             return QualifiedPageTurn(event: event, evidence: evidence)
         }

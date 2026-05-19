@@ -139,6 +139,23 @@ final class PageTurnTests: XCTestCase {
         XCTAssertEqual(PageStatistics.pages(events: events, effectiveIntervals: intervals, merges: merges, from: day, through: intervals[1].end), 1)
     }
 
+    func testBoundaryEventDoesNotSurviveThroughNextFragmentButInteriorCorrectionDoes() {
+        let start = Date(timeIntervalSince1970: 1_704_067_200)
+        let boundary = start.addingTimeInterval(10)
+        let event = turn(id: "boundary", date: boundary, book: "book", session: "session",
+                         from: 1, to: 2, visible: 1)
+        let excludedSource = ReadingInterval(id: "excluded-source", sessionID: "session", bookID: "book",
+            start: start, end: boundary, duration: 10, timezoneID: "UTC", mode: .automatic,
+            disposition: .excluded)
+        let next = ReadingInterval(id: "next", sessionID: "session", bookID: "book",
+            start: boundary, end: start.addingTimeInterval(20), duration: 10, timezoneID: "UTC", mode: .automatic)
+        XCTAssertEqual(PageStatistics.pages(events: [event], effectiveIntervals: [excludedSource, next], merges: []), 0)
+
+        let corrected = ReadingInterval(id: "corrected", sessionID: "session", bookID: "book",
+            start: start, end: start.addingTimeInterval(20), duration: 20, timezoneID: "UTC", mode: .automatic)
+        XCTAssertEqual(PageStatistics.pages(events: [event], effectiveIntervals: [corrected], merges: []), 1)
+    }
+
     func testDailyPageGoalsDoNotBackfillLegacyHistoryAndProducePageStreak() {
         let first = Date(timeIntervalSince1970: 1_704_067_200)
         let second = first.addingTimeInterval(86_400)
