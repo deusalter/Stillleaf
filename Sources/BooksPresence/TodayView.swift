@@ -12,40 +12,45 @@ struct TodayView: View {
                 PageHeading(title: "Today", subtitle: todaySubtitle)
                 HStack(alignment: .top, spacing: 18) {
                     VStack(alignment: .leading, spacing: 16) {
-                        GoalProgressView(day: model.today)
-                        if model.streak.todayPending {
-                            Text("Today is still pending. Your streak through yesterday is preserved.")
+                        GoalProgressView(model: model, day: model.today)
+                        if model.pageStreak.todayPending {
+                            Text("Today is still pending. Your page-goal streak through yesterday is preserved.")
                                 .font(.callout).foregroundStyle(.secondary)
                         }
-                        if model.streak.provisional {
-                            Label("Your streak includes time awaiting review.", systemImage: "clock.badge.questionmark")
+                        if model.pageStreak.provisional {
+                            Label("Your page-goal streak includes activity awaiting review.", systemImage: "clock.badge.questionmark")
                                 .font(.callout).foregroundStyle(ReadingPalette.ochre)
                         }
                     }
                     .readingPanel()
                     VStack(alignment: .leading, spacing: 10) {
-                        Text("Goal streak").font(.headline)
-                        Text("\(model.streak.current) days")
+                        Text("Page-goal streak").font(.headline)
+                        Text("\(model.pageStreak.current) days")
                             .font(.system(size: 36, weight: .medium, design: .serif))
                             .foregroundStyle(ReadingPalette.ink)
-                        Text("Longest: \(model.streak.longest) days")
+                        Text("Longest: \(model.pageStreak.longest) days")
                             .foregroundStyle(.secondary)
+                        Text("Time remains available in your history.")
+                            .font(.caption).foregroundStyle(.secondary)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .readingPanel()
                 }
 
                 currentActivity
+                if let entry = model.pendingCompletion, model.snapshot.phase != .reading, !model.manualActive {
+                    FinishedBookPrompt(model: model, entry: entry)
+                }
                 HStack(spacing: 12) {
                     if model.manualActive {
                         Button("Stop manual reading") { model.stopManual() }
-                            .buttonStyle(.borderedProminent)
+                            .buttonStyle(ReadingButtonStyle(emphasis: .primary))
                     } else {
                         Button("Start manual reading") { present(.manualStart) }
-                            .buttonStyle(.borderedProminent)
+                            .buttonStyle(ReadingButtonStyle(emphasis: .primary))
                     }
                     Button("Add reading time") { present(.manualAdd) }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(ReadingButtonStyle(emphasis: .secondary))
                 }
                 Text("Manual records are identified separately in history.")
                     .font(.callout).foregroundStyle(.secondary)
@@ -57,14 +62,18 @@ struct TodayView: View {
             .padding(32)
             .frame(maxWidth: 960, alignment: .leading)
         }
+        .buttonStyle(ReadingButtonStyle())
     }
 
     private var todaySubtitle: String {
         let day = ReadingFormat.day(model.today.day)
-        if model.today.creditedSeconds == 0 {
-            return "\(day) · no credited reading recorded yet"
+        if model.todayPages == 0 {
+            if model.today.creditedSeconds > 0 {
+                return "\(day) · recorded time, no observed pages"
+            }
+            return "\(day) · no observed pages recorded yet"
         }
-        return "\(day) · your recorded reading"
+        return "\(day) · \(ReadingFormat.observedPages(model.todayPages))"
     }
 
     private var currentActivity: some View {
@@ -79,9 +88,18 @@ struct TodayView: View {
                 }
                 ActivityStateLabel(snapshot: model.snapshot)
                 HStack(spacing: 20) {
+                    LabeledValue(label: "Session pages", value: ReadingFormat.observedPages(model.sessionPages))
+                    if let page = model.currentPage {
+                        LabeledValue(label: "Current page", value: "Page \(page)")
+                    }
+                    if let pace = ReadingFormat.pagesPerMinute(model.sessionPagesPerMinute) {
+                        LabeledValue(label: "Session pace", value: pace)
+                    }
                     LabeledValue(label: "Session time", value: ReadingFormat.duration(model.snapshot.sessionSeconds))
                     LabeledValue(label: "Mode", value: model.snapshot.mode.rawValue.capitalized)
                 }
+                Text("Observed pages come from visible pagination. Time is recorded separately.")
+                    .font(.caption).foregroundStyle(.secondary)
                 if let reason = model.snapshot.pauseReason, model.snapshot.phase == .paused {
                     Text("Paused because \(pauseDescription(reason)).")
                         .font(.callout).foregroundStyle(.secondary)
@@ -94,17 +112,29 @@ struct TodayView: View {
 }
 
 struct GoalProgressView: View {
+    @ObservedObject var model: AppModel
     let day: DailyTotal
+    private var observedPages: Int { model.pages(on: day.day) }
+    private var pageGoal: Int? { model.pageGoal(on: day.day) }
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline) {
-                Text("Daily goal").font(.headline)
+                Text("Daily page goal").font(.headline)
                 Spacer()
-                Text("\(ReadingFormat.duration(day.creditedSeconds)) / \(ReadingFormat.duration(day.goalMinutes * 60))")
+                Text(pageGoal.map { "\(ReadingFormat.observedPages(observedPages)) / \($0) page goal" } ?? ReadingFormat.observedPages(observedPages))
                     .font(.callout).monospacedDigit().foregroundStyle(ReadingPalette.fadedInk)
             }
-            ProgressView(value: day.creditedSeconds, total: max(1, day.goalMinutes * 60))
-                .tint(day.qualifies ? ReadingPalette.moss : ReadingPalette.ochre)
+            if let pageGoal {
+                ProgressView(value: Double(observedPages), total: Double(max(1, pageGoal)))
+                    .tint(observedPages >= pageGoal ? ReadingPalette.moss : ReadingPalette.ochre)
+            } else {
+                Text("No page goal recorded for this day.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Text("Inferred from visible pagination.")
+                .font(.caption).foregroundStyle(.secondary)
+            Text("Recorded time: \(ReadingFormat.duration(day.creditedSeconds))")
+                .font(.caption).monospacedDigit().foregroundStyle(.secondary)
             if day.manualSeconds > 0 || day.uncertainSeconds > 0 {
                 HStack(spacing: 14) {
                     if day.manualSeconds > 0 { Text("Manual: \(ReadingFormat.duration(day.manualSeconds))") }

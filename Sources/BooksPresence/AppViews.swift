@@ -51,6 +51,7 @@ struct DashboardView: View {
         .foregroundStyle(ReadingPalette.ink)
         .toggleStyle(.switch)
         .tint(ReadingPalette.moss)
+        .buttonStyle(ReadingButtonStyle())
         .sheet(item: $sheet) { item in
             dashboardSheet(item)
         }
@@ -60,7 +61,7 @@ struct DashboardView: View {
         } message: {
             Text("This removes local reading records, managed backups, and cached covers. Exports and backups you saved elsewhere are not removed; keep those yourself if needed.")
         }
-        .alert("Uninstall BooksPresence?", isPresented: $uninstallConfirmation) {
+        .alert("Uninstall Stillleaf?", isPresented: $uninstallConfirmation) {
             Button("Uninstall", role: .destructive) { model.uninstall() }
             Button("Cancel", role: .cancel) { }
         } message: {
@@ -95,7 +96,7 @@ struct PopoverView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
-                Label("BooksPresence", systemImage: "book.closed.fill")
+                Label("Stillleaf", systemImage: "book.closed.fill")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(ReadingPalette.fadedInk)
                 Spacer()
@@ -112,17 +113,27 @@ struct PopoverView: View {
                         Text(author).font(.callout).foregroundStyle(.secondary).lineLimit(1)
                     }
                     ActivityStateLabel(snapshot: model.snapshot)
+                    if let page = model.currentPage {
+                        Text("Page \(page)")
+                            .font(.caption)
+                            .foregroundStyle(ReadingPalette.fadedInk)
+                    }
                 }
                 Spacer(minLength: 0)
             }
             HStack(spacing: 0) {
-                CompactMetric(value: ReadingFormat.duration(model.snapshot.sessionSeconds), label: "This session")
-                CompactMetric(value: ReadingFormat.duration(model.today.creditedSeconds), label: "Today")
-                CompactMetric(value: "\(model.streak.current) days", label: "Streak")
+                CompactMetric(value: "\(model.sessionPages)", label: "Session pages")
+                CompactMetric(value: "\(model.todayPages)", label: "Today's pages")
+                CompactMetric(value: "\(model.pageStreak.current) days", label: "Page-goal streak")
             }
             .padding(.vertical, 10)
             .background(ReadingPalette.surface, in: RoundedRectangle(cornerRadius: 10))
-            GoalProgressView(day: model.today)
+            if let pace = ReadingFormat.pagesPerMinute(model.sessionPagesPerMinute) {
+                Text("Reading pace: \(pace)")
+                    .font(.caption)
+                    .foregroundStyle(ReadingPalette.fadedInk)
+            }
+            GoalProgressView(model: model, day: model.today)
             VStack(spacing: 12) {
                 Toggle(isOn: Binding(get: { model.trackingEnabled }, set: { model.trackingEnabled = $0; model.saveSettings() })) {
                     Label("Track reading", systemImage: "timer")
@@ -136,10 +147,10 @@ struct PopoverView: View {
                 PopoverSetupNotice(
                     icon: "accessibility",
                     title: "Accessibility access needed",
-                    description: "BooksPresence cannot automatically capture reading until macOS grants access."
+                    description: "Stillleaf cannot automatically capture reading until macOS grants access."
                 ) {
                     Button("Request access") { model.requestAccessibility() }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(ReadingButtonStyle(emphasis: .secondary))
                         .controlSize(.small)
                 }
             }
@@ -157,9 +168,9 @@ struct PopoverView: View {
                 Button(model.manualActive ? "Stop manual reading" : "Read manually") {
                     if model.manualActive { model.stopManual() } else { showingManualStart = true }
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(ReadingButtonStyle(emphasis: .primary))
                 Spacer()
-                Button("Quit") { model.quit() }.buttonStyle(.borderless)
+                Button("Quit") { model.quit() }.buttonStyle(ReadingButtonStyle(emphasis: .secondary))
             }
         }
         .padding(18)
@@ -168,6 +179,7 @@ struct PopoverView: View {
         .background(ReadingPalette.paper, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .tint(ReadingPalette.moss)
+        .buttonStyle(ReadingButtonStyle())
         .sheet(isPresented: $showingManualStart) { ManualStartView(model: model) }
     }
 }
@@ -248,7 +260,7 @@ private struct DashboardSidebar: View {
                     .font(.system(size: 19, weight: .medium))
                     .foregroundStyle(ReadingPalette.moss)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("BooksPresence").font(.system(size: 14, weight: .semibold))
+                    Text("Stillleaf").font(.system(size: 14, weight: .semibold))
                     Text("Your reading journal").font(.system(size: 11)).foregroundStyle(ReadingPalette.fadedInk)
                 }
             }
@@ -383,6 +395,23 @@ enum ReadingPalette {
 }
 
 enum ReadingFormat {
+    static func observedPages(_ value: Int) -> String {
+        "\(value) observed \(value == 1 ? "page" : "pages")"
+    }
+
+    static func pagePace(_ minutesPerPage: Double?) -> String? {
+        guard let minutesPerPage, minutesPerPage.isFinite, minutesPerPage > 0 else { return nil }
+        if minutesPerPage < 1 {
+            return "\(max(1, Int((60 / minutesPerPage).rounded()))) pages/hour"
+        }
+        return "\(minutesPerPage.formatted(.number.precision(.fractionLength(1)))) min/page"
+    }
+
+    static func pagesPerMinute(_ value: Double?) -> String? {
+        guard let value, value.isFinite, value > 0 else { return nil }
+        return "\(value.formatted(.number.precision(.fractionLength(2)))) pages/min"
+    }
+
     static func duration(_ seconds: TimeInterval) -> String {
         let rounded = max(0, Int(seconds.rounded()))
         let hours = rounded / 3600
