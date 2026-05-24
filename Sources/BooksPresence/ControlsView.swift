@@ -13,6 +13,8 @@ struct ManualStartView: View {
             Text("Start manual reading").font(.system(.title2, design: .serif))
             Text("Use this for a paper book or intentional side-by-side reading. It is stored as manual activity.")
                 .font(.callout).foregroundStyle(.secondary)
+            Text("Manual entries record time only; observed pages come from visible pagination.")
+                .font(.caption).foregroundStyle(.secondary)
             Form {
                 TextField("Book title", text: $title)
                 TextField("Author (optional)", text: $author)
@@ -24,7 +26,7 @@ struct ManualStartView: View {
                     model.startManual(title: title.trimmingCharacters(in: .whitespacesAndNewlines), author: author.trimmingCharacters(in: .whitespacesAndNewlines))
                     dismiss()
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(ReadingButtonStyle(emphasis: .primary))
                 .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
@@ -32,6 +34,7 @@ struct ManualStartView: View {
         .frame(width: 430)
         .background(ReadingPalette.paper)
         .tint(ReadingPalette.moss)
+        .buttonStyle(ReadingButtonStyle())
     }
 }
 
@@ -62,12 +65,14 @@ struct ManualAdditionView: View {
                     DatePicker("Finished", selection: $end, in: start...)
                     Text("The entry is marked manual. It does not represent Apple Books activity.")
                         .font(.caption).foregroundStyle(.secondary)
+                    Text("Manual entries record time only; observed pages are not inferred.")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
                 Button("Add reading time") {
                     model.addManual(title: title.trimmingCharacters(in: .whitespacesAndNewlines), author: author.trimmingCharacters(in: .whitespacesAndNewlines), start: start, end: end)
                     dismiss()
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(ReadingButtonStyle(emphasis: .primary))
                 .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || end <= start)
             }
             .formStyle(.grouped).padding(.vertical, 8)
@@ -75,6 +80,7 @@ struct ManualAdditionView: View {
         .frame(width: 480, height: 410)
         .background(ReadingPalette.paper)
         .tint(ReadingPalette.moss)
+        .buttonStyle(ReadingButtonStyle())
     }
 }
 
@@ -110,7 +116,7 @@ struct MergeBooksView: View {
                             dismiss()
                         }
                     }
-                    .buttonStyle(.borderedProminent).disabled(targetID.isEmpty)
+                    .buttonStyle(ReadingButtonStyle(emphasis: .primary)).disabled(targetID.isEmpty)
                 }
             }
         }
@@ -118,6 +124,7 @@ struct MergeBooksView: View {
         .frame(width: 480)
         .background(ReadingPalette.paper)
         .tint(ReadingPalette.moss)
+        .buttonStyle(ReadingButtonStyle())
     }
 }
 
@@ -168,6 +175,7 @@ struct HealthView: View {
             .padding(32)
             .frame(maxWidth: 920, alignment: .leading)
         }
+        .buttonStyle(ReadingButtonStyle())
     }
 }
 
@@ -197,6 +205,7 @@ struct SettingsView: View {
 
     @State private var category: SettingsCategory
     @State private var didLoadDrafts = false
+    @State private var pageGoalDraft = "20"
     @State private var goalDraft = "20"
     @State private var uncertaintyDraft = "20"
     @State private var timezoneDraft = TimeZone.current.identifier
@@ -231,6 +240,7 @@ struct SettingsView: View {
         }
         .background(ReadingPalette.paper)
         .tint(ReadingPalette.moss)
+        .buttonStyle(ReadingButtonStyle())
         .onAppear(perform: loadDraftsIfNeeded)
     }
 
@@ -264,7 +274,7 @@ struct SettingsView: View {
 
     private var readingSettings: some View {
         VStack(alignment: .leading, spacing: 16) {
-            SettingsSectionHeading(title: "Reading", subtitle: "Choose what BooksPresence captures and how it arranges your reading day.")
+            SettingsSectionHeading(title: "Reading", subtitle: "Choose what Stillleaf captures and how it arranges your reading day.")
             settingsCard {
                 VStack(spacing: 0) {
                     SettingRow(icon: "book.closed.fill", title: "Enable reading tracking", description: "Capture eligible Apple Books activity on this Mac.") {
@@ -274,11 +284,29 @@ struct SettingsView: View {
                             .accessibilityLabel("Enable reading tracking")
                     }
                     settingDivider
-                    SettingRow(icon: "rectangle.and.arrow.up.right.and.arrow.down.left", title: "Launch at login", description: "Start BooksPresence when you sign in to this Mac.") {
+                    SettingRow(icon: "rectangle.and.arrow.up.right.and.arrow.down.left", title: "Launch at login", description: "Start Stillleaf when you sign in to this Mac.") {
                         Toggle("Launch at login", isOn: launchAtLoginBinding)
                             .labelsHidden()
                             .toggleStyle(.switch)
-                            .accessibilityLabel("Launch BooksPresence at login")
+                            .accessibilityLabel("Launch Stillleaf at login")
+                    }
+                }
+            }
+
+            SettingsSectionHeading(title: "Apple Books history", subtitle: "Bring in finished-book dates from Apple Books. This never adds reading time or observed pages.")
+            settingsCard {
+                VStack(spacing: 0) {
+                    SettingRow(icon: "books.vertical.fill", title: "Sync finished books", description: "Keep your finished-book timeline up to date from Apple Books on this Mac.") {
+                        Toggle("Sync finished books from Apple Books", isOn: appleHistorySyncBinding)
+                            .labelsHidden()
+                            .toggleStyle(.switch)
+                            .accessibilityLabel("Sync finished books from Apple Books")
+                    }
+                    settingDivider
+                    SettingRow(icon: "arrow.triangle.2.circlepath", title: "Sync status", description: model.appleHistoryStatus) {
+                        Button("Sync now") { model.syncAppleBooksHistory() }
+                            .controlSize(.small)
+                            .disabled(!model.syncAppleBooksHistoryEnabled)
                     }
                 }
             }
@@ -286,25 +314,49 @@ struct SettingsView: View {
             SettingsSectionHeading(title: "Reading day", subtitle: "Choose values, then apply them when you are ready.")
             settingsCard {
                 VStack(spacing: 0) {
-                    SettingRow(icon: "target", title: "Daily goal", description: "Goal changes apply today and future days; historic qualifications stay intact.") {
-                        numericEditor(label: "Daily goal minutes", value: $goalDraft, range: 1...1_440, stepperValue: goalBinding)
-                    }
-                    HStack(spacing: 6) {
-                        Text("Quick goals").font(.caption).foregroundStyle(.secondary)
-                        ForEach([15, 20, 30, 45, 60], id: \.self) { minutes in
-                            Button("\(minutes)m") { setGoalPreset(minutes) }
-                                .buttonStyle(.bordered)
-                                .controlSize(.small)
+                    Group {
+                        SettingRow(icon: "book.pages", title: "Daily page goal", description: "Observed pages come from visible pagination. Time-only history remains available without page counts.") {
+                            numericEditor(label: "Daily page goal", value: $pageGoalDraft, range: 1...10_000, stepperValue: pageGoalBinding)
                         }
-                        Spacer()
-                    }
-                    .padding(.leading, 44)
-                    .padding(.bottom, 13)
-                    Text("Choose 1–1,440 minutes.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        HStack(spacing: 6) {
+                            Text("Quick page goals").font(.caption).foregroundStyle(.secondary)
+                            ForEach([10, 20, 30, 50, 75], id: \.self) { pages in
+                                Button("\(pages)") { setPageGoalPreset(pages) }
+                                    .buttonStyle(ReadingButtonStyle(emphasis: .secondary))
+                                    .controlSize(.small)
+                            }
+                            Spacer()
+                        }
                         .padding(.leading, 44)
                         .padding(.bottom, 13)
+                        Text("Choose 1–10,000 observed pages.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .padding(.leading, 44)
+                            .padding(.bottom, 13)
+                    }
+                    settingDivider
+                    Group {
+                        SettingRow(icon: "timer", title: "Daily time goal", description: "Optional supporting goal. Time remains visible in history and is never converted into pages.") {
+                            numericEditor(label: "Daily goal minutes", value: $goalDraft, range: 1...1_440, stepperValue: goalBinding)
+                        }
+                        HStack(spacing: 6) {
+                            Text("Quick goals").font(.caption).foregroundStyle(.secondary)
+                            ForEach([15, 20, 30, 45, 60], id: \.self) { minutes in
+                                Button("\(minutes)m") { setGoalPreset(minutes) }
+                                    .buttonStyle(ReadingButtonStyle(emphasis: .secondary))
+                                    .controlSize(.small)
+                            }
+                            Spacer()
+                        }
+                        .padding(.leading, 44)
+                        .padding(.bottom, 13)
+                        Text("Choose 1–1,440 minutes.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .padding(.leading, 44)
+                            .padding(.bottom, 13)
+                    }
                     settingDivider
                     SettingRow(icon: "clock.badge.checkmark", title: "Review after", description: "Mark time for review after this many minutes without fresh evidence.") {
                         numericEditor(label: "Review threshold minutes", value: $uncertaintyDraft, range: 1...240, stepperValue: uncertaintyBinding)
@@ -340,16 +392,16 @@ struct SettingsView: View {
             }
             applyBar(action: { applyReadingDrafts() }, label: "Apply reading changes", valid: readingDraftsAreValid)
 
-            SettingsSectionHeading(title: "Accessibility", subtitle: "Automatic capture needs macOS permission. The status below reflects the access currently granted to BooksPresence.")
+            SettingsSectionHeading(title: "Accessibility", subtitle: "Automatic capture needs macOS permission. The status below reflects the access currently granted to Stillleaf.")
             settingsCard {
                 if model.accessibilityGranted {
-                    SettingRow(icon: "checkmark.shield.fill", title: "Accessibility access granted", description: "BooksPresence can automatically check eligible Apple Books activity while tracking is on.") {
+                    SettingRow(icon: "checkmark.shield.fill", title: "Accessibility access granted", description: "Stillleaf can automatically check eligible Apple Books activity while tracking is on.") {
                         Label("Granted", systemImage: "checkmark.circle.fill")
                             .font(.callout)
                             .foregroundStyle(ReadingPalette.moss)
                     }
                 } else {
-                    SettingRow(icon: "accessibility", title: "Accessibility access needed", description: "Automatic capture is unavailable until you allow BooksPresence in macOS Privacy settings.") {
+                    SettingRow(icon: "accessibility", title: "Accessibility access needed", description: "Automatic capture is unavailable until you allow Stillleaf in macOS Privacy settings.") {
                         HStack(spacing: 8) {
                             Button("Request access") { model.requestAccessibility() }
                             Button("Open settings") { model.openAccessibilitySettings() }
@@ -371,6 +423,13 @@ struct SettingsView: View {
                             .labelsHidden()
                             .toggleStyle(.switch)
                             .accessibilityLabel("Share current activity with Discord")
+                    }
+                    settingDivider
+                    SettingRow(icon: "photo.badge.arrow.down", title: "Find public cover links automatically", description: "Optionally look for public cover links for Discord. Stillleaf never uploads your local cover.") {
+                        Toggle("Find public cover links automatically", isOn: automaticPublicCoversBinding)
+                            .labelsHidden()
+                            .toggleStyle(.switch)
+                            .accessibilityLabel("Find public cover links automatically for Discord")
                     }
                     settingDivider
                     VStack(alignment: .leading, spacing: 12) {
@@ -420,7 +479,7 @@ struct SettingsView: View {
                 }
             }
             applyBar(action: { applyDiscordDrafts() }, label: "Apply Discord details", valid: true)
-            Text("A paused card stays visible for up to 20 minutes after your last page turn or reading activity. A book can be excluded from Discord sharing in its details without excluding it from local tracking.")
+            Text("A paused card stays visible for up to 20 minutes after your last page advance or reading activity. A book can be excluded from Discord sharing in its details without excluding it from local tracking.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 2)
@@ -455,7 +514,7 @@ struct SettingsView: View {
                 }
             }
 
-            SettingsSectionHeading(title: "Remove from this Mac", subtitle: "Delete all data asks for confirmation. Files exported outside BooksPresence stay where you saved them.")
+            SettingsSectionHeading(title: "Remove from this Mac", subtitle: "Delete all data asks for confirmation. Files exported outside Stillleaf stay where you saved them.")
             settingsCard {
                 VStack(spacing: 0) {
                     SettingRow(icon: "trash", title: "Delete all reading data", description: "Remove local reading history, managed backups, and cached covers.") {
@@ -463,7 +522,7 @@ struct SettingsView: View {
                             .controlSize(.small)
                     }
                     settingDivider
-                    SettingRow(icon: "app.dashed", title: "Uninstall BooksPresence", description: "Remove the installed app after you have saved any history you want to keep.") {
+                    SettingRow(icon: "app.dashed", title: "Uninstall Stillleaf", description: "Remove the installed app after you have saved any history you want to keep.") {
                         Button("Uninstall", role: .destructive, action: uninstall)
                             .controlSize(.small)
                     }
@@ -486,6 +545,23 @@ struct SettingsView: View {
         })
     }
 
+    private var automaticPublicCoversBinding: Binding<Bool> {
+        Binding(get: { model.automaticPublicCovers }, set: { enabled in
+            model.automaticPublicCovers = enabled
+            model.saveSettings()
+            showResult(success: enabled ? "Automatic public cover lookup enabled." : "Automatic public cover lookup disabled.")
+        })
+    }
+
+    private var appleHistorySyncBinding: Binding<Bool> {
+        Binding(get: { model.syncAppleBooksHistoryEnabled }, set: { enabled in
+            model.syncAppleBooksHistoryEnabled = enabled
+            model.saveSettings()
+            if enabled { model.syncAppleBooksHistory() }
+            showResult(success: enabled ? "Apple Books history sync enabled." : "Apple Books history sync paused.")
+        })
+    }
+
     private var launchAtLoginBinding: Binding<Bool> {
         Binding(get: { model.launchAtLogin }, set: { enabled in
             model.launchAtLogin = enabled
@@ -497,6 +573,13 @@ struct SettingsView: View {
     private var goalBinding: Binding<Int> {
         Binding(get: { Int(goalDraft) ?? 20 }, set: { value in
             goalDraft = String(value)
+            clearFeedback()
+        })
+    }
+
+    private var pageGoalBinding: Binding<Int> {
+        Binding(get: { Int(pageGoalDraft) ?? 20 }, set: { value in
+            pageGoalDraft = String(value)
             clearFeedback()
         })
     }
@@ -524,7 +607,8 @@ struct SettingsView: View {
     }
 
     private var readingDraftsAreValid: Bool {
-        guard let goal = Int(goalDraft), (1...1_440).contains(goal),
+        guard let pageGoal = Int(pageGoalDraft), (1...10_000).contains(pageGoal),
+              let goal = Int(goalDraft), (1...1_440).contains(goal),
               let uncertainty = Int(uncertaintyDraft), (1...240).contains(uncertainty),
               TimeZone(identifier: timezoneDraft) != nil else { return false }
         return true
@@ -538,7 +622,7 @@ struct SettingsView: View {
                 .frame(width: 52)
                 .multilineTextAlignment(.trailing)
                 .onSubmit { applyReadingDrafts() }
-            Text("min").font(.callout).foregroundStyle(.secondary)
+            Text(label.contains("minute") ? "min" : "pages").font(.callout).foregroundStyle(.secondary)
             Stepper(label, value: stepperValue, in: range)
                 .labelsHidden()
                 .accessibilityLabel(label)
@@ -549,7 +633,7 @@ struct SettingsView: View {
     private func applyBar(action: @escaping () -> Void, label: String, valid: Bool) -> some View {
         HStack(spacing: 10) {
             Button(label, action: action)
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(ReadingButtonStyle(emphasis: .primary))
                 .disabled(!valid)
             if let applyFeedback {
                 Label(applyFeedback, systemImage: applyFailed ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
@@ -562,8 +646,7 @@ struct SettingsView: View {
             }
             Spacer()
             Button("Revert drafts") { reloadDrafts() }
-                .buttonStyle(.borderless)
-                .foregroundStyle(.secondary)
+                .buttonStyle(ReadingButtonStyle(emphasis: .secondary))
         }
         .padding(.horizontal, 2)
     }
@@ -577,6 +660,11 @@ struct SettingsView: View {
         clearFeedback()
     }
 
+    private func setPageGoalPreset(_ pages: Int) {
+        pageGoalDraft = String(pages)
+        clearFeedback()
+    }
+
     private func loadDraftsIfNeeded() {
         guard !didLoadDrafts else { return }
         didLoadDrafts = true
@@ -584,6 +672,7 @@ struct SettingsView: View {
     }
 
     private func reloadDrafts() {
+        pageGoalDraft = String(Int(model.pageGoal.rounded()))
         goalDraft = String(Int(model.goalMinutes.rounded()))
         uncertaintyDraft = String(Int(model.uncertaintyMinutes.rounded()))
         timezoneDraft = model.timezoneID
@@ -594,11 +683,12 @@ struct SettingsView: View {
     }
 
     private func applyReadingDrafts() {
-        guard readingDraftsAreValid, let goal = Int(goalDraft), let uncertainty = Int(uncertaintyDraft) else {
-            applyFeedback = "Choose a daily goal from 1–1,440 minutes, a review threshold from 1–240 minutes, and a valid time zone."
+        guard readingDraftsAreValid, let pageGoal = Int(pageGoalDraft), let goal = Int(goalDraft), let uncertainty = Int(uncertaintyDraft) else {
+            applyFeedback = "Choose a page goal from 1–10,000 pages, a time goal from 1–1,440 minutes, a review threshold from 1–240 minutes, and a valid time zone."
             applyFailed = true
             return
         }
+        model.pageGoal = Double(pageGoal)
         model.goalMinutes = Double(goal)
         model.uncertaintyMinutes = Double(uncertainty)
         model.timezoneID = timezoneDraft
@@ -700,5 +790,6 @@ struct RestoreConfirmationView: View {
         .padding(24)
         .frame(width: 460)
         .background(ReadingPalette.paper)
+        .buttonStyle(ReadingButtonStyle())
     }
 }

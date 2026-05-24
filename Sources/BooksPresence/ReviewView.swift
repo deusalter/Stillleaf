@@ -9,7 +9,7 @@ struct ReviewView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 26) {
-                PageHeading(title: "Review", subtitle: "Uncertain time is excluded from credited totals until you confirm it.")
+                PageHeading(title: "Review", subtitle: "Observed pages come from visible pagination; time remains available for audit.")
                 if model.uncertainIntervals.isEmpty {
                     HStack(spacing: 12) {
                         Image(systemName: "checkmark.circle.fill").foregroundStyle(ReadingPalette.moss)
@@ -45,6 +45,7 @@ struct ReviewView: View {
             .padding(32)
             .frame(maxWidth: 960, alignment: .leading)
         }
+        .buttonStyle(ReadingButtonStyle())
     }
 }
 
@@ -57,7 +58,7 @@ struct UncertainIntervalRow: View {
     var body: some View {
         HStack(alignment: .center, spacing: 14) {
             Image(systemName: "clock.badge.questionmark").font(.title3).foregroundStyle(ReadingPalette.ochre)
-            IntervalSummary(interval: interval, book: model.books.first { $0.id == interval.bookID })
+            IntervalSummary(interval: interval, book: model.books.first { $0.id == interval.bookID }, pageTurns: model.pages(forSessionID: interval.sessionID))
             Spacer()
             Button("Confirm") { model.resolveUncertain(interval, confirm: true) }
             Button("Trim", action: edit)
@@ -80,7 +81,7 @@ struct ReviewIntervalRow: View {
     @State private var deletionConfirmation = false
     var body: some View {
         HStack(spacing: 14) {
-            IntervalSummary(interval: interval, book: model.books.first { $0.id == interval.bookID })
+            IntervalSummary(interval: interval, book: model.books.first { $0.id == interval.bookID }, pageTurns: model.pages(forSessionID: interval.sessionID))
             Spacer()
             Button("Edit", action: edit)
             Button(role: .destructive, action: { deletionConfirmation = true }) { Image(systemName: "trash") }
@@ -98,11 +99,14 @@ struct ReviewIntervalRow: View {
 struct IntervalSummary: View {
     let interval: ReadingInterval
     let book: BookRecord?
+    let pageTurns: Int
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             Text(book?.title ?? "Unknown book").font(.headline)
-            Text("\(ReadingFormat.date(interval.start)) · \(ReadingFormat.duration(interval.duration))")
+            Text(ReadingFormat.observedPages(pageTurns))
                 .font(.callout).monospacedDigit()
+            Text("\(ReadingFormat.date(interval.start)) · \(ReadingFormat.duration(interval.duration))")
+                .font(.caption).monospacedDigit().foregroundStyle(.secondary)
             Text("\(interval.mode.rawValue.capitalized) · \(interval.disposition.rawValue.capitalized)")
                 .font(.caption).foregroundStyle(.secondary)
         }
@@ -140,6 +144,11 @@ struct IntervalReviewEditor: View {
             }.padding(20)
             Divider()
             Form {
+                Section("Recorded observed pages") {
+                    Text(ReadingFormat.observedPages(model.pages(forSessionID: interval.sessionID)))
+                    Text("Observed pages come from visible pagination and are not edited with interval time corrections.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
                 Section("Stored interval") {
                     DatePicker("Start", selection: $start)
                     DatePicker("End", selection: $end, in: start...)
