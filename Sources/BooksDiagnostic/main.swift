@@ -20,7 +20,7 @@ var report: [String: Any] = [
     "windows": BooksCapture.windowReport(includeMetadata: includeMetadata),
     "privacy": "No prose, screenshots, keystrokes, unrelated app titles, database writes or network calls. Metadata excluded unless requested.",
     "readerRule": "Exact focused AXDocument match, or a bounded Books 8.0 EPUB reader-structure inference plus one exact local catalog title. Ambiguous and unsupported windows pause.",
-    "livePage": "Books 8.0 English page footer: ephemeral navigation signal only; no stored page metric",
+    "livePage": "Books 8.0 English page footer: layout-specific observed forward pages; no canonical page or word count",
     "savedProgressFreshness": "unverified; never used as proof of current reading",
     "multiWindowBehavior": "focused window only; revalidated after matching"
 ]

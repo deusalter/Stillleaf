@@ -21,6 +21,6 @@ jobs:
         run: scripts/package-app.sh
       - uses: actions/upload-artifact@v4
         with:
-          name: BooksPresence-macOS-development
-          path: dist/BooksPresence-*.zip
+          name: Stillleaf-macOS-development
+          path: dist/Stillleaf-*.zip
 # CI does not grant Accessibility access or validate a live Books/Discord session.

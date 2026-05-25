@@ -28,8 +28,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             model = state
             state.dashboardAction = { [weak self] in self?.showDashboard() }
             let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-            item.button?.image = NSImage(systemSymbolName: "book.closed", accessibilityDescription: "BooksPresence reading tracker")
-            item.button?.toolTip = "BooksPresence — reading activity"
+            item.button?.image = NSImage(systemSymbolName: "book.closed", accessibilityDescription: "Stillleaf reading tracker")
+            item.button?.toolTip = "Stillleaf — reading activity"
             item.button?.target = self; item.button?.action = #selector(togglePopover)
             statusItem = item
             menuPanel = makeMenuPanel(model: state)
@@ -45,7 +45,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         } catch let error as POSIXError where error.code == .EWOULDBLOCK {
             NSApp.terminate(nil)
         } catch {
-            let alert = NSAlert(); alert.messageText = "BooksPresence could not start"; alert.informativeText = String(describing: error); alert.runModal(); NSApp.terminate(nil)
+            let alert = NSAlert(); alert.messageText = "Stillleaf could not start"; alert.informativeText = String(describing: error); alert.runModal(); NSApp.terminate(nil)
         }
     }
     @objc private func togglePopover() {
@@ -58,7 +58,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         dismissMenuPanel()
         if dashboard == nil {
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1060, height: 760), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-            window.title = "BooksPresence"; window.titlebarAppearsTransparent = true
+            window.title = "Stillleaf"; window.titlebarAppearsTransparent = true
             window.contentViewController = NSHostingController(rootView: DashboardView(model: model))
             window.isReleasedWhenClosed = false; window.delegate = self; window.center()
             dashboard = window
