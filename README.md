@@ -1,4 +1,4 @@
-# BooksPresence
+# Stillleaf
 
 A native macOS menu-bar reading journal for Apple Books, with optional Discord Rich Presence. Reading history stays on this Mac. Automatic time is **inferred reading activity**, not proof of attention.
 
@@ -14,7 +14,7 @@ With full Xcode selected:
 swift build
 swift test
 scripts/package-app.sh
-open dist/BooksPresence.app
+open dist/Stillleaf.app
 ```
 
 With Command Line Tools only (including this host):
@@ -23,7 +23,7 @@ With Command Line Tools only (including this host):
 scripts/build-local.sh
 scripts/check-local.sh
 scripts/package-app.sh
-open dist/BooksPresence.app
+open dist/Stillleaf.app
 ```
 
 The local builder bypasses SwiftPM using `swiftc`. The check script runs independent assertion executables because this host does not have XCTest. GitHub Actions runs the actual XCTest suites on a full macOS/Xcode runner.
@@ -34,7 +34,7 @@ Move the app to `~/Applications` or `/Applications` before configuring permissio
 
 1. Click the book icon in the menu bar. No dashboard or Dock icon opens automatically.
 2. Open Dashboard → Settings. The daily goal starts at 20 credited minutes, using this Mac's initial timezone.
-3. Use Request Accessibility / Open Accessibility Settings and enable **BooksPresence**. macOS may require reopening the app. Granting access to Codex or Terminal does not necessarily grant the packaged tracker access.
+3. Use Request Accessibility / Open Accessibility Settings and enable **Stillleaf**. macOS may require reopening the app. Granting access to Codex or Terminal does not necessarily grant the packaged tracker access.
 4. Open a real reading window in Books. If its focused document cannot be matched exactly to one catalog asset, the Health screen explains why automatic tracking is paused. Use **Start manual reading** for an unsupported reader, paper book, or deliberate side-by-side reading.
 5. Check **Launch at login**. The app attempts main-app login registration once on first packaged launch, subject to macOS approval. You can disable it in Settings or System Settings → General → Login Items.
 
@@ -44,16 +44,17 @@ Closing the dashboard leaves tracking running. Quit stops the tracker. A per-use
 
 Automatic eligibility requires Books foreground, a focused reader matched to one stable Books asset, an awake display, an unlocked user session, permission, and enabled tracking. Library/store, unidentified windows and background Books do not count. Workspace and Accessibility notifications supplement a one-second eligibility poll. Books 8.0 EPUB windows without a document path use a bounded structural check, followed by one exact unique catalog-title match. Duplicate titles, library navigation, minimized/modal windows and incomplete scans are rejected. History continues to use stable asset IDs.
 
-After the configurable conservative threshold (20 minutes by default) without reading activity, subsequent intervals are **uncertain** and excluded. In the observed Books 8.0 EPUB layout, changes to the separate page footer provide activity evidence; moving the pointer does not renew it. Readers without that metadata use foreground reading interaction as a fallback. A review badge and grouped spans allow confirmation, trimming or discard without notification spam. Returning does not retroactively confirm uncertain time.
+After the configurable conservative threshold (20 minutes by default) without reading activity, subsequent intervals are **uncertain** and excluded. In the observed English Books 8.0 EPUB footer layout, small forward page movement with stable reader bounds provides activity evidence; moving the pointer does not renew it. The capture does not read words or prose, measure gaze, or prove attention. Readers without that metadata use foreground reading interaction as a fallback. A review badge and grouped spans allow confirmation, trimming or discard without notification spam. Returning does not retroactively confirm uncertain time.
 
 Manual reading is labeled and still pauses for explicit pause, lock and sleep. Added past records and time adjustments are explicit manual evidence; overlapping records are rejected. There is no hidden streak repair.
 
 ## History and controls
 
-- Today: credited goal progress, current interval, current/longest streak, manual time.
+- Today: credited time and page goals, current interval, current/longest streak, session pages and credited automatic-session pace.
 - History: a month calendar by default, with animated Day / Week / Month / Year views. Move between periods, return to Today, open a month from the year, or select a date to see books and contributing sessions. Navigation respects the selected timezone and macOS Reduce Motion.
-- Library: exact accessible local covers, per-book time, first/last dates, observed progress and timeline.
-- Review: confirm/trim/discard uncertainty; adjust, split, reassign, exclude or delete records.
+- Library: exact accessible local covers, per-book time, verified page evidence, credited automatic pace, first/last dates and timeline.
+- Review: confirm/trim/discard uncertainty; adjust, split, reassign, exclude or delete records. Optional ratings use quarter-star steps.
+- Finished: optional Apple Books completion metadata uses its explicit finished flag and saved date. It does not create historical time or pages; imports already present at initial sync stay quiet.
 - Health: access failures, known gaps, recovery events and last successful capture. An empty day is distinct from a known outage.
 - Settings: Reading / Discord / Data categories, native tracking and sharing switches, goal presets, time-zone search, and clearly applied settings changes. Discord can be configured before sharing is enabled.
 
@@ -63,17 +64,17 @@ Stable asset IDs preserve history across renamed books and covers. Same-title ed
 
 ## Data, recovery and deletion
 
-Data lives in `~/Library/Application Support/BooksPresence/`:
+Stillleaf keeps the existing `com.bookspresence.app` identifier and `~/Library/Application Support/BooksPresence/` storage location so upgrades preserve permissions, settings, and history. Data lives in that folder:
 
 - `history.sqlite` and SQLite sidecars: original intervals, metadata changes, progress observations, goals, corrections, lifecycle evidence and recovery markers.
-- `Covers/`: local image cache. No cover uploads or external cover searches.
+- `Covers/`: local image cache. Local covers are never uploaded. Optional automatic public-cover lookup is off by default and uses Apple metadata only; it does not upload or read local images.
 - `tracker.lock`: instance-lock inode. Do not delete it while the app is running.
 
 Elapsed time uses monotonic uptime. Wall clocks place intervals on the calendar, with discontinuities/gaps pausing credit. Transactions save checkpoints at a nominal 15 seconds and on state changes. Under the supported sampling cadence (no tick gap over five seconds), the unpersisted tail is **less than 20 seconds**; after a longer gap, the unsupported gap is not credited. A crash keeps only committed evidence and records an unknown uncertain tail without counting downtime. Disk-write failure stops further tracking.
 
 JSON is a versioned complete structured-history archive, with duplicate-safe atomic import. SQLite backup/restore validates before replacing history. CSV includes raw and effective interval tables so corrections remain traceable. Cover references are exported; binary cover images are separate local files, so keep the `Covers/` directory when migrating artwork. Imported paths are not uploaded or fetched from the internet.
 
-Deletion physically removes affected records and dependent private lineage, preserving unrelated split/reassigned intervals. SQLite secure deletion, WAL checkpoint and vacuum remove normal database copies; OS snapshots, SSD wear-leveling and user-made copies are outside application control. Delete-all clears managed local covers and managed backups. **Exports and backups you saved elsewhere must be removed separately.** No automatic remote backups exist.
+Deletion physically removes affected records and dependent private lineage, preserving unrelated split/reassigned intervals. Deleting a book also suppresses it from later automatic Apple Books completion imports. SQLite secure deletion, WAL checkpoint and vacuum remove normal database copies; OS snapshots, SSD wear-leveling and user-made copies are outside application control. Delete-all clears managed local covers and managed backups, turns off automatic Apple Books history sync, and clears its import state. **Exports and backups you saved elsewhere must be removed separately.** No automatic remote backups exist.
 
 Uninstall disables login startup, moves the app bundle to Trash and quits. Reading history is preserved; use Delete all data first if you want it removed. No global daemon or privileged helper is installed.
 
@@ -82,7 +83,7 @@ Uninstall disables login startup, moves the app bundle to Trash and quits. Readi
 ```sh
 .build/local/books-diagnostic
 # Or inside the packaged app:
-dist/BooksPresence.app/Contents/MacOS/books-diagnostic
+dist/Stillleaf.app/Contents/MacOS/books-diagnostic
 # Explicitly include the focused title/document metadata (keep output private):
 .build/local/books-diagnostic --include-metadata
 ```
@@ -91,13 +92,13 @@ The diagnostic reports the actual installed version, trust, foreground/session/d
 
 ## Discord
 
-Disabled by default; local tracking needs neither Discord nor internet. Supply your own application ID and optionally upload a generic `books` asset to that Discord application's developer settings. Presence uses the documented native IPC route and supported Playing activity type with a “Reading …” detail. Switching apps pauses credited time and keeps the card visible with “Paused”; its running timer is removed. The card expires 20 minutes after the last page turn or supported reading activity. Explicitly disabling tracking/sharing, exclusions, lock/sleep, permission/capture failures and quitting clear it immediately. Activity updates are rate-limited, with prompt pause/resume changes. See [Discord setup and limitations](docs/DISCORD.md).
+Disabled by default; local tracking needs neither Discord nor internet. Supply your own application ID and optionally configure a stable generic asset in that Discord application's developer settings. Presence uses the documented native IPC route and a client-controlled Playing activity; the app name is configured in the Discord Developer Portal. In page mode it shows the title, author, current observed page when available, and pages for the current session; it has no elapsed timestamp. Switching apps pauses credited time and keeps the card visible with “Paused”; its running timer is removed. The card expires 20 minutes after the last page observation or supported reading activity. Explicitly disabling tracking/sharing, exclusions, lock/sleep, permission/capture failures and quitting clear it immediately. Activity updates are rate-limited, with prompt pause/resume changes. See [Discord setup and limitations](docs/DISCORD.md).
 
-Exact local covers stay local. There is no artwork publishing/upload flow in this release. A local path is never sent as a Discord image. Live rendering and reconnect checks require a configured application ID and Discord client; these are separate from synthetic protocol tests.
+Exact local covers stay local. With explicit opt-in, the app can search Apple’s public metadata for one unique exact title-and-author e-book result and send its validated public HTTPS artwork URL to Discord; it never uploads or reads a local image for that feature. Invalid, missing or ambiguous results fall back to the configured generic asset. A local path is never sent as a Discord image. Live rendering and reconnect checks require a configured application ID and Discord client; these are separate from synthetic protocol tests.
 
 ## Scope
 
-This release observes this Mac only. It does not backfill or claim iPhone/iPad activity. Saved Books progress can be stale and is labeled accordingly; no pages-read differences or words-per-minute claims are made. The observed Books 8.0 page footer is used only as an ephemeral navigation signal, not a canonical page count, stored reading-progress metric, or Discord percentage. Books' private catalog schema may change: the adapter checks required columns and fails closed.
+This release observes this Mac only. It does not backfill or claim iPhone/iPad activity. Saved Books progress can be stale and is labeled accordingly. Verified small forward page observations support page goals and credited automatic-session pace; they do not establish total pagination, words read, reading speed, gaze or attention. The observed Books 8.0 footer is limited to the supported English reader layout and is never used as a Discord percentage. Books' private catalog schema may change: the adapter checks required columns and fails closed.
 
 Source layout: `BooksCore` owns evidence/storage/statistics; `BooksPlatform` owns macOS/Books/Discord adapters; `BooksPresence` owns lifecycle and native views. The binding requirements are preserved in [the product specification](docs/PRODUCT_SPEC.md).
 

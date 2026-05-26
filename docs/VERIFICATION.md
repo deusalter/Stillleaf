@@ -2,6 +2,8 @@
 
 Date: 2026-09-17. Host: Apple Silicon, macOS 26.0.1, Apple Books 8.0. The source and development bundle target macOS 13+.
 
+The passed local and CI entries below are the previous baseline. That baseline recorded 56 XCTest cases passing on macOS CI. The page evidence/pace, finished-metadata, ratings, automatic public-cover resolver, and latest Discord payload regressions were added afterward and are **pending a fresh local/CI run**; they are not claimed as covered by the prior result.
+
 ## Executed locally
 
 | Check | Result |
@@ -19,7 +21,7 @@ Date: 2026-09-17. Host: Apple Silicon, macOS 26.0.1, Apple Books 8.0. The source
 | Accessibility trust | **Unavailable to the diagnostic/tracker process** in current runs |
 | GUI control automation | Computer-use service timed out; no click-through or screenshot result claimed |
 
-Local `swift test` cannot execute because this Command Line Tools installation lacks XCTest and SwiftPM's SDK PlatformPath support. The assertion harness is a separate local check, **not a substitute claim that XCTest ran locally**. The [macOS CI run for 3173557](https://github.com/deusalter/BooksPresence/actions/runs/35288060693) passed all 28 XCTest cases, the release build, development app packaging and artifact upload. Subsequent commits run the same checks; consult the repository Checks tab for the final branch result.
+Local `swift test` cannot execute because this Command Line Tools installation lacks XCTest and SwiftPM's SDK PlatformPath support. The assertion harness is a separate local check, **not a substitute claim that XCTest ran locally**. The previous macOS CI baseline recorded 56 XCTest cases passing, the release build, development app packaging and artifact upload. It predates the new page/history/rating/public-cover and latest Discord regressions; consult the repository Checks tab for the fresh branch result.
 
 ## Important review fixes
 
@@ -47,12 +49,12 @@ If the wall clock moves backward behind previously recorded time, tracking holds
 
 - Grant BooksPresence its own Accessibility permission, then verify an EPUB and PDF reading window, Books library/store, two simultaneous book windows, window closure/minimization, foreground switching and permission revocation. The AXDocument-based rule is deliberately conservative and may leave some Books reader implementations unsupported.
 - Active-reading lock, sleep, wake and fast-user-switch transitions end to end. Diagnostic state changes alone do not prove correct timing at every real transition.
-- Live current page/location/pagination freshness. This release omits these metrics until verified; saved catalog progress is explicitly unreliable.
+- Live page-observation coverage across supported Books 8.0 English layouts, including small forward movement, stable reader bounds, two-page spreads and layout changes. Saved catalog progress remains explicitly unreliable.
 - Visual screenshot, accessibility/VoiceOver and click-through review after the computer-use service is available. Native view layout checks do not establish visual polish on every display.
 - Login after an actual logout/reboot, persistence of permission with a Developer ID-signed install, and uninstall from an installed app location.
 - Discord READY/publish/render/clear/reconnect with the user's own valid application ID and developer asset. No account token, self-bot or modified client is used.
 
-No iPhone/iPad backfill, external artwork lookup, artwork upload, or live Discord custom-cover route is claimed. The app is a development build, not notarized.
+No iPhone/iPad backfill, artwork upload, or live Discord rendering result is claimed. Automatic public-cover lookup is opt-in and metadata-only; the pending checks below cover its new resolver path. The app is a development build, not notarized.
 
 ## Data-handling notes
 
@@ -72,12 +74,24 @@ New regressions cover version/window-state/structure guards, exact title identit
 
 The app now includes a native icon, actionable missing-permission/Application-ID states, optional artwork with an empty default, and retained connection results. The popover no longer explicitly activates the app, and its hosting controller follows preferred content size for setup notices. A background transition no longer incorrectly records restored capture access. An explicit `--status-report` diagnostic records state from the actual GUI process to a single private overwritten file; it is off on normal launches.
 
-The [macOS CI run for 2b51128](https://github.com/deusalter/BooksPresence/actions/runs/35301139924) passed all 45 XCTest cases, the release build, native UI/model check and signed development packaging. macOS TCC logs showed Accessibility grants resolving to an archived test bundle with a different ad-hoc code requirement. Those generated test bundles were unregistered and preserved with a non-app backup suffix. The actual running GUI process still reported denied access at this checkpoint; saved automatic intervals and a live activity acknowledgement remain pending a grant for the current bundle. No further code-signature changes are planned for this build.
+An earlier [macOS CI run for 2b51128](https://github.com/deusalter/BooksPresence/actions/runs/35301139924) passed 45 XCTest cases, the release build, native UI/model check and signed development packaging; it predates the current additions. macOS TCC logs showed Accessibility grants resolving to an archived test bundle with a different ad-hoc code requirement. Those generated test bundles were unregistered and preserved with a non-app backup suffix. The actual running GUI process still reported denied access at this checkpoint; saved automatic intervals and a live activity acknowledgement remain pending a grant for the current bundle. No further code-signature changes are planned for this build.
 
 ## Paused presence and two-page reader repair (2026-09-17)
 
 The correctly registered GUI bundle subsequently reported Accessibility granted, saved automatic foreground intervals and received a matching Discord activity acknowledgement. This resolves the permission blocker recorded above. A later metadata-only role probe identified a two-page spread with two visible WebAreas at the same verified reader ancestry; the previous one-area rule intermittently rejected it. The classifier now accepts one or two matching visible areas and rejects mixed, incomplete or larger structures. A separate footer at SceneWindow → four groups → static text supplies an ephemeral exact-format page-change token without reading AXValue or web contents.
 
-The owner changed the product requirement: ordinary app switching retains a Paused Discord card for 20 minutes since the last page turn or supported reading interaction; credited automatic time still stops immediately. Paused payloads omit timestamps. Controlled-time regressions cover expiry boundaries, unchanged polling after expiry, page renewal, missing page samples, fallback interaction, privacy stops, book changes and clock rollback. Synthetic socket checks exercise immediate paused/resumed payloads and acknowledgement ordering. The menu now uses a nonactivating NSPanel and explains pause reasons; durations under one minute display seconds.
+The owner changed the product requirement: ordinary app switching retains a Paused Discord card for 20 minutes since the last supported page observation or reading interaction; credited automatic time still stops immediately. Paused payloads omit timestamps. Controlled-time regressions cover expiry boundaries, unchanged polling after expiry, page renewal, missing page samples, fallback interaction, privacy stops, book changes and clock rollback. Synthetic socket checks exercise immediate paused/resumed payloads and acknowledgement ordering. The menu now uses a nonactivating NSPanel and explains pause reasons; durations under one minute display seconds.
 
-The local direct build, core/Discord/calendar/Books harnesses and all 22 native light/dark view layouts passed. This host still lacks XCTest; full XCTest and packaged live verification are recorded separately below when complete.
+The local direct build, core/Discord/calendar/Books harnesses and all 22 native light/dark view layouts passed before the additions described below. This host still lacks XCTest; fresh full XCTest and packaged live verification are pending.
+
+## New regression coverage pending execution
+
+The repository now contains new tests for forward page evidence, daily/session and per-book credited automatic pace, explicit Apple Books completion metadata, quiet initial import, deletion suppression, quarter-step ratings, strict public cover URL validation, exact/ambiguous Apple metadata matching, page-mode Discord payloads, and updated socket behavior. They use synthetic data or a local synthetic IPC socket; they do not publish to Discord, upload an image, or read a personal book file.
+
+A metadata-only Apple Search probe returned one exact e-book result for the user-authorized live lookup and its artwork URL passed the validator. It did not download the image or use local book content. This is a narrow integration probe, not a claim that the fresh resolver XCTest suite, full app build, packaged app, or Discord rendering has passed.
+
+### Stillleaf 1.3 local integration checks
+
+The app is now presented as Stillleaf; the existing bundle identifier and support directory remain unchanged. The current local direct-compiler checks pass across core storage/statistics, Discord payloads, calendar boundaries, catalog fixtures, history-import deduplication/corrections/deletion, quarter-star ratings, and native light/dark view layouts. An actual `PublicCoverResolver` invocation matched one authorized live Apple title/author query and returned a validated public HTTPS image link without downloading the image.
+
+Synthetic native previews were rendered and reviewed for library alignment, book details, settings, finish prompts, and grouped day history. Reading-session presentation joins same-book automatic fragments separated by less than 20 minutes while summing only stored reading durations. Explicit user splits remain barriers. New unit-test CI and the packaged app's own Accessibility/Discord behavior are separate checks; local CLI trust is not proof of GUI app permission.
