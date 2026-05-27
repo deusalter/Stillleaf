@@ -116,7 +116,10 @@ final class PageTurnTests: XCTestCase {
         let url = directory.appendingPathComponent("bad.json")
         try encoder.encode(archive).write(to: url)
         XCTAssertThrowsError(try store.importJSON(from: url))
-        XCTAssertEqual(try store.archive(), before)
+        var after = try store.archive()
+        // Export time belongs to this read, not to the durable database state.
+        after.exportedAt = before.exportedAt
+        XCTAssertEqual(after, before)
     }
 
     func testStatisticsUseEffectiveIntervalsMergesAndHalfOpenDates() {
