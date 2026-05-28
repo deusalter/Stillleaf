@@ -26,16 +26,29 @@ struct BooksReaderEvidence {
     }
 }
 
-/// Parses the one page-label format observed in the English Books 8 EPUB
+/// Parses the two page-label formats observed in the English Books 8 EPUB
 /// reader. Callers must separately prove the element's structural location
 /// before requesting its accessibility description.
 enum BooksPageNavigationToken {
-    static func parse(description: String?) -> String? {
+    static func position(description: String?) -> (page: Int, totalPages: Int?)? {
         guard let description, description.hasPrefix("Page ") else { return nil }
-        let digits = description.dropFirst(5)
-        guard !digits.isEmpty, digits.count <= 9,
-              digits.unicodeScalars.allSatisfy({ (48...57).contains($0.value) }),
-              let page = Int(digits), page > 0 else { return nil }
-        return "books8-page:\(page)"
+        let remainder = String(description.dropFirst(5))
+        let parts = remainder.components(separatedBy: " of ")
+        guard parts.count == 1 || parts.count == 2,
+              let page = boundedPositiveASCIIInteger(parts[0]) else { return nil }
+        if parts.count == 1 { return (page, nil) }
+        guard let total = boundedPositiveASCIIInteger(parts[1]), page <= total else { return nil }
+        return (page, total)
+    }
+
+    static func parse(description: String?) -> String? {
+        position(description: description).map { "books8-page:\($0.page)" }
+    }
+
+    private static func boundedPositiveASCIIInteger(_ value: String) -> Int? {
+        guard !value.isEmpty, value.count <= 9,
+              value.unicodeScalars.allSatisfy({ (48...57).contains($0.value) }),
+              let number = Int(value), number > 0, number <= 10_000_000 else { return nil }
+        return number
     }
 }

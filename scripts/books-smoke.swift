@@ -20,8 +20,14 @@ var threePageReader = reader
 threePageReader.webAreaCount = 3; threePageReader.visibleReaderWebAreaCount = 3
 precondition(!threePageReader.permitsUniqueTitleMatch)
 precondition(BooksPageNavigationToken.parse(description: "Page 52") == "books8-page:52")
-for description in ["Page 0", "Page -1", "Page\t52", "Page 52 of 300", "Chapter Page 52", "Page ５２", "Page 52\u{0000}Hidden prose"] {
+precondition(BooksPageNavigationToken.parse(description: "Page 69 of 701") == "books8-page:69")
+precondition(BooksPageNavigationToken.parse(description: "Page 10000000 of 10000000") == "books8-page:10000000")
+precondition(BooksPageNavigationToken.position(description: "Page 52")?.totalPages == nil)
+let rangedPosition = BooksPageNavigationToken.position(description: "Page 69 of 701")
+precondition(rangedPosition?.page == 69 && rangedPosition?.totalPages == 701)
+for description in ["Page 0", "Page -1", "Page\t52", "Page 0 of 701", "Page 52 of 0", "Page 702 of 701", "Page 10000001", "Page 52 of 10000001", "Page 52 of 701 ", "Chapter Page 52", "Page ５２", "Page 52\u{0000}Hidden prose"] {
     precondition(BooksPageNavigationToken.parse(description: description) == nil)
+    precondition(BooksPageNavigationToken.position(description: description) == nil)
 }
 let root = FileManager.default.temporaryDirectory.appendingPathComponent("BooksPresence-reader-check-\(UUID().uuidString)")
 defer { try? FileManager.default.removeItem(at: root) }

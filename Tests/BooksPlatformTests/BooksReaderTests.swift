@@ -41,14 +41,25 @@ final class BooksReaderTests: XCTestCase {
     func testPageNavigationTokenAcceptsOnlyTheObservedEnglishFormat() {
         XCTAssertEqual(BooksPageNavigationToken.parse(description: "Page 52"), "books8-page:52")
         XCTAssertEqual(BooksPageNavigationToken.parse(description: "Page 00052"), "books8-page:52")
+        XCTAssertEqual(BooksPageNavigationToken.parse(description: "Page 69 of 701"), "books8-page:69")
+        XCTAssertEqual(BooksPageNavigationToken.parse(description: "Page 10000000 of 10000000"), "books8-page:10000000")
+        let simple = BooksPageNavigationToken.position(description: "Page 52")
+        XCTAssertEqual(simple?.page, 52)
+        XCTAssertNil(simple?.totalPages)
+        let ranged = BooksPageNavigationToken.position(description: "Page 00069 of 00701")
+        XCTAssertEqual(ranged?.page, 69)
+        XCTAssertEqual(ranged?.totalPages, 701)
 
         let rejected: [String?] = [
             nil, "", "Page ", "Page 0", "Page -1", "page 52", "Page\t52", "Page 52\n",
-            "Page 52 of 300", "Chapter Page 52", "Page fifty-two", "Page ５２", "Page 1234567890",
+            "Page 0 of 701", "Page 52 of 0", "Page 702 of 701", "Page 52 of ", "Page 52  of 701",
+            "Page 52 of 701 ", "Page 52 of 701 of 900", "Page 10000001", "Page 52 of 10000001",
+            "Chapter Page 52", "Page fifty-two", "Page ５２", "Page 1234567890",
             "Page 52\u{0000}Hidden prose", "Page 52\u{202E}"
         ]
         for description in rejected {
             XCTAssertNil(BooksPageNavigationToken.parse(description: description), "Unexpectedly accepted \(String(describing: description))")
+            XCTAssertNil(BooksPageNavigationToken.position(description: description), "Unexpectedly accepted \(String(describing: description))")
         }
     }
 
