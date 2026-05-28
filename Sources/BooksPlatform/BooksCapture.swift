@@ -108,7 +108,7 @@ public final class BooksCapture {
         guard evidence.identifier == "SceneWindow", version == "8.0" else { return evidence }
         let started = ProcessInfo.processInfo.systemUptime
         var visited = Set<CFHashCode>()
-        var pageTokens: [String] = []
+        var footerPositions: [(page: Int, totalPages: Int?)] = []
         var paneSizes: [String] = []
         func visit(_ element: AXUIElement, ancestors: [String]) {
             let depth = ancestors.count
@@ -146,8 +146,8 @@ public final class BooksCapture {
                 // footer path. Never request AXValue or descend into the label.
                 var rawDescription: CFTypeRef?
                 if AXUIElementCopyAttributeValue(element, kAXDescriptionAttribute as CFString, &rawDescription) == .success,
-                   let token = BooksPageNavigationToken.parse(description: rawDescription as? String) {
-                    pageTokens.append(token)
+                   let position = BooksPageNavigationToken.position(description: rawDescription as? String) {
+                    footerPositions.append(position)
                 }
                 return
             }
@@ -161,15 +161,15 @@ public final class BooksCapture {
         }
         visit(window, ancestors: [])
         if ProcessInfo.processInfo.systemUptime - started >= 0.35 { evidence.inspectionComplete = false }
-        if evidence.inspectionComplete, pageTokens.count == 1 { evidence.pageNavigationToken = pageTokens[0] }
-        if evidence.permitsUniqueTitleMatch, let token = evidence.pageNavigationToken,
-           let page = Int(token.dropFirst("books8-page:".count)), paneSizes.count == evidence.webAreaCount,
+        if evidence.inspectionComplete, footerPositions.count == 1 { evidence.pageNavigationToken = "books8-page:\(footerPositions[0].page)" }
+        if evidence.permitsUniqueTitleMatch, evidence.pageNavigationToken != nil,
+           let footer = footerPositions.first, paneSizes.count == evidence.webAreaCount,
            let rawWindowSize = attribute(window, kAXSizeAttribute), CFGetTypeID(rawWindowSize) == AXValueGetTypeID() {
             var windowSize = CGSize.zero
             let value = unsafeBitCast(rawWindowSize, to: AXValue.self)
             if AXValueGetType(value) == .cgSize, AXValueGetValue(value, .cgSize, &windowSize), let signature = sizeSignature(windowSize) {
-                evidence.pagePosition = ReaderPagePosition(page: page, visiblePages: evidence.webAreaCount,
-                    layoutSignature: "books8:\(signature):\(paneSizes.sorted().joined(separator: ","))")
+                evidence.pagePosition = ReaderPagePosition(page: footer.page, visiblePages: evidence.webAreaCount,
+                    layoutSignature: "books8:\(signature):\(paneSizes.sorted().joined(separator: ",")):\(footer.totalPages.map(String.init) ?? "unknown")")
             }
         }
         return evidence
