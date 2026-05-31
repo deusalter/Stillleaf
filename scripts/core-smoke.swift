@@ -72,9 +72,13 @@ do {
                                            position: ReaderPagePosition(page: 53, visiblePages: 1, layoutSignature: "one-up"),
                                            date: start.addingTimeInterval(1), uptime: 2)
     try require(pageEvidence?.pagesRead == 1, "adjacent page turn was not counted")
+    let burstEvidence = pageTracker.observe(bookID: book.id, sessionID: "page-session",
+                                            position: ReaderPagePosition(page: 56, visiblePages: 1, layoutSignature: "one-up"),
+                                            date: start.addingTimeInterval(2), uptime: 3)
+    try require(burstEvidence?.pagesRead == 3, "bounded page burst between polls was not counted")
     try require(pageTracker.observe(bookID: book.id, sessionID: "page-session",
                                     position: ReaderPagePosition(page: 80, visiblePages: 1, layoutSignature: "one-up"),
-                                    date: start.addingTimeInterval(2), uptime: 3) == nil, "large page jump was counted")
+                                    date: start.addingTimeInterval(3), uptime: 4) == nil, "large page jump was counted")
 
     let pageStore = try ReadingStore(url: root.appendingPathComponent("pages.sqlite"))
     try pageStore.saveBook(book)
@@ -84,10 +88,10 @@ do {
     try pageStore.appendInterval(pageInterval)
     try pageStore.appendEvent(AuditEvent(id: "page-event", date: pageInterval.end, kind: "pageTurn", bookID: book.id,
                                          sessionID: pageInterval.sessionID, detail: "Observed adjacent reader pages.",
-                                         pageTurn: pageEvidence))
+                                         pageTurn: burstEvidence))
     let pageArchive = try pageStore.archive()
     let pageIntervals = try pageStore.effectiveIntervals()
-    try require(PageStatistics.pages(events: pageArchive.events, effectiveIntervals: pageIntervals, merges: []) == 1,
+    try require(PageStatistics.pages(events: pageArchive.events, effectiveIntervals: pageIntervals, merges: []) == 3,
                 "durable page evidence was not included in statistics")
     do {
         try pageStore.appendEvent(AuditEvent(kind: "pageTurn", bookID: book.id, sessionID: pageInterval.sessionID,

@@ -6,8 +6,10 @@ public struct ReaderPagePosition: Equatable {
     public var page: Int
     public var visiblePages: Int
     public var layoutSignature: String
-    public init(page: Int, visiblePages: Int, layoutSignature: String) {
+    public var totalPages: Int?
+    public init(page: Int, visiblePages: Int, layoutSignature: String, totalPages: Int? = nil) {
         self.page = page; self.visiblePages = visiblePages; self.layoutSignature = layoutSignature
+        self.totalPages = totalPages
     }
 }
 
@@ -24,8 +26,9 @@ public struct PageTurnEvidence: Codable, Equatable {
     }
 }
 
-/// Counts only an immediately observed forward transition. Every rejected
-/// sample becomes the next baseline, preventing jumps or gaps from backfilling.
+/// Counts bounded forward movement between two short-interval reader samples.
+/// Every rejected sample becomes the next baseline, preventing jumps or gaps
+/// from backfilling.
 public struct PageTurnTracker {
     private struct Baseline {
         var bookID: String
@@ -36,6 +39,8 @@ public struct PageTurnTracker {
     }
 
     public let maximumGap: TimeInterval
+    public static let maximumObservedPages = 8
+    public static let minimumSecondsPerNavigation: TimeInterval = 0.25
     private var baseline: Baseline?
 
     public init(maximumGap: TimeInterval = 5) {
@@ -51,18 +56,35 @@ public struct PageTurnTracker {
             reset()
             return nil
         }
-        let current = Baseline(bookID: bookID, sessionID: sessionID, position: position, date: date, uptime: uptime)
+        var normalizedPosition = position
+        if let previous = baseline,
+           previous.bookID == bookID, previous.sessionID == sessionID,
+           previous.position.layoutSignature == position.layoutSignature,
+           previous.position.visiblePages == position.visiblePages,
+           uptime >= previous.uptime, uptime - previous.uptime <= maximumGap,
+           date >= previous.date,
+           abs(date.timeIntervalSince(previous.date) - (uptime - previous.uptime)) <= 2,
+           position.totalPages == nil,
+           previous.position.totalPages.map({ position.page <= $0 }) ?? true {
+            normalizedPosition.totalPages = previous.position.totalPages
+        }
+        let current = Baseline(bookID: bookID, sessionID: sessionID, position: normalizedPosition, date: date, uptime: uptime)
         defer { baseline = current }
         guard let previous = baseline,
               previous.bookID == bookID, previous.sessionID == sessionID,
               previous.position.layoutSignature == position.layoutSignature,
-              previous.position.visiblePages == position.visiblePages else { return nil }
+              previous.position.visiblePages == position.visiblePages,
+              previous.position.totalPages == nil || position.totalPages == nil
+                || previous.position.totalPages == position.totalPages,
+              previous.position.totalPages.map({ position.totalPages != nil || position.page <= $0 }) ?? true else { return nil }
         let uptimeDelta = uptime - previous.uptime
         let wallDelta = date.timeIntervalSince(previous.date)
         guard uptimeDelta >= 0, uptimeDelta <= maximumGap, wallDelta >= 0,
               abs(wallDelta - uptimeDelta) <= 2 else { return nil }
         let delta = position.page - previous.position.page
-        guard delta >= 1, delta <= position.visiblePages else { return nil }
+        let navigationCapacity = max(1, Int(ceil(uptimeDelta / Self.minimumSecondsPerNavigation)))
+        let allowedPages = min(Self.maximumObservedPages, navigationCapacity * position.visiblePages)
+        guard delta >= 1, delta <= allowedPages else { return nil }
         return PageTurnEvidence(fromPage: previous.position.page, toPage: position.page,
                                 pagesRead: delta, visiblePages: position.visiblePages,
                                 layoutSignature: position.layoutSignature)
@@ -70,6 +92,7 @@ public struct PageTurnTracker {
 
     static func valid(_ position: ReaderPagePosition) -> Bool {
         position.page > 0 && position.page <= 10_000_000 && (1...2).contains(position.visiblePages)
+            && (position.totalPages.map { $0 > 0 && $0 <= 10_000_000 && position.page <= $0 } ?? true)
             && !position.layoutSignature.isEmpty && position.layoutSignature.count <= 128
             && !position.layoutSignature.unicodeScalars.contains { CharacterSet.controlCharacters.contains($0) }
     }
@@ -78,7 +101,7 @@ public struct PageTurnTracker {
         let position = ReaderPagePosition(page: evidence.toPage, visiblePages: evidence.visiblePages,
                                           layoutSignature: evidence.layoutSignature)
         return valid(position) && evidence.fromPage > 0 && evidence.fromPage <= 10_000_000
-            && evidence.pagesRead >= 1 && evidence.pagesRead <= evidence.visiblePages
+            && evidence.pagesRead >= 1 && evidence.pagesRead <= maximumObservedPages
             && evidence.toPage - evidence.fromPage == evidence.pagesRead
     }
 

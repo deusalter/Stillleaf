@@ -12,8 +12,8 @@ final class PageTurnTests: XCTestCase {
         XCTAssertNil(tracker.observe(bookID: "book", sessionID: "session", position: position(10), date: start, uptime: 100))
         XCTAssertEqual(tracker.observe(bookID: "book", sessionID: "session", position: position(11), date: start.addingTimeInterval(1), uptime: 101)?.pagesRead, 1)
         XCTAssertNil(tracker.observe(bookID: "book", sessionID: "session", position: position(11), date: start.addingTimeInterval(2), uptime: 102))
-        XCTAssertNil(tracker.observe(bookID: "book", sessionID: "session", position: position(14), date: start.addingTimeInterval(3), uptime: 103))
-        XCTAssertEqual(tracker.observe(bookID: "book", sessionID: "session", position: position(15), date: start.addingTimeInterval(4), uptime: 104)?.pagesRead, 1)
+        XCTAssertNil(tracker.observe(bookID: "book", sessionID: "session", position: position(20), date: start.addingTimeInterval(3), uptime: 103))
+        XCTAssertEqual(tracker.observe(bookID: "book", sessionID: "session", position: position(21), date: start.addingTimeInterval(4), uptime: 104)?.pagesRead, 1)
         XCTAssertNil(tracker.observe(bookID: "book", sessionID: "session", position: position(9), date: start.addingTimeInterval(5), uptime: 105))
         XCTAssertEqual(tracker.observe(bookID: "book", sessionID: "session", position: position(10), date: start.addingTimeInterval(6), uptime: 106)?.pagesRead, 1)
 
@@ -23,6 +23,79 @@ final class PageTurnTests: XCTestCase {
         XCTAssertNil(tracker.observe(bookID: "book", sessionID: "session", position: position(24, 1, "two-up"), date: start.addingTimeInterval(9), uptime: 109))
         XCTAssertNil(tracker.observe(bookID: "book", sessionID: "other", position: position(25), date: start.addingTimeInterval(10), uptime: 110))
         XCTAssertNil(tracker.observe(bookID: "other", sessionID: "other", position: position(26), date: start.addingTimeInterval(11), uptime: 111))
+    }
+
+    func testTrackerCountsBoundedBurstsBetweenPolls() {
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        var oneUp = PageTurnTracker()
+        let oneUpPages = [56, 57, 60, 61, 64, 65]
+        let oneUpEvidence = oneUpPages.enumerated().compactMap { index, page in
+            oneUp.observe(bookID: "book", sessionID: "one-up",
+                          position: ReaderPagePosition(page: page, visiblePages: 1, layoutSignature: "portrait"),
+                          date: start.addingTimeInterval(Double(index)), uptime: 100 + Double(index))
+        }
+        XCTAssertEqual(oneUpEvidence.map(\.pagesRead), [1, 3, 1, 3, 1])
+        XCTAssertEqual(oneUpEvidence.reduce(0) { $0 + $1.pagesRead }, 9)
+
+        var twoUp = PageTurnTracker()
+        let twoUpPages = [56, 58, 62, 64, 68]
+        let twoUpEvidence = twoUpPages.enumerated().compactMap { index, page in
+            twoUp.observe(bookID: "book", sessionID: "two-up",
+                          position: ReaderPagePosition(page: page, visiblePages: 2, layoutSignature: "spread"),
+                          date: start.addingTimeInterval(Double(index)), uptime: 200 + Double(index))
+        }
+        XCTAssertEqual(twoUpEvidence.map(\.pagesRead), [2, 4, 2, 4])
+        XCTAssertEqual(twoUpEvidence.reduce(0) { $0 + $1.pagesRead }, 12)
+    }
+
+    func testTrackerCapsBurstsByElapsedTimeAndHardMaximum() {
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        var tracker = PageTurnTracker()
+        func sample(_ page: Int, seconds: Double) -> PageTurnEvidence? {
+            tracker.observe(bookID: "book", sessionID: "session",
+                            position: ReaderPagePosition(page: page, visiblePages: 1, layoutSignature: "layout"),
+                            date: start.addingTimeInterval(seconds), uptime: 100 + seconds)
+        }
+        XCTAssertNil(sample(10, seconds: 0))
+        XCTAssertNil(sample(13, seconds: 0.5)) // At most two one-page navigations fit this sample gap.
+        XCTAssertEqual(sample(14, seconds: 0.75)?.pagesRead, 1)
+        XCTAssertEqual(sample(19, seconds: 2.25)?.pagesRead, 5)
+        XCTAssertNil(sample(28, seconds: 4.25)) // The hard cap rejects even a rate-plausible jump.
+        XCTAssertEqual(sample(29, seconds: 4.5)?.pagesRead, 1)
+    }
+
+    func testTrackerCarriesKnownTotalAcrossMissingFooterTotalAndRejectsChangedTotal() {
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        var tracker = PageTurnTracker()
+        func sample(_ page: Int, total: Int?, second: Int, layout: String = "layout") -> PageTurnEvidence? {
+            tracker.observe(bookID: "book", sessionID: "session",
+                            position: ReaderPagePosition(page: page, visiblePages: 1,
+                                                         layoutSignature: layout, totalPages: total),
+                            date: start.addingTimeInterval(Double(second)), uptime: 100 + Double(second))
+        }
+        XCTAssertNil(sample(69, total: 701, second: 0))
+        XCTAssertEqual(sample(70, total: nil, second: 1)?.pagesRead, 1)
+        XCTAssertEqual(sample(71, total: 701, second: 2)?.pagesRead, 1)
+        XCTAssertNil(sample(72, total: 702, second: 3))
+        XCTAssertEqual(sample(73, total: nil, second: 4)?.pagesRead, 1)
+        XCTAssertNil(sample(74, total: 701, second: 5))
+        XCTAssertNil(sample(75, total: 701, second: 6, layout: "resized"))
+        XCTAssertEqual(sample(76, total: 701, second: 7, layout: "resized")?.pagesRead, 1)
+        XCTAssertNil(sample(702, total: nil, second: 8, layout: "resized"))
+
+        var afterGap = PageTurnTracker()
+        XCTAssertNil(afterGap.observe(bookID: "book", sessionID: "session",
+                                      position: ReaderPagePosition(page: 100, visiblePages: 1,
+                                                                   layoutSignature: "layout", totalPages: 100),
+                                      date: start, uptime: 200))
+        XCTAssertNil(afterGap.observe(bookID: "book", sessionID: "session",
+                                      position: ReaderPagePosition(page: 101, visiblePages: 1,
+                                                                   layoutSignature: "layout"),
+                                      date: start.addingTimeInterval(6), uptime: 206))
+        XCTAssertEqual(afterGap.observe(bookID: "book", sessionID: "session",
+                                        position: ReaderPagePosition(page: 102, visiblePages: 1,
+                                                                     layoutSignature: "layout"),
+                                        date: start.addingTimeInterval(7), uptime: 207)?.pagesRead, 1)
     }
 
     func testTrackerMakesGapsInvalidSamplesAndClockChangesNewBaselines() {
@@ -53,7 +126,7 @@ final class PageTurnTests: XCTestCase {
         try store.appendInterval(interval)
         let valid = AuditEvent(id: "turn", date: interval.end, kind: "pageTurn", bookID: book.id, sessionID: interval.sessionID,
                                detail: "Observed adjacent reader pages.",
-                               pageTurn: PageTurnEvidence(fromPage: 10, toPage: 11, pagesRead: 1, visiblePages: 1, layoutSignature: "one-up"))
+                               pageTurn: PageTurnEvidence(fromPage: 10, toPage: 13, pagesRead: 3, visiblePages: 1, layoutSignature: "one-up"))
         try store.appendEvent(valid)
         XCTAssertEqual(try store.archive().events.first(where: { $0.id == valid.id })?.pageTurn, valid.pageTurn)
 
@@ -84,7 +157,7 @@ final class PageTurnTests: XCTestCase {
         try store.exportCSV(to: csv)
         let eventsCSV = try String(contentsOf: csv.appendingPathComponent("events.csv"))
         XCTAssertTrue(eventsCSV.contains("from_page,to_page,pages_read,visible_pages,layout_signature"))
-        XCTAssertTrue(eventsCSV.contains("10,11,1,1,one-up"))
+        XCTAssertTrue(eventsCSV.contains("10,13,3,1,one-up"))
 
         try store.deleteSession(interval.sessionID)
         XCTAssertFalse(try store.archive().events.contains { $0.id == valid.id })
