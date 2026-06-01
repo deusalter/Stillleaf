@@ -87,7 +87,7 @@ final class DiscordPresenceTests: XCTestCase {
         XCTAssertEqual((activity["assets"] as? [String: String])?["large_image"], "books")
     }
 
-    func testPageActivityUsesBookTitleAndRetainsZeroPageCountWithoutTimestamp() throws {
+    func testPageActivityUsesLayoutSpecificTotalAndRetainsZeroPageCountWithoutTimestamp() throws {
         let book = BookRecord(id: "book-1", title: "A Book", author: "An Author")
         let payload = try DiscordActivityPayload.make(
             book: book,
@@ -96,12 +96,13 @@ final class DiscordPresenceTests: XCTestCase {
             applicationID: "123456",
             assetKey: "books",
             currentPage: 12,
+            currentTotalPages: 286,
             pagesTurned: 0
         )
         let activity = try activityObject(in: payload)
 
         XCTAssertEqual(activity["details"] as? String, "A Book")
-        XCTAssertEqual(activity["state"] as? String, "An Author • Page 12 • 0 pages this session")
+        XCTAssertEqual(activity["state"] as? String, "An Author • Page 12 of 286 • 0 pages this session")
         XCTAssertNil(activity["timestamps"])
     }
 
@@ -115,13 +116,34 @@ final class DiscordPresenceTests: XCTestCase {
             assetKey: "books",
             paused: true,
             currentPage: 12,
+            currentTotalPages: 286,
             pagesTurned: 7
         )
         let activity = try activityObject(in: payload)
 
         XCTAssertEqual(activity["details"] as? String, "A Book")
-        XCTAssertEqual(activity["state"] as? String, "An Author • Page 12 • 7 pages this session • Paused")
+        XCTAssertEqual(activity["state"] as? String, "An Author • Page 12 of 286 • 7 pages this session • Paused")
         XCTAssertNil(activity["timestamps"])
+    }
+
+    func testPageActivityFallsBackWhenLayoutTotalIsInvalid() throws {
+        let book = BookRecord(id: "book-1", title: "A Book", author: "An Author")
+        let zeroTotal = try DiscordActivityPayload.make(
+            book: book, progress: nil, elapsed: 0, applicationID: "123456", assetKey: "",
+            currentPage: 12, currentTotalPages: 0, pagesTurned: 3
+        )
+        let smallerTotal = try DiscordActivityPayload.make(
+            book: book, progress: nil, elapsed: 0, applicationID: "123456", assetKey: "",
+            currentPage: 12, currentTotalPages: 11, pagesTurned: 3
+        )
+        let invalidPage = try DiscordActivityPayload.make(
+            book: book, progress: nil, elapsed: 0, applicationID: "123456", assetKey: "",
+            currentPage: 0, currentTotalPages: 286, pagesTurned: 3
+        )
+
+        XCTAssertEqual(try activityObject(in: zeroTotal)["state"] as? String, "An Author • Page 12 • 3 pages this session")
+        XCTAssertEqual(try activityObject(in: smallerTotal)["state"] as? String, "An Author • Page 12 • 3 pages this session")
+        XCTAssertEqual(try activityObject(in: invalidPage)["state"] as? String, "An Author • 3 pages this session")
     }
 
     func testClearPayloadSetsActivityToNull() throws {
@@ -150,6 +172,9 @@ final class DiscordPresenceTests: XCTestCase {
                 _ = try readFrame(from: server)
                 try writeFrame(DiscordRPCFrame(opcode: .frame, payload: json(["evt": "READY"])), to: server)
                 let activity = try readFrame(from: server)
+                guard try activityObject(in: activity.payload)["state"] as? String == "An Author • Page 12 of 286 • 0 pages this session" else {
+                    throw SyntheticIPCError.malformedFrame
+                }
                 let nonce = try nonce(in: activity.payload)
                 try writeFrame(DiscordRPCFrame(opcode: .frame, payload: json([
                     "evt": "ERROR",
@@ -164,7 +189,7 @@ final class DiscordPresenceTests: XCTestCase {
             }
         }
 
-        presence.update(book: BookRecord(id: "book", title: "A Book"), progress: nil, elapsed: 0, enabled: true, applicationID: "123", assetKey: "")
+        presence.update(book: BookRecord(id: "book", title: "A Book", author: "An Author"), progress: nil, elapsed: 0, enabled: true, applicationID: "123", assetKey: "", currentPage: 12, currentTotalPages: 286, pagesTurned: 0)
         wait(for: [activityReceived], timeout: 2)
         XCTAssertTrue(waitUntil { presence.status == "Discord activity sent; waiting for confirmation" })
 

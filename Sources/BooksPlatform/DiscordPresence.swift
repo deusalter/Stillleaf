@@ -50,11 +50,11 @@ struct DiscordRPCFrameParser {
 enum DiscordActivityPayload {
     enum Error: Swift.Error { case missingApplicationID }
 
-    static func make(book: BookRecord, progress: ProgressObservation?, elapsed: TimeInterval, applicationID: String, assetKey: String, paused: Bool = false, coverURL: String? = nil, currentPage: Int? = nil, pagesTurned: Int? = nil) throws -> Data {
+    static func make(book: BookRecord, progress: ProgressObservation?, elapsed: TimeInterval, applicationID: String, assetKey: String, paused: Bool = false, coverURL: String? = nil, currentPage: Int? = nil, currentTotalPages: Int? = nil, pagesTurned: Int? = nil) throws -> Data {
         guard !applicationID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw Error.missingApplicationID }
         let pagesMode = pagesTurned != nil
         let rawState = pagesMode
-            ? pageActivityState(book: book, currentPage: currentPage, pagesTurned: pagesTurned!, paused: paused)
+            ? pageActivityState(book: book, currentPage: currentPage, currentTotalPages: currentTotalPages, pagesTurned: pagesTurned!, paused: paused)
             : [book.author?.trimmingCharacters(in: .whitespacesAndNewlines), paused ? "Paused" : reliableProgressText(progress)]
             .compactMap { value -> String? in
                 guard let value, !value.isEmpty else { return nil }
@@ -99,13 +99,19 @@ enum DiscordActivityPayload {
         return nil
     }
 
-    private static func pageActivityState(book: BookRecord, currentPage: Int?, pagesTurned: Int, paused: Bool) -> String {
-        [book.author?.trimmingCharacters(in: .whitespacesAndNewlines), currentPage.flatMap { $0 > 0 ? "Page \($0)" : nil }, "\(max(0, pagesTurned)) pages this session", paused ? "Paused" : nil]
+    private static func pageActivityState(book: BookRecord, currentPage: Int?, currentTotalPages: Int?, pagesTurned: Int, paused: Bool) -> String {
+        [book.author?.trimmingCharacters(in: .whitespacesAndNewlines), layoutPageText(currentPage: currentPage, totalPages: currentTotalPages), "\(max(0, pagesTurned)) pages this session", paused ? "Paused" : nil]
             .compactMap { value -> String? in
                 guard let value, !value.isEmpty else { return nil }
                 return value
             }
             .joined(separator: " • ")
+    }
+
+    private static func layoutPageText(currentPage: Int?, totalPages: Int?) -> String? {
+        guard let currentPage, currentPage > 0 else { return nil }
+        guard let totalPages, totalPages > 0, currentPage <= totalPages else { return "Page \(currentPage)" }
+        return "Page \(currentPage) of \(totalPages)"
     }
 
     private static func limited(_ value: String, maximumLength: Int = 128) -> String {
@@ -127,6 +133,7 @@ public final class DiscordPresence {
         let paused: Bool
         let coverURL: String?
         let currentPage: Int?
+        let currentTotalPages: Int?
         let pagesTurned: Int?
         let publishImmediately: Bool
         let generation: UInt64
@@ -167,7 +174,7 @@ public final class DiscordPresence {
         return statusValue
     }
 
-    public func update(book: BookRecord?, progress: ProgressObservation?, elapsed: TimeInterval, enabled: Bool, applicationID: String, assetKey: String, paused: Bool = false, coverURL: String? = nil, currentPage: Int? = nil, pagesTurned: Int? = nil) {
+    public func update(book: BookRecord?, progress: ProgressObservation?, elapsed: TimeInterval, enabled: Bool, applicationID: String, assetKey: String, paused: Bool = false, coverURL: String? = nil, currentPage: Int? = nil, currentTotalPages: Int? = nil, pagesTurned: Int? = nil) {
         // Serializing the state change ahead of its work item means a queued, older
         // activity cannot be published after this call disables sharing.
         queue.sync {
@@ -178,7 +185,7 @@ public final class DiscordPresence {
             if enabled, let book, !book.sharingExcluded, !applicationID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 let beginsNewSession = desired == nil || desired?.applicationID != applicationID
                 let pausedChanged = desired.map { $0.paused != paused } ?? false
-                desired = DesiredActivity(book: book, progress: progress, elapsed: elapsed, applicationID: applicationID, assetKey: assetKey, paused: paused, coverURL: coverURL, currentPage: currentPage, pagesTurned: pagesTurned, publishImmediately: pausedChanged, generation: currentGeneration)
+                desired = DesiredActivity(book: book, progress: progress, elapsed: elapsed, applicationID: applicationID, assetKey: assetKey, paused: paused, coverURL: coverURL, currentPage: currentPage, currentTotalPages: currentTotalPages, pagesTurned: pagesTurned, publishImmediately: pausedChanged, generation: currentGeneration)
                 // Regular tracker ticks must not mask a useful asynchronous state
                 // such as a rejected activity or scheduled reconnect.
                 if beginsNewSession { statusValue = "Connecting to Discord…" }
@@ -253,7 +260,7 @@ public final class DiscordPresence {
     private func publish(_ activity: DesiredActivity) {
         guard ready, isCurrent(activity) else { return }
         do {
-            let payload = try DiscordActivityPayload.make(book: activity.book, progress: activity.progress, elapsed: activity.elapsed, applicationID: activity.applicationID, assetKey: activity.assetKey, paused: activity.paused, coverURL: activity.coverURL, currentPage: activity.currentPage, pagesTurned: activity.pagesTurned)
+            let payload = try DiscordActivityPayload.make(book: activity.book, progress: activity.progress, elapsed: activity.elapsed, applicationID: activity.applicationID, assetKey: activity.assetKey, paused: activity.paused, coverURL: activity.coverURL, currentPage: activity.currentPage, currentTotalPages: activity.currentTotalPages, pagesTurned: activity.pagesTurned)
             guard let nonce = DiscordActivityPayload.nonce(in: payload) else {
                 setStatus("Could not prepare Discord activity")
                 return

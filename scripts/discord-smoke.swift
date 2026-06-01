@@ -48,16 +48,20 @@ private func pausedPayloadCheck() throws {
 
 private func pageActivityPayloadCheck() throws {
     let book = BookRecord(id: "pages", title: "The Dispossessed", author: "Ursula K. Le Guin")
-    let activePayload = try DiscordActivityPayload.make(book: book, progress: nil, elapsed: 90, applicationID: "123", assetKey: "books", currentPage: 45, pagesTurned: 0)
+    let activePayload = try DiscordActivityPayload.make(book: book, progress: nil, elapsed: 90, applicationID: "123", assetKey: "books", currentPage: 45, currentTotalPages: 341, pagesTurned: 0)
     let active = try activityObject(in: activePayload)
     require(active["details"] as? String == "The Dispossessed", "pages mode did not use the title directly")
-    require(active["state"] as? String == "Ursula K. Le Guin • Page 45 • 0 pages this session", "pages mode omitted author, page, or zero pages")
+    require(active["state"] as? String == "Ursula K. Le Guin • Page 45 of 341 • 0 pages this session", "pages mode omitted author, layout page total, or zero pages")
     require(active["timestamps"] == nil, "pages mode must not include a running timestamp")
 
-    let pausedPayload = try DiscordActivityPayload.make(book: book, progress: nil, elapsed: 90, applicationID: "123", assetKey: "books", paused: true, currentPage: 45, pagesTurned: 7)
+    let pausedPayload = try DiscordActivityPayload.make(book: book, progress: nil, elapsed: 90, applicationID: "123", assetKey: "books", paused: true, currentPage: 45, currentTotalPages: 341, pagesTurned: 7)
     let paused = try activityObject(in: pausedPayload)
-    require(paused["state"] as? String == "Ursula K. Le Guin • Page 45 • 7 pages this session • Paused", "paused pages mode is incomplete")
+    require(paused["state"] as? String == "Ursula K. Le Guin • Page 45 of 341 • 7 pages this session • Paused", "paused pages mode is incomplete")
     require(paused["timestamps"] == nil, "paused pages mode must not include a running timestamp")
+
+    let invalidTotal = try DiscordActivityPayload.make(book: book, progress: nil, elapsed: 90, applicationID: "123", assetKey: "books", currentPage: 45, currentTotalPages: 44, pagesTurned: 7)
+    let invalidTotalActivity = try activityObject(in: invalidTotal)
+    require(invalidTotalActivity["state"] as? String == "Ursula K. Le Guin • Page 45 • 7 pages this session", "invalid layout total was accepted")
 }
 
 private func publicCoverReferenceCheck() throws {
