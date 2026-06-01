@@ -169,7 +169,8 @@ public final class BooksCapture {
             let value = unsafeBitCast(rawWindowSize, to: AXValue.self)
             if AXValueGetType(value) == .cgSize, AXValueGetValue(value, .cgSize, &windowSize), let signature = sizeSignature(windowSize) {
                 evidence.pagePosition = ReaderPagePosition(page: footer.page, visiblePages: evidence.webAreaCount,
-                    layoutSignature: "books8:\(signature):\(paneSizes.sorted().joined(separator: ",")):\(footer.totalPages.map(String.init) ?? "unknown")")
+                    layoutSignature: "books8:\(signature):\(paneSizes.sorted().joined(separator: ","))",
+                    totalPages: footer.totalPages)
             }
         }
         return evidence
