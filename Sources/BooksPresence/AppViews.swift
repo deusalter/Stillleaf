@@ -113,8 +113,8 @@ struct PopoverView: View {
                         Text(author).font(.callout).foregroundStyle(.secondary).lineLimit(1)
                     }
                     ActivityStateLabel(snapshot: model.snapshot)
-                    if let page = model.currentPage {
-                        Text("Page \(page)")
+                    if let page = model.currentPageText {
+                        Text(page)
                             .font(.caption)
                             .foregroundStyle(ReadingPalette.fadedInk)
                     }

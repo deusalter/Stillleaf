@@ -89,8 +89,8 @@ struct TodayView: View {
                 ActivityStateLabel(snapshot: model.snapshot)
                 HStack(spacing: 20) {
                     LabeledValue(label: "Session pages", value: ReadingFormat.observedPages(model.sessionPages))
-                    if let page = model.currentPage {
-                        LabeledValue(label: "Current page", value: "Page \(page)")
+                    if let page = model.currentPageText {
+                        LabeledValue(label: "Current page", value: page)
                     }
                     if let pace = ReadingFormat.pagesPerMinute(model.sessionPagesPerMinute) {
                         LabeledValue(label: "Session pace", value: pace)

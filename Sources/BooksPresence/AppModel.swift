@@ -16,7 +16,13 @@ final class AppModel: ObservableObject {
     @Published private(set) var days: [DailyTotal] = []
     @Published private(set) var today = DailyTotal(day: "", creditedSeconds: 0, uncertainSeconds: 0, manualSeconds: 0, goalMinutes: 20)
     @Published private(set) var streak = StreakSummary(current: 0, longest: 0, todayPending: true, provisional: false)
-    @Published private(set) var currentPage: Int?
+    @Published private(set) var currentPagePosition: ReaderPagePosition?
+    var currentPage: Int? { currentPagePosition?.page }
+    var currentTotalPages: Int? { currentPagePosition?.totalPages }
+    var currentPageText: String? {
+        guard let page = currentPage else { return nil }
+        return currentTotalPages.map { "Page \(page) of \($0)" } ?? "Page \(page)"
+    }
     @Published private(set) var todayPages = 0
     @Published private(set) var sessionPages = 0
     @Published private(set) var pageStreak = StreakSummary(current: 0, longest: 0, todayPending: true, provisional: false)
@@ -75,6 +81,7 @@ final class AppModel: ObservableObject {
     private var presencePolicy = ReadingPresencePolicy()
     private var readingActivityEvidence = ReadingActivityEvidence()
     private var pageTurnTracker = PageTurnTracker()
+    private var readerPagination = ReaderPagination()
     private let publicCoverResolver = PublicCoverResolver()
     private var coverLookups: Set<String> = []
     private var coverLookupDates: [String: Date] = [:]
@@ -221,7 +228,7 @@ final class AppModel: ObservableObject {
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.captureInFlight = false
-                guard generation == self.captureGeneration, self.manualBook == nil, self.commonPauseReason() == nil, SystemEligibility.booksForeground else { self.pageTurnTracker.reset(); return }
+                guard generation == self.captureGeneration, self.manualBook == nil, self.commonPauseReason() == nil, SystemEligibility.booksForeground else { self.pageTurnTracker.reset(); self.readerPagination.reset(); return }
                 guard Date().timeIntervalSince(result.observedAt) < 3 else { self.pause(.captureFailure); return }
                 var book = result.book
                 if var incoming = book, let existing = self.books.first(where: { $0.id == incoming.id }) {
@@ -254,25 +261,37 @@ final class AppModel: ObservableObject {
             snapshot = engine.snapshot
             var recordedPageTurn = false
             if mode == .automatic, reason == nil, let book, let sessionID = snapshot.sessionID,
-               snapshot.phase != .paused, let position = pagePosition {
-                currentPage = position.page
-                if let evidence = pageTurnTracker.observe(bookID: book.id, sessionID: sessionID, position: position, date: sampleDate, uptime: uptime) {
+               snapshot.phase != .paused {
+                if let evidence = observePagePosition(pagePosition, bookID: book.id, sessionID: sessionID,
+                                                      date: sampleDate, uptime: uptime) {
                     // Commit its supporting interval before storing the page event.
                     try engine.checkpoint(date: sampleDate, uptime: uptime)
                     snapshot = engine.snapshot
                     try store.appendEvent(AuditEvent(date: sampleDate, kind: "pageTurn", bookID: book.id, sessionID: sessionID,
-                        detail: "Observed a forward page turn in a stable reader layout.", pageTurn: evidence))
+                        detail: "Observed forward page movement between nearby samples in a stable reader layout.", pageTurn: evidence))
                     recordedPageTurn = true
                 }
-            } else { pageTurnTracker.reset(); currentPage = nil }
+            } else { pageTurnTracker.reset(); readerPagination.reset(); currentPagePosition = nil }
             recordHealth(reason, verifiedCapture: mode == .automatic && book != nil && reason == nil)
             if recordedPageTurn || Date().timeIntervalSince(lastRefresh) >= 15 || previousPhase != snapshot.phase || previousBookID != snapshot.book?.id { refresh() }
             if let book, reason == nil { resolvePublicCoverIfNeeded(for: book) }
             publishPresence()
         } catch { trackingFailure(error) }
     }
+    /// A brief missing footer during a page animation is not a tracking pause.
+    /// Both helpers still expire their baselines after five seconds.
+    func observePagePosition(_ position: ReaderPagePosition?, bookID: String, sessionID: String,
+                             date: Date, uptime: TimeInterval) -> PageTurnEvidence? {
+        guard let position else { currentPagePosition = nil; return nil }
+        currentPagePosition = readerPagination.observe(bookID: bookID, sessionID: sessionID,
+                                                       position: position, uptime: uptime)
+        guard let resolved = currentPagePosition else { pageTurnTracker.reset(); return nil }
+        return pageTurnTracker.observe(bookID: bookID, sessionID: sessionID, position: resolved, date: date, uptime: uptime)
+    }
+
     private func pause(_ reason: PauseReason) {
         pageTurnTracker.reset()
+        readerPagination.reset()
         let changed = snapshot.phase != .paused || snapshot.pauseReason != reason
         do {
             // Processing ineligibility preserves brief interruption grouping without crediting the gap.
@@ -306,7 +325,8 @@ final class AppModel: ObservableObject {
         discord.update(book: visible ? currentBook : nil, progress: latestProgress?.reliable == true ? latestProgress : nil,
                        elapsed: snapshot.sessionSeconds, enabled: discordEnabled && visible,
                        applicationID: discordApplicationID, assetKey: discordAssetKey, paused: presenceState == .paused,
-                       coverURL: currentBook.flatMap { publicCoverURLs[$0.id] }, currentPage: currentPage, pagesTurned: sessionPages)
+                       coverURL: currentBook.flatMap { publicCoverURLs[$0.id] }, currentPage: currentPage,
+                       currentTotalPages: currentTotalPages, pagesTurned: sessionPages)
         refreshDiscordStatus()
     }
     private func rememberDiscordResult() {
@@ -345,6 +365,8 @@ final class AppModel: ObservableObject {
             "todayPages": todayPages,
             "sessionPages": sessionPages,
             "hasPagePosition": currentPage != nil,
+            "currentPage": currentPage.map { $0 as Any } ?? NSNull(),
+            "currentTotalPages": currentTotalPages.map { $0 as Any } ?? NSNull(),
             "hasPublicCover": snapshot.book.flatMap { publicCoverURLs[$0.id] }.flatMap(PublicBookCover.publicImageURL) != nil,
             "finishedBookCount": finishedBooks.count,
             "historySyncEnabled": syncAppleBooksHistoryEnabled,
@@ -576,7 +598,7 @@ final class AppModel: ObservableObject {
     private func stopForMutation() throws {
         captureGeneration += 1
         historyGeneration += 1
-        try engine.stop(); snapshot = engine.snapshot; pageTurnTracker.reset(); currentPage = nil; readingActivityEvidence = ReadingActivityEvidence(); presencePolicy.reset(); presenceState = .hidden; discord.clear()
+        try engine.stop(); snapshot = engine.snapshot; pageTurnTracker.reset(); readerPagination.reset(); currentPagePosition = nil; readingActivityEvidence = ReadingActivityEvidence(); presencePolicy.reset(); presenceState = .hidden; discord.clear()
     }
     func startManual(title: String, author: String) {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)

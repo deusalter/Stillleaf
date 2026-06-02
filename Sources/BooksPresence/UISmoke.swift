@@ -13,6 +13,7 @@ func runUISmoke() throws {
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     try seedUISmokeHistory(at: root)
     let model = try AppModel(support: root, defaults: defaults, startTracking: false)
+    try checkLivePagination(model)
     model.discordEnabled = true
     model.discordApplicationID = ""
     model.saveSettings()
@@ -127,6 +128,36 @@ func runUISmoke() throws {
     }
     model.shutdown()
     print("ui-smoke: model correction/deletion and native view layout checks passed (synthetic data; no screenshots)")
+}
+
+@MainActor
+private func checkLivePagination(_ model: AppModel) throws {
+    let start = Date(timeIntervalSince1970: 1_700_000_000)
+    func sample(_ page: Int, total: Int? = nil, layout: String = "large", at seconds: Double) -> PageTurnEvidence? {
+        model.observePagePosition(ReaderPagePosition(page: page, visiblePages: 1,
+                                                    layoutSignature: layout, totalPages: total),
+                                  bookID: "pagination-fixture", sessionID: "session",
+                                  date: start.addingTimeInterval(seconds), uptime: 100 + seconds)
+    }
+    guard sample(72, total: 600, at: 0) == nil, model.currentPageText == "Page 72 of 600" else {
+        throw BooksAccessErrorForUI.failed("Initial live pagination counted pages or lost its total")
+    }
+    _ = model.observePagePosition(nil, bookID: "pagination-fixture", sessionID: "session",
+                                 date: start.addingTimeInterval(1), uptime: 101)
+    guard sample(76, at: 2)?.pagesRead == 4, model.currentPageText == "Page 76 of 600" else {
+        throw BooksAccessErrorForUI.failed("A brief missing footer discarded fast page turns or the current total")
+    }
+    guard sample(100, total: 1000, layout: "small", at: 3) == nil,
+          model.currentPageText == "Page 100 of 1000", sample(101, layout: "small", at: 4)?.pagesRead == 1 else {
+        throw BooksAccessErrorForUI.failed("Resize pagination was credited as reading or retained the old total")
+    }
+    _ = model.observePagePosition(nil, bookID: "pagination-fixture", sessionID: "session",
+                                 date: start.addingTimeInterval(5), uptime: 105)
+    guard sample(104, layout: "small", at: 11) == nil, model.currentTotalPages == nil else {
+        throw BooksAccessErrorForUI.failed("A long missing-footer gap retained stale page evidence")
+    }
+    _ = model.observePagePosition(nil, bookID: "pagination-fixture", sessionID: "session",
+                                 date: start.addingTimeInterval(12), uptime: 112)
 }
 
 private func seedUISmokeHistory(at root: URL) throws {
