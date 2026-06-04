@@ -67,11 +67,12 @@ public struct AuditEvent: Codable, Identifiable, Equatable {
     public var sessionID: String?
     public var detail: String
     public var pageTurn: PageTurnEvidence?
+    public var pageAdjustment: ManualPageAdjustmentEvidence?
     public var completion: BookCompletionEvidence?
     public var rating: BookRatingEvidence?
-    public init(id: String = UUID().uuidString, date: Date = Date(), kind: String, bookID: String? = nil, sessionID: String? = nil, detail: String, pageTurn: PageTurnEvidence? = nil, completion: BookCompletionEvidence? = nil, rating: BookRatingEvidence? = nil) {
+    public init(id: String = UUID().uuidString, date: Date = Date(), kind: String, bookID: String? = nil, sessionID: String? = nil, detail: String, pageTurn: PageTurnEvidence? = nil, pageAdjustment: ManualPageAdjustmentEvidence? = nil, completion: BookCompletionEvidence? = nil, rating: BookRatingEvidence? = nil) {
         self.id = id; self.date = date; self.kind = kind; self.bookID = bookID; self.sessionID = sessionID; self.detail = detail
-        self.pageTurn = pageTurn; self.completion = completion; self.rating = rating
+        self.pageTurn = pageTurn; self.pageAdjustment = pageAdjustment; self.completion = completion; self.rating = rating
     }
 }
 public struct IntervalCorrection: Codable, Identifiable, Equatable {
