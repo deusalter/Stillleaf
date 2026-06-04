@@ -156,8 +156,12 @@ private func checkLivePagination(_ model: AppModel) throws {
     guard sample(104, layout: "small", at: 11) == nil, model.currentTotalPages == nil else {
         throw BooksAccessErrorForUI.failed("A long missing-footer gap retained stale page evidence")
     }
+    guard sample(105, total: 1000, layout: "small", at: 12) == nil,
+          sample(106, layout: "small", at: 13)?.pagesRead == 1 else {
+        throw BooksAccessErrorForUI.failed("A newly available total failed to establish a fresh pagination baseline")
+    }
     _ = model.observePagePosition(nil, bookID: "pagination-fixture", sessionID: "session",
-                                 date: start.addingTimeInterval(12), uptime: 112)
+                                 date: start.addingTimeInterval(14), uptime: 114)
 }
 
 private func seedUISmokeHistory(at root: URL) throws {

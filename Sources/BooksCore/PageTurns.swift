@@ -74,8 +74,7 @@ public struct PageTurnTracker {
               previous.bookID == bookID, previous.sessionID == sessionID,
               previous.position.layoutSignature == position.layoutSignature,
               previous.position.visiblePages == position.visiblePages,
-              previous.position.totalPages == nil || position.totalPages == nil
-                || previous.position.totalPages == position.totalPages,
+              previous.position.totalPages == normalizedPosition.totalPages,
               previous.position.totalPages.map({ position.totalPages != nil || position.page <= $0 }) ?? true else { return nil }
         let uptimeDelta = uptime - previous.uptime
         let wallDelta = date.timeIntervalSince(previous.date)

@@ -96,6 +96,20 @@ final class PageTurnTests: XCTestCase {
                                         position: ReaderPagePosition(page: 102, visiblePages: 1,
                                                                      layoutSignature: "layout"),
                                         date: start.addingTimeInterval(7), uptime: 207)?.pagesRead, 1)
+
+        var newlyKnown = PageTurnTracker()
+        XCTAssertNil(newlyKnown.observe(bookID: "book", sessionID: "session",
+                                        position: ReaderPagePosition(page: 10, visiblePages: 1,
+                                                                     layoutSignature: "layout"),
+                                        date: start, uptime: 300))
+        XCTAssertNil(newlyKnown.observe(bookID: "book", sessionID: "session",
+                                        position: ReaderPagePosition(page: 11, visiblePages: 1,
+                                                                     layoutSignature: "layout", totalPages: 100),
+                                        date: start.addingTimeInterval(1), uptime: 301))
+        XCTAssertEqual(newlyKnown.observe(bookID: "book", sessionID: "session",
+                                          position: ReaderPagePosition(page: 12, visiblePages: 1,
+                                                                       layoutSignature: "layout"),
+                                          date: start.addingTimeInterval(2), uptime: 302)?.pagesRead, 1)
     }
 
     func testTrackerMakesGapsInvalidSamplesAndClockChangesNewBaselines() {
