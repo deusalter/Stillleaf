@@ -142,13 +142,13 @@ public enum PageStatistics {
         for item in qualified(events: events, effectiveIntervals: effectiveIntervals, merges: merges,
                               from: first, through: endExclusive, bookID: nil, sessionID: nil) {
             if let index = indexByDay[dayKey(item.event.date, timezoneID: timezoneID)] {
-                output[index].pages += item.evidence.pagesRead
+                output[index].pages += item.pages
             }
         }
         return output
     }
 
-    /// Returns observed pages in a half-open date range. Evidence counts only
+    /// Returns observed pages and explicit manual corrections in a half-open date range. Evidence counts only
     /// when it belongs to a surviving, non-excluded effective interval.
     public static func pages(events: [AuditEvent], effectiveIntervals: [ReadingInterval], merges: [BookMerge],
                              from: Date? = nil, through: Date? = nil,
@@ -156,7 +156,15 @@ public enum PageStatistics {
         if let from, let through, through < from { return 0 }
         return qualified(events: events, effectiveIntervals: effectiveIntervals, merges: merges,
                          from: from, through: through, bookID: bookID, sessionID: sessionID)
-            .reduce(0) { $0 + $1.evidence.pagesRead }
+            .reduce(0) { $0 + $1.pages }
+    }
+
+    public static func manualPages(events: [AuditEvent], effectiveIntervals: [ReadingInterval], merges: [BookMerge],
+                                   from: Date? = nil, through: Date? = nil,
+                                   bookID: String? = nil, sessionID: String? = nil) -> Int {
+        qualified(events: events, effectiveIntervals: effectiveIntervals, merges: merges,
+                  from: from, through: through, bookID: bookID, sessionID: sessionID)
+            .filter { $0.event.pageAdjustment != nil }.reduce(0) { $0 + $1.pages }
     }
 
     /// Observed pages divided by confirmed foreground reading minutes. Both
@@ -176,8 +184,8 @@ public enum PageStatistics {
         let seconds = credited.reduce(0) { $0 + $1.duration }
         guard seconds > 0 else { return nil }
         let observedPages = qualified(events: events, effectiveIntervals: credited, merges: merges,
-                                      from: nil, through: nil, bookID: bookID, sessionID: sessionID)
-            .reduce(0) { $0 + $1.evidence.pagesRead }
+                                      from: nil, through: nil, bookID: bookID, sessionID: sessionID, includeManual: false)
+            .reduce(0) { $0 + $1.pages }
         guard observedPages > 0 else { return nil }
         return Double(observedPages) * 60 / seconds
     }
@@ -205,17 +213,24 @@ public enum PageStatistics {
 
     private struct QualifiedPageTurn {
         var event: AuditEvent
-        var evidence: PageTurnEvidence
+        var pages: Int
     }
 
     private static func qualified(events: [AuditEvent], effectiveIntervals: [ReadingInterval], merges: [BookMerge],
-                                  from: Date?, through: Date?, bookID: String?, sessionID: String?) -> [QualifiedPageTurn] {
+                                  from: Date?, through: Date?, bookID: String?, sessionID: String?, includeManual: Bool = true) -> [QualifiedPageTurn] {
         let resolver = MergeResolver(merges: merges)
         let requestedBook = bookID.map(resolver.resolve)
         let intervals = effectiveIntervals.filter { $0.disposition != .excluded }
         return events.compactMap { event in
-            guard event.kind == "pageTurn", let evidence = event.pageTurn, PageTurnTracker.valid(evidence),
-                  let eventBook = event.bookID, let eventSession = event.sessionID,
+            guard event.completion == nil, event.rating == nil else { return nil }
+            let count: Int
+            if event.kind == "pageTurn", let evidence = event.pageTurn, PageTurnTracker.valid(evidence), event.pageAdjustment == nil {
+                count = evidence.pagesRead
+            } else if includeManual, event.kind == "manualPageAdjustment", let adjustment = event.pageAdjustment,
+                      adjustment.isValid(for: event.date), event.pageTurn == nil {
+                count = adjustment.pages
+            } else { return nil }
+            guard let eventBook = event.bookID, let eventSession = event.sessionID,
                   from.map({ event.date >= $0 }) ?? true, through.map({ event.date < $0 }) ?? true,
                   sessionID.map({ eventSession == $0 }) ?? true else { return nil }
             let resolvedBook = resolver.resolve(eventBook)
@@ -227,7 +242,7 @@ public enum PageStatistics {
                 interval.sessionID == eventSession && resolver.resolve(interval.bookID) == resolvedBook
                     && event.date > interval.start && event.date <= interval.end
             }) else { return nil }
-            return QualifiedPageTurn(event: event, evidence: evidence)
+            return QualifiedPageTurn(event: event, pages: count)
         }
     }
 
