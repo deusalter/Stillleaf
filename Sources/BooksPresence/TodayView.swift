@@ -69,9 +69,9 @@ struct TodayView: View {
         let day = ReadingFormat.day(model.today.day)
         if model.todayPages == 0 {
             if model.today.creditedSeconds > 0 {
-                return "\(day) · recorded time, no observed pages"
+                return "\(day) · recorded time, no pages"
             }
-            return "\(day) · no observed pages recorded yet"
+            return "\(day) · no pages recorded yet"
         }
         return "\(day) · \(ReadingFormat.observedPages(model.todayPages))"
     }
@@ -98,7 +98,7 @@ struct TodayView: View {
                     LabeledValue(label: "Session time", value: ReadingFormat.duration(model.snapshot.sessionSeconds))
                     LabeledValue(label: "Mode", value: model.snapshot.mode.rawValue.capitalized)
                 }
-                Text("Observed pages come from visible pagination. Time is recorded separately.")
+                Text("Pages include automatic observations and labeled manual corrections. Time is recorded separately.")
                     .font(.caption).foregroundStyle(.secondary)
                 if let reason = model.snapshot.pauseReason, model.snapshot.phase == .paused {
                     Text("Paused because \(pauseDescription(reason)).")
@@ -131,7 +131,7 @@ struct GoalProgressView: View {
                 Text("No page goal recorded for this day.")
                     .font(.caption).foregroundStyle(.secondary)
             }
-            Text("Inferred from visible pagination.")
+            Text("Includes observed pages and manual corrections.")
                 .font(.caption).foregroundStyle(.secondary)
             Text("Recorded time: \(ReadingFormat.duration(day.creditedSeconds))")
                 .font(.caption).monospacedDigit().foregroundStyle(.secondary)

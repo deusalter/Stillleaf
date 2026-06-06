@@ -13,6 +13,9 @@ func runUISmoke() throws {
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     try seedUISmokeHistory(at: root)
     let model = try AppModel(support: root, defaults: defaults, startTracking: false)
+    guard model.manualPages(forBookID: "smoke-pages-a") == 7 else {
+        throw BooksAccessErrorForUI.failed("Manual page corrections were not exposed to the journal")
+    }
     try checkLivePagination(model)
     model.discordEnabled = true
     model.discordApplicationID = ""
@@ -186,6 +189,12 @@ private func seedUISmokeHistory(at root: URL) throws {
                                          pageTurn: PageTurnEvidence(fromPage: fromPage, toPage: fromPage + visiblePages,
                                                                      pagesRead: visiblePages, visiblePages: visiblePages,
                                                                      layoutSignature: "smoke-\(visiblePages)-up")))
+        if offset == 2 {
+            try store.appendEvent(AuditEvent(id: "smoke-manual-pages", date: interval.end, kind: "manualPageAdjustment",
+                                             bookID: interval.bookID, sessionID: interval.sessionID,
+                                             detail: "Synthetic user correction.",
+                                             pageAdjustment: ManualPageAdjustmentEvidence(pages: 7, reason: "Synthetic user correction")))
+        }
     }
     try store.setGoal(GoalChange(effectiveDay: ReadingStatistics.dayKey(calendar.date(byAdding: .day, value: -7, to: today)!, timezoneID: calendar.timeZone.identifier), minutes: 20, pages: 2))
 }

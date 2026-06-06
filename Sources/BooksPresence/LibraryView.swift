@@ -233,6 +233,11 @@ struct BookDetailView: View {
                 BookDetailStat(label: "Credited time", value: ReadingFormat.duration(credited), symbol: "clock")
                 BookDetailStat(label: "Pace", value: ReadingFormat.pagesPerMinute(pagesPerMinute) ?? "Building pace", symbol: "gauge.with.dots.needle.50percent")
             }
+            let corrected = model.manualPages(forBookID: currentBook.id)
+            if corrected > 0 {
+                Text("Includes \(corrected) manually added pages. Pace uses automatic observations only.")
+                    .font(.caption).foregroundStyle(ReadingPalette.fadedInk)
+            }
         }
         .readingPanel()
     }

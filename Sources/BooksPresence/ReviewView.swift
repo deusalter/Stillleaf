@@ -9,7 +9,7 @@ struct ReviewView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 26) {
-                PageHeading(title: "Review", subtitle: "Observed pages come from visible pagination; time remains available for audit.")
+                PageHeading(title: "Review", subtitle: "Review reading time alongside page totals and manual corrections.")
                 if model.uncertainIntervals.isEmpty {
                     HStack(spacing: 12) {
                         Image(systemName: "checkmark.circle.fill").foregroundStyle(ReadingPalette.moss)
@@ -144,9 +144,9 @@ struct IntervalReviewEditor: View {
             }.padding(20)
             Divider()
             Form {
-                Section("Recorded observed pages") {
+                Section("Recorded pages") {
                     Text(ReadingFormat.observedPages(model.pages(forSessionID: interval.sessionID)))
-                    Text("Observed pages come from visible pagination and are not edited with interval time corrections.")
+                    Text("Includes automatic observations and explicit manual page corrections. Changing time does not add pages.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Section("Stored interval") {

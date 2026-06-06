@@ -33,9 +33,9 @@ struct HistoryView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                PageHeading(title: "History", subtitle: "Observed pages come from visible pagination. Time remains available as supporting history.")
+                PageHeading(title: "History", subtitle: "Your reading pages and manual corrections, with time as supporting history.")
                 HStack(spacing: 12) {
-                    HistoryMetric(title: "Observed pages", value: "\(pageTurns)")
+                    HistoryMetric(title: "Reading pages", value: "\(pageTurns)")
                     HistoryMetric(title: "Page-goal days", value: "\(pageGoalDays)")
                     HistoryMetric(title: navigation.scale == .day ? "Books" : "Days with pages", value: navigation.scale == .day ? "\(dayBookCount)" : "\(activeDays)")
                     HistoryMetric(title: "Recorded time", value: ReadingFormat.duration(creditedSeconds))
@@ -354,7 +354,7 @@ private struct HistoryLegend: View {
     var body: some View {
         HStack(spacing: 14) {
             LegendDot(color: ReadingPalette.moss, text: "Page goal met")
-            LegendDot(color: ReadingPalette.ochre, text: "Observed pages")
+            LegendDot(color: ReadingPalette.ochre, text: "Reading pages")
             LegendDot(color: ReadingPalette.fadedInk.opacity(0.55), text: "Time-only history")
             LegendDot(color: ReadingPalette.fadedInk, text: "Awaiting review")
         }.frame(maxWidth: .infinity, alignment: .trailing)
@@ -412,7 +412,7 @@ private struct HistoryDayDetail: View {
                 ReadingEmptyState(title: "No reading recorded", symbol: "calendar.badge.clock", message: "There are no saved reading spans for this day.")
             } else {
                 if pageTurns == 0 {
-                    Text("No observed pages were saved for this day. Older time-only history is not backfilled.")
+                    Text("No pages were saved for this day. Older time-only history is not backfilled.")
                         .font(.callout).foregroundStyle(.secondary)
                 }
                 VStack(alignment: .leading, spacing: 8) {
@@ -476,6 +476,10 @@ private struct HistorySessionRow: View {
                         .font(.caption).foregroundStyle(.secondary)
                     Text("\(ReadingFormat.observedPages(model.pages(in: session, from: period.start, through: period.end))) · \(ReadingFormat.duration(credited)) reading")
                         .font(.callout).monospacedDigit()
+                    let corrected = model.manualPages(in: session, from: period.start, through: period.end)
+                    if corrected > 0 {
+                        Text("Includes \(corrected) manually added pages").font(.caption).foregroundStyle(.secondary)
+                    }
                     if uncertain > 0 { Text("\(ReadingFormat.duration(uncertain)) awaiting review").font(.caption).foregroundStyle(.secondary) }
                 }
                 Spacer(minLength: 0)

@@ -315,7 +315,7 @@ struct SettingsView: View {
             settingsCard {
                 VStack(spacing: 0) {
                     Group {
-                        SettingRow(icon: "book.pages", title: "Daily page goal", description: "Observed pages come from visible pagination. Time-only history remains available without page counts.") {
+                        SettingRow(icon: "book.pages", title: "Daily page goal", description: "Includes observed pages and manual corrections. Time-only history remains available without page counts.") {
                             numericEditor(label: "Daily page goal", value: $pageGoalDraft, range: 1...10_000, stepperValue: pageGoalBinding)
                         }
                         HStack(spacing: 6) {
@@ -329,7 +329,7 @@ struct SettingsView: View {
                         }
                         .padding(.leading, 44)
                         .padding(.bottom, 13)
-                        Text("Choose 1–10,000 observed pages.")
+                        Text("Choose 1–10,000 pages.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .padding(.leading, 44)

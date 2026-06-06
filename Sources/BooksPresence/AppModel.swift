@@ -454,6 +454,13 @@ final class AppModel: ObservableObject {
     func pages(forSessionID sessionID: String) -> Int {
         PageStatistics.pages(events: events, effectiveIntervals: intervals, merges: merges, sessionID: sessionID)
     }
+    func manualPages(forBookID bookID: String) -> Int {
+        PageStatistics.manualPages(events: events, effectiveIntervals: intervals, merges: merges, bookID: bookID)
+    }
+    func manualPages(in group: ReadingSessionGroup, from: Date? = nil, through: Date? = nil) -> Int {
+        PageStatistics.manualPages(events: events, effectiveIntervals: group.intervals, merges: merges,
+                                   from: from, through: through, bookID: group.bookID)
+    }
     func publicCoverURL(for book: BookRecord) -> String { publicCoverURLs[book.id] ?? "" }
     func savePublicCoverURL(_ value: String, for book: BookRecord) {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
