@@ -4,6 +4,9 @@ import Foundation
 /// reflowable book are layout-specific and are never treated as canonical.
 public struct ReaderPagePosition: Equatable {
     public var page: Int
+    /// A bounded navigation-capacity hint used only to cap burst inference.
+    /// Adapters must not infer it from the number of chapter WebAreas, and it
+    /// is not part of layout identity. The name remains for archive compatibility.
     public var visiblePages: Int
     public var layoutSignature: String
     public var totalPages: Int?
@@ -60,7 +63,6 @@ public struct PageTurnTracker {
         if let previous = baseline,
            previous.bookID == bookID, previous.sessionID == sessionID,
            previous.position.layoutSignature == position.layoutSignature,
-           previous.position.visiblePages == position.visiblePages,
            uptime >= previous.uptime, uptime - previous.uptime <= maximumGap,
            date >= previous.date,
            abs(date.timeIntervalSince(previous.date) - (uptime - previous.uptime)) <= 2,
@@ -73,7 +75,6 @@ public struct PageTurnTracker {
         guard let previous = baseline,
               previous.bookID == bookID, previous.sessionID == sessionID,
               previous.position.layoutSignature == position.layoutSignature,
-              previous.position.visiblePages == position.visiblePages,
               previous.position.totalPages == normalizedPosition.totalPages,
               previous.position.totalPages.map({ position.totalPages != nil || position.page <= $0 }) ?? true else { return nil }
         let uptimeDelta = uptime - previous.uptime
@@ -82,7 +83,11 @@ public struct PageTurnTracker {
               abs(wallDelta - uptimeDelta) <= 2 else { return nil }
         let delta = position.page - previous.position.page
         let navigationCapacity = max(1, Int(ceil(uptimeDelta / Self.minimumSecondsPerNavigation)))
-        let allowedPages = min(Self.maximumObservedPages, navigationCapacity * position.visiblePages)
+        // A transient pane expansion is not proof that two physical pages were
+        // traversed. Only capacity visible in both endpoint samples may widen
+        // a burst beyond the single-pane bound.
+        let sharedPaneCapacity = min(previous.position.visiblePages, position.visiblePages)
+        let allowedPages = min(Self.maximumObservedPages, navigationCapacity * sharedPaneCapacity)
         guard delta >= 1, delta <= allowedPages else { return nil }
         return PageTurnEvidence(fromPage: previous.position.page, toPage: position.page,
                                 pagesRead: delta, visiblePages: position.visiblePages,

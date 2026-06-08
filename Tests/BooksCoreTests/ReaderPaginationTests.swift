@@ -2,14 +2,16 @@ import XCTest
 @testable import BooksCore
 
 final class ReaderPaginationTests: XCTestCase {
-    private func position(_ page: Int, total: Int? = nil, layout: String = "large") -> ReaderPagePosition {
-        ReaderPagePosition(page: page, visiblePages: 1, layoutSignature: layout, totalPages: total)
+    private func position(_ page: Int, total: Int? = nil, layout: String = "large",
+                          panes: Int = 1) -> ReaderPagePosition {
+        ReaderPagePosition(page: page, visiblePages: panes, layoutSignature: layout, totalPages: total)
     }
 
     func testHiddenTotalPersistsOnlyInTheCurrentLayout() {
         var pagination = ReaderPagination()
         XCTAssertEqual(pagination.observe(bookID: "book", sessionID: "s", position: position(72, total: 600), uptime: 1)?.totalPages, 600)
-        XCTAssertEqual(pagination.observe(bookID: "book", sessionID: "s", position: position(73), uptime: 2)?.totalPages, 600)
+        XCTAssertEqual(pagination.observe(bookID: "book", sessionID: "s", position: position(73, panes: 2), uptime: 2)?.totalPages, 600)
+        XCTAssertEqual(pagination.observe(bookID: "book", sessionID: "s", position: position(74, panes: 1), uptime: 2.5)?.totalPages, 600)
         let resized = pagination.observe(bookID: "book", sessionID: "s", position: position(100, total: 1000, layout: "small"), uptime: 3)
         XCTAssertEqual(resized?.page, 100)
         XCTAssertEqual(resized?.totalPages, 1000)

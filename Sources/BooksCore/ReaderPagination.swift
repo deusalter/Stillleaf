@@ -21,7 +21,6 @@ public struct ReaderPagination {
         if position.totalPages == nil, let previous,
            previous.bookID == bookID, previous.sessionID == sessionID,
            previous.position.layoutSignature == position.layoutSignature,
-           previous.position.visiblePages == position.visiblePages,
            uptime >= previous.uptime, uptime - previous.uptime <= 5,
            let total = previous.position.totalPages, position.page <= total {
             resolved.totalPages = total

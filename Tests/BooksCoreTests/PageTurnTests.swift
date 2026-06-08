@@ -20,9 +20,53 @@ final class PageTurnTests: XCTestCase {
         XCTAssertNil(tracker.observe(bookID: "book", sessionID: "session", position: position(20, 2, "two-up"), date: start.addingTimeInterval(7), uptime: 107))
         let spread = tracker.observe(bookID: "book", sessionID: "session", position: position(22, 2, "two-up"), date: start.addingTimeInterval(8), uptime: 108)
         XCTAssertEqual(spread, PageTurnEvidence(fromPage: 20, toPage: 22, pagesRead: 2, visiblePages: 2, layoutSignature: "two-up"))
-        XCTAssertNil(tracker.observe(bookID: "book", sessionID: "session", position: position(24, 1, "two-up"), date: start.addingTimeInterval(9), uptime: 109))
+        XCTAssertEqual(tracker.observe(bookID: "book", sessionID: "session", position: position(24, 1, "two-up"), date: start.addingTimeInterval(9), uptime: 109)?.pagesRead, 2)
         XCTAssertNil(tracker.observe(bookID: "book", sessionID: "other", position: position(25), date: start.addingTimeInterval(10), uptime: 110))
         XCTAssertNil(tracker.observe(bookID: "other", sessionID: "other", position: position(26), date: start.addingTimeInterval(11), uptime: 111))
+    }
+
+    func testTrackerCountsAcrossAccessibilityPaneCountChurn() {
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        var tracker = PageTurnTracker()
+        let samples = zip(340...345, [1, 2, 1, 2, 1, 2])
+        let evidence = samples.enumerated().compactMap { index, sample in
+            tracker.observe(bookID: "book", sessionID: "session",
+                            position: ReaderPagePosition(page: sample.0, visiblePages: sample.1,
+                                                         layoutSignature: "stable-viewport", totalPages: 701),
+                            date: start.addingTimeInterval(Double(index)), uptime: 100 + Double(index))
+        }
+        XCTAssertEqual(evidence.map(\.pagesRead), [1, 1, 1, 1, 1])
+        XCTAssertEqual(evidence.reduce(0) { $0 + $1.pagesRead }, 5)
+
+        XCTAssertNil(tracker.observe(bookID: "book", sessionID: "session",
+                                     position: ReaderPagePosition(page: 346, visiblePages: 1,
+                                                                  layoutSignature: "resized", totalPages: 701),
+                                     date: start.addingTimeInterval(6), uptime: 106))
+        XCTAssertNil(tracker.observe(bookID: "book", sessionID: "session",
+                                     position: ReaderPagePosition(page: 347, visiblePages: 2,
+                                                                  layoutSignature: "resized", totalPages: 702),
+                                     date: start.addingTimeInterval(7), uptime: 107))
+        XCTAssertEqual(tracker.observe(bookID: "book", sessionID: "session",
+                                       position: ReaderPagePosition(page: 348, visiblePages: 1,
+                                                                    layoutSignature: "resized", totalPages: 702),
+                                       date: start.addingTimeInterval(8), uptime: 108)?.pagesRead, 1)
+    }
+
+    func testPaneExpansionDoesNotAloneWidenShortGapBurstCapacity() {
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        var tracker = PageTurnTracker()
+        XCTAssertNil(tracker.observe(bookID: "book", sessionID: "session",
+                                     position: ReaderPagePosition(page: 10, visiblePages: 1,
+                                                                  layoutSignature: "stable-viewport"),
+                                     date: start, uptime: 100))
+        XCTAssertNil(tracker.observe(bookID: "book", sessionID: "session",
+                                     position: ReaderPagePosition(page: 12, visiblePages: 2,
+                                                                  layoutSignature: "stable-viewport"),
+                                     date: start.addingTimeInterval(0.25), uptime: 100.25))
+        XCTAssertEqual(tracker.observe(bookID: "book", sessionID: "session",
+                                       position: ReaderPagePosition(page: 14, visiblePages: 2,
+                                                                    layoutSignature: "stable-viewport"),
+                                       date: start.addingTimeInterval(0.5), uptime: 100.5)?.pagesRead, 2)
     }
 
     func testTrackerCountsBoundedBurstsBetweenPolls() {
@@ -67,14 +111,15 @@ final class PageTurnTests: XCTestCase {
     func testTrackerCarriesKnownTotalAcrossMissingFooterTotalAndRejectsChangedTotal() {
         let start = Date(timeIntervalSince1970: 1_700_000_000)
         var tracker = PageTurnTracker()
-        func sample(_ page: Int, total: Int?, second: Int, layout: String = "layout") -> PageTurnEvidence? {
+        func sample(_ page: Int, total: Int?, second: Int, layout: String = "layout",
+                    panes: Int = 1) -> PageTurnEvidence? {
             tracker.observe(bookID: "book", sessionID: "session",
-                            position: ReaderPagePosition(page: page, visiblePages: 1,
+                            position: ReaderPagePosition(page: page, visiblePages: panes,
                                                          layoutSignature: layout, totalPages: total),
                             date: start.addingTimeInterval(Double(second)), uptime: 100 + Double(second))
         }
         XCTAssertNil(sample(69, total: 701, second: 0))
-        XCTAssertEqual(sample(70, total: nil, second: 1)?.pagesRead, 1)
+        XCTAssertEqual(sample(70, total: nil, second: 1, panes: 2)?.pagesRead, 1)
         XCTAssertEqual(sample(71, total: 701, second: 2)?.pagesRead, 1)
         XCTAssertNil(sample(72, total: 702, second: 3))
         XCTAssertEqual(sample(73, total: nil, second: 4)?.pagesRead, 1)
