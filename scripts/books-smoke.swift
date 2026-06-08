@@ -1,6 +1,37 @@
 import Foundation
 import CSQLite
+import BooksCore
 @testable import BooksPlatform
+
+// Replay the observed chapter-container churn through the real layout adapter
+// and tracker. All geometry is synthetic; no personal reader data is accessed.
+let readerHost = CGSize(width: 1280, height: 769)
+let chapterWidths: [[CGFloat]] = [[1134], [531, 531], [530, 530], [1135], [1134], [1135], [1134]]
+let footerPages = [340, 341, 341, 342, 343, 344, 345]
+let fixtureStart = Date(timeIntervalSince1970: 1_700_000_000)
+var layoutTracker = PageTurnTracker()
+var countedPages = 0
+var layoutSignatures = Set<String>()
+for (index, widths) in chapterWidths.enumerated() {
+    let position = BooksReaderLayout.position(page: footerPages[index], totalPages: nil,
+        windowSize: readerHost, readerSize: readerHost,
+        paneSizes: widths.map { CGSize(width: $0, height: 613) })!
+    precondition(position.visiblePages == 1)
+    layoutSignatures.insert(position.layoutSignature)
+    countedPages += layoutTracker.observe(bookID: "fixture", sessionID: "reading", position: position,
+        date: fixtureStart.addingTimeInterval(Double(index)), uptime: 100 + Double(index))?.pagesRead ?? 0
+}
+precondition(countedPages == 5 && layoutSignatures.count == 1)
+let resized = BooksReaderLayout.position(page: 346, totalPages: nil,
+    windowSize: CGSize(width: 1281, height: 769), readerSize: readerHost, paneSizes: [readerHost])!
+precondition(!layoutSignatures.contains(resized.layoutSignature))
+precondition(layoutTracker.observe(bookID: "fixture", sessionID: "reading", position: resized,
+    date: fixtureStart.addingTimeInterval(7), uptime: 107) == nil)
+precondition(BooksReaderLayout.position(page: 1, totalPages: nil,
+    windowSize: readerHost, readerSize: .zero, paneSizes: [readerHost]) == nil)
+precondition(BooksReaderLayout.position(page: 1, totalPages: nil,
+    windowSize: readerHost, readerSize: readerHost, paneSizes: []) == nil)
+print("books-smoke: chapter splits/pixel jitter count all five pages; actual resize resets")
 
 let reader = BooksReaderEvidence(booksVersion: "8.0", identifier: "SceneWindow", role: "AXWindow", subrole: "AXStandardWindow",
     minimized: false, modal: false, webAreaCount: 1, visibleReaderWebAreaCount: 1,

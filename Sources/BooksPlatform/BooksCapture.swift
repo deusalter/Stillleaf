@@ -109,8 +109,10 @@ public final class BooksCapture {
         let started = ProcessInfo.processInfo.systemUptime
         var visited = Set<CFHashCode>()
         var footerPositions: [(page: Int, totalPages: Int?)] = []
-        var paneSizes: [String] = []
-        func visit(_ element: AXUIElement, ancestors: [String]) {
+        var footerHosts: [AXUIElement] = []
+        var paneSizes: [CGSize] = []
+        var readerHosts: [(element: AXUIElement, size: CGSize)] = []
+        func visit(_ element: AXUIElement, ancestors: [String], readerHost: (element: AXUIElement, size: CGSize)? = nil) {
             let depth = ancestors.count
             guard !evidence.hasLibraryNavigation, evidence.inspectionComplete else { return }
             guard depth <= 14, visited.count < 120, ProcessInfo.processInfo.systemUptime - started < 0.35 else {
@@ -118,6 +120,13 @@ public final class BooksCapture {
             }
             guard visited.insert(CFHash(element)).inserted else { evidence.inspectionComplete = false; return }
             guard let role = attribute(element, kAXRoleAttribute) as? String else { evidence.inspectionComplete = false; return }
+            var enclosingHost = readerHost
+            if role == "AXGroup", ancestors == ["AXWindow", "AXGroup", "AXGroup"] {
+                // This host encloses the reader panes and footer. Descendant
+                // chapter WebViews can split, jitter or move offscreen during
+                // page turns, so their individual bounds cannot identify layout.
+                enclosingHost = size(of: element).map { (element, $0) }
+            }
             var rawIdentifier: CFTypeRef?
             let identifierResult = AXUIElementCopyAttributeValue(element, "AXIdentifier" as CFString, &rawIdentifier)
             guard identifierResult == .success || identifierResult == .attributeUnsupported || identifierResult == .noValue else {
@@ -129,15 +138,10 @@ public final class BooksCapture {
             }
             if role == "AXWebArea" {
                 evidence.webAreaCount += 1
-                var size = CGSize.zero
-                let rawSize = attribute(element, kAXSizeAttribute)
-                if let rawSize, CFGetTypeID(rawSize) == AXValueGetTypeID() {
-                    let value = unsafeBitCast(rawSize, to: AXValue.self)
-                    if AXValueGetType(value) == .cgSize, AXValueGetValue(value, .cgSize, &size), size.width > 0, size.height > 0,
-                       ancestors == ["AXWindow"] + Array(repeating: "AXGroup", count: 6) {
-                        evidence.visibleReaderWebAreaCount += 1
-                        if let signature = sizeSignature(size) { paneSizes.append(signature) }
-                    }
+                if let paneSize = size(of: element), ancestors == ["AXWindow"] + Array(repeating: "AXGroup", count: 6) {
+                    evidence.visibleReaderWebAreaCount += 1
+                    paneSizes.append(paneSize)
+                    if let enclosingHost { readerHosts.append(enclosingHost) }
                 }
                 return
             }
@@ -148,6 +152,7 @@ public final class BooksCapture {
                 if AXUIElementCopyAttributeValue(element, kAXDescriptionAttribute as CFString, &rawDescription) == .success,
                    let position = BooksPageNavigationToken.position(description: rawDescription as? String) {
                     footerPositions.append(position)
+                    if let enclosingHost { footerHosts.append(enclosingHost.element) }
                 }
                 return
             }
@@ -157,29 +162,30 @@ public final class BooksCapture {
             if result == .attributeUnsupported || result == .noValue { return }
             guard result == .success, let children = value as? [AXUIElement] else { evidence.inspectionComplete = false; return }
             guard children.count <= 40 else { evidence.inspectionComplete = false; return }
-            for child in children { visit(child, ancestors: ancestors + [role]) }
+            for child in children { visit(child, ancestors: ancestors + [role], readerHost: enclosingHost) }
         }
         visit(window, ancestors: [])
         if ProcessInfo.processInfo.systemUptime - started >= 0.35 { evidence.inspectionComplete = false }
         if evidence.inspectionComplete, footerPositions.count == 1 { evidence.pageNavigationToken = "books8-page:\(footerPositions[0].page)" }
         if evidence.permitsUniqueTitleMatch, evidence.pageNavigationToken != nil,
            let footer = footerPositions.first, paneSizes.count == evidence.webAreaCount,
-           let rawWindowSize = attribute(window, kAXSizeAttribute), CFGetTypeID(rawWindowSize) == AXValueGetTypeID() {
-            var windowSize = CGSize.zero
-            let value = unsafeBitCast(rawWindowSize, to: AXValue.self)
-            if AXValueGetType(value) == .cgSize, AXValueGetValue(value, .cgSize, &windowSize), let signature = sizeSignature(windowSize) {
-                evidence.pagePosition = ReaderPagePosition(page: footer.page, visiblePages: evidence.webAreaCount,
-                    layoutSignature: "books8:\(signature):\(paneSizes.sorted().joined(separator: ","))",
-                    totalPages: footer.totalPages)
-            }
+           readerHosts.count == evidence.webAreaCount, let host = readerHosts.first,
+           readerHosts.allSatisfy({ CFEqual($0.element, host.element) && $0.size == host.size }),
+           footerHosts.count == 1, CFEqual(footerHosts[0], host.element),
+           size(of: host.element) == host.size, let windowSize = size(of: window) {
+            evidence.pagePosition = BooksReaderLayout.position(page: footer.page, totalPages: footer.totalPages,
+                windowSize: windowSize, readerSize: host.size, paneSizes: paneSizes)
         }
         return evidence
     }
 
-    private static func sizeSignature(_ size: CGSize) -> String? {
-        guard size.width.isFinite, size.height.isFinite, size.width > 0, size.height > 0,
-              size.width < 100_000, size.height < 100_000 else { return nil }
-        return "\(Int(size.width.rounded()))x\(Int(size.height.rounded()))"
+    private static func size(of element: AXUIElement) -> CGSize? {
+        guard let raw = attribute(element, kAXSizeAttribute), CFGetTypeID(raw) == AXValueGetTypeID() else { return nil }
+        let value = unsafeBitCast(raw, to: AXValue.self)
+        var result = CGSize.zero
+        guard AXValueGetType(value) == .cgSize, AXValueGetValue(value, .cgSize, &result),
+              BooksReaderLayout.validSize(result) else { return nil }
+        return result
     }
 
     /// Window metadata by default; opt-in structural metadata never reads prose or AXValue.
