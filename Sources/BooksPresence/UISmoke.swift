@@ -24,9 +24,13 @@ func runUISmoke() throws {
     guard model.discordAssetKey.isEmpty else { throw BooksAccessErrorForUI.failed("Optional Discord artwork must not require an unconfigured asset") }
     model.discordEnabled = false
     model.saveSettings()
-    let end = Date().addingTimeInterval(-120)
+    // Keep this interval before the four seeded calendar days. Using "now"
+    // made the self-check overlap its own 11 AM fixture at some times of day.
+    let end = Date().addingTimeInterval(-5 * 86_400)
     model.addManual(title: "The Shape of a Quiet Day", author: "Synthetic fixture", start: end.addingTimeInterval(-1800), end: end)
-    let manualBook = model.books.first { $0.title == "The Shape of a Quiet Day" }!
+    guard let manualBook = model.books.first(where: { $0.title == "The Shape of a Quiet Day" }) else {
+        throw BooksAccessErrorForUI.failed("Manual fixture was not added: \(model.errorMessage ?? "no error")")
+    }
     guard model.errorMessage == nil, model.intervals.filter({ $0.bookID == manualBook.id }).count == 1,
           abs(model.intervals.filter({ $0.bookID == manualBook.id }).reduce(0) { $0 + $1.duration } - 1800) < 0.01 else {
         throw BooksAccessErrorForUI.failed("Manual addition did not produce credited history: \(model.errorMessage ?? "no error")")
@@ -136,8 +140,8 @@ func runUISmoke() throws {
 @MainActor
 private func checkLivePagination(_ model: AppModel) throws {
     let start = Date(timeIntervalSince1970: 1_700_000_000)
-    func sample(_ page: Int, total: Int? = nil, layout: String = "large", at seconds: Double) -> PageTurnEvidence? {
-        model.observePagePosition(ReaderPagePosition(page: page, visiblePages: 1,
+    func sample(_ page: Int, total: Int? = nil, layout: String = "large", panes: Int = 1, at seconds: Double) -> PageTurnEvidence? {
+        model.observePagePosition(ReaderPagePosition(page: page, visiblePages: panes,
                                                     layoutSignature: layout, totalPages: total),
                                   bookID: "pagination-fixture", sessionID: "session",
                                   date: start.addingTimeInterval(seconds), uptime: 100 + seconds)
@@ -165,6 +169,14 @@ private func checkLivePagination(_ model: AppModel) throws {
     }
     _ = model.observePagePosition(nil, bookID: "pagination-fixture", sessionID: "session",
                                  date: start.addingTimeInterval(14), uptime: 114)
+    var pages = 0
+    for index in 0...5 {
+        pages += sample(340 + index, total: index == 0 ? 600 : nil, layout: "stable-host",
+                        panes: index.isMultiple(of: 2) ? 1 : 2, at: 15 + Double(index))?.pagesRead ?? 0
+    }
+    guard pages == 5, model.currentPageText == "Page 345 of 600" else {
+        throw BooksAccessErrorForUI.failed("Chapter-container changes lost pages or the current total")
+    }
 }
 
 private func seedUISmokeHistory(at root: URL) throws {
