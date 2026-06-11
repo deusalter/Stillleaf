@@ -100,14 +100,15 @@ public final class ReadingStore {
     }
 
     public func appendInterval(_ interval: ReadingInterval) throws {
-        if let existing: ReadingInterval = try decodedRow(table: "intervals", id: interval.id) {
-            guard try canonicallyEqual(existing, interval) else { throw ReadingStoreError.conflict("interval id \(interval.id) already exists") }
+        let canonical: ReadingInterval = try canonicalized(interval)
+        if let existing: ReadingInterval = try decodedRow(table: "intervals", id: canonical.id) {
+            guard try canonicallyEqual(existing, canonical) else { throw ReadingStoreError.conflict("interval id \(canonical.id) already exists") }
             return
         }
-        let insertion = try validateEffectiveInsertion(interval)
-        try insertInterval(interval)
-        effectiveCache?.insert(interval, at: insertion)
-        intervalIDCache?.insert(interval.id)
+        let insertion = try validateEffectiveInsertion(canonical)
+        try insertInterval(canonical)
+        effectiveCache?.insert(canonical, at: insertion)
+        intervalIDCache?.insert(canonical.id)
     }
 
     public func appendEvent(_ event: AuditEvent) throws {
@@ -141,14 +142,15 @@ public final class ReadingStore {
     }
 
     public func correct(_ correction: IntervalCorrection) throws {
+        let canonical: IntervalCorrection = try canonicalized(correction)
         var prospective = try archive()
-        if let existing = prospective.corrections.first(where: { $0.id == correction.id }) {
-            guard try canonicallyEqual(existing, correction) else { throw ReadingStoreError.conflict("correction id \(correction.id) already exists") }
+        if let existing = prospective.corrections.first(where: { $0.id == canonical.id }) {
+            guard try canonicallyEqual(existing, canonical) else { throw ReadingStoreError.conflict("correction id \(canonical.id) already exists") }
             return
         }
-        prospective.corrections.append(correction)
+        prospective.corrections.append(canonical)
         try Self.validate(prospective)
-        try insertUnique(table: "corrections", id: correction.id, payload: try encode(correction), value: correction)
+        try insertUnique(table: "corrections", id: canonical.id, payload: try encode(canonical), value: canonical)
         effectiveCache = try Self.effectiveIntervals(in: prospective)
         intervalIDCache = Set((prospective.intervals + prospective.corrections.flatMap(\.replacements)).map(\.id))
     }
@@ -301,14 +303,15 @@ public final class ReadingStore {
 
     // Used by TrackingEngine so a checkpoint fragment and its recovery marker commit together.
     func appendCheckpoint(interval: ReadingInterval?, event: AuditEvent) throws {
-        let insertion = try interval.map(validateEffectiveInsertion)
+        let canonicalInterval: ReadingInterval? = try interval.map(canonicalized)
+        let insertion = try canonicalInterval.map(validateEffectiveInsertion)
         try transaction {
-            if let interval {
+            if let interval = canonicalInterval {
                 try insertInterval(interval)
             }
             try insertUnique(table: "events", id: event.id, payload: try encode(event), value: event)
         }
-        if let interval, let insertion {
+        if let interval = canonicalInterval, let insertion {
             effectiveCache?.insert(interval, at: insertion)
             intervalIDCache?.insert(interval.id)
         }
@@ -378,6 +381,10 @@ public final class ReadingStore {
     }
 
     private func encode<T: Encodable>(_ value: T) throws -> Data { try encoder.encode(value) }
+
+    private func canonicalized<T: Codable>(_ value: T) throws -> T {
+        try decoder.decode(T.self, from: encode(value))
+    }
 
     private func canonicallyEqual<T: Codable>(_ lhs: T, _ rhs: T) throws -> Bool {
         try Self.canonicalData(lhs) == Self.canonicalData(rhs)

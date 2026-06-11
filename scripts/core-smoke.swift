@@ -103,6 +103,24 @@ do {
     let pageArchiveAfterDeletion = try pageStore.archive()
     try require(pageArchiveAfterDeletion.events.allSatisfy { $0.pageTurn == nil }, "session deletion retained page evidence")
 
+    let fractionalBoundary = Date(timeIntervalSince1970: Double(bitPattern: 4_745_293_591_915_450_005))
+    let fractionalPageStore = try ReadingStore(url: root.appendingPathComponent("fractional-pages.sqlite"))
+    try fractionalPageStore.saveBook(book)
+    _ = try fractionalPageStore.effectiveIntervals()
+    let fractionalPageInterval = ReadingInterval(id: "fractional-page-interval", sessionID: "fractional-page-session",
+        bookID: book.id, start: fractionalBoundary.addingTimeInterval(-1), end: fractionalBoundary,
+        duration: 1, timezoneID: "UTC", mode: .automatic)
+    try fractionalPageStore.appendInterval(fractionalPageInterval)
+    try fractionalPageStore.appendEvent(AuditEvent(date: fractionalBoundary, kind: "pageTurn", bookID: book.id,
+        sessionID: fractionalPageInterval.sessionID, detail: "Synthetic fractional boundary.",
+        pageTurn: PageTurnEvidence(fromPage: 1, toPage: 2, pagesRead: 1,
+                                   visiblePages: 1, layoutSignature: "one-up")))
+    let fractionalPageArchive = try fractionalPageStore.archive()
+    let fractionalPageIntervals = try fractionalPageStore.effectiveIntervals()
+    try require(PageStatistics.pages(events: fractionalPageArchive.events,
+        effectiveIntervals: fractionalPageIntervals, merges: []) == 1,
+        "canonical date cache delayed a boundary page")
+
     let historyStore = try ReadingStore(url: root.appendingPathComponent("book-history.sqlite"))
     try historyStore.saveBook(book)
     let finishedAt = start.addingTimeInterval(-86_400)
