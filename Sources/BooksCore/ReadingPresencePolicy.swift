@@ -53,7 +53,8 @@ public struct ReadingPresencePolicy {
     }
 
     public mutating func state(for snapshot: TrackerSnapshot, book: BookRecord?, enabled: Bool,
-                               uptime: TimeInterval) -> ReadingPresenceState {
+                               readerOpen: Bool, uptime: TimeInterval) -> ReadingPresenceState {
+        guard readerOpen else { reset(); return .hidden }
         guard enabled, let book, !book.trackingExcluded, !book.sharingExcluded else { reset(); return .hidden }
         if snapshot.phase == .paused,
            snapshot.pauseReason != .background && snapshot.pauseReason != .noReadingWindow {

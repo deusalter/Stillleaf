@@ -50,18 +50,26 @@ do {
     var presence = ReadingPresencePolicy()
     var presenceSnapshot = TrackerSnapshot(); presenceSnapshot.book = book; presenceSnapshot.phase = .reading
     presence.observe(bookID: book.id, navigationToken: "page:1", relevantActivity: false, uptime: 100)
-    try require(presence.state(for: presenceSnapshot, book: book, enabled: true, uptime: 101) == .reading, "verified reading is not visible")
+    try require(presence.state(for: presenceSnapshot, book: book, enabled: true, readerOpen: true, uptime: 101) == .reading, "verified reading is not visible")
     presenceSnapshot.phase = .paused; presenceSnapshot.pauseReason = .background
-    try require(presence.state(for: presenceSnapshot, book: book, enabled: true, uptime: 1299) == .paused, "background presence disappeared before timeout")
-    try require(presence.state(for: presenceSnapshot, book: book, enabled: true, uptime: 1300) == .hidden, "presence did not expire at twenty minutes")
+    try require(presence.state(for: presenceSnapshot, book: book, enabled: true, readerOpen: true, uptime: 1299) == .paused, "background presence disappeared before timeout")
+    try require(presence.state(for: presenceSnapshot, book: book, enabled: true, readerOpen: true, uptime: 1300) == .hidden, "presence did not expire at twenty minutes")
     presence.observe(bookID: book.id, navigationToken: "page:1", relevantActivity: true, uptime: 1301)
-    try require(presence.state(for: presenceSnapshot, book: book, enabled: true, uptime: 1301) == .hidden, "pointer activity resurrected an unchanged page")
+    try require(presence.state(for: presenceSnapshot, book: book, enabled: true, readerOpen: true, uptime: 1301) == .hidden, "pointer activity resurrected an unchanged page")
     presence.observe(bookID: book.id, navigationToken: "page:2", relevantActivity: false, uptime: 1302)
-    try require(presence.state(for: presenceSnapshot, book: book, enabled: true, uptime: 1303) == .paused, "page turn did not renew presence")
+    try require(presence.state(for: presenceSnapshot, book: book, enabled: true, readerOpen: true, uptime: 1303) == .paused, "page turn did not renew presence")
     presenceSnapshot.pauseReason = .locked
-    try require(presence.state(for: presenceSnapshot, book: book, enabled: true, uptime: 1304) == .hidden, "locked screen retained presence")
+    try require(presence.state(for: presenceSnapshot, book: book, enabled: true, readerOpen: true, uptime: 1304) == .hidden, "locked screen retained presence")
     presenceSnapshot.pauseReason = .background
-    try require(presence.state(for: presenceSnapshot, book: book, enabled: true, uptime: 1305) == .hidden, "cleared presence returned without fresh capture")
+    try require(presence.state(for: presenceSnapshot, book: book, enabled: true, readerOpen: true, uptime: 1305) == .hidden, "cleared presence returned without fresh capture")
+    var closedReaderPresence = ReadingPresencePolicy()
+    closedReaderPresence.observe(bookID: book.id, navigationToken: "page:1", relevantActivity: false, uptime: 1)
+    try require(closedReaderPresence.state(for: presenceSnapshot, book: book, enabled: true,
+                                           readerOpen: false, uptime: 2) == .hidden,
+                "closed reader retained Discord presence")
+    try require(closedReaderPresence.state(for: presenceSnapshot, book: book, enabled: true,
+                                           readerOpen: true, uptime: 3) == .hidden,
+                "reopened reader resurrected stale Discord presence")
     try store.saveBook(book)
 
     var pageTracker = PageTurnTracker()
