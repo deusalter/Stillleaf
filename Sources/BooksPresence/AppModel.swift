@@ -79,6 +79,7 @@ final class AppModel: ObservableObject {
     private let covers: CoverCache
     private let discord = DiscordPresence()
     private var presencePolicy = ReadingPresencePolicy()
+    private var readerWindow: BooksReaderWindow?
     private var readingActivityEvidence = ReadingActivityEvidence()
     private var pageTurnTracker = PageTurnTracker()
     private var readerPagination = ReaderPagination()
@@ -168,6 +169,17 @@ final class AppModel: ObservableObject {
 
     private func registerObservers() {
         let center = NSWorkspace.shared.notificationCenter
+        workspaceObservers.append(center.addObserver(forName: NSWorkspace.didTerminateApplicationNotification, object: nil, queue: .main) { [weak self] notification in
+            guard (notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)?.bundleIdentifier == BooksCapture.bundleID else { return }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.captureGeneration += 1
+                self.readerWindow = nil
+                self.presencePolicy.reset()
+                if self.manualBook == nil { self.pause(.noReadingWindow) }
+                else { self.publishPresence() }
+            }
+        })
         workspaceObservers.append(center.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self else { return }; self.captureGeneration += 1
@@ -237,6 +249,7 @@ final class AppModel: ObservableObject {
                     book = incoming
                 }
                 self.lastCapture = result.pauseReason == nil ? result.observedAt : self.lastCapture
+                self.readerWindow = result.book == nil ? nil : result.readerWindow
                 self.apply(book: book, progress: result.progress, mode: .automatic, reason: book?.trackingExcluded == true ? .excludedBook : result.pauseReason, health: result.health, navigationToken: result.navigationToken, pagePosition: result.pagePosition)
             }
         }
@@ -318,7 +331,9 @@ final class AppModel: ObservableObject {
     }
     private func publishPresence() {
         let currentBook = snapshot.book.flatMap { current in books.first { $0.id == current.id } ?? current }
+        let readerOpen = trackingEnabled && discordEnabled && readerWindow?.isOpen == true
         presenceState = presencePolicy.state(for: snapshot, book: currentBook, enabled: trackingEnabled && discordEnabled,
+                                             readerOpen: readerOpen,
                                              uptime: ProcessInfo.processInfo.systemUptime)
         let visible = presenceState != .hidden
         rememberDiscordResult()

@@ -9,11 +9,12 @@ public struct CaptureResult {
     /// persisted progress because reflowable EPUB page numbers are not stable.
     public var navigationToken: String?
     public var pagePosition: ReaderPagePosition?
+    public var readerWindow: BooksReaderWindow?
     public var pauseReason: PauseReason?
     public var health: String
     public var observedAt: Date
-    public init(book: BookRecord? = nil, progress: ProgressObservation? = nil, navigationToken: String? = nil, pagePosition: ReaderPagePosition? = nil, pauseReason: PauseReason? = nil, health: String, observedAt: Date = Date()) {
-        self.book = book; self.progress = progress; self.navigationToken = navigationToken; self.pagePosition = pagePosition; self.pauseReason = pauseReason; self.health = health; self.observedAt = observedAt
+    public init(book: BookRecord? = nil, progress: ProgressObservation? = nil, navigationToken: String? = nil, pagePosition: ReaderPagePosition? = nil, readerWindow: BooksReaderWindow? = nil, pauseReason: PauseReason? = nil, health: String, observedAt: Date = Date()) {
+        self.book = book; self.progress = progress; self.navigationToken = navigationToken; self.pagePosition = pagePosition; self.readerWindow = readerWindow; self.pauseReason = pauseReason; self.health = health; self.observedAt = observedAt
     }
 }
 
@@ -85,7 +86,9 @@ public final class BooksCapture {
                 }
             }
             if let cover = try? covers?.cover(bookID: match.book.id, assetURL: match.assetURL) { match.book.coverPath = cover.path; match.book.coverSource = cover.source }
-            return CaptureResult(book: match.book, progress: match.progress, navigationToken: navigationToken, pagePosition: pagePosition, health: documentResult == .success ? "Reader matched by document path to a stable Books asset. Time is inferred reading activity." : "Books 8.0 reader inferred from window structure and a unique catalog title. Time is inferred reading activity.")
+            return CaptureResult(book: match.book, progress: match.progress, navigationToken: navigationToken, pagePosition: pagePosition,
+                readerWindow: BooksReaderWindow(processID: app.processIdentifier, window: window, title: initialTitle, document: initialDocument as? String),
+                health: documentResult == .success ? "Reader matched by document path to a stable Books asset. Time is inferred reading activity." : "Books 8.0 reader inferred from window structure and a unique catalog title. Time is inferred reading activity.")
         } catch { return CaptureResult(pauseReason: .captureFailure, health: error.localizedDescription) }
     }
     public static func documentURL(_ value: String) -> URL? {
