@@ -479,7 +479,7 @@ struct SettingsView: View {
                 }
             }
             applyBar(action: { applyDiscordDrafts() }, label: "Apply Discord details", valid: true)
-            Text("A paused card stays visible for up to 20 minutes after your last page advance or reading activity. A book can be excluded from Discord sharing in its details without excluding it from local tracking.")
+            Text("Sharing appears only while your Books reading window is open. Switching apps keeps a paused card for up to 20 minutes; closing the reader or quitting Books clears it. You can exclude a book from sharing in its details.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 2)
