@@ -153,6 +153,45 @@ final class DiscordPresenceTests: XCTestCase {
         XCTAssertTrue(args["activity"] is NSNull)
     }
 
+    func testIdleSocketSleepsAndResumesForControlFrames() throws {
+        let (client, server) = try socketPair()
+        defer { Darwin.close(server) }
+        var timeout = timeval(tv_sec: 2, tv_usec: 0)
+        _ = setsockopt(server, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+        var supplied = false
+        let presence = DiscordPresence(socketOpener: { if supplied { return nil }; supplied = true; return client })
+        defer { presence.shutdown() }
+        presence.update(book: BookRecord(id: "idle", title: "Idle fixture"), progress: nil, elapsed: 0,
+                        enabled: true, applicationID: "123", assetKey: "")
+        _ = try readFrame(from: server)
+        try writeFrame(DiscordRPCFrame(opcode: .frame, payload: json(["evt": "READY"])), to: server)
+        _ = try readFrame(from: server)
+        usleep(50_000)
+        let before = presence.writeWakeupCount
+        usleep(250_000)
+        let wakeups = presence.writeWakeupCount - before
+        XCTAssertTrue(wakeups <= 2, "idle Discord socket woke \(wakeups) times in 250 ms")
+        // A sleeping writer must still send subsequent control frames and clears.
+        try writeFrame(DiscordRPCFrame(opcode: .ping, payload: Data("awake".utf8)), to: server)
+        let pong = try readFrame(from: server)
+        XCTAssertTrue(pong == DiscordRPCFrame(opcode: .pong, payload: Data("awake".utf8)), "idle writer failed to resume for ping")
+        var sendBuffer: Int32 = 1024
+        _ = setsockopt(client, SOL_SOCKET, SO_SNDBUF, &sendBuffer, socklen_t(MemoryLayout<Int32>.size))
+        let large = Data(repeating: 65, count: 200_000)
+        try writeFrame(DiscordRPCFrame(opcode: .ping, payload: large), to: server)
+        usleep(50_000) // Let the small send buffer fill before draining the peer.
+        let largePong = try readFrame(from: server)
+        XCTAssertTrue(largePong == DiscordRPCFrame(opcode: .pong, payload: large), "buffered pong was lost or corrupted")
+        presence.clear()
+        let clear = try readFrame(from: server)
+        let isClear = try isClearActivity(clear.payload)
+        XCTAssertTrue(isClear, "idle writer failed to clear")
+        usleep(50_000)
+        let afterClear = presence.writeWakeupCount
+        usleep(250_000)
+        XCTAssertTrue(presence.writeWakeupCount - afterClear <= 2, "cleared activity left the writer spinning")
+    }
+
     func testActivityIsNotSharedUntilMatchingConfirmationArrives() throws {
         let (client, server) = try socketPair()
         defer { Darwin.close(server) }

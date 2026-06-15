@@ -149,6 +149,9 @@ public final class DiscordPresence {
     private var connectedApplicationID: String?
     private var readSource: DispatchSourceRead?
     private var writeSource: DispatchSourceWrite?
+    private var writerSuspended = true
+    private var writeWakeups = 0
+    var writeWakeupCount: Int { queue.sync { writeWakeups } }
     private var parser = DiscordRPCFrameParser()
     private var outbound = Data()
     private var ready = false
@@ -167,6 +170,13 @@ public final class DiscordPresence {
 
     init(socketOpener: @escaping () -> Int32?) {
         self.socketOpener = socketOpener
+    }
+
+    deinit {
+        readSource?.cancel()
+        writeSource?.cancel()
+        if writerSuspended { writeSource?.resume() }
+        if socketFD != -1 { Darwin.close(socketFD) }
     }
 
     public var status: String {
@@ -218,13 +228,10 @@ public final class DiscordPresence {
             statusValue = "Discord sharing is off"
             stateLock.unlock()
             stopped = true
-        }
-        queue.async { [weak self] in
-            guard let self else { return }
-            self.reconnectWorkItem?.cancel()
-            self.publishWorkItem?.cancel()
-            self.clearImmediately()
-            self.disconnect(scheduleReconnect: false)
+            reconnectWorkItem?.cancel()
+            publishWorkItem?.cancel()
+            clearImmediately()
+            disconnect(scheduleReconnect: false)
         }
     }
 
@@ -345,10 +352,15 @@ public final class DiscordPresence {
         read.setEventHandler { [weak self] in self?.readAvailable() }
         readSource = read
         let write = DispatchSource.makeWriteSource(fileDescriptor: fd, queue: queue)
-        write.setEventHandler { [weak self] in self?.flushOutbound() }
+        write.setEventHandler { [weak self] in
+            self?.writeWakeups += 1
+            self?.flushOutbound()
+        }
         writeSource = write
+        writerSuspended = true
         read.resume()
-        write.resume()
+        // Write readiness is level-triggered. Keep the source asleep until
+        // there is buffered output, otherwise an idle socket spins forever.
     }
 
     private func readAvailable() {
@@ -406,7 +418,14 @@ public final class DiscordPresence {
 
     private func enqueue(_ frame: DiscordRPCFrame) {
         outbound.append(frame.encoded())
+        setWriterActive(true)
         flushOutbound()
+    }
+
+    private func setWriterActive(_ active: Bool) {
+        guard let writeSource, active == writerSuspended else { return }
+        writerSuspended = !active
+        if active { writeSource.resume() } else { writeSource.suspend() }
     }
 
     private func flushOutbound() {
@@ -415,9 +434,11 @@ public final class DiscordPresence {
                 Darwin.write(socketFD, bytes.baseAddress, bytes.count)
             }
             if written > 0 { outbound.removeSubrange(0..<written) }
+            else if written == -1 && errno == EINTR { continue }
             else if written == -1 && (errno == EAGAIN || errno == EWOULDBLOCK) { return }
             else { disconnect(scheduleReconnect: currentDesired() != nil, status: "Discord connection lost"); return }
         }
+        if outbound.isEmpty { setWriterActive(false) }
     }
 
     private func disconnect(scheduleReconnect shouldReconnect: Bool, status: String? = nil) {
@@ -426,7 +447,10 @@ public final class DiscordPresence {
             setStatus(status)
         }
         readSource?.cancel(); readSource = nil
-        writeSource?.cancel(); writeSource = nil
+        // A suspended source must be balanced before its final release.
+        writeSource?.cancel()
+        if writerSuspended { writeSource?.resume() }
+        writeSource = nil; writerSuspended = true
         if socketFD != -1 { Darwin.close(socketFD); socketFD = -1 }
         connectedApplicationID = nil
         ready = false
