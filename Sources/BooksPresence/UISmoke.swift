@@ -128,7 +128,28 @@ func runUISmoke() throws {
             print("ui-smoke: \(name) \(dark ? "dark" : "light") instantiated and laid out")
         }
     }
+    let cachedBookIDs = model.books.map(\.id)
+    let started = ProcessInfo.processInfo.systemUptime
+    var cachedPageSum = 0
+    for _ in 0..<100 {
+        for bookID in cachedBookIDs {
+            cachedPageSum += model.pages(forBookID: bookID)
+            _ = model.pagesPerMinute(forBookID: bookID)
+        }
+        _ = model.displayIntervals
+        _ = model.readingSessions
+    }
+    let cachedMilliseconds = (ProcessInfo.processInfo.systemUptime - started) * 1000
+    let expectedPageSum = cachedBookIDs.reduce(0) { total, bookID in
+        total + PageStatistics.pages(events: model.events, effectiveIntervals: model.intervals, merges: model.merges, bookID: bookID)
+    } * 100
+    guard cachedPageSum == expectedPageSum else { throw BooksAccessErrorForUI.failed("Cached page totals differ from source evidence") }
+    print("ui-smoke: 100 cached statistics passes: \(cachedMilliseconds) ms")
     model.deleteAllData()
+    guard cachedBookIDs.allSatisfy({ model.pages(forBookID: $0) == 0 && model.pagesPerMinute(forBookID: $0) == nil }),
+          model.displayIntervals.isEmpty, model.readingSessions.isEmpty else {
+        throw BooksAccessErrorForUI.failed("History deletion left stale cached statistics")
+    }
     model.acceptFinishedHistory([firstRecord, recentRecord], staging: staging)
     guard !model.syncAppleBooksHistoryEnabled, model.books.isEmpty, model.intervals.isEmpty, model.events.isEmpty else {
         throw BooksAccessErrorForUI.failed("Deleting all data allowed Apple Books history to recreate local records")

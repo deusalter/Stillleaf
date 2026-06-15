@@ -51,7 +51,16 @@ final class AppModel: ObservableObject {
     @Published var uncertaintyMinutes: Double = 20
     @Published var launchAtLogin = false
 
+    private var displayedIntervalsCache: [ReadingInterval]?
+    private var sessionGroupsCache: [ReadingSessionGroup]?
+    private struct CachedPace { let value: Double? }
+    private var bookPaceCache: [String: CachedPace] = [:]
+    private var sessionPaceCache: [String: CachedPace] = [:]
+    private var bookPagesCache: [String: Int] = [:]
+    private var sessionPagesCache: [String: Int] = [:]
+
     var displayIntervals: [ReadingInterval] {
+        if let cached = displayedIntervalsCache { return cached }
         var result: [ReadingInterval] = []
         for interval in intervals.sorted(by: { $0.start < $1.start }) {
             if var previous = result.last, previous.sessionID == interval.sessionID, previous.bookID == interval.bookID,
@@ -62,7 +71,9 @@ final class AppModel: ObservableObject {
                 previous.end = interval.end; previous.duration += interval.duration; result.append(previous)
             } else { result.append(interval) }
         }
-        return result.sorted { $0.start > $1.start }
+        let sorted = result.sorted { $0.start > $1.start }
+        displayedIntervalsCache = sorted
+        return sorted
     }
     var uncertainIntervals: [ReadingInterval] { displayIntervals.filter { $0.disposition == .uncertain } }
     private func originalIDs(for interval: ReadingInterval) -> [String] {
@@ -80,6 +91,8 @@ final class AppModel: ObservableObject {
     private let discord = DiscordPresence()
     private var presencePolicy = ReadingPresencePolicy()
     private var readerWindow: BooksReaderWindow?
+    private let readerCheckQueue = DispatchQueue(label: "Stillleaf.reader-liveness", qos: .utility)
+    private var readerCheckInFlight = false
     private var readingActivityEvidence = ReadingActivityEvidence()
     private var pageTurnTracker = PageTurnTracker()
     private var readerPagination = ReaderPagination()
@@ -113,7 +126,10 @@ final class AppModel: ObservableObject {
     private var savedPageGoal: Double = 20
     private var sessionBreakIDs: Set<String> = []
     var readingSessions: [ReadingSessionGroup] {
-        ReadingSessionGrouping.groups(intervals: intervals, merges: merges, breakBeforeIntervalIDs: sessionBreakIDs)
+        if let cached = sessionGroupsCache { return cached }
+        let groups = ReadingSessionGrouping.groups(intervals: intervals, merges: merges, breakBeforeIntervalIDs: sessionBreakIDs)
+        sessionGroupsCache = groups
+        return groups
     }
 
     init(support: URL, defaults: UserDefaults = .standard, startTracking: Bool = true) throws {
@@ -219,7 +235,8 @@ final class AppModel: ObservableObject {
     private func tick() {
         guard ready else { return }
         if Date().timeIntervalSince(lastHistorySync) > 30 { syncAppleBooksHistory() }
-        accessibilityGranted = BooksCapture.isTrusted
+        let trusted = BooksCapture.isTrusted
+        if accessibilityGranted != trusted { accessibilityGranted = trusted }
         windowObserver?.refresh()
         if let reason = commonPauseReason() { pause(reason); return }
         if let book = manualBook { apply(book: book, progress: nil, mode: .manual, reason: book.trackingExcluded ? .excludedBook : nil, health: "Manual reading is active. Time is inferred until you stop or pause."); return }
@@ -309,7 +326,7 @@ final class AppModel: ObservableObject {
         do {
             // Processing ineligibility preserves brief interruption grouping without crediting the gap.
             try engine.process(TrackingInput(mode: manualBook == nil ? .automatic : .manual, pauseReason: reason))
-            snapshot = engine.snapshot
+            if changed { snapshot = engine.snapshot }
             recordHealth(reason)
             if changed || today.day != ReadingStatistics.dayKey(Date(), timezoneID: timezoneID) { refresh() }
         } catch { trackingFailure(error) }
@@ -330,8 +347,22 @@ final class AppModel: ObservableObject {
         ready = false; timer?.invalidate(); presencePolicy.reset(); presenceState = .hidden; discord.clear()
     }
     private func publishPresence() {
+        guard trackingEnabled, discordEnabled, accessibilityGranted, commonPauseReason() == nil,
+              let window = readerWindow else { finishPublishingPresence(readerOpen: false); return }
+        guard !readerCheckInFlight else { return }
+        readerCheckInFlight = true
+        readerCheckQueue.async { [weak self] in
+            let isOpen = window.isOpen
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.readerCheckInFlight = false
+                guard self.readerWindow === window else { return }
+                self.finishPublishingPresence(readerOpen: isOpen && self.accessibilityGranted && self.commonPauseReason() == nil)
+            }
+        }
+    }
+    private func finishPublishingPresence(readerOpen: Bool) {
         let currentBook = snapshot.book.flatMap { current in books.first { $0.id == current.id } ?? current }
-        let readerOpen = trackingEnabled && discordEnabled && readerWindow?.isOpen == true
         presenceState = presencePolicy.state(for: snapshot, book: currentBook, enabled: trackingEnabled && discordEnabled,
                                              readerOpen: readerOpen,
                                              uptime: ProcessInfo.processInfo.systemUptime)
@@ -347,16 +378,18 @@ final class AppModel: ObservableObject {
     private func rememberDiscordResult() {
         let status = discord.status
         if status == "Discord activity shared" || status.contains("rejected") || status.contains("unavailable") || status.contains("connection closed") || status.contains("connection lost") {
-            lastDiscordResult = status
+            if lastDiscordResult != status { lastDiscordResult = status }
         }
     }
     private func refreshDiscordStatus() {
         rememberDiscordResult()
-        if !discordEnabled { discordStatus = "Discord sharing is off." }
-        else if discordNeedsSetup { discordStatus = "Discord application ID needed." }
-        else if snapshot.book?.sharingExcluded == true { discordStatus = "This book is excluded from Discord sharing." }
-        else if presenceState == .hidden { discordStatus = "Waiting for reading activity in Books." }
-        else { discordStatus = discord.status }
+        let status: String
+        if !discordEnabled { status = "Discord sharing is off." }
+        else if discordNeedsSetup { status = "Discord application ID needed." }
+        else if snapshot.book?.sharingExcluded == true { status = "This book is excluded from Discord sharing." }
+        else if presenceState == .hidden { status = "Waiting for reading activity in Books." }
+        else { status = discord.status }
+        if discordStatus != status { discordStatus = status }
     }
     /// Opt-in diagnostics from the actual GUI process, whose macOS permission may differ from a CLI helper.
     func writeStatusReport(to url: URL) throws {
@@ -396,6 +429,9 @@ final class AppModel: ObservableObject {
     func refresh() {
         do {
             let archive = try store.archive()
+            displayedIntervalsCache = nil; sessionGroupsCache = nil
+            bookPaceCache.removeAll(keepingCapacity: true); sessionPaceCache.removeAll(keepingCapacity: true)
+            bookPagesCache.removeAll(keepingCapacity: true); sessionPagesCache.removeAll(keepingCapacity: true)
             books = archive.books.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
             intervals = try store.effectiveIntervals().sorted { $0.start > $1.start }
             events = archive.events.sorted { $0.date > $1.date }
@@ -449,16 +485,25 @@ final class AppModel: ObservableObject {
     }
     var sessionPagesPerMinute: Double? {
         guard let sessionID = snapshot.sessionID else { return nil }
-        return PageStatistics.pagesPerMinute(events: events, effectiveIntervals: intervals, merges: merges, sessionID: sessionID)
+        if let cached = sessionPaceCache[sessionID] { return cached.value }
+        let pace = PageStatistics.pagesPerMinute(events: events, effectiveIntervals: intervals, merges: merges, sessionID: sessionID)
+        sessionPaceCache[sessionID] = CachedPace(value: pace)
+        return pace
     }
     func pagesPerMinute(forBookID bookID: String) -> Double? {
-        PageStatistics.pagesPerMinute(events: events, effectiveIntervals: intervals, merges: merges, bookID: bookID)
+        if let cached = bookPaceCache[bookID] { return cached.value }
+        let pace = PageStatistics.pagesPerMinute(events: events, effectiveIntervals: intervals, merges: merges, bookID: bookID)
+        bookPaceCache[bookID] = CachedPace(value: pace)
+        return pace
     }
     func pages(from: Date, through: Date) -> Int {
         PageStatistics.pages(events: events, effectiveIntervals: intervals, merges: merges, from: from, through: through)
     }
     func pages(forBookID bookID: String) -> Int {
-        PageStatistics.pages(events: events, effectiveIntervals: intervals, merges: merges, bookID: bookID)
+        if let cached = bookPagesCache[bookID] { return cached }
+        let count = PageStatistics.pages(events: events, effectiveIntervals: intervals, merges: merges, bookID: bookID)
+        bookPagesCache[bookID] = count
+        return count
     }
     func pages(forBookID bookID: String, from: Date, through: Date) -> Int {
         PageStatistics.pages(events: events, effectiveIntervals: intervals, merges: merges, from: from, through: through, bookID: bookID)
@@ -467,7 +512,10 @@ final class AppModel: ObservableObject {
         PageStatistics.pages(events: events, effectiveIntervals: group.intervals, merges: merges, from: from, through: through, bookID: group.bookID)
     }
     func pages(forSessionID sessionID: String) -> Int {
-        PageStatistics.pages(events: events, effectiveIntervals: intervals, merges: merges, sessionID: sessionID)
+        if let cached = sessionPagesCache[sessionID] { return cached }
+        let count = PageStatistics.pages(events: events, effectiveIntervals: intervals, merges: merges, sessionID: sessionID)
+        sessionPagesCache[sessionID] = count
+        return count
     }
     func manualPages(forBookID bookID: String) -> Int {
         PageStatistics.manualPages(events: events, effectiveIntervals: intervals, merges: merges, bookID: bookID)
@@ -573,11 +621,13 @@ final class AppModel: ObservableObject {
                 }
             }
             var newestCompletionID: String?
+            var historyChanged = false
             let observedAt = Date()
             for record in records.sorted(by: { ($0.finishedAt ?? .distantPast) < ($1.finishedAt ?? .distantPast) }) {
                 guard !suppressedHistoryIDs.contains(Self.historyKey(record.book.id)) else { continue }
                 // A same-ID import can never reset exclusions or overwrite a manual cover.
-                var book = books.first(where: { $0.id == record.book.id }) ?? record.book
+                let existingBook = books.first(where: { $0.id == record.book.id })
+                var book = existingBook ?? record.book
                 if let stagedPath = record.book.coverPath,
                    URL(fileURLWithPath: stagedPath).deletingLastPathComponent().standardizedFileURL == staging.standardizedFileURL,
                    book.coverPath == nil || book.coverPath == stagedPath {
@@ -587,7 +637,7 @@ final class AppModel: ObservableObject {
                     try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: destination.path)
                     book.coverPath = destination.path; book.coverSource = record.book.coverSource
                 }
-                try store.saveBook(book)
+                if existingBook != book { try store.saveBook(book); historyChanged = true }
                 let completion = BookCompletionEvidence(finishedAt: record.finishedAt, source: "Apple Books", imported: true)
                 if let previous = latestImported[book.id], previous.source == completion.source {
                     switch (previous.finishedAt, completion.finishedAt) {
@@ -601,10 +651,11 @@ final class AppModel: ObservableObject {
                 try store.appendEvent(AuditEvent(date: observedAt, kind: "bookCompleted", bookID: book.id,
                     detail: recentlyCompleted ? "Apple Books reported a newly finished book." : "Imported saved Apple Books completion metadata; no reading time or pages inferred.",
                     completion: completion))
+                historyChanged = true
                 if recentlyCompleted { newestCompletionID = book.id }
             }
             defaults.set(observedAt, forKey: "lastAppleHistorySync")
-            refresh()
+            if historyChanged { refresh() }
             if let id = newestCompletionID { pendingCompletion = finishedBooks.first { $0.id == id } }
             appleHistoryStatus = "Synced \(records.count) finished books from Apple Books."
         } catch { appleHistoryStatus = "Could not save Apple Books history: \(error.localizedDescription)" }
@@ -774,7 +825,9 @@ final class AppModel: ObservableObject {
     func showDashboard() { dashboardAction?() }
     func quit() { NSApp.terminate(nil) }
     func shutdown() {
+        ready = false
         timer?.invalidate(); windowObserver?.invalidate(); captureGeneration += 1
+        readerWindow = nil
         do { try engine.stop() } catch { NSLog("BooksPresence could not persist the final interval; previous checkpoints remain recoverable.") }
         discord.shutdown()
         for observer in workspaceObservers { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
