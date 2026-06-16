@@ -7,9 +7,11 @@ struct LibraryView: View {
     let present: (DashboardSheet) -> Void
     @State private var shelf = LibraryShelf.reading
     @State private var search = ""
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let resolver = BookMergeResolver(merges: model.merges)
+        let visible = visibleBooks(resolver: resolver)
         ScrollView {
             VStack(alignment: .leading, spacing: 26) {
                 PageHeading(title: "Library", subtitle: "Your books, reading pace, and finished reads.")
@@ -25,12 +27,12 @@ struct LibraryView: View {
                 }
                 if shelf == .finished {
                     FinishedBookTimeline(model: model, search: search)
-                } else if visibleBooks(resolver: resolver).isEmpty {
+                } else if visible.isEmpty {
                     ReadingEmptyState(title: search.isEmpty ? "Your next chapter awaits" : "No matching books", symbol: "books.vertical", message: search.isEmpty ? "Open a book in Apple Books to start your reading journal. Your completed books live on the Finished shelf." : "Try another title or author.")
                         .padding(.vertical, 80)
                 } else {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 300), spacing: 16, alignment: .topLeading)], alignment: .leading, spacing: 16) {
-                        ForEach(visibleBooks(resolver: resolver)) { book in
+                        ForEach(visible) { book in
                             BookLibraryCard(book: book, pageTurns: model.pages(forBookID: book.id), pagesPerMinute: model.pagesPerMinute(forBookID: book.id), intervals: intervals(for: book, resolver: resolver)) {
                                 present(.book(book))
                             }
@@ -43,6 +45,7 @@ struct LibraryView: View {
             .padding(32)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.20), value: shelf)
     }
 
     private func visibleBooks(resolver: BookMergeResolver) -> [BookRecord] {
@@ -67,13 +70,15 @@ struct BookLibraryCard: View {
     let pagesPerMinute: Double?
     let intervals: [ReadingInterval]
     let open: () -> Void
+    @State private var isHovering = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var credited: Double { intervals.filter { $0.disposition == .credited }.reduce(0) { $0 + $1.duration } }
     private var firstRead: Date? { intervals.map(\.start).min() }
     private var lastRead: Date? { intervals.map(\.end).max() }
 
     var body: some View {
         Button(action: open) {
-            HStack(alignment: .top, spacing: 12) {
+            HStack(alignment: .top, spacing: 16) {
                 BookCoverView(book: book, size: .library)
                 VStack(alignment: .leading, spacing: 5) {
                     Text(book.title).font(.system(.headline, design: .serif)).lineLimit(2)
@@ -96,11 +101,14 @@ struct BookLibraryCard: View {
                 }
             }
             .frame(maxWidth: .infinity, minHeight: 112, alignment: .leading)
-            .padding(12)
-            .background(ReadingPalette.surface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(ReadingPalette.border.opacity(0.7)))
+            .padding(18)
+            .background(isHovering ? ReadingPalette.elevated : ReadingPalette.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(isHovering ? ReadingPalette.moss.opacity(0.45) : ReadingPalette.border.opacity(0.45)))
+            .offset(y: isHovering && !reduceMotion ? -2 : 0)
         }
         .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: isHovering)
         .accessibilityLabel("Open \(book.title)")
     }
 }

@@ -58,6 +58,7 @@ struct HistoryView: View {
                     .transition(reduceMotion ? .identity : .opacity.combined(with: .scale(scale: 0.985)))
                 }
                 .readingPanel()
+                .animation(reduceMotion ? nil : .easeInOut(duration: 0.24), value: navigation)
                 Text("Calendar timezone: \(model.timezoneID)")
                     .font(.caption).foregroundStyle(.secondary)
                 if pageTurns == 0 && creditedSeconds > 0 {
@@ -68,7 +69,6 @@ struct HistoryView: View {
             .padding(28)
             .frame(maxWidth: 1060, alignment: .leading)
         }
-        .animation(reduceMotion ? nil : .spring(response: 0.34, dampingFraction: 0.86), value: navigation)
         .onChange(of: model.timezoneID) { timezoneID in navigation.timezoneID = timezoneID }
         .buttonStyle(ReadingButtonStyle())
     }

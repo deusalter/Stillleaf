@@ -59,8 +59,9 @@ struct TodayView: View {
                     UncertainNotice(count: model.uncertainIntervals.count) { present(.review(model.uncertainIntervals[0])) }
                 }
             }
+            .frame(maxWidth: 1060, alignment: .leading)
             .padding(32)
-            .frame(maxWidth: 960, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .buttonStyle(ReadingButtonStyle())
     }
@@ -87,7 +88,7 @@ struct TodayView: View {
                     Text(author).foregroundStyle(.secondary)
                 }
                 ActivityStateLabel(snapshot: model.snapshot)
-                HStack(spacing: 20) {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 118), alignment: .leading)], alignment: .leading, spacing: 14) {
                     LabeledValue(label: "Session pages", value: ReadingFormat.observedPages(model.sessionPages))
                     if let page = model.currentPageText {
                         LabeledValue(label: "Current page", value: page)
@@ -150,6 +151,7 @@ struct BookCoverView: View {
     enum Size { case compact, large, library }
     let book: BookRecord?
     let size: Size
+    @State private var thumbnail: NSImage?
 
     private var dimensions: CGSize {
         switch size {
@@ -161,7 +163,7 @@ struct BookCoverView: View {
 
     var body: some View {
         Group {
-            if let path = book?.coverPath, let image = NSImage(contentsOfFile: path) {
+            if let image = thumbnail {
                 Image(nsImage: image).resizable().scaledToFill()
             } else {
                 ZStack {
@@ -188,6 +190,13 @@ struct BookCoverView: View {
         .frame(width: dimensions.width, height: dimensions.height)
         .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous).stroke(ReadingPalette.ink.opacity(0.13)))
+        .task(id: book?.coverPath) {
+            thumbnail = nil
+            guard let path = book?.coverPath else { return }
+            let image = await CoverThumbnails.shared.image(at: path)
+            guard !Task.isCancelled else { return }
+            thumbnail = image
+        }
         .accessibilityLabel(book?.coverPath == nil ? "Cover unavailable" : "Book cover")
     }
 }
@@ -270,10 +279,12 @@ struct PageHeading: View {
     let title: String
     let subtitle: String
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text(title).font(.system(size: 30, weight: .medium, design: .serif))
+        VStack(alignment: .leading, spacing: 9) {
+            Capsule().fill(ReadingPalette.moss.opacity(0.7)).frame(width: 28, height: 3)
+            Text(title).font(.system(size: 32, weight: .medium, design: .serif)).tracking(-0.5)
             Text(subtitle).font(.callout).foregroundStyle(ReadingPalette.fadedInk)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -281,7 +292,7 @@ extension View {
     func readingPanel() -> some View {
         padding(20)
             .background(ReadingPalette.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(ReadingPalette.border.opacity(0.7)))
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(ReadingPalette.border.opacity(0.45)))
     }
 }
 

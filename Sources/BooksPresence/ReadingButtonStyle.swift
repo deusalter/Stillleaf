@@ -26,6 +26,7 @@ private struct ReadingButtonStyleBody: View {
     let emphasis: ReadingButtonStyle.Emphasis
     let isEnabled: Bool
     let reduceMotion: Bool
+    @Environment(\.controlSize) private var controlSize
     @State private var isHovering = false
 
     var body: some View {
@@ -33,23 +34,25 @@ private struct ReadingButtonStyleBody: View {
         let primary = emphasis == .primary
         let accent = destructive ? Color.red : ReadingPalette.moss
         let foreground = primary ? ReadingPalette.paper : (destructive ? Color.red : ReadingPalette.ink)
-        let background = primary ? accent.opacity(isHovering ? 0.92 : 1) : accent.opacity(destructive ? (isHovering ? 0.17 : 0.11) : (isHovering ? 0.16 : 0.10))
+        let hovering = isHovering && isEnabled
+        let compact = controlSize == .small || controlSize == .mini
+        let background = primary ? accent.opacity(hovering ? 0.90 : 1) : accent.opacity(destructive ? (hovering ? 0.15 : 0.08) : (hovering ? 0.13 : 0.055))
 
         configuration.label
-            .font(.callout.weight(primary ? .semibold : .medium))
+            .font((compact ? Font.caption : Font.callout).weight(primary ? .semibold : .medium))
             .foregroundStyle(foreground)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 7)
-            .frame(minHeight: 32)
-            .background(background, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .padding(.horizontal, compact ? 10 : 14)
+            .padding(.vertical, compact ? 5 : 8)
+            .frame(minHeight: compact ? 26 : 34)
+            .background(background, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             .overlay {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(primary ? accent.opacity(0.82) : accent.opacity(destructive ? 0.5 : 0.42), lineWidth: 1)
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(primary ? accent.opacity(0.82) : accent.opacity(destructive ? 0.30 : (hovering ? 0.30 : 0.17)), lineWidth: 1)
             }
-            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             .opacity(isEnabled ? (configuration.isPressed ? 0.84 : 1) : 0.42)
             .scaleEffect(configuration.isPressed && !reduceMotion ? 0.985 : 1)
-            .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: configuration.isPressed)
+            .animation(reduceMotion ? nil : .spring(response: 0.24, dampingFraction: 0.82), value: configuration.isPressed)
             .animation(reduceMotion ? nil : .easeOut(duration: 0.14), value: isHovering)
             .onHover { isHovering = $0 }
     }

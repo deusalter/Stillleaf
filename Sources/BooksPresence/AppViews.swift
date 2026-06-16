@@ -252,6 +252,8 @@ private struct DashboardSidebar: View {
     @Binding var selection: DashboardSection
     @ObservedObject var model: AppModel
     @FocusState private var focusedSection: DashboardSection?
+    @Namespace private var selectionAnimation
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -280,8 +282,13 @@ private struct DashboardSidebar: View {
                         }
                         .foregroundStyle(selection == item ? ReadingPalette.ink : ReadingPalette.fadedInk)
                         .padding(.horizontal, 12).padding(.vertical, 11)
-                        .background(selection == item ? ReadingPalette.moss.opacity(0.18) : .clear,
-                                    in: RoundedRectangle(cornerRadius: 8))
+                        .background {
+                            if selection == item {
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .fill(ReadingPalette.moss.opacity(0.14))
+                                    .matchedGeometryEffect(id: "sidebar-selection", in: selectionAnimation)
+                            }
+                        }
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
@@ -294,6 +301,7 @@ private struct DashboardSidebar: View {
                 }
             }
             .padding(.horizontal, 10)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.20), value: selection)
             .onMoveCommand { direction in
                 guard direction == .up || direction == .down,
                       let index = DashboardSection.allCases.firstIndex(of: focusedSection ?? selection) else { return }
