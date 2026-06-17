@@ -7,7 +7,6 @@ struct LibraryView: View {
     let present: (DashboardSheet) -> Void
     @State private var shelf = LibraryShelf.reading
     @State private var search = ""
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let resolver = BookMergeResolver(merges: model.merges)
@@ -45,7 +44,6 @@ struct LibraryView: View {
             .padding(32)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .animation(reduceMotion ? nil : .easeInOut(duration: 0.20), value: shelf)
     }
 
     private func visibleBooks(resolver: BookMergeResolver) -> [BookRecord] {
@@ -104,11 +102,10 @@ struct BookLibraryCard: View {
             .padding(18)
             .background(isHovering ? ReadingPalette.elevated : ReadingPalette.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(isHovering ? ReadingPalette.moss.opacity(0.45) : ReadingPalette.border.opacity(0.45)))
-            .offset(y: isHovering && !reduceMotion ? -2 : 0)
         }
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: isHovering)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.08), value: isHovering)
         .accessibilityLabel("Open \(book.title)")
     }
 }

@@ -55,10 +55,11 @@ struct HistoryView: View {
                         }
                     }
                     .id("\(navigation.scale.rawValue)-\(navigation.dayKey(for: navigation.periodStart))")
-                    .transition(reduceMotion ? .identity : .opacity.combined(with: .scale(scale: 0.985)))
+                    // Only the incoming calendar fades. Toolbar and panel geometry update immediately.
+                    .transition(reduceMotion ? .identity : .asymmetric(insertion: .opacity, removal: .identity))
+                    .animation(reduceMotion ? nil : .easeOut(duration: 0.10), value: navigation)
                 }
                 .readingPanel()
-                .animation(reduceMotion ? nil : .easeInOut(duration: 0.24), value: navigation)
                 Text("Calendar timezone: \(model.timezoneID)")
                     .font(.caption).foregroundStyle(.secondary)
                 if pageTurns == 0 && creditedSeconds > 0 {

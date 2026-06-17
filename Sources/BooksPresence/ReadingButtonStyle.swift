@@ -52,8 +52,8 @@ private struct ReadingButtonStyleBody: View {
             .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             .opacity(isEnabled ? (configuration.isPressed ? 0.84 : 1) : 0.42)
             .scaleEffect(configuration.isPressed && !reduceMotion ? 0.985 : 1)
-            .animation(reduceMotion ? nil : .spring(response: 0.24, dampingFraction: 0.82), value: configuration.isPressed)
-            .animation(reduceMotion ? nil : .easeOut(duration: 0.14), value: isHovering)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.06), value: configuration.isPressed)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.08), value: isHovering)
             .onHover { isHovering = $0 }
     }
 }

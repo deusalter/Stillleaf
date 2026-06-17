@@ -6,7 +6,6 @@ import BooksCore
 struct DashboardView: View {
     @ObservedObject var model: AppModel
     @State private var section: DashboardSection
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private let initialCalendarScale: CalendarScale
     private let initialSettingsCategory: SettingsCategory
 
@@ -40,11 +39,9 @@ struct DashboardView: View {
                     }
                 }
                 .id(section)
-                .transition(.opacity)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .background(ReadingPalette.paper)
-            .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: section)
         }
         .navigationSplitViewStyle(.balanced)
         .frame(minWidth: 920, minHeight: 660)
@@ -252,8 +249,6 @@ private struct DashboardSidebar: View {
     @Binding var selection: DashboardSection
     @ObservedObject var model: AppModel
     @FocusState private var focusedSection: DashboardSection?
-    @Namespace private var selectionAnimation
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -286,7 +281,6 @@ private struct DashboardSidebar: View {
                             if selection == item {
                                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                                     .fill(ReadingPalette.moss.opacity(0.14))
-                                    .matchedGeometryEffect(id: "sidebar-selection", in: selectionAnimation)
                             }
                         }
                         .contentShape(Rectangle())
@@ -301,7 +295,6 @@ private struct DashboardSidebar: View {
                 }
             }
             .padding(.horizontal, 10)
-            .animation(reduceMotion ? nil : .easeInOut(duration: 0.20), value: selection)
             .onMoveCommand { direction in
                 guard direction == .up || direction == .down,
                       let index = DashboardSection.allCases.firstIndex(of: focusedSection ?? selection) else { return }
