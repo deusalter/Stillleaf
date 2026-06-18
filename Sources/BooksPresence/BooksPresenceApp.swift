@@ -170,6 +170,10 @@ struct BooksPresenceMain {
     static func main() {
         let application = NSApplication.shared
         application.setActivationPolicy(.accessory)
+        if CommandLine.arguments.contains("--benchmark-ui") {
+            do { try runUIBenchmark(); exit(0) }
+            catch { fputs("ui-benchmark failed: \(error)\n", stderr); exit(1) }
+        }
         if CommandLine.arguments.contains("--self-test-ui") {
             do { try runUISmoke(); exit(0) }
             catch { fputs("ui-smoke failed: \(error)\n", stderr); exit(1) }
