@@ -51,6 +51,7 @@ final class AppModel: ObservableObject {
     @Published var uncertaintyMinutes: Double = 20
     @Published var launchAtLogin = false
 
+    private var pageDaysByKey: [String: DailyPageTotal] = [:]
     private var displayedIntervalsCache: [ReadingInterval]?
     private var sessionGroupsCache: [ReadingSessionGroup]?
     private struct CachedPace { let value: Double? }
@@ -451,6 +452,7 @@ final class AppModel: ObservableObject {
             streak = ReadingStatistics.streak(days: days, today: key)
             pageDays = PageStatistics.daily(events: archive.events, effectiveIntervals: intervals, goals: archive.goals,
                 merges: merges, timezoneID: timezoneID, from: earliest, through: Date())
+            pageDaysByKey = Dictionary(uniqueKeysWithValues: pageDays.map { ($0.day, $0) })
             todayPages = pageDays.first { $0.day == key }?.pages ?? 0
             sessionPages = snapshot.sessionID.map { pages(forSessionID: $0) } ?? 0
             pageStreak = PageStatistics.streak(days: pageDays, today: key)
@@ -478,8 +480,8 @@ final class AppModel: ObservableObject {
             try store.setGoal(GoalChange(effectiveDay: todayKey, minutes: goalMinutes, pages: pageGoal))
         }
     }
-    func pages(on dayKey: String) -> Int { pageDays.first { $0.day == dayKey }?.pages ?? 0 }
-    func pageGoal(on dayKey: String) -> Int? { pageDays.first { $0.day == dayKey }?.goalPages.map(Int.init) }
+    func pages(on dayKey: String) -> Int { pageDaysByKey[dayKey]?.pages ?? 0 }
+    func pageGoal(on dayKey: String) -> Int? { pageDaysByKey[dayKey]?.goalPages.map(Int.init) }
     var pagePace: Double? {
         sessionPagesPerMinute.map { 1 / $0 }
     }

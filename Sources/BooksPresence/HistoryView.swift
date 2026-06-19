@@ -12,26 +12,23 @@ struct HistoryView: View {
         _navigation = State(initialValue: CalendarNavigation(timezoneID: model.timezoneID, scale: initialScale))
     }
 
-    private var visibleDays: [DailyTotal] {
-        model.days.filter { day in
-            guard let date = date(for: day.day) else { return false }
-            return date >= navigation.period.start && date < navigation.period.end
-        }
-    }
-
-    private var creditedSeconds: Double { visibleDays.reduce(0) { $0 + $1.creditedSeconds } }
-    private var uncertainSeconds: Double { visibleDays.reduce(0) { $0 + $1.uncertainSeconds } }
-    private var pageTurns: Int { model.pages(from: navigation.period.start, through: navigation.period.end) }
-    private var activeDays: Int { visibleDays.filter { model.pages(on: $0.day) > 0 }.count }
-    private var pageGoalDays: Int { visibleDays.filter { day in
-        let pages = model.pages(on: day.day)
-        guard let goal = model.pageGoal(on: day.day) else { return false }
-        return pages > 0 && pages >= goal
-    }.count }
     private var todayStart: Date { navigation.calendar.startOfDay(for: Date()) }
 
     var body: some View {
-        ScrollView {
+        // Calendar periods start/end at local midnight; sortable civil-day keys avoid
+        // reparsing every saved date and rebuilding the period for each summary metric.
+        let period = navigation.period
+        let firstKey = navigation.dayKey(for: period.start)
+        let endKey = navigation.dayKey(for: period.end)
+        let visibleDays = model.days.filter { $0.day >= firstKey && $0.day < endKey }
+        let creditedSeconds = visibleDays.reduce(0) { $0 + $1.creditedSeconds }
+        let pageTurns = model.pages(from: period.start, through: period.end)
+        let activeDays = visibleDays.filter { model.pages(on: $0.day) > 0 }.count
+        let pageGoalDays = visibleDays.filter { day in
+            let pages = model.pages(on: day.day)
+            return model.pageGoal(on: day.day).map { pages > 0 && pages >= $0 } ?? false
+        }.count
+        return ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 PageHeading(title: "History", subtitle: "Your reading pages and manual corrections, with time as supporting history.")
                 HStack(spacing: 12) {
@@ -84,11 +81,6 @@ struct HistoryView: View {
     private var canMoveForward: Bool {
         let current = CalendarNavigation(timezoneID: model.timezoneID, anchor: Date(), scale: navigation.scale)
         return navigation.periodStart < current.periodStart
-    }
-    private func date(for key: String) -> Date? {
-        let parts = key.split(separator: "-").compactMap { Int($0) }
-        guard parts.count == 3 else { return nil }
-        return navigation.calendar.date(from: DateComponents(year: parts[0], month: parts[1], day: parts[2]))
     }
     private func mutateNavigation(_ change: (inout CalendarNavigation) -> Void) {
         var updated = navigation; updated.timezoneID = model.timezoneID; change(&updated); navigation = updated
