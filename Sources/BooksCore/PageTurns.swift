@@ -225,7 +225,7 @@ public enum PageStatistics {
                                   from: Date?, through: Date?, bookID: String?, sessionID: String?, includeManual: Bool = true) -> [QualifiedPageTurn] {
         let resolver = MergeResolver(merges: merges)
         let requestedBook = bookID.map(resolver.resolve)
-        let intervals = effectiveIntervals.filter { $0.disposition != .excluded }
+        let intervals = PageIntervalIndex(intervals: effectiveIntervals, resolve: resolver.resolve)
         return events.compactMap { event in
             guard event.completion == nil, event.rating == nil else { return nil }
             let count: Int
@@ -243,10 +243,7 @@ public enum PageStatistics {
             // Event dates are recorded at checkpoint end boundaries. `contains`
             // is start-exclusive so excluding the fragment that ended at an
             // event cannot retain it through the next fragment's start.
-            guard intervals.contains(where: { interval in
-                interval.sessionID == eventSession && resolver.resolve(interval.bookID) == resolvedBook
-                    && event.date > interval.start && event.date <= interval.end
-            }) else { return nil }
+            guard intervals.contains(bookID: resolvedBook, sessionID: eventSession, date: event.date) else { return nil }
             return QualifiedPageTurn(event: event, pages: count)
         }
     }
@@ -279,5 +276,38 @@ public enum PageStatistics {
         result.locale = Locale(identifier: "en_US_POSIX")
         result.timeZone = TimeZone(identifier: timezoneID) ?? TimeZone(secondsFromGMT: 0)!
         return result
+    }
+}
+
+/// Start-exclusive/end-inclusive interval membership, partitioned before searching.
+/// Prefix maximum ends also handle overlapping inputs without changing `contains` semantics.
+private struct PageIntervalIndex {
+    private struct Key: Hashable { let bookID: String; let sessionID: String }
+    private struct Bounds { let starts: [Date]; let maximumEnds: [Date] }
+    private var groups: [Key: Bounds] = [:]
+
+    init(intervals: [ReadingInterval], resolve: (String) -> String) {
+        let grouped = Dictionary(grouping: intervals.filter { $0.disposition != .excluded }) {
+            Key(bookID: resolve($0.bookID), sessionID: $0.sessionID)
+        }
+        for (key, values) in grouped {
+            let ordered = values.sorted { $0.start < $1.start }
+            var end = Date.distantPast
+            let maximumEnds = ordered.map { interval -> Date in
+                end = max(end, interval.end)
+                return end
+            }
+            groups[key] = Bounds(starts: ordered.map(\.start), maximumEnds: maximumEnds)
+        }
+    }
+
+    func contains(bookID: String, sessionID: String, date: Date) -> Bool {
+        guard let bounds = groups[Key(bookID: bookID, sessionID: sessionID)] else { return false }
+        var lower = 0, upper = bounds.starts.count
+        while lower < upper {
+            let middle = lower + (upper - lower) / 2
+            if bounds.starts[middle] < date { lower = middle + 1 } else { upper = middle }
+        }
+        return lower > 0 && bounds.maximumEnds[lower - 1] >= date
     }
 }
