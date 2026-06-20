@@ -209,7 +209,6 @@ struct SettingsView: View {
     @State private var goalDraft = "20"
     @State private var uncertaintyDraft = "20"
     @State private var timezoneDraft = TimeZone.current.identifier
-    @State private var timezoneSearch = ""
     @State private var discordApplicationIDDraft = ""
     @State private var discordAssetKeyDraft = "books"
     @State private var applyFeedback: String?
@@ -370,21 +369,7 @@ struct SettingsView: View {
                     SettingRow(icon: "globe.americas", title: "Calendar time zone", description: "Controls the calendar day boundary and daily totals.") {
                         EmptyView()
                     }
-                    VStack(alignment: .leading, spacing: 9) {
-                        TextField("Search time zones", text: $timezoneSearch)
-                            .textFieldStyle(.roundedBorder)
-                            .accessibilityLabel("Search time zones")
-                        Picker("Calendar time zone", selection: $timezoneDraft) {
-                            ForEach(timezoneChoices, id: \.self) { identifier in
-                                Text(timezoneDisplayName(for: identifier)).tag(identifier)
-                            }
-                        }
-                        .labelsHidden()
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        Text("Showing matching IANA time zones. Search by city, region, or identifier.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+                    TimeZoneChooser(selection: $timezoneDraft)
                     .padding(.leading, 44)
                     .padding(.trailing, 2)
                     .padding(.bottom, 14)
@@ -591,21 +576,6 @@ struct SettingsView: View {
         })
     }
 
-    private var timezoneChoices: [String] {
-        let query = timezoneSearch.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let matching = TimeZone.knownTimeZoneIdentifiers.filter { identifier in
-            guard !query.isEmpty else { return true }
-            return identifier.lowercased().contains(query)
-                || (TimeZone(identifier: identifier)?.localizedName(for: .standard, locale: .current)?.lowercased().contains(query) ?? false)
-        }
-        return matching.contains(timezoneDraft) ? matching : [timezoneDraft] + matching
-    }
-
-    private func timezoneDisplayName(for identifier: String) -> String {
-        let localized = TimeZone(identifier: identifier)?.localizedName(for: .standard, locale: .current)
-        return localized.map { "\($0) — \(identifier)" } ?? identifier
-    }
-
     private var readingDraftsAreValid: Bool {
         guard let pageGoal = Int(pageGoalDraft), (1...10_000).contains(pageGoal),
               let goal = Int(goalDraft), (1...1_440).contains(goal),
@@ -678,7 +648,6 @@ struct SettingsView: View {
         timezoneDraft = model.timezoneID
         discordApplicationIDDraft = model.discordApplicationID
         discordAssetKeyDraft = model.discordAssetKey
-        timezoneSearch = ""
         clearFeedback()
     }
 
