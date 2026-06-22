@@ -5,7 +5,6 @@ import BooksCore
 struct HistoryView: View {
     @ObservedObject var model: AppModel
     @State private var navigation: CalendarNavigation
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(model: AppModel, initialScale: CalendarScale = .month) {
         self.model = model
@@ -30,12 +29,12 @@ struct HistoryView: View {
         }.count
         return ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                PageHeading(title: "History", subtitle: "Your reading pages and manual corrections, with time as supporting history.")
+                PageHeading(title: "History", subtitle: "See how your reading adds up.")
                 HStack(spacing: 12) {
-                    HistoryMetric(title: "Reading pages", value: "\(pageTurns)")
-                    HistoryMetric(title: "Page-goal days", value: "\(pageGoalDays)")
-                    HistoryMetric(title: navigation.scale == .day ? "Books" : "Days with pages", value: navigation.scale == .day ? "\(dayBookCount)" : "\(activeDays)")
-                    HistoryMetric(title: "Recorded time", value: ReadingFormat.duration(creditedSeconds))
+                    HistoryMetric(title: "Pages read", value: "\(pageTurns)")
+                    HistoryMetric(title: "Goals reached", value: "\(pageGoalDays)")
+                    HistoryMetric(title: navigation.scale == .day ? "Books" : "Reading days", value: navigation.scale == .day ? "\(dayBookCount)" : "\(activeDays)")
+                    HistoryMetric(title: "Reading time", value: ReadingFormat.duration(creditedSeconds))
                 }
                 VStack(alignment: .leading, spacing: 16) {
                     HistoryCalendarToolbar(navigation: navigation, isNextEnabled: canMoveForward, setScale: { setScale($0) }, previous: { move(-1) }, next: { move(1) }, today: { goToToday() })
@@ -51,10 +50,8 @@ struct HistoryView: View {
                             HistoryDayDetail(model: model, date: navigation.periodStart, navigation: navigation, back: { setScale(.month) })
                         }
                     }
+                    .readingEntrance()
                     .id("\(navigation.scale.rawValue)-\(navigation.dayKey(for: navigation.periodStart))")
-                    // Only the incoming calendar fades. Toolbar and panel geometry update immediately.
-                    .transition(reduceMotion ? .identity : .asymmetric(insertion: .opacity, removal: .identity))
-                    .animation(reduceMotion ? nil : .easeOut(duration: 0.10), value: navigation)
                 }
                 .readingPanel()
                 Text("Calendar timezone: \(model.timezoneID)")
@@ -64,8 +61,9 @@ struct HistoryView: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
-            .padding(28)
             .frame(maxWidth: 1060, alignment: .leading)
+            .padding(30)
+            .frame(maxWidth: .infinity, alignment: .center)
         }
         .onChange(of: model.timezoneID) { timezoneID in navigation.timezoneID = timezoneID }
         .buttonStyle(ReadingButtonStyle())
@@ -97,12 +95,11 @@ struct HistoryMetric: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
             Text(title).font(.caption).foregroundStyle(.secondary)
-            Text(value).font(.system(.title3, design: .serif)).monospacedDigit()
+            Text(value).font(.system(size: 19, weight: .semibold, design: .rounded)).monospacedDigit()
         }
         .frame(maxWidth: .infinity, minHeight: 30, alignment: .leading)
-        .padding(14)
-        .background(ReadingPalette.surface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(ReadingPalette.border.opacity(0.7)))
+        .padding(16)
+        .background(ReadingPalette.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 }
 
@@ -116,18 +113,14 @@ private struct HistoryCalendarToolbar: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 10) {
-                Button(action: previous) { Image(systemName: "chevron.left") }.accessibilityLabel("Previous \(navigation.scale.title.lowercased())")
-                Button(action: next) { Image(systemName: "chevron.right") }.disabled(!isNextEnabled).accessibilityLabel("Next \(navigation.scale.title.lowercased())")
-                Text(navigation.title).font(.system(.title2, design: .serif))
+                Button(action: previous) { Image(systemName: "chevron.left") }.buttonStyle(ReadingButtonStyle(iconOnly: true)).accessibilityLabel("Previous \(navigation.scale.title.lowercased())")
+                Button(action: next) { Image(systemName: "chevron.right") }.buttonStyle(ReadingButtonStyle(iconOnly: true)).disabled(!isNextEnabled).accessibilityLabel("Next \(navigation.scale.title.lowercased())")
+                Text(navigation.title).font(.system(size: 20, weight: .semibold, design: .rounded))
                 Spacer()
                 Button("Today", action: today).controlSize(.small)
             }
-            Picker("Calendar scale", selection: Binding(get: { navigation.scale }, set: { setScale($0) })) {
-                ForEach(CalendarScale.allCases) { scale in Text(scale.title).tag(scale) }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .accessibilityLabel("Calendar scale")
+            ReadingSegmentedControl(label: "Calendar scale", options: CalendarScale.allCases,
+                selection: Binding(get: { navigation.scale }, set: setScale), title: { $0.title })
         }
     }
 }
@@ -183,7 +176,7 @@ private struct HistoryMonthDayCell: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("\(dayNumber)").font(.callout.weight(isToday ? .bold : .regular))
                 if total != nil, model.pages(on: navigationDayKey) > 0 {
-                    Text("\(model.pages(on: navigationDayKey)) pages").font(.caption.weight(.medium)).monospacedDigit().lineLimit(1)
+                    Text("\(model.pages(on: navigationDayKey)) \(model.pages(on: navigationDayKey) == 1 ? "page" : "pages")").font(.caption.weight(.medium)).monospacedDigit().lineLimit(1)
                 } else if let total, total.creditedSeconds > 0 {
                     Text("Time only").font(.caption2.weight(.medium)).lineLimit(1)
                 } else if total?.uncertainSeconds ?? 0 > 0 {
@@ -395,7 +388,7 @@ private struct HistoryDayDetail: View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Day detail").font(.system(.title3, design: .serif))
+                    Text("Your reading day").font(.system(size: 19, weight: .semibold, design: .rounded))
                     Text(pageGoal.map { "\(ReadingFormat.observedPages(pageTurns)) / \($0) page goal. Time stays available as supporting detail." } ?? "\(ReadingFormat.observedPages(pageTurns)). No page goal recorded for this day. Time stays available as supporting detail.")
                         .font(.caption).foregroundStyle(.secondary)
                 }

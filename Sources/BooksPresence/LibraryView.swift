@@ -15,14 +15,16 @@ struct LibraryView: View {
             VStack(alignment: .leading, spacing: 26) {
                 PageHeading(title: "Library", subtitle: "Your books, reading pace, and finished reads.")
                 HStack(spacing: 18) {
-                    Picker("Bookshelf", selection: $shelf) {
-                        Text("Reading").tag(LibraryShelf.reading)
-                        Text("Finished · \(model.finishedBooks.count)").tag(LibraryShelf.finished)
-                        Text("All books").tag(LibraryShelf.all)
-                    }.pickerStyle(.segmented).frame(maxWidth: 420)
+                    ReadingSegmentedControl(label: "Bookshelf", options: [LibraryShelf.reading, .finished, .all], selection: $shelf) { shelf in
+                        switch shelf {
+                        case .reading: return "Reading"
+                        case .finished: return "Finished · \(model.finishedBooks.count)"
+                        case .all: return "All books"
+                        }
+                    }.frame(maxWidth: 420)
                     Spacer(minLength: 0)
                     TextField("Search title or author", text: $search)
-                        .textFieldStyle(.roundedBorder).frame(maxWidth: 240)
+                        .textFieldStyle(ReadingTextFieldStyle()).frame(maxWidth: 240)
                 }
                 if shelf == .finished {
                     FinishedBookTimeline(model: model, search: search)
@@ -105,7 +107,7 @@ struct BookLibraryCard: View {
         }
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.08), value: isHovering)
+        .animation(reduceMotion ? nil : ReadingMotion.hover, value: isHovering)
         .accessibilityLabel("Open \(book.title)")
     }
 }
@@ -166,6 +168,8 @@ struct BookDetailView: View {
         .frame(width: 760, height: 720)
         .background(ReadingPalette.paper)
         .tint(ReadingPalette.moss)
+        .foregroundStyle(ReadingPalette.ink)
+        .buttonStyle(ReadingButtonStyle())
         .sheet(item: $reviewInterval) { IntervalReviewEditor(model: model, interval: $0) }
         .sheet(isPresented: $mergePresented) { MergeBooksView(model: model, source: currentBook) }
         .onAppear { publicCoverURLDraft = model.publicCoverURL(for: currentBook) }
@@ -226,16 +230,15 @@ struct BookDetailView: View {
             Spacer(minLength: 0)
         }
         .padding(18)
-        .background(ReadingPalette.elevated.opacity(0.72), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(ReadingPalette.border.opacity(0.8)))
+        .background(ReadingPalette.surface, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 
     private var readingSummary: some View {
         VStack(alignment: .leading, spacing: 11) {
-            Text("Reading at a glance").font(.system(.title3, design: .serif)).foregroundStyle(ReadingPalette.ink)
+            Text("Reading at a glance").font(.system(size: 17, weight: .semibold, design: .rounded)).foregroundStyle(ReadingPalette.ink)
             HStack(spacing: 10) {
-                BookDetailStat(label: "Pages", value: ReadingFormat.observedPages(observedPages), symbol: "book.pages")
-                BookDetailStat(label: "Credited time", value: ReadingFormat.duration(credited), symbol: "clock")
+                BookDetailStat(label: "Pages", value: "\(observedPages)", symbol: "book.pages")
+                BookDetailStat(label: "Reading time", value: ReadingFormat.duration(credited), symbol: "clock")
                 BookDetailStat(label: "Pace", value: ReadingFormat.pagesPerMinute(pagesPerMinute) ?? "Building pace", symbol: "gauge.with.dots.needle.50percent")
             }
             let corrected = model.manualPages(forBookID: currentBook.id)
@@ -251,7 +254,7 @@ struct BookDetailView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Session history").font(.system(.title3, design: .serif)).foregroundStyle(ReadingPalette.ink)
+                    Text("Session history").font(.system(size: 17, weight: .semibold, design: .rounded)).foregroundStyle(ReadingPalette.ink)
                     Text("Review or remove a saved session.").font(.caption).foregroundStyle(ReadingPalette.fadedInk)
                 }
                 Spacer()
@@ -283,7 +286,7 @@ struct BookDetailView: View {
 
     private var privacyControls: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("This book").font(.system(.title3, design: .serif)).foregroundStyle(ReadingPalette.ink)
+            Text("This book").font(.system(size: 17, weight: .semibold, design: .rounded)).foregroundStyle(ReadingPalette.ink)
             BookDetailToggleRow(title: "Track reading", message: "Include new reading evidence in your journal.", isOn: trackingBinding)
             Divider()
             BookDetailToggleRow(title: "Share with Discord", message: "Allow this title on your Discord card when sharing is on.", isOn: sharingBinding)
@@ -297,7 +300,7 @@ struct BookDetailView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Discord artwork").font(.system(.title3, design: .serif)).foregroundStyle(ReadingPalette.ink)
+                    Text("Discord artwork").font(.system(size: 17, weight: .semibold, design: .rounded)).foregroundStyle(ReadingPalette.ink)
                     Text(artworkStatus).font(.caption).foregroundStyle(ReadingPalette.fadedInk)
                 }
                 Spacer()
@@ -307,7 +310,7 @@ struct BookDetailView: View {
             DisclosureGroup("Use a different public cover link") {
                 VStack(alignment: .leading, spacing: 8) {
                     TextField("Public HTTPS image URL", text: $publicCoverURLDraft)
-                        .textFieldStyle(.roundedBorder)
+                        .textFieldStyle(ReadingTextFieldStyle())
                         .onSubmit { savePublicCoverURL() }
                     HStack {
                         Button("Save public link") { savePublicCoverURL() }
@@ -430,7 +433,7 @@ private struct BookDetailStat: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
             Label(label, systemImage: symbol).font(.caption).foregroundStyle(ReadingPalette.fadedInk)
-            Text(value).font(.callout.weight(.semibold)).monospacedDigit().foregroundStyle(ReadingPalette.moss)
+            Text(value).font(.system(size: 22, weight: .semibold, design: .rounded)).monospacedDigit().foregroundStyle(ReadingPalette.moss)
                 .lineLimit(2)
         }
         .frame(maxWidth: .infinity, minHeight: 58, alignment: .leading)
@@ -583,7 +586,7 @@ struct SessionRow: View {
             }
             Button("Review", action: review).controlSize(.small)
             Button(role: .destructive, action: delete) { Image(systemName: "trash") }
-                .buttonStyle(.borderless).accessibilityLabel("Delete session")
+                .buttonStyle(ReadingButtonStyle(iconOnly: true)).accessibilityLabel("Delete session")
         }
         .padding(.vertical, 5)
     }
