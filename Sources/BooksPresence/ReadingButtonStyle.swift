@@ -9,51 +9,55 @@ struct ReadingButtonStyle: ButtonStyle {
     }
 
     let emphasis: Emphasis
+    let iconOnly: Bool
     @Environment(\.isEnabled) private var isEnabled
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    init(emphasis: Emphasis = .secondary) {
+    init(emphasis: Emphasis = .secondary, iconOnly: Bool = false) {
         self.emphasis = emphasis
+        self.iconOnly = iconOnly
     }
 
     func makeBody(configuration: Configuration) -> some View {
-        ReadingButtonStyleBody(configuration: configuration, emphasis: emphasis, isEnabled: isEnabled, reduceMotion: reduceMotion)
+        ReadingButtonStyleBody(configuration: configuration, emphasis: emphasis, iconOnly: iconOnly, isEnabled: isEnabled, reduceMotion: reduceMotion)
     }
 }
 
 private struct ReadingButtonStyleBody: View {
     let configuration: ButtonStyleConfiguration
     let emphasis: ReadingButtonStyle.Emphasis
+    let iconOnly: Bool
     let isEnabled: Bool
     let reduceMotion: Bool
     @Environment(\.controlSize) private var controlSize
+    @Environment(\.isFocused) private var isFocused
     @State private var isHovering = false
 
     var body: some View {
         let destructive = configuration.role == .destructive
         let primary = emphasis == .primary
         let accent = destructive ? Color.red : ReadingPalette.moss
-        let foreground = primary ? ReadingPalette.paper : (destructive ? Color.red : ReadingPalette.ink)
+        let foreground = primary ? ReadingPalette.onAccent : (destructive ? Color.red : ReadingPalette.ink)
         let hovering = isHovering && isEnabled
         let compact = controlSize == .small || controlSize == .mini
-        let background = primary ? accent.opacity(hovering ? 0.90 : 1) : accent.opacity(destructive ? (hovering ? 0.15 : 0.08) : (hovering ? 0.13 : 0.055))
+        let background = primary ? accent.opacity(hovering ? 0.90 : 1) : accent.opacity(destructive ? (hovering ? 0.15 : 0.08) : (hovering ? 0.14 : 0.075))
 
         configuration.label
             .font((compact ? Font.caption : Font.callout).weight(primary ? .semibold : .medium))
             .foregroundStyle(foreground)
-            .padding(.horizontal, compact ? 10 : 14)
+            .padding(.horizontal, iconOnly ? 9 : (compact ? 10 : 14))
             .padding(.vertical, compact ? 5 : 8)
-            .frame(minHeight: compact ? 26 : 34)
-            .background(background, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .frame(minWidth: iconOnly ? 32 : 0, minHeight: iconOnly ? 32 : (compact ? 28 : 36))
+            .background(background, in: RoundedRectangle(cornerRadius: compact ? 9 : 13, style: .continuous))
             .overlay {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .stroke(primary ? accent.opacity(0.82) : accent.opacity(destructive ? 0.30 : (hovering ? 0.30 : 0.17)), lineWidth: 1)
+                RoundedRectangle(cornerRadius: compact ? 9 : 13, style: .continuous)
+                    .stroke(isFocused ? ReadingPalette.moss : (primary ? .clear : accent.opacity(destructive ? 0.25 : (hovering ? 0.20 : 0.08))), lineWidth: isFocused ? 2 : 1)
             }
-            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: compact ? 9 : 13, style: .continuous))
             .opacity(isEnabled ? (configuration.isPressed ? 0.84 : 1) : 0.42)
             .scaleEffect(configuration.isPressed && !reduceMotion ? 0.985 : 1)
-            .animation(reduceMotion ? nil : .easeOut(duration: 0.06), value: configuration.isPressed)
-            .animation(reduceMotion ? nil : .easeOut(duration: 0.08), value: isHovering)
+            .animation(reduceMotion ? nil : ReadingMotion.press, value: configuration.isPressed)
+            .animation(reduceMotion ? nil : ReadingMotion.hover, value: isHovering)
             .onHover { isHovering = $0 }
     }
 }

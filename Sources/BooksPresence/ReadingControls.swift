@@ -1,0 +1,126 @@
+import SwiftUI
+
+/// Selection motion is contained inside this control; the destination page is
+/// never part of its animation transaction.
+struct ReadingSegmentedControl<Value: Hashable>: View {
+    let label: String
+    let options: [Value]
+    @Binding var selection: Value
+    let title: (Value) -> String
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @FocusState private var focused: Value?
+    @Namespace private var highlight
+
+    var body: some View {
+        HStack(spacing: 3) {
+            ForEach(options, id: \.self) { option in
+                Button { selection = option } label: {
+                    Text(title(option))
+                        .font(.system(size: 12, weight: selection == option ? .semibold : .medium, design: .rounded))
+                        .lineLimit(1).padding(.horizontal, 12).padding(.vertical, 9)
+                        .frame(maxWidth: .infinity)
+                        .foregroundStyle(selection == option ? ReadingPalette.ink : ReadingPalette.fadedInk)
+                        .background {
+                            if selection == option {
+                                RoundedRectangle(cornerRadius: 11).fill(ReadingPalette.elevated)
+                                    .matchedGeometryEffect(id: "selection", in: highlight)
+                            }
+                        }
+                        .contentShape(RoundedRectangle(cornerRadius: 11))
+                }
+                .buttonStyle(.plain).focused($focused, equals: option)
+                .overlay(RoundedRectangle(cornerRadius: 11).stroke(focused == option ? ReadingPalette.moss : .clear, lineWidth: 2))
+                .accessibilityAddTraits(selection == option ? .isSelected : [])
+            }
+        }
+        .padding(4)
+        .background(ReadingPalette.moss.opacity(0.07), in: RoundedRectangle(cornerRadius: 15))
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: selection)
+        .accessibilityElement(children: .contain).accessibilityLabel(label)
+        .onMoveCommand { direction in
+            guard direction == .left || direction == .right,
+                  let index = options.firstIndex(of: focused ?? selection), !options.isEmpty else { return }
+            let next = min(options.count - 1, max(0, index + (direction == .right ? 1 : -1)))
+            selection = options[next]; focused = selection
+        }
+    }
+}
+
+struct ReadingTextFieldStyle: TextFieldStyle {
+    func _body(configuration: TextField<Self._Label>) -> some View {
+        ReadingFieldBody(field: configuration)
+    }
+}
+
+private struct ReadingFieldBody<Label: View>: View {
+    let field: TextField<Label>
+    @FocusState private var focused: Bool
+    var body: some View {
+        field.textFieldStyle(.plain).focused($focused)
+            .padding(.horizontal, 11).padding(.vertical, 9)
+            .background(ReadingPalette.paper.opacity(0.8), in: RoundedRectangle(cornerRadius: 10))
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(focused ? ReadingPalette.moss : ReadingPalette.border.opacity(0.35), lineWidth: focused ? 1.5 : 1))
+    }
+}
+
+struct ReadingMenuPicker<Value: Hashable>: View {
+    let label: String
+    let options: [Value]
+    @Binding var selection: Value
+    let title: (Value) -> String
+    var body: some View {
+        Menu {
+            ForEach(options, id: \.self) { option in
+                Button { selection = option } label: {
+                    if option == selection { Label(title(option), systemImage: "checkmark") }
+                    else { Text(title(option)) }
+                }
+            }
+        } label: {
+            HStack {
+                Text(title(selection)).lineLimit(1)
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.down").font(.system(size: 10, weight: .semibold))
+            }
+            .font(.callout).foregroundStyle(ReadingPalette.ink)
+            .padding(.horizontal, 12).padding(.vertical, 10)
+            .background(ReadingPalette.paper, in: RoundedRectangle(cornerRadius: 11))
+        }
+        .menuStyle(.borderlessButton).menuIndicator(.hidden)
+        .padding(10).background(ReadingPalette.paper, in: RoundedRectangle(cornerRadius: 11))
+        .accessibilityLabel(label).accessibilityValue(title(selection))
+    }
+}
+
+struct ReadingSheetHeader: View {
+    let title: String
+    let subtitle: String
+    let close: () -> Void
+    var body: some View {
+        HStack(alignment: .top, spacing: 16) {
+            VStack(alignment: .leading, spacing: 5) {
+                Text(title).font(.system(size: 22, weight: .semibold, design: .rounded))
+                Text(subtitle).font(.callout).foregroundStyle(ReadingPalette.fadedInk)
+            }
+            Spacer(minLength: 0)
+            Button(action: close) { Image(systemName: "xmark") }
+                .buttonStyle(ReadingButtonStyle(iconOnly: true))
+                .keyboardShortcut(.cancelAction).accessibilityLabel("Close")
+        }
+    }
+}
+
+struct ReadingSwitchRow: View {
+    let title: String
+    var symbol: String? = nil
+    @Binding var isOn: Bool
+    var body: some View {
+        HStack(spacing: 12) {
+            if let symbol { Label(title, systemImage: symbol) }
+            else { Text(title) }
+            Spacer(minLength: 4)
+            Toggle(title, isOn: $isOn).labelsHidden().toggleStyle(.switch)
+                .accessibilityLabel(title)
+        }
+    }
+}

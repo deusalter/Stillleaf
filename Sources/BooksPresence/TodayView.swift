@@ -6,109 +6,122 @@ struct TodayView: View {
     @ObservedObject var model: AppModel
     let present: (DashboardSheet) -> Void
 
+    private var featuredBook: BookRecord? {
+        if let book = model.snapshot.book { return book }
+        guard let last = model.intervals.first(where: { $0.disposition != .excluded }) else { return nil }
+        let id = BookMergeResolver(merges: model.merges).resolvedID(for: last.bookID)
+        return model.books.first { $0.id == id }
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 26) {
-                PageHeading(title: "Today", subtitle: todaySubtitle)
-                HStack(alignment: .top, spacing: 18) {
-                    VStack(alignment: .leading, spacing: 16) {
-                        GoalProgressView(model: model, day: model.today)
-                        if model.pageStreak.todayPending {
-                            Text("Today is still pending. Your page-goal streak through yesterday is preserved.")
-                                .font(.callout).foregroundStyle(.secondary)
-                        }
-                        if model.pageStreak.provisional {
-                            Label("Your page-goal streak includes activity awaiting review.", systemImage: "clock.badge.questionmark")
-                                .font(.callout).foregroundStyle(ReadingPalette.ochre)
-                        }
-                    }
-                    .readingPanel()
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Page-goal streak").font(.headline)
-                        Text("\(model.pageStreak.current) days")
-                            .font(.system(size: 36, weight: .medium, design: .serif))
-                            .foregroundStyle(ReadingPalette.ink)
-                        Text("Longest: \(model.pageStreak.longest) days")
-                            .foregroundStyle(.secondary)
-                        Text("Time remains available in your history.")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .readingPanel()
+                HStack(alignment: .center) {
+                    PageHeading(title: "Today", subtitle: ReadingFormat.day(model.today.day))
+                    Spacer(minLength: 12)
+                    Label(trackingLabel, systemImage: model.snapshot.phase == .reading ? "book" : "leaf")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(ReadingPalette.moss)
+                        .padding(.horizontal, 12).padding(.vertical, 8)
+                        .background(ReadingPalette.moss.opacity(0.09), in: Capsule())
+                        .fixedSize()
                 }
-
-                currentActivity
+                DailyReadingOverview(model: model)
+                featuredReading
                 if let entry = model.pendingCompletion, model.snapshot.phase != .reading, !model.manualActive {
                     FinishedBookPrompt(model: model, entry: entry)
                 }
-                HStack(spacing: 12) {
+                HStack(spacing: 10) {
+                    Label("Your reading journal", systemImage: "square.and.pencil")
+                        .font(.callout).foregroundStyle(ReadingPalette.fadedInk)
+                    Spacer(minLength: 8)
                     if model.manualActive {
                         Button("Stop manual reading") { model.stopManual() }
-                            .buttonStyle(ReadingButtonStyle(emphasis: .primary))
                     } else {
-                        Button("Start manual reading") { present(.manualStart) }
-                            .buttonStyle(ReadingButtonStyle(emphasis: .primary))
+                        Button("Read manually") { present(.manualStart) }
                     }
-                    Button("Add reading time") { present(.manualAdd) }
-                        .buttonStyle(ReadingButtonStyle(emphasis: .secondary))
+                    Button { present(.manualAdd) } label: { Label("Add time", systemImage: "plus") }
                 }
-                Text("Manual records are identified separately in history.")
-                    .font(.callout).foregroundStyle(.secondary)
-
+                .controlSize(.small)
                 if !model.uncertainIntervals.isEmpty {
                     UncertainNotice(count: model.uncertainIntervals.count) { present(.review(model.uncertainIntervals[0])) }
                 }
             }
             .frame(maxWidth: 1060, alignment: .leading)
-            .padding(32)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(30)
+            .frame(maxWidth: .infinity, alignment: .center)
         }
         .buttonStyle(ReadingButtonStyle())
     }
 
-    private var todaySubtitle: String {
-        let day = ReadingFormat.day(model.today.day)
-        if model.todayPages == 0 {
-            if model.today.creditedSeconds > 0 {
-                return "\(day) · recorded time, no pages"
+    private var featuredReading: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Text(model.snapshot.book == nil ? "Last read" : "Your current read")
+                    .font(.system(size: 17, weight: .semibold, design: .rounded))
+                Spacer()
+                if let book = featuredBook {
+                    Button("Book details") { present(.book(book)) }.controlSize(.small)
+                }
             }
-            return "\(day) · no pages recorded yet"
+            HStack(alignment: .center, spacing: 22) {
+                if let book = featuredBook {
+                    BookCoverView(book: book, size: .large)
+                        .shadow(color: .black.opacity(0.12), radius: 9, x: 0, y: 5)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(book.title).font(.system(size: 24, weight: .semibold, design: .serif)).lineLimit(2)
+                        if let author = book.author, !author.isEmpty {
+                            Text(author).font(.callout).foregroundStyle(ReadingPalette.fadedInk)
+                        }
+                        if model.snapshot.book != nil {
+                            ActivityStateLabel(snapshot: model.snapshot).padding(.top, 3)
+                            HStack(spacing: 18) {
+                                LabeledValue(label: "Session pages", value: "\(model.sessionPages)")
+                                LabeledValue(label: "Reading time", value: ReadingFormat.duration(model.snapshot.sessionSeconds))
+                                if let page = model.currentPageText { LabeledValue(label: "In this book", value: page) }
+                            }.padding(.top, 3)
+                        } else {
+                            HStack(spacing: 6) {
+                                Image(systemName: "bookmark")
+                                Text("\(model.pages(forBookID: book.id)) pages in your journal")
+                            }.font(.caption).foregroundStyle(ReadingPalette.fadedInk).padding(.top, 3)
+                        }
+                        Button { openBooks() } label: { Label("Open Apple Books", systemImage: "book") }
+                            .buttonStyle(ReadingButtonStyle(emphasis: .primary)).padding(.top, 6)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    Image(systemName: "books.vertical")
+                        .font(.system(size: 40, weight: .light)).foregroundStyle(ReadingPalette.moss)
+                        .frame(width: 88, height: 112)
+                        .background(ReadingPalette.moss.opacity(0.08), in: RoundedRectangle(cornerRadius: 22))
+                    VStack(alignment: .leading, spacing: 9) {
+                        Text("Make room for a good book.").font(.system(size: 23, weight: .medium, design: .serif))
+                        Text("Open a book to start your reading day.")
+                            .font(.callout).foregroundStyle(ReadingPalette.fadedInk)
+                        Button { openBooks() } label: { Label("Open Apple Books", systemImage: "book") }
+                            .buttonStyle(ReadingButtonStyle(emphasis: .primary)).padding(.top, 5)
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
         }
-        return "\(day) · \(ReadingFormat.observedPages(model.todayPages))"
+        .padding(24)
+        .background(ReadingPalette.surface, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 
-    private var currentActivity: some View {
-        HStack(alignment: .top, spacing: 18) {
-            BookCoverView(book: model.snapshot.book, size: .large)
-            VStack(alignment: .leading, spacing: 7) {
-                Text("Current activity").font(.headline)
-                Text(model.snapshot.book?.title ?? "No active book")
-                    .font(.system(.title2, design: .serif))
-                if let author = model.snapshot.book?.author, !author.isEmpty {
-                    Text(author).foregroundStyle(.secondary)
-                }
-                ActivityStateLabel(snapshot: model.snapshot)
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 118), alignment: .leading)], alignment: .leading, spacing: 14) {
-                    LabeledValue(label: "Session pages", value: ReadingFormat.observedPages(model.sessionPages))
-                    if let page = model.currentPageText {
-                        LabeledValue(label: "Current page", value: page)
-                    }
-                    if let pace = ReadingFormat.pagesPerMinute(model.sessionPagesPerMinute) {
-                        LabeledValue(label: "Session pace", value: pace)
-                    }
-                    LabeledValue(label: "Session time", value: ReadingFormat.duration(model.snapshot.sessionSeconds))
-                    LabeledValue(label: "Mode", value: model.snapshot.mode.rawValue.capitalized)
-                }
-                Text("Pages include automatic observations and labeled manual corrections. Time is recorded separately.")
-                    .font(.caption).foregroundStyle(.secondary)
-                if let reason = model.snapshot.pauseReason, model.snapshot.phase == .paused {
-                    Text("Paused because \(pauseDescription(reason)).")
-                        .font(.callout).foregroundStyle(.secondary)
-                }
-            }
-            Spacer(minLength: 0)
+    private var trackingLabel: String {
+        if !model.trackingEnabled { return "Tracking off" }
+        if model.automaticTrackingNeedsAccess { return "Access needed" }
+        if model.snapshot.phase == .reading { return "Reading now" }
+        return "Ready for Books"
+    }
+
+    private func openBooks() {
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.iBooksX") else {
+            model.errorMessage = "Apple Books could not be found on this Mac."
+            return
         }
-        .readingPanel()
+        NSWorkspace.shared.open(url)
     }
 }
 
@@ -117,38 +130,35 @@ struct GoalProgressView: View {
     let day: DailyTotal
     private var observedPages: Int { model.pages(on: day.day) }
     private var pageGoal: Int? { model.pageGoal(on: day.day) }
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("Daily page goal").font(.headline)
+        VStack(alignment: .leading, spacing: 9) {
+            HStack {
+                Text("Daily goal").font(.callout.weight(.semibold))
                 Spacer()
-                Text(pageGoal.map { "\(ReadingFormat.observedPages(observedPages)) / \($0) page goal" } ?? ReadingFormat.observedPages(observedPages))
+                Text(pageGoal.map { "\(observedPages) / \($0) pages" } ?? "\(observedPages) pages")
                     .font(.callout).monospacedDigit().foregroundStyle(ReadingPalette.fadedInk)
+                    .fixedSize()
             }
             if let pageGoal {
-                ProgressView(value: Double(observedPages), total: Double(max(1, pageGoal)))
-                    .tint(observedPages >= pageGoal ? ReadingPalette.moss : ReadingPalette.ochre)
-            } else {
-                Text("No page goal recorded for this day.")
-                    .font(.caption).foregroundStyle(.secondary)
+                SegmentedReadingBar(progress: min(1, Double(observedPages) / Double(max(1, pageGoal))))
+                    .frame(height: 8)
+                    .animation(reduceMotion ? nil : .easeOut(duration: 0.24), value: observedPages)
+                    .accessibilityLabel("Daily page goal")
+                    .accessibilityValue("\(observedPages) of \(pageGoal) pages")
             }
-            Text("Includes observed pages and manual corrections.")
-                .font(.caption).foregroundStyle(.secondary)
-            Text("Recorded time: \(ReadingFormat.duration(day.creditedSeconds))")
-                .font(.caption).monospacedDigit().foregroundStyle(.secondary)
-            if day.manualSeconds > 0 || day.uncertainSeconds > 0 {
-                HStack(spacing: 14) {
-                    if day.manualSeconds > 0 { Text("Manual: \(ReadingFormat.duration(day.manualSeconds))") }
-                    if day.uncertainSeconds > 0 { Text("Awaiting review: \(ReadingFormat.duration(day.uncertainSeconds))") }
-                }
-                .font(.caption).foregroundStyle(.secondary)
-            }
+            HStack {
+                Text("\(ReadingFormat.duration(day.creditedSeconds)) reading time")
+                Spacer()
+                if day.manualSeconds > 0 { Text("\(ReadingFormat.duration(day.manualSeconds)) manual") }
+            }.font(.caption).foregroundStyle(ReadingPalette.fadedInk)
         }
+        .help("Pages include tracked page turns and manual corrections. Time is recorded separately.")
     }
 }
 
 struct BookCoverView: View {
-    enum Size { case compact, large, library }
+    enum Size { case compact, menu, large, library }
     let book: BookRecord?
     let size: Size
     @State private var thumbnail: NSImage?
@@ -156,6 +166,7 @@ struct BookCoverView: View {
     private var dimensions: CGSize {
         switch size {
         case .compact: return CGSize(width: 52, height: 72)
+        case .menu: return CGSize(width: 62, height: 88)
         case .large: return CGSize(width: 104, height: 148)
         case .library: return CGSize(width: 72, height: 104)
         }
@@ -176,7 +187,7 @@ struct BookCoverView: View {
                     VStack(spacing: 8) {
                         Image(systemName: "book.closed")
                             .font(.system(size: max(16, dimensions.width * 0.22), weight: .light))
-                        if size != .compact {
+                        if size != .compact && size != .menu {
                             Text(book?.title ?? "Your next read")
                                 .font(.system(size: size == .large ? 13 : 11, weight: .medium, design: .serif))
                                 .multilineTextAlignment(.center).lineLimit(3)
@@ -207,7 +218,7 @@ struct ActivityStateLabel: View {
         let text: String
         let symbol: String
         switch snapshot.phase {
-        case .reading: text = "Recording inferred reading activity"; symbol = "record.circle"
+        case .reading: text = "Reading now"; symbol = "record.circle"
         case .uncertain: text = "Time awaiting review"; symbol = "clock.badge.questionmark"
         case .paused: text = "Paused • \(activityPauseSummary(snapshot.pauseReason))"; symbol = "pause.circle"
         }
@@ -256,7 +267,7 @@ struct CompactMetric: View {
     let label: String
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(value).font(.system(.headline, design: .serif)).monospacedDigit()
+            Text(value).font(.system(.headline, design: .rounded)).monospacedDigit()
             Text(label).font(.caption).foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -280,8 +291,7 @@ struct PageHeading: View {
     let subtitle: String
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
-            Capsule().fill(ReadingPalette.moss.opacity(0.7)).frame(width: 28, height: 3)
-            Text(title).font(.system(size: 32, weight: .medium, design: .serif)).tracking(-0.5)
+            Text(title).font(.system(size: 29, weight: .semibold, design: .rounded)).tracking(-0.7)
             Text(subtitle).font(.callout).foregroundStyle(ReadingPalette.fadedInk)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -291,8 +301,7 @@ struct PageHeading: View {
 extension View {
     func readingPanel() -> some View {
         padding(20)
-            .background(ReadingPalette.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(ReadingPalette.border.opacity(0.45)))
+            .background(ReadingPalette.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 }
 

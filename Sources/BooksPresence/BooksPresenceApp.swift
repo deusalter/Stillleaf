@@ -94,11 +94,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         panel.delegate = self
         panel.cancelHandler = { [weak self] in self?.dismissMenuPanel() }
 
-        let controller = NSHostingController(rootView: PopoverView(model: model))
+        let controller = NSHostingController(rootView: PopoverView(model: model, maximumHeight: max(300, min(640, (NSScreen.screens.map { $0.visibleFrame.height }.min() ?? 700) - 24))))
         controller.sizingOptions = [.preferredContentSize]
         panel.contentViewController = controller
         panel.contentView?.wantsLayer = true
-        panel.contentView?.layer?.cornerRadius = 14
+        panel.contentView?.layer?.cornerRadius = 22
         panel.contentView?.layer?.masksToBounds = true
         menuPanelSizeObservation = controller.observe(\.preferredContentSize, options: [.initial, .new]) { [weak self, weak panel] controller, _ in
             Task { @MainActor [weak self, weak panel] in
@@ -130,8 +130,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let panelSize = panel.frame.size
         let horizontalPadding: CGFloat = 8
         let x = min(max(anchor.midX - panelSize.width / 2, visibleFrame.minX + horizontalPadding), visibleFrame.maxX - panelSize.width - horizontalPadding)
-        var y = anchor.minY - panelSize.height - 6
-        if y < visibleFrame.minY + horizontalPadding { y = anchor.maxY + 6 }
+        let y = max(visibleFrame.minY + horizontalPadding, anchor.minY - panelSize.height - 6)
         panel.setFrameOrigin(NSPoint(x: x, y: y))
     }
 

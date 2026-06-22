@@ -38,11 +38,13 @@ struct DashboardView: View {
                     case .settings: SettingsView(model: model, present: { sheet = $0 }, deleteAll: { deleteAllConfirmation = true }, uninstall: { uninstallConfirmation = true }, initialCategory: initialSettingsCategory)
                     }
                 }
+                .readingEntrance()
                 .id(section)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .background(ReadingPalette.paper)
         }
+        .readingMotionAccessibility()
         .navigationSplitViewStyle(.balanced)
         .frame(minWidth: 920, minHeight: 660)
         .foregroundStyle(ReadingPalette.ink)
@@ -50,7 +52,7 @@ struct DashboardView: View {
         .tint(ReadingPalette.moss)
         .buttonStyle(ReadingButtonStyle())
         .sheet(item: $sheet) { item in
-            dashboardSheet(item)
+            dashboardSheet(item).readingMotionAccessibility()
         }
         .alert("Delete all reading data?", isPresented: $deleteAllConfirmation) {
             Button("Delete all data", role: .destructive) { model.deleteAllData() }
@@ -88,78 +90,35 @@ struct DashboardView: View {
 @MainActor
 struct PopoverView: View {
     @ObservedObject var model: AppModel
+    var maximumHeight: CGFloat = 640
     @State private var showingManualStart = false
+    @State private var bodyHeight: CGFloat = 390
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
-                Label("Stillleaf", systemImage: "book.closed.fill")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(ReadingPalette.fadedInk)
+                Label("Stillleaf", systemImage: "leaf.fill")
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundStyle(ReadingPalette.moss)
                 Spacer()
-                Button { model.showDashboard() } label: { Image(systemName: "arrow.up.forward.app") }
-                    .buttonStyle(.plain).help("Open dashboard")
-                    .accessibilityLabel("Open dashboard")
+                Button { model.showDashboard() } label: {
+                    Label("Dashboard", systemImage: "arrow.up.forward.app")
+                }.controlSize(.small).accessibilityLabel("Open dashboard")
             }
-            HStack(alignment: .top, spacing: 14) {
-                BookCoverView(book: model.snapshot.book, size: .compact)
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(model.snapshot.book?.title ?? "Ready when you are")
-                        .font(.system(size: 17, weight: .medium, design: .serif)).lineLimit(2)
-                    if let author = model.snapshot.book?.author, !author.isEmpty {
-                        Text(author).font(.callout).foregroundStyle(.secondary).lineLimit(1)
-                    }
-                    ActivityStateLabel(snapshot: model.snapshot)
-                    if let page = model.currentPageText {
-                        Text(page)
-                            .font(.caption)
-                            .foregroundStyle(ReadingPalette.fadedInk)
-                    }
-                }
-                Spacer(minLength: 0)
+            ScrollView {
+                readingContent
+                    .background(GeometryReader { geometry in
+                        Color.clear.preference(key: MenuBodyHeight.self, value: geometry.size.height)
+                    })
             }
-            HStack(spacing: 0) {
-                CompactMetric(value: "\(model.sessionPages)", label: "Session pages")
-                CompactMetric(value: "\(model.todayPages)", label: "Today's pages")
-                CompactMetric(value: "\(model.pageStreak.current) days", label: "Page-goal streak")
+            .frame(height: min(bodyHeight, max(160, maximumHeight - 160)))
+            .onPreferenceChange(MenuBodyHeight.self) { height in
+                if height > 0, abs(height - bodyHeight) > 0.5 { bodyHeight = height }
             }
-            .padding(.vertical, 10)
-            .background(ReadingPalette.surface, in: RoundedRectangle(cornerRadius: 10))
-            if let pace = ReadingFormat.pagesPerMinute(model.sessionPagesPerMinute) {
-                Text("Reading pace: \(pace)")
-                    .font(.caption)
-                    .foregroundStyle(ReadingPalette.fadedInk)
-            }
-            GoalProgressView(model: model, day: model.today)
-            VStack(spacing: 12) {
-                Toggle(isOn: Binding(get: { model.trackingEnabled }, set: { model.trackingEnabled = $0; model.saveSettings() })) {
-                    Label("Track reading", systemImage: "timer")
-                }
-                Toggle(isOn: Binding(get: { model.discordEnabled }, set: { model.discordEnabled = $0; model.saveSettings() })) {
-                    Label("Share with Discord", systemImage: "bubble.left.and.bubble.right")
-                }
-            }
-            .toggleStyle(.switch).controlSize(.small)
-            if model.automaticTrackingNeedsAccess {
-                PopoverSetupNotice(
-                    icon: "accessibility",
-                    title: "Accessibility access needed",
-                    description: "Stillleaf cannot automatically capture reading until macOS grants access."
-                ) {
-                    Button("Request access") { model.requestAccessibility() }
-                        .buttonStyle(ReadingButtonStyle(emphasis: .secondary))
-                        .controlSize(.small)
-                }
-            }
-            if model.discordNeedsSetup {
-                PopoverSetupNotice(
-                    icon: "key.horizontal",
-                    title: "Discord needs an Application ID",
-                    description: "Add the ID for your Discord application before activity can be shared."
-                ) {
-                    Link("Open developer portal", destination: URL(string: "https://discord.com/developers/applications")!)
-                        .font(.caption)
-                }
+            if bodyHeight > max(160, maximumHeight - 160) {
+                Label("Scroll for tracking settings", systemImage: "arrow.down")
+                    .font(.caption2).foregroundStyle(ReadingPalette.fadedInk)
+                    .frame(maxWidth: .infinity)
             }
             HStack {
                 Button(model.manualActive ? "Stop manual reading" : "Read manually") {
@@ -167,18 +126,84 @@ struct PopoverView: View {
                 }
                 .buttonStyle(ReadingButtonStyle(emphasis: .primary))
                 Spacer()
-                Button("Quit") { model.quit() }.buttonStyle(ReadingButtonStyle(emphasis: .secondary))
+                Button("Quit") { model.quit() }
             }
         }
-        .padding(18)
-        .frame(width: 350)
+        .padding(20).frame(width: 350)
         .foregroundStyle(ReadingPalette.ink)
-        .background(ReadingPalette.paper, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .tint(ReadingPalette.moss)
-        .buttonStyle(ReadingButtonStyle())
-        .sheet(isPresented: $showingManualStart) { ManualStartView(model: model) }
+        .background(ReadingPalette.paper, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .tint(ReadingPalette.moss).buttonStyle(ReadingButtonStyle())
+        .readingMotionAccessibility()
+        .sheet(isPresented: $showingManualStart) { ManualStartView(model: model).readingMotionAccessibility() }
     }
+
+    private var readingContent: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(alignment: .top, spacing: 14) {
+                BookCoverView(book: model.snapshot.book, size: .menu)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(model.snapshot.book?.title ?? "Ready when you are")
+                        .font(.system(size: 22, weight: .medium, design: .serif)).lineLimit(2)
+                        .accessibilityLabel(model.snapshot.book?.title ?? "Ready when you are")
+                    if let author = model.snapshot.book?.author, !author.isEmpty {
+                        Text(author).font(.caption).foregroundStyle(ReadingPalette.fadedInk).lineLimit(1)
+                    }
+                    ActivityStateLabel(snapshot: model.snapshot)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if let page = model.currentPageText {
+                        Text(page).font(.caption).foregroundStyle(ReadingPalette.fadedInk)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            MenuReadingGoal(model: model)
+            HStack(alignment: .top, spacing: 20) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("This session").font(.caption).foregroundStyle(ReadingPalette.fadedInk)
+                    Text("\(model.sessionPages) \(model.sessionPages == 1 ? "page" : "pages")")
+                        .font(.system(size: 21, weight: .semibold, design: .rounded)).monospacedDigit()
+                    Text("\(ReadingFormat.duration(model.snapshot.sessionSeconds)) \(model.manualActive ? "manual time" : "recorded time")")
+                        .font(.caption2).foregroundStyle(ReadingPalette.fadedInk)
+                }.frame(maxWidth: .infinity, alignment: .leading)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Goal streak").font(.caption).foregroundStyle(ReadingPalette.fadedInk)
+                        .help(model.pageStreak.provisional ? "This streak is provisional until pending time is reviewed." : "Consecutive days that met your page goal.")
+                    Text("\(model.pageStreak.current) \(model.pageStreak.current == 1 ? "day" : "days")")
+                        .font(.system(size: 21, weight: .semibold, design: .rounded)).monospacedDigit()
+                        .foregroundStyle(ReadingPalette.ochre)
+                    if model.pageStreak.todayPending {
+                        Text("Today's goal is still open").font(.caption2).foregroundStyle(ReadingPalette.fadedInk)
+                    }
+                }.frame(maxWidth: .infinity, alignment: .leading)
+            }
+            if let pace = ReadingFormat.pagesPerMinute(model.sessionPagesPerMinute) {
+                Label(pace, systemImage: "gauge.with.dots.needle.50percent")
+                    .font(.caption).foregroundStyle(ReadingPalette.fadedInk)
+            }
+            VStack(spacing: 12) {
+                ReadingSwitchRow(title: "Track reading", symbol: "timer", isOn: Binding(get: { model.trackingEnabled }, set: { model.trackingEnabled = $0; model.saveSettings() }))
+                ReadingSwitchRow(title: "Share with Discord", symbol: "bubble.left.and.bubble.right", isOn: Binding(get: { model.discordEnabled }, set: { model.discordEnabled = $0; model.saveSettings() })).help("Enables sharing when an Apple Books reader is open. Current status: \(model.discordStatus)")
+            }.toggleStyle(.switch).controlSize(.small).font(.callout)
+            if model.automaticTrackingNeedsAccess {
+                PopoverSetupNotice(icon: "accessibility", title: "Accessibility access needed",
+                    description: "Allow Stillleaf to track Apple Books automatically.") {
+                    Button("Request access") { model.requestAccessibility() }.controlSize(.small)
+                }
+            }
+            if model.discordNeedsSetup {
+                PopoverSetupNotice(icon: "key.horizontal", title: "Set up Discord sharing",
+                    description: "Add your Discord Application ID in Settings.") {
+                    Button("Open dashboard") { model.showDashboard() }.controlSize(.small)
+                }
+            }
+        }.frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct MenuBodyHeight: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
 }
 
 private struct PopoverSetupNotice<Accessory: View>: View {
@@ -249,19 +274,22 @@ private struct DashboardSidebar: View {
     @Binding var selection: DashboardSection
     @ObservedObject var model: AppModel
     @FocusState private var focusedSection: DashboardSection?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 10) {
-                Image(systemName: "book.closed.fill")
-                    .font(.system(size: 19, weight: .medium))
+                Image(systemName: "leaf.fill")
+                    .font(.system(size: 17, weight: .medium))
                     .foregroundStyle(ReadingPalette.moss)
+                    .frame(width: 36, height: 36)
+                    .background(ReadingPalette.moss.opacity(0.10), in: RoundedRectangle(cornerRadius: 12))
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Stillleaf").font(.system(size: 14, weight: .semibold))
-                    Text("Your reading journal").font(.system(size: 11)).foregroundStyle(ReadingPalette.fadedInk)
+                    Text("Stillleaf").font(.system(size: 17, weight: .semibold, design: .rounded))
+                    Text("A little more, every day").font(.system(size: 11)).foregroundStyle(ReadingPalette.fadedInk)
                 }
             }
-            .padding(.horizontal, 18).padding(.top, 24).padding(.bottom, 24)
+            .padding(.horizontal, 18).padding(.top, 24).padding(.bottom, 30)
             VStack(spacing: 5) {
                 ForEach(DashboardSection.allCases) { item in
                     Button { selection = item } label: {
@@ -281,8 +309,10 @@ private struct DashboardSidebar: View {
                             if selection == item {
                                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                                     .fill(ReadingPalette.moss.opacity(0.14))
+                                    .transition(.opacity)
                             }
                         }
+                        .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: selection == item)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
@@ -312,8 +342,8 @@ private struct DashboardSidebar: View {
                     }
                 }
                 .buttonStyle(.plain).help("View tracking status")
-                Toggle("Track reading", isOn: Binding(get: { model.trackingEnabled }, set: { model.trackingEnabled = $0; model.saveSettings() }))
-                Toggle("Discord sharing", isOn: Binding(get: { model.discordEnabled }, set: { model.discordEnabled = $0; model.saveSettings() }))
+                ReadingSwitchRow(title: "Track reading", isOn: Binding(get: { model.trackingEnabled }, set: { model.trackingEnabled = $0; model.saveSettings() }))
+                ReadingSwitchRow(title: "Discord sharing", isOn: Binding(get: { model.discordEnabled }, set: { model.discordEnabled = $0; model.saveSettings() }))
             }
             .font(.system(size: 12)).toggleStyle(.switch).controlSize(.small)
             .padding(14)
@@ -366,7 +396,7 @@ struct ReadingEmptyState: View {
     var body: some View {
         VStack(spacing: 12) {
             Image(systemName: symbol).font(.system(size: 30)).foregroundStyle(ReadingPalette.fadedInk)
-            Text(title).font(.system(.title3, design: .serif))
+            Text(title).font(.system(size: 18, weight: .semibold, design: .rounded))
             Text(message).font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
         }
         .padding(30)
@@ -383,16 +413,19 @@ enum ReadingPalette {
                            blue: Double(hex & 0xff) / 255, alpha: 1)
         })
     }
-    static let paper = adaptive(0xE6DADF, 0x241C26)
-    static let surface = adaptive(0xF0E7EB, 0x302532)
-    static let elevated = adaptive(0xE2D1D9, 0x3D2F3D)
-    static let sidebar = adaptive(0xD7C4CE, 0x2A202D)
-    static let parchment = adaptive(0xCEB5C1, 0x503B4A)
-    static let ink = adaptive(0x352432, 0xF6ECF1)
-    static let moss = adaptive(0x8B4F42, 0xE0AE96)
-    static let ochre = adaptive(0x606825, 0xC9CE89)
-    static let fadedInk = adaptive(0x715A6A, 0xC4ADBD)
-    static let border = adaptive(0xC9AEBE, 0x564151)
+    static let paper = adaptive(0xDFECE7, 0x132422)
+    static let surface = adaptive(0xF0F7F3, 0x1C302D)
+    static let elevated = adaptive(0xD1E6DD, 0x28423B)
+    static let sidebar = adaptive(0xE9F2ED, 0x172A27)
+    static let parchment = adaptive(0xB9D8CA, 0x355A4D)
+    static let ink = adaptive(0x183D33, 0xE7F3EA)
+    static let moss = adaptive(0x087D65, 0x70DAB2)
+    static let ochre = adaptive(0x885A27, 0xE4B779)
+    static let fadedInk = adaptive(0x526F64, 0xADC5B8)
+    static let border = adaptive(0xB5CFC2, 0x39544A)
+    static let progressTrack = adaptive(0xC7DED3, 0x304B40)
+    static let accentEnd = adaptive(0x18998A, 0x92DEC8)
+    static let onAccent = adaptive(0xFFFFFF, 0x10392B)
 }
 
 enum ReadingFormat {
