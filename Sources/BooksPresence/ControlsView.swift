@@ -9,16 +9,14 @@ struct ManualStartView: View {
     @State private var author = ""
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Text("Start manual reading").font(.system(.title2, design: .serif))
-            Text("Use this for a paper book or intentional side-by-side reading. It is stored as manual activity.")
-                .font(.callout).foregroundStyle(.secondary)
-            Text("Manual entries record time only; observed pages come from visible pagination.")
-                .font(.caption).foregroundStyle(.secondary)
-            Form {
+        VStack(alignment: .leading, spacing: 22) {
+            ReadingSheetHeader(title: "Read manually", subtitle: "Track time with a paper book or another reader.", close: { dismiss() })
+            VStack(spacing: 12) {
                 TextField("Book title", text: $title)
                 TextField("Author (optional)", text: $author)
-            }
+            }.readingPanel()
+            Text("Saved as manual reading time. Pages are not estimated.")
+                .font(.caption).foregroundStyle(ReadingPalette.fadedInk)
             HStack {
                 Button("Cancel") { dismiss() }
                 Spacer()
@@ -30,10 +28,9 @@ struct ManualStartView: View {
                 .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
-        .padding(24)
-        .frame(width: 430)
-        .background(ReadingPalette.paper)
-        .tint(ReadingPalette.moss)
+        .padding(26).frame(width: 470)
+        .background(ReadingPalette.paper).foregroundStyle(ReadingPalette.ink)
+        .tint(ReadingPalette.moss).textFieldStyle(ReadingTextFieldStyle())
         .buttonStyle(ReadingButtonStyle())
     }
 }
@@ -48,26 +45,23 @@ struct ManualAdditionView: View {
     @State private var start = Date().addingTimeInterval(-30 * 60)
 
     var body: some View {
-        VStack(spacing: 0) {
+        VStack(alignment: .leading, spacing: 22) {
+            ReadingSheetHeader(title: "Add reading time", subtitle: "Keep a reading session in your journal.", close: { dismiss() })
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Book").font(.headline)
+                TextField("Title", text: $title)
+                TextField("Author (optional)", text: $author)
+            }.readingPanel()
+            VStack(alignment: .leading, spacing: 14) {
+                Text("When you read").font(.headline)
+                DatePicker("Started", selection: $start).datePickerStyle(.compact)
+                DatePicker("Finished", selection: $end, in: start...).datePickerStyle(.compact)
+                Text("Saved as manual time. This does not add pages or Apple Books activity.")
+                    .font(.caption).foregroundStyle(ReadingPalette.fadedInk)
+            }.readingPanel()
             HStack {
-                Text("Add manual reading").font(.system(.title2, design: .serif))
-                Spacer()
                 Button("Cancel") { dismiss() }
-            }.padding(20)
-            Divider()
-            Form {
-                Section("Book") {
-                    TextField("Title", text: $title)
-                    TextField("Author (optional)", text: $author)
-                }
-                Section("Time") {
-                    DatePicker("Started", selection: $start)
-                    DatePicker("Finished", selection: $end, in: start...)
-                    Text("The entry is marked manual. It does not represent Apple Books activity.")
-                        .font(.caption).foregroundStyle(.secondary)
-                    Text("Manual entries record time only; observed pages are not inferred.")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
+                Spacer()
                 Button("Add reading time") {
                     model.addManual(title: title.trimmingCharacters(in: .whitespacesAndNewlines), author: author.trimmingCharacters(in: .whitespacesAndNewlines), start: start, end: end)
                     dismiss()
@@ -75,11 +69,10 @@ struct ManualAdditionView: View {
                 .buttonStyle(ReadingButtonStyle(emphasis: .primary))
                 .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || end <= start)
             }
-            .formStyle(.grouped).padding(.vertical, 8)
         }
-        .frame(width: 480, height: 410)
-        .background(ReadingPalette.paper)
-        .tint(ReadingPalette.moss)
+        .padding(26).frame(width: 500)
+        .background(ReadingPalette.paper).foregroundStyle(ReadingPalette.ink)
+        .tint(ReadingPalette.moss).textFieldStyle(ReadingTextFieldStyle())
         .buttonStyle(ReadingButtonStyle())
     }
 }
@@ -97,15 +90,14 @@ struct MergeBooksView: View {
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text("Merge book identities").font(.system(.title2, design: .serif))
+            ReadingSheetHeader(title: "Merge books", subtitle: "Bring duplicate records together.", close: { dismiss() })
             Text("Merge \(source.title) into a selected record. Its recorded time will be shown with that record; you can reverse this decision later with Unmerge.")
                 .font(.callout).foregroundStyle(.secondary)
             if targets.isEmpty {
                 Text("There is no other book record available to merge with.").foregroundStyle(.secondary)
             } else {
-                Picker("Merge into", selection: $targetID) {
-                    Text("Choose a book").tag("")
-                    ForEach(targets) { target in Text(target.title).tag(target.id) }
+                ReadingMenuPicker(label: "Merge into", options: [""] + targets.map(\.id), selection: $targetID) { id in
+                    targets.first { $0.id == id }?.title ?? "Choose a book"
                 }
                 HStack {
                     Button("Cancel") { dismiss() }
@@ -123,6 +115,7 @@ struct MergeBooksView: View {
         .padding(24)
         .frame(width: 480)
         .background(ReadingPalette.paper)
+        .foregroundStyle(ReadingPalette.ink)
         .tint(ReadingPalette.moss)
         .buttonStyle(ReadingButtonStyle())
     }
@@ -131,6 +124,7 @@ struct MergeBooksView: View {
 @MainActor
 struct HealthView: View {
     @ObservedObject var model: AppModel
+    @State private var visibleOutages = 30
     private var outages: [AuditEvent] {
         model.events.filter {
             let value = $0.kind.lowercased()
@@ -138,42 +132,68 @@ struct HealthView: View {
         }.sorted { $0.date > $1.date }
     }
     var body: some View {
+        let events = outages
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
-                PageHeading(title: "Data health", subtitle: "A day with zero recorded reading is not treated as a tracking outage.")
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Current capture state").font(.system(.title2, design: .serif))
-                    Text(model.health.isEmpty ? "No current health message has been recorded." : model.health)
-                    Text("Last successful capture: \(ReadingFormat.date(model.lastCapture))")
-                        .font(.callout).foregroundStyle(.secondary)
-                    HStack {
-                        Button("Request Accessibility access") { model.requestAccessibility() }
-                        Button("Open Accessibility settings") { model.openAccessibilitySettings() }
-                        Button("Refresh") { model.refresh() }
+                PageHeading(title: "Data health", subtitle: "Keep your reading history in good shape.")
+                VStack(alignment: .leading, spacing: 18) {
+                    HStack(spacing: 14) {
+                        Image(systemName: model.accessibilityGranted ? "checkmark.shield" : "lock.shield")
+                            .font(.system(size: 24, weight: .medium)).foregroundStyle(ReadingPalette.moss)
+                            .frame(width: 52, height: 52)
+                            .background(ReadingPalette.moss.opacity(0.09), in: RoundedRectangle(cornerRadius: 16))
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text("Tracking status").font(.system(size: 20, weight: .semibold, design: .rounded))
+                            ActivityStateLabel(snapshot: model.snapshot)
+                        }
+                        Spacer()
+                        Button { model.refresh() } label: { Image(systemName: "arrow.clockwise") }
+                            .buttonStyle(ReadingButtonStyle(iconOnly: true)).accessibilityLabel("Refresh tracking status")
                     }
-                }
-                .readingPanel()
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Recorded tracking gaps, recoveries, and failures").font(.system(.title2, design: .serif))
-                    if outages.isEmpty {
-                        Text("No outages or capture failures are recorded. This does not mean no reading occurred during unobserved time.")
-                            .foregroundStyle(.secondary)
+                    HStack(spacing: 30) {
+                        LabeledValue(label: "Accessibility", value: model.accessibilityGranted ? "Allowed" : "Needs access")
+                        LabeledValue(label: "Last reading captured", value: ReadingFormat.date(model.lastCapture))
+                    }
+                    HStack(spacing: 10) {
+                        if !model.accessibilityGranted {
+                            Button("Enable tracking access") { model.requestAccessibility() }
+                                .buttonStyle(ReadingButtonStyle(emphasis: .primary))
+                        }
+                        Button("Accessibility settings") { model.openAccessibilitySettings() }
+                    }
+                    DisclosureGroup("More details") {
+                        Text(model.health.isEmpty ? "No additional tracking details yet." : model.health)
+                            .font(.caption).foregroundStyle(ReadingPalette.fadedInk).padding(.top, 6)
+                    }
+                }.readingPanel()
+                VStack(alignment: .leading, spacing: 16) {
+                    HStack {
+                        Text("Tracking history").font(.system(size: 19, weight: .semibold, design: .rounded))
+                        Spacer()
+                        Text("\(events.count) updates").font(.caption).foregroundStyle(ReadingPalette.fadedInk)
+                    }
+                    if events.isEmpty {
+                        ReadingEmptyState(title: "No issues recorded", symbol: "checkmark.shield", message: "Tracking gaps and recoveries will appear here if they occur.")
                     } else {
-                        ForEach(outages) { event in
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(event.kind).font(.headline)
-                                Text(ReadingFormat.date(event.date)).font(.caption).foregroundStyle(.secondary)
-                                Text(event.detail).font(.callout)
+                        LazyVStack(alignment: .leading, spacing: 16) {
+                            ForEach(events.prefix(visibleOutages)) { event in
+                                VStack(alignment: .leading, spacing: 5) {
+                                    Text(ReadingFormat.date(event.date)).font(.caption.weight(.medium)).foregroundStyle(ReadingPalette.moss)
+                                    Text(event.detail).font(.callout).foregroundStyle(ReadingPalette.fadedInk)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }.frame(maxWidth: .infinity, alignment: .leading)
+                                Divider().opacity(0.45)
                             }
-                            .padding(.vertical, 5)
-                            Divider()
+                            if events.count > visibleOutages {
+                                Button("Show more updates") { visibleOutages += 30 }
+                            }
                         }
                     }
-                }
-                .readingPanel()
+                    Text("A quiet reading day is not a tracking outage.").font(.caption).foregroundStyle(ReadingPalette.fadedInk)
+                }.readingPanel()
             }
-            .padding(32)
-            .frame(maxWidth: 920, alignment: .leading)
+            .frame(maxWidth: 1060, alignment: .leading).padding(30)
+            .frame(maxWidth: .infinity, alignment: .center)
         }
         .buttonStyle(ReadingButtonStyle())
     }
@@ -234,10 +254,12 @@ struct SettingsView: View {
                 PageHeading(title: "Settings", subtitle: "Tracking stays local unless you choose to export or enable Discord sharing.")
                 settingsLayout
             }
-            .padding(32)
             .frame(maxWidth: 1_060, alignment: .leading)
+            .padding(30)
+            .frame(maxWidth: .infinity, alignment: .center)
         }
         .background(ReadingPalette.paper)
+        .foregroundStyle(ReadingPalette.ink)
         .tint(ReadingPalette.moss)
         .buttonStyle(ReadingButtonStyle())
         .onAppear(perform: loadDraftsIfNeeded)
@@ -247,19 +269,15 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 18) {
             categoryPicker
             categoryDetail
+                .readingEntrance()
+                .id(category)
         }
-        .frame(minWidth: 650, maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var categoryPicker: some View {
-        Picker("Settings category", selection: $category) {
-            ForEach(SettingsCategory.allCases) { item in
-                Label(item.rawValue, systemImage: item.icon).tag(item)
-            }
-        }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .accessibilityLabel("Settings category")
+        ReadingSegmentedControl(label: "Settings category", options: SettingsCategory.allCases,
+                                selection: $category, title: { $0.rawValue })
     }
 
     @ViewBuilder
@@ -321,7 +339,8 @@ struct SettingsView: View {
                             Text("Quick page goals").font(.caption).foregroundStyle(.secondary)
                             ForEach([10, 20, 30, 50, 75], id: \.self) { pages in
                                 Button("\(pages)") { setPageGoalPreset(pages) }
-                                    .buttonStyle(ReadingButtonStyle(emphasis: .secondary))
+                                    .buttonStyle(ReadingButtonStyle(emphasis: Int(pageGoalDraft) == pages ? .primary : .secondary))
+                                    .accessibilityAddTraits(Int(pageGoalDraft) == pages ? .isSelected : [])
                                     .controlSize(.small)
                             }
                             Spacer()
@@ -333,6 +352,7 @@ struct SettingsView: View {
                             .foregroundStyle(.secondary)
                             .padding(.leading, 44)
                             .padding(.bottom, 13)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     settingDivider
                     Group {
@@ -343,7 +363,8 @@ struct SettingsView: View {
                             Text("Quick goals").font(.caption).foregroundStyle(.secondary)
                             ForEach([15, 20, 30, 45, 60], id: \.self) { minutes in
                                 Button("\(minutes)m") { setGoalPreset(minutes) }
-                                    .buttonStyle(ReadingButtonStyle(emphasis: .secondary))
+                                    .buttonStyle(ReadingButtonStyle(emphasis: Int(goalDraft) == minutes ? .primary : .secondary))
+                                    .accessibilityAddTraits(Int(goalDraft) == minutes ? .isSelected : [])
                                     .controlSize(.small)
                             }
                             Spacer()
@@ -355,6 +376,7 @@ struct SettingsView: View {
                             .foregroundStyle(.secondary)
                             .padding(.leading, 44)
                             .padding(.bottom, 13)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     settingDivider
                     SettingRow(icon: "clock.badge.checkmark", title: "Review after", description: "Mark time for review after this many minutes without fresh evidence.") {
@@ -420,13 +442,13 @@ struct SettingsView: View {
                     VStack(alignment: .leading, spacing: 12) {
                         SettingRow(icon: "key.horizontal", title: "Application ID", description: "The Discord application used for your presence.") {
                             TextField("Application ID", text: $discordApplicationIDDraft)
-                                .textFieldStyle(.roundedBorder)
+                                .textFieldStyle(ReadingTextFieldStyle())
                                 .frame(width: 210)
                                 .onSubmit { applyDiscordDrafts() }
                         }
                         SettingRow(icon: "photo", title: "Fallback asset key", description: "Generic artwork uploaded to your Discord application. Local covers stay on this Mac.") {
                             TextField("Fallback asset key", text: $discordAssetKeyDraft)
-                                .textFieldStyle(.roundedBorder)
+                                .textFieldStyle(ReadingTextFieldStyle())
                                 .frame(width: 180)
                                 .onSubmit { applyDiscordDrafts() }
                         }
@@ -442,12 +464,14 @@ struct SettingsView: View {
                         }
                         .padding(.leading, 44)
                         .padding(.bottom, 13)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     } else if !model.discordEnabled {
                         Label("Sharing is off. You can configure Discord now, then turn sharing on when you are ready.", systemImage: "info.circle")
                             .font(.callout)
                             .foregroundStyle(.secondary)
                             .padding(.leading, 44)
                             .padding(.bottom, 13)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     settingDivider
                     SettingRow(icon: "dot.radiowaves.left.and.right", title: "Connection status", description: "See the current Discord connection state.") {
@@ -588,14 +612,17 @@ struct SettingsView: View {
     private func numericEditor(label: String, value: Binding<String>, range: ClosedRange<Int>, stepperValue: Binding<Int>) -> some View {
         HStack(spacing: 6) {
             TextField(label, text: value)
-                .textFieldStyle(.roundedBorder)
-                .frame(width: 52)
+                .textFieldStyle(ReadingTextFieldStyle())
+                .frame(width: 78)
                 .multilineTextAlignment(.trailing)
                 .onSubmit { applyReadingDrafts() }
             Text(label.contains("minute") ? "min" : "pages").font(.callout).foregroundStyle(.secondary)
-            Stepper(label, value: stepperValue, in: range)
-                .labelsHidden()
-                .accessibilityLabel(label)
+            Button { stepperValue.wrappedValue = max(range.lowerBound, stepperValue.wrappedValue - 1) } label: { Image(systemName: "minus") }
+                .buttonStyle(ReadingButtonStyle(iconOnly: true)).disabled(stepperValue.wrappedValue <= range.lowerBound)
+                .accessibilityLabel("Decrease \(label)")
+            Button { stepperValue.wrappedValue = min(range.upperBound, stepperValue.wrappedValue + 1) } label: { Image(systemName: "plus") }
+                .buttonStyle(ReadingButtonStyle(iconOnly: true)).disabled(stepperValue.wrappedValue >= range.upperBound)
+                .accessibilityLabel("Increase \(label)")
         }
     }
 
@@ -698,7 +725,7 @@ private struct SettingsSectionHeading: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text(title).font(.system(.title3, design: .serif).weight(.semibold))
+            Text(title).font(.system(size: 17, weight: .semibold, design: .rounded))
             Text(subtitle).font(.callout).foregroundStyle(.secondary)
         }
     }
@@ -733,8 +760,7 @@ private extension SettingsView {
     @ViewBuilder
     func settingsCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         content()
-            .background(ReadingPalette.elevated, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(ReadingPalette.border, lineWidth: 1))
+            .background(ReadingPalette.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 }
 
@@ -744,7 +770,7 @@ struct RestoreConfirmationView: View {
     @Environment(\.dismiss) private var dismiss
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text("Restore a backup?").font(.system(.title2, design: .serif))
+            ReadingSheetHeader(title: "Restore a backup?", subtitle: "Replace the history saved on this Mac.", close: { dismiss() })
             Text("Restore validates the selected backup and replaces the current local database. Create a new backup first if you want to preserve current data.")
                 .font(.callout).foregroundStyle(.secondary)
             HStack {
@@ -759,6 +785,7 @@ struct RestoreConfirmationView: View {
         .padding(24)
         .frame(width: 460)
         .background(ReadingPalette.paper)
+        .foregroundStyle(ReadingPalette.ink)
         .buttonStyle(ReadingButtonStyle())
     }
 }
