@@ -27,9 +27,9 @@ struct FinishedBookPrompt: View {
                     .foregroundStyle(ReadingPalette.moss)
                     .background(Circle().fill(ReadingPalette.paper).padding(2))
                     .offset(x: 8, y: -8)
-                    .scaleEffect(hasAppeared ? 1 : 0.55)
+                    .scaleEffect(reduceMotion || hasAppeared ? 1 : 0.85)
             }
-            .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: hasAppeared)
+            .animation(reduceMotion ? nil : ReadingMotion.entrance, value: hasAppeared)
 
             VStack(alignment: .leading, spacing: 10) {
                 Text("Congratulations — you finished a book.")
@@ -178,7 +178,7 @@ struct QuarterStarRating: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             RatingStars(rating: rating)
-                .animation(reduceMotion ? nil : .easeOut(duration: 0.10), value: rating)
+                .animation(reduceMotion ? nil : ReadingMotion.press, value: rating)
             Slider(value: Binding(get: { value }, set: { rating = roundedQuarter($0) }), in: 0...5, step: 0.25)
                 .controlSize(.small)
                 .accessibilityLabel("Rating")
