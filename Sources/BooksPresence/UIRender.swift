@@ -17,6 +17,29 @@ func renderUIPreviews(to destination: URL) throws {
     try seedPreviewHistory(at: support)
     let model = try AppModel(support: support, defaults: defaults, startTracking: false)
     defer { model.shutdown() }
+    let emptyModel = try AppModel(support: support.appendingPathComponent("empty"), defaults: defaults, startTracking: false)
+    defer { emptyModel.shutdown() }
+    let exceededSupport = support.appendingPathComponent("exceeded")
+    try seedPreviewHistory(at: exceededSupport)
+    let exceededStore = try ReadingStore(url: exceededSupport.appendingPathComponent("history.sqlite"))
+    let now = Date()
+    for index in 0..<3 {
+        let start = now.addingTimeInterval(-40 + Double(index * 10))
+        let interval = ReadingInterval(sessionID: "preview-goal-\(index)", bookID: "preview-waves", start: start,
+                                       end: start.addingTimeInterval(8), duration: 8, timezoneID: "America/Los_Angeles", mode: .automatic)
+        try exceededStore.appendInterval(interval)
+        try exceededStore.appendEvent(AuditEvent(date: interval.end, kind: "pageTurn", bookID: interval.bookID,
+            sessionID: interval.sessionID, detail: "Synthetic over-goal layout fixture.",
+            pageTurn: PageTurnEvidence(fromPage: 100 + index * 8, toPage: 108 + index * 8,
+                                        pagesRead: 8, visiblePages: 1, layoutSignature: "preview")))
+    }
+    let exceededModel = try AppModel(support: exceededSupport, defaults: defaults, startTracking: false)
+    defer { exceededModel.shutdown() }
+    let manualModel = try AppModel(support: support.appendingPathComponent("manual"), defaults: defaults, startTracking: false)
+    manualModel.startManual(title: "A Room of One’s Own", author: "Virginia Woolf")
+    defer { manualModel.shutdown() }
+    emptyModel.discordEnabled = true
+    emptyModel.discordApplicationID = ""
     for dark in [true, false] {
         let scheme: ColorScheme = dark ? .dark : .light
         let appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
@@ -28,9 +51,14 @@ func renderUIPreviews(to destination: URL) throws {
         for category in SettingsCategory.allCases {
             previews.append(("settings-\(category.rawValue.lowercased())", AnyView(DashboardView(model: model, initialSection: .settings, initialSettingsCategory: category))))
         }
-        for section in [DashboardSection.today, .library] {
+        for section in [DashboardSection.today, .library, .review, .health] {
             previews.append((section.rawValue, AnyView(DashboardView(model: model, initialSection: section))))
         }
+        previews.append(("popover", AnyView(PopoverView(model: exceededModel))))
+        previews.append(("popover-manual", AnyView(PopoverView(model: manualModel))))
+        previews.append(("popover-setup", AnyView(PopoverView(model: emptyModel, maximumHeight: 500))))
+        previews.append(("today-empty", AnyView(DashboardView(model: emptyModel))))
+        previews.append(("today-exceeded", AnyView(DashboardView(model: exceededModel))))
         if let entry = model.finishedBooks.first {
             previews.append(("finished-prompt", AnyView(FinishedBookPrompt(model: model, entry: entry))))
             previews.append(("finished-timeline", AnyView(ScrollView { FinishedBookTimeline(model: model).padding(24) }.background(ReadingPalette.paper))))
@@ -38,15 +66,29 @@ func renderUIPreviews(to destination: URL) throws {
         if let book = model.books.first {
             previews.append(("book-detail", AnyView(BookDetailView(model: model, book: book))))
         }
+        previews.append(("manual-start", AnyView(ManualStartView(model: model))))
+        previews.append(("manual-add", AnyView(ManualAdditionView(model: model))))
+        if let interval = model.displayIntervals.first {
+            previews.append(("review-editor", AnyView(IntervalReviewEditor(model: model, interval: interval))))
+        }
         for (name, view) in previews {
             let view = view.environment(\.colorScheme, scheme)
-            try renderNativeView(AnyView(view), size: NSSize(width: 1180, height: 820), appearance: appearance,
+            let sizes: [String: NSSize] = ["manual-start": NSSize(width: 470, height: 350),
+                "manual-add": NSSize(width: 500, height: 510), "review-editor": NSSize(width: 560, height: 600),
+                "book-detail": NSSize(width: 760, height: 720),
+                "popover": NSSize(width: 350, height: 580), "popover-manual": NSSize(width: 350, height: 580),
+                "popover-setup": NSSize(width: 350, height: 500)]
+            try renderNativeView(AnyView(view), size: sizes[name] ?? NSSize(width: 1180, height: 820), appearance: appearance,
                                  to: destination.appendingPathComponent("\(name)-\(dark ? "dark" : "light").png"))
         }
         let compact = DashboardView(model: model, initialSection: .history).environment(\.colorScheme, scheme)
         try renderNativeView(AnyView(compact), size: NSSize(width: 920, height: 660), appearance: appearance,
                              to: destination.appendingPathComponent("history-compact-\(dark ? "dark" : "light").png"))
+        let compactToday = DashboardView(model: exceededModel).environment(\.colorScheme, scheme)
+        try renderNativeView(AnyView(compactToday), size: NSSize(width: 920, height: 660), appearance: appearance,
+                             to: destination.appendingPathComponent("today-compact-\(dark ? "dark" : "light").png"))
     }
+    try renderProgressMotion(model: exceededModel, to: destination)
     print("ui-render: synthetic light/dark native previews saved to \(destination.path)")
 }
 
@@ -60,7 +102,7 @@ private func renderNativeView(_ view: AnyView, size: NSSize, appearance: NSAppea
     window.contentView = hosting
     window.orderBack(nil)
     hosting.layoutSubtreeIfNeeded()
-    RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+    RunLoop.current.run(until: Date().addingTimeInterval(0.45))
     hosting.displayIfNeeded()
     defer { window.close() }
     guard let bitmap = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) else {
@@ -134,3 +176,29 @@ private func seedPreviewHistory(at support: URL) throws {
 }
 
 private enum UIPreviewError: Error { case renderFailed }
+
+/// Samples the actual animated overview at three points in its entrance. These
+/// app-owned frames help inspect motion without screen recording or live history.
+@MainActor
+private func renderProgressMotion(model: AppModel, to destination: URL) throws {
+    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 850, height: 310),
+                          styleMask: [.borderless], backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false
+    window.appearance = NSAppearance(named: .aqua)
+    let hosting = NSHostingView(rootView: DailyReadingOverview(model: model)
+        .environment(\.colorScheme, .light).foregroundStyle(ReadingPalette.ink)
+        .padding(6).frame(width: 850, height: 310).background(ReadingPalette.paper))
+    window.contentView = hosting
+    window.orderBack(nil)
+    let started = Date()
+    hosting.layoutSubtreeIfNeeded()
+    defer { window.close() }
+    for (name, time) in [("start", 0.01), ("middle", 0.14), ("end", 0.45)] {
+        RunLoop.current.run(until: started.addingTimeInterval(time))
+        hosting.displayIfNeeded()
+        guard let bitmap = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) else { throw UIPreviewError.renderFailed }
+        hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
+        guard let data = bitmap.representation(using: .png, properties: [:]) else { throw UIPreviewError.renderFailed }
+        try data.write(to: destination.appendingPathComponent("progress-motion-\(name).png"), options: .atomic)
+    }
+}

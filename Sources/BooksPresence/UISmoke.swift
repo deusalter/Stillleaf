@@ -103,7 +103,13 @@ func runUISmoke() throws {
         ("today", AnyView(TodayView(model: model, present: { _ in }))),
         ("library", AnyView(LibraryView(model: model, present: { _ in }))),
         ("review", AnyView(ReviewView(model: model, present: { _ in }))),
-        ("popover", AnyView(PopoverView(model: model)))
+        ("popover", AnyView(PopoverView(model: model))),
+        ("health", AnyView(HealthView(model: model))),
+        ("manual-start", AnyView(ManualStartView(model: model))),
+        ("manual-add", AnyView(ManualAdditionView(model: model))),
+        ("review-editor", AnyView(IntervalReviewEditor(model: model, interval: interval))),
+        ("merge", AnyView(MergeBooksView(model: model, source: manualBook))),
+        ("restore", AnyView(RestoreConfirmationView(model: model)))
     ]
     for scale in CalendarScale.allCases {
         views.append(("history-\(scale.rawValue)", AnyView(HistoryView(model: model, initialScale: scale))))

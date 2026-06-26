@@ -41,13 +41,13 @@ func runUIBenchmark() throws {
     defer { window.close() }
     print("ui-benchmark: 60 books, 2000 intervals, 2000 page events; synchronous destination layout (ms)")
     for pass in 0..<3 {
-        for target in ["month", "year", "week", "day", "library", "today", "settings"] {
+        for target in ["month", "year", "week", "day", "library", "today", "settings", "review", "health"] {
             hosting.rootView = AnyView(Text("Ready")); hosting.layoutSubtreeIfNeeded()
             let start = ProcessInfo.processInfo.systemUptime
             if let scale = CalendarScale(rawValue: target) {
                 hosting.rootView = AnyView(HistoryView(model: model, initialScale: scale))
             } else {
-                let section: DashboardSection = target == "library" ? .library : target == "today" ? .today : .settings
+                let section: DashboardSection = target == "library" ? .library : target == "today" ? .today : target == "review" ? .review : target == "health" ? .health : .settings
                 hosting.rootView = AnyView(DashboardView(model: model, initialSection: section))
             }
             hosting.layoutSubtreeIfNeeded(); hosting.displayIfNeeded()
