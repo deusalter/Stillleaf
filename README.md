@@ -4,6 +4,8 @@ A native macOS menu-bar reading journal for Apple Books, with optional Discord R
 
 **Integration status:** the diagnostic has matched a live local EPUB in Books 8.0 and rejected its Library window. This reader omits `AXDocument`, so a version-scoped structural inference supplements exact document-path matching. Automatic tracking still requires Accessibility access for the packaged app itself and pauses for unsupported or ambiguous windows. Manual reading works independently. See [capabilities](docs/CAPABILITIES.md) and [verification](docs/VERIFICATION.md).
 
+The 1.4 interface brings a mint/green light and dark theme, animated daily page goals, and coordinated calendar, library, settings, review, and menu-bar controls. Motion respects the macOS Reduce Motion setting.
+
 ## Build and run
 
 Requires macOS 13 or later and Swift 5.8 or later. No third-party package dependencies.
