@@ -126,6 +126,13 @@ final class AppModel: ObservableObject {
     private var savedGoal: Double = 20
     private var savedPageGoal: Double = 20
     private var sessionBreakIDs: Set<String> = []
+    private var correctedIntervalIDs: Set<String> = []
+    var visibleReadingSessions: [ReadingSessionGroup] {
+        // Snapshot phase changes independently of the cached durable groups.
+        let activeID = snapshot.phase == .paused ? nil : snapshot.sessionID
+        return ReadingSessionGrouping.visibleGroups(readingSessions, events: events, merges: merges,
+            activeSessionID: activeID, correctedIntervalIDs: correctedIntervalIDs)
+    }
     var readingSessions: [ReadingSessionGroup] {
         if let cached = sessionGroupsCache { return cached }
         let groups = ReadingSessionGrouping.groups(intervals: intervals, merges: merges, breakBeforeIntervalIDs: sessionBreakIDs)
@@ -438,6 +445,7 @@ final class AppModel: ObservableObject {
             events = archive.events.sorted { $0.date > $1.date }
             progress = archive.progress.sorted { $0.observedAt > $1.observedAt }
             merges = archive.merges
+            correctedIntervalIDs = Set(archive.corrections.flatMap { $0.replacements.map(\.id) })
             let splitSessions = Set(archive.corrections.flatMap { correction -> [String] in
                 guard Set(correction.replacements.map(\.sessionID)).count > 1 else { return [] }
                 return correction.replacements.sorted { $0.start < $1.start }.dropFirst().map(\.sessionID)

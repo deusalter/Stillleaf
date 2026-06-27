@@ -367,7 +367,7 @@ private struct HistoryDayDetail: View {
     private var contributions: [DayContribution] { DayContribution.forDay(dayKey, timezoneID: model.timezoneID, intervals: model.displayIntervals) }
     private var period: DateInterval { navigation.calendar.dateInterval(of: .day, for: date)! }
     private var sessions: [ReadingSessionGroup] {
-        model.readingSessions.filter { $0.end > period.start && $0.start < period.end }.sorted { $0.start > $1.start }
+        model.visibleReadingSessions.filter { $0.end > period.start && $0.start < period.end }.sorted { $0.start > $1.start }
     }
     private var bookContributions: [HistoryBookContribution] {
         let resolver = BookMergeResolver(merges: model.merges)
@@ -415,7 +415,7 @@ private struct HistoryDayDetail: View {
                 }.padding(12).background(ReadingPalette.ink.opacity(0.035), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Reading sessions").font(.headline)
-                    Text("Short breaks stay in the same session. Only reading time counts.")
+                    Text("Short breaks stay in the same session. Brief automatic visits without page activity are hidden; recorded time is kept.")
                         .font(.caption).foregroundStyle(.secondary)
                     ForEach(sessions) { session in
                         HistorySessionRow(model: model, session: session, dayKey: dayKey, period: period, review: { reviewInterval = $0 })

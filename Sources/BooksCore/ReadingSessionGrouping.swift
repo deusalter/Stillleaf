@@ -74,6 +74,24 @@ public enum ReadingSessionGrouping {
         return result
     }
 
+    /// Hide brief automatic noise only after grouping. This is presentation-only:
+    /// evidence, daily totals, and export remain intact. Two minutes of recorded
+    /// time is enough to retain time-only reading even without page observations.
+    /// Evaluate the whole group before day clipping so midnight does not turn a
+    /// legitimate session into an empty fragment on either day.
+    public static func visibleGroups(_ groups: [ReadingSessionGroup], events: [AuditEvent],
+                                     merges: [BookMerge], activeSessionID: String? = nil,
+                                     correctedIntervalIDs: Set<String> = []) -> [ReadingSessionGroup] {
+        groups.filter { group in
+            if group.intervals.contains(where: {
+                $0.mode != .automatic || $0.sessionID == activeSessionID || correctedIntervalIDs.contains($0.id)
+            }) { return true }
+            if group.creditedSeconds + group.uncertainSeconds >= 120 { return true }
+            return PageStatistics.pages(events: events, effectiveIntervals: group.intervals,
+                                        merges: merges, bookID: group.bookID) > 0
+        }
+    }
+
     private static func canAppend(_ interval: ReadingInterval, resolvedBookID: String,
                                   to group: ReadingSessionGroup, maximumBreak: TimeInterval) -> Bool {
         guard resolvedBookID == group.bookID, let previous = group.intervals.last,
