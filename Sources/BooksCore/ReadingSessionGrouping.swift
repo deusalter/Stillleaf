@@ -82,12 +82,38 @@ public enum ReadingSessionGrouping {
     public static func visibleGroups(_ groups: [ReadingSessionGroup], events: [AuditEvent],
                                      merges: [BookMerge], activeSessionID: String? = nil,
                                      correctedIntervalIDs: Set<String> = []) -> [ReadingSessionGroup] {
-        groups.filter { group in
+        let resolver = MergeResolver(merges: merges)
+        struct EventKey: Hashable { let bookID: String; let sessionID: String }
+        var eventsByIdentity: [EventKey: [AuditEvent]] = [:]
+        for event in events where event.kind == "pageTurn" || event.kind == "manualPageAdjustment" {
+            guard let bookID = event.bookID, let sessionID = event.sessionID else { continue }
+            eventsByIdentity[EventKey(bookID: resolver.resolve(bookID), sessionID: sessionID), default: []].append(event)
+        }
+        for key in Array(eventsByIdentity.keys) {
+            eventsByIdentity[key]?.sort { $0.date < $1.date }
+        }
+        // Checkpoint evidence belongs to (start, end]. Binary searches also
+        // bound work when explicit splits leave many groups sharing a session.
+        func upperBound(_ events: [AuditEvent], _ date: Date) -> Int {
+            var low = 0, high = events.count
+            while low < high {
+                let middle = low + (high - low) / 2
+                if events[middle].date <= date { low = middle + 1 } else { high = middle }
+            }
+            return low
+        }
+        return groups.filter { group in
             if group.intervals.contains(where: {
                 $0.mode != .automatic || $0.sessionID == activeSessionID || correctedIntervalIDs.contains($0.id)
             }) { return true }
             if group.creditedSeconds + group.uncertainSeconds >= 120 { return true }
-            return PageStatistics.pages(events: events, effectiveIntervals: group.intervals,
+            var candidates: [AuditEvent] = []
+            for sessionID in Set(group.intervals.map(\.sessionID)) {
+                let key = EventKey(bookID: resolver.resolve(group.bookID), sessionID: sessionID)
+                guard let bucket = eventsByIdentity[key] else { continue }
+                candidates.append(contentsOf: bucket[upperBound(bucket, group.start)..<upperBound(bucket, group.end)])
+            }
+            return PageStatistics.pages(events: candidates, effectiveIntervals: group.intervals,
                                         merges: merges, bookID: group.bookID) > 0
         }
     }

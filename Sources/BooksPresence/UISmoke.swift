@@ -26,6 +26,7 @@ func runUISmoke() throws {
     model.saveSettings()
     // Keep this interval before the four seeded calendar days. Using "now"
     // made the self-check overlap its own 11 AM fixture at some times of day.
+    _ = model.visibleReadingSessions // Warm eligibility before a history mutation.
     let end = Date().addingTimeInterval(-5 * 86_400)
     model.addManual(title: "The Shape of a Quiet Day", author: "Synthetic fixture", start: end.addingTimeInterval(-1800), end: end)
     guard let manualBook = model.books.first(where: { $0.title == "The Shape of a Quiet Day" }) else {
@@ -35,6 +36,17 @@ func runUISmoke() throws {
           abs(model.intervals.filter({ $0.bookID == manualBook.id }).reduce(0) { $0 + $1.duration } - 1800) < 0.01 else {
         throw BooksAccessErrorForUI.failed("Manual addition did not produce credited history: \(model.errorMessage ?? "no error")")
     }
+    guard model.visibleReadingSessions.contains(where: { $0.bookID == manualBook.id }) else {
+        throw BooksAccessErrorForUI.failed("History visibility cache was not invalidated by manual addition")
+    }
+    let visibleIDs = model.visibleReadingSessions.map(\.id)
+    let visibilityStarted = ProcessInfo.processInfo.systemUptime
+    for _ in 0..<10_000 {
+        guard model.visibleReadingSessions.map(\.id) == visibleIDs else {
+            throw BooksAccessErrorForUI.failed("Cached History visibility changed without new evidence")
+        }
+    }
+    print("ui-smoke: 10,000 cached History reads: \(ProcessInfo.processInfo.systemUptime - visibilityStarted) seconds")
     var originalBook = manualBook
     originalBook.observedAt = Date(timeIntervalSince1970: 0) // Deliberately stale input metadata.
     let editTime = Date()

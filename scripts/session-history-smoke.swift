@@ -61,3 +61,40 @@ let merges = [BookMerge(sourceID: "book", targetID: "target")]
 let mergedGroups = ReadingSessionGrouping.groups(intervals: mergedIntervals, merges: merges)
 check(ReadingSessionGrouping.visibleGroups(mergedGroups, events: [turn], merges: merges).count == 1, "Merged identities must retain qualified page evidence")
 print("Session History smoke checks passed")
+
+// Large replay: explicit splits can share one session identity. Include both
+// qualified pages and invalid/cross-boundary evidence, plus irrelevant audit
+// noise, so the indexed path must agree with the original qualification rules.
+let replayCount = 12_000
+var replayIntervals: [ReadingInterval] = []
+var replayEvents: [AuditEvent] = []
+for index in 0..<replayCount {
+    var item = interval("replay-\(index)", start: Double(index * 10))
+    item.sessionID = "shared-session"
+    replayIntervals.append(item)
+    replayEvents.append(AuditEvent(date: item.end, kind: "trackingCheckpoint", bookID: item.bookID,
+                                  sessionID: item.sessionID, detail: "fixture"))
+    if index % 3 == 0 {
+        replayEvents.append(AuditEvent(date: item.end, kind: "manualPageAdjustment", bookID: item.bookID,
+            sessionID: item.sessionID, detail: "fixture",
+            pageAdjustment: ManualPageAdjustmentEvidence(pages: 2, recordedAt: item.end, reason: "Correction")))
+    } else {
+        // Start-boundary evidence belongs to neither this fragment nor its gap.
+        replayEvents.append(AuditEvent(date: item.start, kind: "pageTurn", bookID: item.bookID,
+                                      sessionID: item.sessionID, detail: "boundary", pageTurn: turn.pageTurn))
+    }
+}
+let replayGroups = ReadingSessionGrouping.groups(intervals: replayIntervals, merges: [],
+    breakBeforeIntervalIDs: Set(replayIntervals.map(\.id)))
+let replayStarted = ProcessInfo.processInfo.systemUptime
+let replayVisible = ReadingSessionGrouping.visibleGroups(replayGroups, events: replayEvents, merges: [])
+let replayElapsed = ProcessInfo.processInfo.systemUptime - replayStarted
+check(replayVisible.count == replayCount / 3, "Large replay must retain only qualified corrections")
+check(replayVisible.map(\.id) == stride(from: 0, to: replayCount, by: 3).map { "replay-\($0)" }, "Replay identities must match expected evidence")
+// Compare with the existing full-event qualifier on a bounded sample.
+for group in replayGroups.prefix(60) {
+    let expected = PageStatistics.pages(events: replayEvents, effectiveIntervals: group.intervals, merges: []) > 0
+    check(replayVisible.contains { $0.id == group.id } == expected, "Indexed candidate selection changed qualification")
+}
+check(replayElapsed < 5, "12,000 short groups should qualify within five seconds")
+print("Session History replay: \(replayCount) groups, \(replayEvents.count) events in \(replayElapsed) seconds")

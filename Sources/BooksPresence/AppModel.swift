@@ -127,11 +127,23 @@ final class AppModel: ObservableObject {
     private var savedPageGoal: Double = 20
     private var sessionBreakIDs: Set<String> = []
     private var correctedIntervalIDs: Set<String> = []
+    private var durableVisibleSessionIDs: Set<String>?
+    private var visibleSessionGroupsCache: (activeID: String?, groups: [ReadingSessionGroup])?
     var visibleReadingSessions: [ReadingSessionGroup] {
         // Snapshot phase changes independently of the cached durable groups.
         let activeID = snapshot.phase == .paused ? nil : snapshot.sessionID
-        return ReadingSessionGrouping.visibleGroups(readingSessions, events: events, merges: merges,
-            activeSessionID: activeID, correctedIntervalIDs: correctedIntervalIDs)
+        if let cached = visibleSessionGroupsCache, cached.activeID == activeID { return cached.groups }
+        let groups = readingSessions
+        if durableVisibleSessionIDs == nil {
+            durableVisibleSessionIDs = Set(ReadingSessionGrouping.visibleGroups(groups, events: events, merges: merges,
+                correctedIntervalIDs: correctedIntervalIDs).map(\.id))
+        }
+        let visible = groups.filter { group in
+            durableVisibleSessionIDs!.contains(group.id) ||
+                (activeID.map { id in group.intervals.contains { $0.sessionID == id } } ?? false)
+        }
+        visibleSessionGroupsCache = (activeID, visible)
+        return visible
     }
     var readingSessions: [ReadingSessionGroup] {
         if let cached = sessionGroupsCache { return cached }
@@ -438,6 +450,7 @@ final class AppModel: ObservableObject {
         do {
             let archive = try store.archive()
             displayedIntervalsCache = nil; sessionGroupsCache = nil
+            durableVisibleSessionIDs = nil; visibleSessionGroupsCache = nil
             bookPaceCache.removeAll(keepingCapacity: true); sessionPaceCache.removeAll(keepingCapacity: true)
             bookPagesCache.removeAll(keepingCapacity: true); sessionPagesCache.removeAll(keepingCapacity: true)
             books = archive.books.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
