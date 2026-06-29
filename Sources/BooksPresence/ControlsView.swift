@@ -124,6 +124,7 @@ struct MergeBooksView: View {
 @MainActor
 struct HealthView: View {
     @ObservedObject var model: AppModel
+    var showsHeading = true
     @State private var visibleOutages = 30
     private var outages: [AuditEvent] {
         model.events.filter {
@@ -135,7 +136,7 @@ struct HealthView: View {
         let events = outages
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
-                PageHeading(title: "Data health", subtitle: "Keep your reading history in good shape.")
+                if showsHeading { PageHeading(title: "Troubleshooting", subtitle: "Check permissions and recent tracking issues.") }
                 VStack(alignment: .leading, spacing: 18) {
                     HStack(spacing: 14) {
                         Image(systemName: model.accessibilityGranted ? "checkmark.shield" : "lock.shield")
@@ -199,12 +200,29 @@ struct HealthView: View {
     }
 }
 
+@MainActor
+struct TrackingHelpView: View {
+    @ObservedObject var model: AppModel
+    @Environment(\.dismiss) private var dismiss
+    var body: some View {
+        VStack(spacing: 0) {
+            ReadingSheetHeader(title: "Troubleshooting", subtitle: "Check permissions and recent tracking issues.", close: { dismiss() })
+                .padding(.horizontal, 30).padding(.top, 24)
+            HealthView(model: model, showsHeading: false)
+        }
+        .frame(width: 740, height: 650)
+        .background(ReadingPalette.paper).foregroundStyle(ReadingPalette.ink)
+        .buttonStyle(ReadingButtonStyle()).tint(ReadingPalette.moss)
+    }
+}
+
 enum SettingsCategory: String, CaseIterable, Identifiable {
     case reading = "Reading"
     case discord = "Discord"
     case data = "Data"
 
     var id: String { rawValue }
+    var title: String { self == .discord ? "Sharing" : self == .data ? "Data & privacy" : "Reading" }
 
     var icon: String {
         switch self {
@@ -233,6 +251,9 @@ struct SettingsView: View {
     @State private var discordAssetKeyDraft = "books"
     @State private var applyFeedback: String?
     @State private var applyFailed = false
+    @State private var showAdvancedReading = false
+    @State private var showDiscordConnection = false
+    @State private var showRemoval = false
 
     init(
         model: AppModel,
@@ -249,39 +270,39 @@ struct SettingsView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
-                PageHeading(title: "Settings", subtitle: "Tracking stays local unless you choose to export or enable Discord sharing.")
-                settingsLayout
-            }
-            .frame(maxWidth: 1_060, alignment: .leading)
-            .padding(30)
-            .frame(maxWidth: .infinity, alignment: .center)
-        }
-        .background(ReadingPalette.paper)
-        .foregroundStyle(ReadingPalette.ink)
-        .tint(ReadingPalette.moss)
-        .buttonStyle(ReadingButtonStyle())
-        .onAppear(perform: loadDraftsIfNeeded)
-    }
-
-    private var settingsLayout: some View {
         VStack(alignment: .leading, spacing: 18) {
-            categoryPicker
-            categoryDetail
-                .readingEntrance()
-                .id(category)
+            PageHeading(title: "Settings", subtitle: "Make Stillleaf fit your reading.")
+            ReadingSegmentedControl(label: "Settings category", options: SettingsCategory.allCases,
+                selection: $category, title: { item in
+                    item.title + ((item == .reading && readingDirty) || (item == .discord && discordDirty) ? " •" : "")
+                })
+            ScrollView {
+                categoryDetail
+                    .readingEntrance().id(category)
+                    .padding(.bottom, 4)
+            }
+            if currentCategoryDirty {
+                applyBar(action: { if category == .reading { applyReadingDrafts() } else { applyDiscordDrafts() } },
+                         label: category == .reading ? "Save reading changes" : "Save sharing changes",
+                         valid: category != .reading || readingDraftsAreValid)
+            } else if let applyFeedback {
+                Label(applyFeedback, systemImage: applyFailed ? "exclamationmark.triangle" : "checkmark.circle")
+                    .font(.caption).foregroundStyle(applyFailed ? ReadingPalette.ochre : ReadingPalette.fadedInk)
+            }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: 840, maxHeight: .infinity, alignment: .topLeading)
+        .padding(30).frame(maxWidth: .infinity, alignment: .top)
+        .background(ReadingPalette.paper).foregroundStyle(ReadingPalette.ink)
+        .tint(ReadingPalette.moss).buttonStyle(ReadingButtonStyle())
+        .onAppear {
+            loadDraftsIfNeeded()
+            showDiscordConnection = model.discordNeedsSetup
+        }
+        .onChange(of: category) { _ in clearFeedback() }
+        .onChange(of: model.discordNeedsSetup) { needed in if needed { showDiscordConnection = true } }
     }
 
-    private var categoryPicker: some View {
-        ReadingSegmentedControl(label: "Settings category", options: SettingsCategory.allCases,
-                                selection: $category, title: { $0.rawValue })
-    }
-
-    @ViewBuilder
-    private var categoryDetail: some View {
+    @ViewBuilder private var categoryDetail: some View {
         switch category {
         case .reading: readingSettings
         case .discord: discordSettings
@@ -290,255 +311,204 @@ struct SettingsView: View {
     }
 
     private var readingSettings: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            SettingsSectionHeading(title: "Reading", subtitle: "Choose what Stillleaf captures and how it arranges your reading day.")
+        VStack(alignment: .leading, spacing: 18) {
+            if model.automaticTrackingNeedsAccess { permissionNotice }
+            VStack(alignment: .leading, spacing: 18) {
+                HStack(spacing: 18) {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("Your daily page goal").font(.system(size: 19, weight: .semibold, design: .rounded))
+                        Text("A little reading, every day.").font(.callout).foregroundStyle(ReadingPalette.fadedInk)
+                    }
+                    Spacer(minLength: 8)
+                    numericEditor(label: "Daily page goal", value: $pageGoalDraft, range: 1...10_000, stepperValue: pageGoalBinding)
+                }
+                Text("Counts tracked pages and any pages you add yourself.")
+                    .font(.caption).foregroundStyle(ReadingPalette.fadedInk)
+            }.readingPanel()
             settingsCard {
                 VStack(spacing: 0) {
-                    SettingRow(icon: "book.closed.fill", title: "Enable reading tracking", description: "Capture eligible Apple Books activity on this Mac.") {
-                        Toggle("Enable reading tracking", isOn: trackingBinding)
-                            .labelsHidden()
-                            .toggleStyle(.switch)
-                            .accessibilityLabel("Enable reading tracking")
+                    SettingRow(icon: "book.closed", title: "Track Apple Books", description: "Record reading automatically on this Mac.") {
+                        Toggle("Track Apple Books", isOn: trackingBinding).labelsHidden().toggleStyle(.switch)
                     }
                     settingDivider
-                    SettingRow(icon: "rectangle.and.arrow.up.right.and.arrow.down.left", title: "Launch at login", description: "Start Stillleaf when you sign in to this Mac.") {
-                        Toggle("Launch at login", isOn: launchAtLoginBinding)
-                            .labelsHidden()
-                            .toggleStyle(.switch)
-                            .accessibilityLabel("Launch Stillleaf at login")
+                    SettingRow(icon: "power", title: "Open at login", description: "Keep Stillleaf ready in your menu bar.") {
+                        Toggle("Open at login", isOn: launchAtLoginBinding).labelsHidden().toggleStyle(.switch)
                     }
                 }
             }
-
-            SettingsSectionHeading(title: "Apple Books history", subtitle: "Bring in finished-book dates from Apple Books. This never adds reading time or observed pages.")
-            settingsCard {
-                VStack(spacing: 0) {
-                    SettingRow(icon: "books.vertical.fill", title: "Sync finished books", description: "Keep your finished-book timeline up to date from Apple Books on this Mac.") {
-                        Toggle("Sync finished books from Apple Books", isOn: appleHistorySyncBinding)
-                            .labelsHidden()
-                            .toggleStyle(.switch)
-                            .accessibilityLabel("Sync finished books from Apple Books")
-                    }
-                    settingDivider
-                    SettingRow(icon: "arrow.triangle.2.circlepath", title: "Sync status", description: model.appleHistoryStatus) {
-                        Button("Sync now") { model.syncAppleBooksHistory() }
-                            .controlSize(.small)
-                            .disabled(!model.syncAppleBooksHistoryEnabled)
-                    }
-                }
-            }
-
-            SettingsSectionHeading(title: "Reading day", subtitle: "Choose values, then apply them when you are ready.")
-            settingsCard {
-                VStack(spacing: 0) {
-                    Group {
-                        SettingRow(icon: "book.pages", title: "Daily page goal", description: "Includes observed pages and manual corrections. Time-only history remains available without page counts.") {
-                            numericEditor(label: "Daily page goal", value: $pageGoalDraft, range: 1...10_000, stepperValue: pageGoalBinding)
+            DisclosureGroup(isExpanded: $showAdvancedReading) {
+                VStack(alignment: .leading, spacing: 16) {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Time goal").font(.headline)
+                            Text("A secondary goal, separate from pages.").font(.caption).foregroundStyle(ReadingPalette.fadedInk)
                         }
-                        HStack(spacing: 6) {
-                            Text("Quick page goals").font(.caption).foregroundStyle(.secondary)
-                            ForEach([10, 20, 30, 50, 75], id: \.self) { pages in
-                                Button("\(pages)") { setPageGoalPreset(pages) }
-                                    .buttonStyle(ReadingButtonStyle(emphasis: Int(pageGoalDraft) == pages ? .primary : .secondary))
-                                    .accessibilityAddTraits(Int(pageGoalDraft) == pages ? .isSelected : [])
-                                    .controlSize(.small)
-                            }
-                            Spacer()
-                        }
-                        .padding(.leading, 44)
-                        .padding(.bottom, 13)
-                        Text("Choose 1–10,000 pages.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .padding(.leading, 44)
-                            .padding(.bottom, 13)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                        Spacer()
+                        numericEditor(label: "Daily goal minutes", value: $goalDraft, range: 1...1_440, stepperValue: goalBinding)
                     }
-                    settingDivider
-                    Group {
-                        SettingRow(icon: "timer", title: "Daily time goal", description: "Optional supporting goal. Time remains visible in history and is never converted into pages.") {
-                            numericEditor(label: "Daily goal minutes", value: $goalDraft, range: 1...1_440, stepperValue: goalBinding)
-                        }
-                        HStack(spacing: 6) {
-                            Text("Quick goals").font(.caption).foregroundStyle(.secondary)
-                            ForEach([15, 20, 30, 45, 60], id: \.self) { minutes in
-                                Button("\(minutes)m") { setGoalPreset(minutes) }
-                                    .buttonStyle(ReadingButtonStyle(emphasis: Int(goalDraft) == minutes ? .primary : .secondary))
-                                    .accessibilityAddTraits(Int(goalDraft) == minutes ? .isSelected : [])
-                                    .controlSize(.small)
-                            }
-                            Spacer()
-                        }
-                        .padding(.leading, 44)
-                        .padding(.bottom, 13)
-                        Text("Choose 1–1,440 minutes.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .padding(.leading, 44)
-                            .padding(.bottom, 13)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Divider().opacity(0.4)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Calendar time zone").font(.headline)
+                        TimeZoneChooser(selection: $timezoneDraft)
+                        Text("Determines when a new reading day begins.").font(.caption).foregroundStyle(ReadingPalette.fadedInk)
                     }
-                    settingDivider
-                    SettingRow(icon: "clock.badge.checkmark", title: "Review after", description: "Mark time for review after this many minutes without fresh evidence.") {
+                    Divider().opacity(0.4)
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Review unconfirmed time after").font(.headline)
+                            Text("Reading without fresh evidence is kept for review.").font(.caption).foregroundStyle(ReadingPalette.fadedInk)
+                        }
+                        Spacer()
                         numericEditor(label: "Review threshold minutes", value: $uncertaintyDraft, range: 1...240, stepperValue: uncertaintyBinding)
                     }
-                    Text("Choose 1–240 minutes.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .padding(.leading, 44)
-                        .padding(.bottom, 13)
-                    settingDivider
-                    SettingRow(icon: "globe.americas", title: "Calendar time zone", description: "Controls the calendar day boundary and daily totals.") {
-                        EmptyView()
-                    }
-                    TimeZoneChooser(selection: $timezoneDraft)
-                    .padding(.leading, 44)
-                    .padding(.trailing, 2)
-                    .padding(.bottom, 14)
+                }.padding(.top, 16)
+            } label: {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Advanced reading").font(.headline)
+                    Text("Time goal, review behavior · \(timezoneDraft.replacingOccurrences(of: "_", with: " "))")
+                        .font(.caption).foregroundStyle(ReadingPalette.fadedInk)
                 }
-            }
-            applyBar(action: { applyReadingDrafts() }, label: "Apply reading changes", valid: readingDraftsAreValid)
-
-            SettingsSectionHeading(title: "Accessibility", subtitle: "Automatic capture needs macOS permission. The status below reflects the access currently granted to Stillleaf.")
-            settingsCard {
-                if model.accessibilityGranted {
-                    SettingRow(icon: "checkmark.shield.fill", title: "Accessibility access granted", description: "Stillleaf can automatically check eligible Apple Books activity while tracking is on.") {
-                        Label("Granted", systemImage: "checkmark.circle.fill")
-                            .font(.callout)
-                            .foregroundStyle(ReadingPalette.moss)
-                    }
-                } else {
-                    SettingRow(icon: "accessibility", title: "Accessibility access needed", description: "Automatic capture is unavailable until you allow Stillleaf in macOS Privacy settings.") {
-                        HStack(spacing: 8) {
-                            Button("Request access") { model.requestAccessibility() }
-                            Button("Open settings") { model.openAccessibilitySettings() }
-                        }
-                        .controlSize(.small)
-                    }
-                }
-            }
+            }.padding(18).background(ReadingPalette.surface, in: RoundedRectangle(cornerRadius: 20))
+            Text("Switches save immediately. Goal and advanced changes are saved together below.")
+                .font(.caption).foregroundStyle(ReadingPalette.fadedInk)
         }
     }
 
+    private var permissionNotice: some View {
+        HStack(spacing: 14) {
+            Image(systemName: "accessibility").foregroundStyle(ReadingPalette.ochre)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Allow automatic tracking").font(.headline)
+                Text("Stillleaf needs Accessibility access to read your book's page number.")
+                    .font(.caption).foregroundStyle(ReadingPalette.fadedInk)
+            }
+            Spacer()
+            Button("Allow access") { model.requestAccessibility() }
+                .buttonStyle(ReadingButtonStyle(emphasis: .primary)).controlSize(.small)
+        }.padding(16).background(ReadingPalette.ochre.opacity(0.08), in: RoundedRectangle(cornerRadius: 16))
+    }
+
     private var discordSettings: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            SettingsSectionHeading(title: "Discord", subtitle: "Sharing is optional and stays separate from local reading tracking.")
+        VStack(alignment: .leading, spacing: 18) {
             settingsCard {
                 VStack(spacing: 0) {
-                    SettingRow(icon: "person.2.wave.2", title: "Share current activity", description: "Show your current eligible book as Discord Rich Presence.") {
-                        Toggle("Share current activity with Discord", isOn: discordBinding)
-                            .labelsHidden()
-                            .toggleStyle(.switch)
-                            .accessibilityLabel("Share current activity with Discord")
+                    SettingRow(icon: "bubble.left.and.bubble.right", title: "Share reading on Discord", description: "Show your book while its Apple Books reader is open.") {
+                        Toggle("Share reading on Discord", isOn: discordBinding).labelsHidden().toggleStyle(.switch)
                     }
-                    settingDivider
-                    SettingRow(icon: "photo.badge.arrow.down", title: "Find public cover links automatically", description: "Optionally look for public cover links for Discord. Stillleaf never uploads your local cover.") {
-                        Toggle("Find public cover links automatically", isOn: automaticPublicCoversBinding)
-                            .labelsHidden()
-                            .toggleStyle(.switch)
-                            .accessibilityLabel("Find public cover links automatically for Discord")
-                    }
-                    settingDivider
-                    VStack(alignment: .leading, spacing: 12) {
-                        SettingRow(icon: "key.horizontal", title: "Application ID", description: "The Discord application used for your presence.") {
-                            TextField("Application ID", text: $discordApplicationIDDraft)
-                                .textFieldStyle(ReadingTextFieldStyle())
-                                .frame(width: 210)
-                                .onSubmit { applyDiscordDrafts() }
-                        }
-                        SettingRow(icon: "photo", title: "Fallback asset key", description: "Generic artwork uploaded to your Discord application. Local covers stay on this Mac.") {
-                            TextField("Fallback asset key", text: $discordAssetKeyDraft)
-                                .textFieldStyle(ReadingTextFieldStyle())
-                                .frame(width: 180)
-                                .onSubmit { applyDiscordDrafts() }
-                        }
-                    }
-                    .padding(.vertical, 2)
-                    if model.discordNeedsSetup {
-                        VStack(alignment: .leading, spacing: 5) {
-                            Label("Discord sharing needs an Application ID before it can show your activity.", systemImage: "exclamationmark.triangle.fill")
-                                .font(.callout)
-                                .foregroundStyle(ReadingPalette.moss)
-                            Link("Open Discord Developer Portal", destination: URL(string: "https://discord.com/developers/applications")!)
-                                .font(.caption)
-                        }
-                        .padding(.leading, 44)
-                        .padding(.bottom, 13)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    } else if !model.discordEnabled {
-                        Label("Sharing is off. You can configure Discord now, then turn sharing on when you are ready.", systemImage: "info.circle")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                            .padding(.leading, 44)
-                            .padding(.bottom, 13)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    settingDivider
-                    SettingRow(icon: "dot.radiowaves.left.and.right", title: "Connection status", description: "See the current Discord connection state.") {
-                        VStack(alignment: .trailing, spacing: 4) {
-                            Text(model.discordStatus)
-                            if let result = model.lastDiscordResult {
-                                Text("Last result: \(result)").foregroundStyle(.secondary)
-                            }
-                        }
-                        .font(.caption)
-                        .multilineTextAlignment(.trailing)
-                        .frame(maxWidth: 245, alignment: .trailing)
-                    }
+                    HStack(spacing: 8) {
+                        Image(systemName: model.discordNeedsSetup ? "exclamationmark.circle" : "dot.radiowaves.left.and.right")
+                        Text(model.discordStatus).fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 0)
+                    }.font(.caption).foregroundStyle(model.discordNeedsSetup ? ReadingPalette.ochre : ReadingPalette.fadedInk)
+                        .padding(.horizontal, 16).padding(.bottom, 16)
                 }
             }
-            applyBar(action: { applyDiscordDrafts() }, label: "Apply Discord details", valid: true)
-            Text("Sharing appears only while your Books reading window is open. Switching apps keeps a paused card for up to 20 minutes; closing the reader or quitting Books clears it. You can exclude a book from sharing in its details.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 2)
+            settingsCard {
+                SettingRow(icon: "photo", title: "Find cover art automatically", description: "Look up public cover links for Discord. Your local images are never uploaded.") {
+                    Toggle("Find cover art automatically", isOn: automaticPublicCoversBinding).labelsHidden().toggleStyle(.switch)
+                }
+            }
+            DisclosureGroup(isExpanded: $showDiscordConnection) {
+                VStack(alignment: .leading, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 7) {
+                        Text("Discord Application ID").font(.headline)
+                        TextField("Application ID", text: $discordApplicationIDDraft)
+                            .textFieldStyle(ReadingTextFieldStyle()).onSubmit { applyDiscordDrafts() }
+                        Text("Use the Application ID from your Discord Developer Portal, not a token.")
+                            .font(.caption).foregroundStyle(ReadingPalette.fadedInk)
+                        Link("Open Discord Developer Portal ↗", destination: URL(string: "https://discord.com/developers/applications")!)
+                            .font(.caption)
+                    }
+                    VStack(alignment: .leading, spacing: 7) {
+                        Text("Fallback artwork (optional)").font(.headline)
+                        TextField("Uploaded asset key", text: $discordAssetKeyDraft)
+                            .textFieldStyle(ReadingTextFieldStyle()).onSubmit { applyDiscordDrafts() }
+                        Text("Used when a public cover isn't available. Leave blank if you haven't uploaded a Discord asset.")
+                            .font(.caption).foregroundStyle(ReadingPalette.fadedInk)
+                    }
+                    if let result = model.lastDiscordResult {
+                        Text("Last connection result: \(result)").font(.caption).foregroundStyle(ReadingPalette.fadedInk)
+                    }
+                }.padding(.top, 16)
+            } label: {
+                Label(model.discordNeedsSetup ? "Finish Discord setup" : "Discord connection", systemImage: "link")
+                    .font(.headline)
+            }.padding(18).background(ReadingPalette.surface, in: RoundedRectangle(cornerRadius: 20))
+            Text("Switching apps keeps a paused card for up to 20 minutes. Closing the reader clears it. Exclude individual books in Book details.")
+                .font(.caption).foregroundStyle(ReadingPalette.fadedInk)
         }
     }
 
     private var dataSettings: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            SettingsSectionHeading(title: "Data", subtitle: "Your history stays on this Mac. Exports and chosen backup locations are the copies you control.")
+        VStack(alignment: .leading, spacing: 18) {
             settingsCard {
                 VStack(spacing: 0) {
-                    SettingRow(icon: "square.and.arrow.up", title: "Export reading history", description: "Save a portable JSON archive or CSV tables to a folder you choose.") {
-                        HStack(spacing: 8) {
-                            Button("Export JSON") { model.exportJSON() }
-                            Button("Export CSV") { model.exportCSV() }
-                        }
-                        .controlSize(.small)
+                    SettingRow(icon: "books.vertical", title: "Sync finished books", description: "Bring completion dates from Apple Books into your library. No pages or reading time are added.") {
+                        Toggle("Sync finished books", isOn: appleHistorySyncBinding).labelsHidden().toggleStyle(.switch)
                     }
-                    settingDivider
-                    SettingRow(icon: "square.and.arrow.down", title: "Import history", description: "Import a JSON archive. Existing records are checked to avoid duplicates.") {
-                        Button("Import JSON") { model.importJSON() }
-                            .controlSize(.small)
-                    }
-                    settingDivider
-                    SettingRow(icon: "externaldrive.badge.plus", title: "Backup and restore", description: "A restore validates the selected backup and replaces the local database.") {
-                        HStack(spacing: 8) {
-                            Button("Create backup") { model.backup() }
-                            Button("Restore backup") { present(.restore) }
-                        }
-                        .controlSize(.small)
-                    }
+                    HStack(spacing: 12) {
+                        Text(model.appleHistoryStatus).font(.caption).foregroundStyle(ReadingPalette.fadedInk)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer()
+                        Button("Sync now") { model.syncAppleBooksHistory() }.controlSize(.small)
+                            .disabled(!model.syncAppleBooksHistoryEnabled)
+                    }.padding(.horizontal, 16).padding(.bottom, 14)
                 }
             }
-
-            SettingsSectionHeading(title: "Remove from this Mac", subtitle: "Delete all data asks for confirmation. Files exported outside Stillleaf stay where you saved them.")
-            settingsCard {
-                VStack(spacing: 0) {
-                    SettingRow(icon: "trash", title: "Delete all reading data", description: "Remove local reading history, managed backups, and cached covers.") {
-                        Button("Delete all data", role: .destructive, action: deleteAll)
-                            .controlSize(.small)
-                    }
-                    settingDivider
-                    SettingRow(icon: "app.dashed", title: "Uninstall Stillleaf", description: "Remove the installed app after you have saved any history you want to keep.") {
-                        Button("Uninstall", role: .destructive, action: uninstall)
-                            .controlSize(.small)
-                    }
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Your history, kept here").font(.system(size: 18, weight: .semibold, design: .rounded))
+                Text("Reading history stays on this Mac. Keep a backup wherever you choose.")
+                    .font(.callout).foregroundStyle(ReadingPalette.fadedInk)
+                HStack(spacing: 10) {
+                    Button("Create backup") { model.backup() }.buttonStyle(ReadingButtonStyle(emphasis: .primary))
+                    Button("Restore backup…") { present(.restore) }
                 }
-            }
+                Divider().opacity(0.4)
+                HStack {
+                    Text("Move or explore your history").font(.callout)
+                    Spacer()
+                    Menu("Export…") {
+                        Button("Full archive (JSON)") { model.exportJSON() }
+                        Button("Spreadsheet tables (CSV)") { model.exportCSV() }
+                    }.menuStyle(.borderlessButton).fixedSize()
+                        .padding(.horizontal, 10).padding(.vertical, 7)
+                        .background(ReadingPalette.moss.opacity(0.075), in: RoundedRectangle(cornerRadius: 9))
+                    Button("Import archive…") { model.importJSON() }
+                }.controlSize(.small)
+                Text("Import adds records without duplicating them. Restore replaces your local history.")
+                    .font(.caption).foregroundStyle(ReadingPalette.fadedInk)
+            }.readingPanel()
+            HStack(spacing: 14) {
+                Image(systemName: "questionmark.circle").font(.title3).foregroundStyle(ReadingPalette.moss)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Trouble with tracking?").font(.headline)
+                    Text("Check permissions and recent tracking issues.").font(.caption).foregroundStyle(ReadingPalette.fadedInk)
+                }
+                Spacer()
+                Button("Troubleshooting") { present(.trackingHelp) }.controlSize(.small)
+            }.padding(18).background(ReadingPalette.surface, in: RoundedRectangle(cornerRadius: 20))
+            DisclosureGroup("Reset or uninstall", isExpanded: $showRemoval) {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Deleting removes history, managed backups, and cached covers. Copies you exported elsewhere remain.")
+                        .font(.caption).foregroundStyle(ReadingPalette.fadedInk)
+                    HStack(spacing: 10) {
+                        Button("Delete reading data…", role: .destructive, action: deleteAll)
+                        Button("Uninstall Stillleaf…", role: .destructive, action: uninstall)
+                    }.controlSize(.small)
+                }.padding(.top, 14)
+            }.font(.callout).padding(.horizontal, 4)
         }
     }
+
+    private var readingDirty: Bool {
+        didLoadDrafts && (pageGoalDraft != String(Int(model.pageGoal.rounded()))
+            || goalDraft != String(Int(model.goalMinutes.rounded()))
+            || uncertaintyDraft != String(Int(model.uncertaintyMinutes.rounded())) || timezoneDraft != model.timezoneID)
+    }
+    private var discordDirty: Bool {
+        didLoadDrafts && (discordApplicationIDDraft != model.discordApplicationID || discordAssetKeyDraft != model.discordAssetKey)
+    }
+    private var currentCategoryDirty: Bool { category == .reading ? readingDirty : category == .discord ? discordDirty : false }
 
     private var trackingBinding: Binding<Bool> {
         Binding(get: { model.trackingEnabled }, set: { enabled in
@@ -637,12 +607,15 @@ struct SettingsView: View {
                     .font(.callout)
                     .foregroundStyle(applyFailed ? ReadingPalette.ochre : ReadingPalette.moss)
             } else if !valid {
-                Text("Enter a value within the shown range before applying.")
+                Text("Use 1–10,000 pages, 1–1,440 time-goal minutes, and 1–240 review minutes.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            Button("Revert drafts") { reloadDrafts() }
+            Button("Revert") {
+                if category == .reading { reloadReadingDrafts() } else { reloadDiscordDrafts() }
+                clearFeedback()
+            }
                 .buttonStyle(ReadingButtonStyle(emphasis: .secondary))
         }
         .padding(.horizontal, 2)
@@ -668,11 +641,16 @@ struct SettingsView: View {
         reloadDrafts()
     }
 
-    private func reloadDrafts() {
+    private func reloadDrafts() { reloadReadingDrafts(); reloadDiscordDrafts(); clearFeedback() }
+
+    private func reloadReadingDrafts() {
         pageGoalDraft = String(Int(model.pageGoal.rounded()))
         goalDraft = String(Int(model.goalMinutes.rounded()))
         uncertaintyDraft = String(Int(model.uncertaintyMinutes.rounded()))
         timezoneDraft = model.timezoneID
+    }
+
+    private func reloadDiscordDrafts() {
         discordApplicationIDDraft = model.discordApplicationID
         discordAssetKeyDraft = model.discordAssetKey
         clearFeedback()
@@ -696,7 +674,8 @@ struct SettingsView: View {
         model.discordApplicationID = discordApplicationIDDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         model.discordAssetKey = discordAssetKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         model.saveSettings()
-        showResult(success: "Discord details applied.")
+        if model.errorMessage == nil { reloadDiscordDrafts() }
+        showResult(success: "Sharing settings saved.")
     }
 
     private func showResult(success: String) {

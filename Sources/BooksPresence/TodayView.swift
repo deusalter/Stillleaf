@@ -158,7 +158,7 @@ struct GoalProgressView: View {
 }
 
 struct BookCoverView: View {
-    enum Size { case compact, menu, large, library }
+    enum Size { case compact, menu, large, library, shelf }
     let book: BookRecord?
     let size: Size
     @State private var thumbnail: NSImage?
@@ -167,6 +167,7 @@ struct BookCoverView: View {
         switch size {
         case .compact: return CGSize(width: 52, height: 72)
         case .menu: return CGSize(width: 62, height: 88)
+        case .shelf: return CGSize(width: 108, height: 154)
         case .large: return CGSize(width: 104, height: 148)
         case .library: return CGSize(width: 72, height: 104)
         }
@@ -214,6 +215,7 @@ struct BookCoverView: View {
 
 struct ActivityStateLabel: View {
     let snapshot: TrackerSnapshot
+    var compact = false
     var body: some View {
         let text: String
         let symbol: String
@@ -223,7 +225,7 @@ struct ActivityStateLabel: View {
         case .paused: text = "Paused • \(activityPauseSummary(snapshot.pauseReason))"; symbol = "pause.circle"
         }
         return Label(text, systemImage: symbol)
-            .font(.callout)
+            .font(compact ? .caption : .callout)
             .foregroundStyle(snapshot.phase == .reading ? ReadingPalette.moss : ReadingPalette.fadedInk)
             .accessibilityLabel(snapshot.phase == .paused ? "Tracking paused: \(activityPauseSummary(snapshot.pauseReason))" : text)
     }

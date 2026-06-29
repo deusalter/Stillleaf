@@ -21,7 +21,7 @@ struct DashboardView: View {
 
     var body: some View {
         NavigationSplitView {
-            DashboardSidebar(selection: $section, model: model)
+            DashboardSidebar(selection: $section, model: model, troubleshoot: { sheet = .trackingHelp })
                 .navigationSplitViewColumnWidth(min: 205, ideal: 225, max: 260)
         } detail: {
             VStack(spacing: 0) {
@@ -35,7 +35,8 @@ struct DashboardView: View {
                     case .library: LibraryView(model: model, present: { sheet = $0 })
                     case .review: ReviewView(model: model, present: { sheet = $0 })
                     case .health: HealthView(model: model)
-                    case .settings: SettingsView(model: model, present: { sheet = $0 }, deleteAll: { deleteAllConfirmation = true }, uninstall: { uninstallConfirmation = true }, initialCategory: initialSettingsCategory)
+                    case .settings: SettingsView(model: model, present: { sheet = $0 }, deleteAll: { deleteAllConfirmation = true }, uninstall: { uninstallConfirmation = true }, initialCategory: model.settingsCategoryRequest ?? initialSettingsCategory)
+                        .id(model.settingsCategoryRequest)
                     }
                 }
                 .readingEntrance()
@@ -45,6 +46,8 @@ struct DashboardView: View {
             .background(ReadingPalette.paper)
         }
         .readingMotionAccessibility()
+        .onAppear { acceptNavigationRequest() }
+        .onChange(of: model.dashboardSectionRequest) { _ in acceptNavigationRequest() }
         .navigationSplitViewStyle(.balanced)
         .frame(minWidth: 920, minHeight: 660)
         .foregroundStyle(ReadingPalette.ink)
@@ -68,6 +71,12 @@ struct DashboardView: View {
         }
     }
 
+    private func acceptNavigationRequest() {
+        guard let requested = model.dashboardSectionRequest else { return }
+        section = requested
+        model.dashboardSectionRequest = nil
+    }
+
     @ViewBuilder
     private func dashboardSheet(_ sheet: DashboardSheet) -> some View {
         switch sheet {
@@ -83,6 +92,8 @@ struct DashboardView: View {
             MergeBooksView(model: model, source: source)
         case .restore:
             RestoreConfirmationView(model: model)
+        case .trackingHelp:
+            TrackingHelpView(model: model)
         }
     }
 }
@@ -116,7 +127,7 @@ struct PopoverView: View {
                 if height > 0, abs(height - bodyHeight) > 0.5 { bodyHeight = height }
             }
             if bodyHeight > max(160, maximumHeight - 160) {
-                Label("Scroll for tracking settings", systemImage: "arrow.down")
+                Label("Scroll for more", systemImage: "arrow.down")
                     .font(.caption2).foregroundStyle(ReadingPalette.fadedInk)
                     .frame(maxWidth: .infinity)
             }
@@ -124,9 +135,14 @@ struct PopoverView: View {
                 Button(model.manualActive ? "Stop manual reading" : "Read manually") {
                     if model.manualActive { model.stopManual() } else { showingManualStart = true }
                 }
-                .buttonStyle(ReadingButtonStyle(emphasis: .primary))
+                .buttonStyle(ReadingButtonStyle(emphasis: model.manualActive ? .primary : .secondary)).controlSize(.small)
                 Spacer()
-                Button("Quit") { model.quit() }
+                Button("Settings") { model.showDashboard(section: .settings) }.controlSize(.small)
+                Menu {
+                    Button("Quit Stillleaf") { model.quit() }
+                } label: { Image(systemName: "ellipsis") }
+                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+                .accessibilityLabel("More actions")
             }
         }
         .padding(20).frame(width: 350)
@@ -139,62 +155,71 @@ struct PopoverView: View {
     }
 
     private var readingContent: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack(alignment: .top, spacing: 14) {
-                BookCoverView(book: model.snapshot.book, size: .menu)
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(model.snapshot.book?.title ?? "Ready when you are")
-                        .font(.system(size: 22, weight: .medium, design: .serif)).lineLimit(2)
-                        .accessibilityLabel(model.snapshot.book?.title ?? "Ready when you are")
-                    if let author = model.snapshot.book?.author, !author.isEmpty {
-                        Text(author).font(.caption).foregroundStyle(ReadingPalette.fadedInk).lineLimit(1)
+        VStack(alignment: .leading, spacing: 16) {
+            if let book = model.snapshot.book {
+                HStack(alignment: .top, spacing: 12) {
+                    BookCoverView(book: book, size: .compact)
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(book.title).font(.system(size: 18, weight: .medium, design: .serif))
+                            .lineLimit(2).accessibilityLabel(book.title)
+                        if let author = book.author, !author.isEmpty {
+                            Text(author).font(.caption).foregroundStyle(ReadingPalette.fadedInk).lineLimit(1)
+                        }
+                        ActivityStateLabel(snapshot: model.snapshot, compact: true)
+                            .fixedSize(horizontal: false, vertical: true)
+                        if let page = model.currentPageText {
+                            Text(page).font(.caption).foregroundStyle(ReadingPalette.fadedInk)
+                        }
                     }
-                    ActivityStateLabel(snapshot: model.snapshot)
-                        .fixedSize(horizontal: false, vertical: true)
-                    if let page = model.currentPageText {
-                        Text(page).font(.caption).foregroundStyle(ReadingPalette.fadedInk)
-                    }
+                    Spacer(minLength: 0)
                 }
-                Spacer(minLength: 0)
+            } else {
+                HStack(spacing: 12) {
+                    Image(systemName: "book.closed").font(.system(size: 20, weight: .light))
+                        .foregroundStyle(ReadingPalette.moss).frame(width: 36, height: 42)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Open a book to begin").font(.system(size: 16, weight: .semibold, design: .rounded))
+                        ActivityStateLabel(snapshot: model.snapshot, compact: true)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 0)
+                }
             }
             MenuReadingGoal(model: model)
             HStack(alignment: .top, spacing: 20) {
+                if model.manualActive || model.snapshot.book != nil || model.sessionPages > 0 {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("This session").font(.caption).foregroundStyle(ReadingPalette.fadedInk)
+                        Text("\(model.sessionPages) \(model.sessionPages == 1 ? "page" : "pages")")
+                            .font(.system(size: 17, weight: .semibold, design: .rounded)).monospacedDigit()
+                        Text("\(ReadingFormat.duration(model.snapshot.sessionSeconds)) \(model.manualActive ? "manual" : "recorded")")
+                            .font(.caption2).foregroundStyle(ReadingPalette.fadedInk)
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                }
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("This session").font(.caption).foregroundStyle(ReadingPalette.fadedInk)
-                    Text("\(model.sessionPages) \(model.sessionPages == 1 ? "page" : "pages")")
-                        .font(.system(size: 21, weight: .semibold, design: .rounded)).monospacedDigit()
-                    Text("\(ReadingFormat.duration(model.snapshot.sessionSeconds)) \(model.manualActive ? "manual time" : "recorded time")")
+                    Label("\(model.pageStreak.current) \(model.pageStreak.current == 1 ? "day" : "days")", systemImage: "flame")
+                        .font(.system(size: 17, weight: .semibold, design: .rounded)).monospacedDigit()
+                        .foregroundStyle(ReadingPalette.ochre)
+                    Text(model.pageStreak.todayPending ? "Goal streak · today still open" : "Goal streak")
                         .font(.caption2).foregroundStyle(ReadingPalette.fadedInk)
                 }.frame(maxWidth: .infinity, alignment: .leading)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Goal streak").font(.caption).foregroundStyle(ReadingPalette.fadedInk)
-                        .help(model.pageStreak.provisional ? "This streak is provisional until pending time is reviewed." : "Consecutive days that met your page goal.")
-                    Text("\(model.pageStreak.current) \(model.pageStreak.current == 1 ? "day" : "days")")
-                        .font(.system(size: 21, weight: .semibold, design: .rounded)).monospacedDigit()
-                        .foregroundStyle(ReadingPalette.ochre)
-                    if model.pageStreak.todayPending {
-                        Text("Today's goal is still open").font(.caption2).foregroundStyle(ReadingPalette.fadedInk)
-                    }
-                }.frame(maxWidth: .infinity, alignment: .leading)
+                .help(model.pageStreak.provisional ? "This streak is provisional until pending time is reviewed." : "Consecutive days that met your page goal.")
             }
             if let pace = ReadingFormat.pagesPerMinute(model.sessionPagesPerMinute) {
                 Label(pace, systemImage: "gauge.with.dots.needle.50percent")
                     .font(.caption).foregroundStyle(ReadingPalette.fadedInk)
             }
-            VStack(spacing: 12) {
-                ReadingSwitchRow(title: "Track reading", symbol: "timer", isOn: Binding(get: { model.trackingEnabled }, set: { model.trackingEnabled = $0; model.saveSettings() }))
-                ReadingSwitchRow(title: "Share with Discord", symbol: "bubble.left.and.bubble.right", isOn: Binding(get: { model.discordEnabled }, set: { model.discordEnabled = $0; model.saveSettings() })).help("Enables sharing when an Apple Books reader is open. Current status: \(model.discordStatus)")
-            }.toggleStyle(.switch).controlSize(.small).font(.callout)
             if model.automaticTrackingNeedsAccess {
-                PopoverSetupNotice(icon: "accessibility", title: "Accessibility access needed",
-                    description: "Allow Stillleaf to track Apple Books automatically.") {
-                    Button("Request access") { model.requestAccessibility() }.controlSize(.small)
+                PopoverSetupNotice(icon: "accessibility", title: "Allow automatic tracking",
+                    description: "Stillleaf needs Accessibility access.") {
+                    Button("Allow access") { model.requestAccessibility() }.controlSize(.small)
                 }
             }
             if model.discordNeedsSetup {
-                PopoverSetupNotice(icon: "key.horizontal", title: "Set up Discord sharing",
-                    description: "Add your Discord Application ID in Settings.") {
-                    Button("Open dashboard") { model.showDashboard() }.controlSize(.small)
+                PopoverSetupNotice(icon: "key.horizontal", title: "Finish Discord setup",
+                    description: "Add your Application ID in Settings.") {
+                    Button("Sharing settings") { model.showDashboard(section: .settings, settingsCategory: .discord) }
+                        .controlSize(.small)
                 }
             }
         }.frame(maxWidth: .infinity, alignment: .leading)
@@ -257,7 +282,7 @@ enum DashboardSection: String, CaseIterable, Identifiable {
 }
 
 enum DashboardSheet: Identifiable {
-    case manualStart, manualAdd, book(BookRecord), review(ReadingInterval), merge(BookRecord), restore
+    case manualStart, manualAdd, book(BookRecord), review(ReadingInterval), merge(BookRecord), restore, trackingHelp
     var id: String {
         switch self {
         case .manualStart: return "manualStart"
@@ -266,6 +291,7 @@ enum DashboardSheet: Identifiable {
         case .review(let interval): return "review-\(interval.id)"
         case .merge(let book): return "merge-\(book.id)"
         case .restore: return "restore"
+        case .trackingHelp: return "trackingHelp"
         }
     }
 }
@@ -273,6 +299,8 @@ enum DashboardSheet: Identifiable {
 private struct DashboardSidebar: View {
     @Binding var selection: DashboardSection
     @ObservedObject var model: AppModel
+    let troubleshoot: () -> Void
+    private let destinations: [DashboardSection] = [.today, .history, .library, .review, .settings]
     @FocusState private var focusedSection: DashboardSection?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -291,7 +319,7 @@ private struct DashboardSidebar: View {
             }
             .padding(.horizontal, 18).padding(.top, 24).padding(.bottom, 30)
             VStack(spacing: 5) {
-                ForEach(DashboardSection.allCases) { item in
+                ForEach(destinations) { item in
                     Button { selection = item } label: {
                         HStack(spacing: 11) {
                             Image(systemName: item.symbol).font(.system(size: 16, weight: .medium)).frame(width: 22)
@@ -327,23 +355,24 @@ private struct DashboardSidebar: View {
             .padding(.horizontal, 10)
             .onMoveCommand { direction in
                 guard direction == .up || direction == .down,
-                      let index = DashboardSection.allCases.firstIndex(of: focusedSection ?? selection) else { return }
-                let next = max(0, min(DashboardSection.allCases.count - 1, index + (direction == .down ? 1 : -1)))
-                selection = DashboardSection.allCases[next]
+                      let index = destinations.firstIndex(of: focusedSection ?? selection) else { return }
+                let next = max(0, min(destinations.count - 1, index + (direction == .down ? 1 : -1)))
+                selection = destinations[next]
                 focusedSection = selection
             }
             Spacer(minLength: 28)
             VStack(alignment: .leading, spacing: 14) {
-                Button { selection = .health } label: {
+                if model.automaticTrackingNeedsAccess || model.snapshot.pauseReason == .captureFailure {
+                    Button(action: troubleshoot) {
+                        Label(trackingStatus, systemImage: "exclamationmark.circle")
+                            .font(.system(size: 11, weight: .medium)).foregroundStyle(ReadingPalette.ochre)
+                    }.buttonStyle(.plain).help("Open tracking help")
+                } else {
                     HStack(spacing: 6) {
                         Circle().fill(model.snapshot.phase == .reading ? ReadingPalette.moss : ReadingPalette.fadedInk).frame(width: 6, height: 6)
-                        Text(trackingStatus)
-                            .font(.system(size: 11, weight: .medium)).foregroundStyle(ReadingPalette.fadedInk)
+                        Text(trackingStatus).font(.system(size: 11, weight: .medium)).foregroundStyle(ReadingPalette.fadedInk)
                     }
                 }
-                .buttonStyle(.plain).help("View tracking status")
-                ReadingSwitchRow(title: "Track reading", isOn: Binding(get: { model.trackingEnabled }, set: { model.trackingEnabled = $0; model.saveSettings() }))
-                ReadingSwitchRow(title: "Discord sharing", isOn: Binding(get: { model.discordEnabled }, set: { model.discordEnabled = $0; model.saveSettings() }))
             }
             .font(.system(size: 12)).toggleStyle(.switch).controlSize(.small)
             .padding(14)

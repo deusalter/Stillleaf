@@ -83,6 +83,8 @@ final class AppModel: ObservableObject {
     }
     var manualActive: Bool { manualBook != nil }
     var dashboardAction: (() -> Void)?
+    @Published var dashboardSectionRequest: DashboardSection?
+    @Published var settingsCategoryRequest: SettingsCategory?
     private let defaults: UserDefaults
     private let support: URL
     private let store: ReadingStore
@@ -845,7 +847,13 @@ final class AppModel: ObservableObject {
     }
     func backup() { guard let url = saveURL(name: "Stillleaf-backup.sqlite", type: .database) else { return }; perform { try engine.checkpoint(); try store.backup(to: url) } }
     func restore() { guard let url = openURL(types: [.database, .data]) else { return }; perform { try stopForMutation(); try store.restore(from: url); try resetEngineAfterMutation(); syncGoalFromHistory(); try ensureCurrentPageGoal() } }
-    func showDashboard() { dashboardAction?() }
+    func showDashboard(section: DashboardSection? = nil, settingsCategory: SettingsCategory? = nil) {
+        if let section {
+            if section == .settings { settingsCategoryRequest = settingsCategory }
+            dashboardSectionRequest = section
+        }
+        dashboardAction?()
+    }
     func quit() { NSApp.terminate(nil) }
     func shutdown() {
         ready = false
