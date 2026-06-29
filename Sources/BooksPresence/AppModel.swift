@@ -582,7 +582,7 @@ final class AppModel: ObservableObject {
         }
         perform { try store.appendEvent(AuditEvent(kind: "bookRated", bookID: bookID,
             detail: rating == nil ? "Rating cleared by the reader." : "Rating chosen by the reader.", rating: BookRatingEvidence(value: rating))) }
-        if pendingCompletion?.id == bookID { pendingCompletion = nil }
+        if errorMessage == nil, pendingCompletion?.id == bookID { pendingCompletion = nil }
     }
     func acknowledgeCompletion(_ entry: FinishedBookEntry) {
         if pendingCompletion?.id == entry.id { pendingCompletion = nil }

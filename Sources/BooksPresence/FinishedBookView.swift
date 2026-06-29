@@ -32,20 +32,20 @@ struct FinishedBookPrompt: View {
             .animation(reduceMotion ? nil : ReadingMotion.entrance, value: hasAppeared)
 
             VStack(alignment: .leading, spacing: 10) {
-                Text("Congratulations — you finished a book.")
-                    .font(.headline).foregroundStyle(ReadingPalette.moss)
+                Text("Another story, finished.")
+                    .font(.system(size: 19, weight: .semibold, design: .rounded)).foregroundStyle(ReadingPalette.moss)
                 Text(entry.title).font(.system(.title2, design: .serif))
                 if let author = entry.author, !author.isEmpty {
                     Text(author).font(.callout).foregroundStyle(.secondary)
                 }
                 Text(finishDetail).font(.caption).foregroundStyle(.secondary)
-                Text("Leave a rating if you’d like to remember this one.")
+                Text("Congratulations. How did this one stay with you?")
                     .font(.callout).foregroundStyle(.secondary)
                 QuarterStarRating(rating: $rating)
                 HStack(spacing: 10) {
                     Button("Save rating") {
                         model.saveRating(rating, for: entry.id)
-                        model.acknowledgeCompletion(entry)
+                        if model.errorMessage == nil { model.acknowledgeCompletion(entry) }
                     }
                     .buttonStyle(ReadingButtonStyle(emphasis: .primary))
                     .disabled(rating == nil)
@@ -144,7 +144,7 @@ private struct FinishedBookTimelineRow: View {
                     HStack(spacing: 10) {
                         Button("Save rating") {
                             model.saveRating(rating, for: entry.id)
-                            isEditing = false
+                            if model.errorMessage == nil { isEditing = false }
                         }
                         .buttonStyle(ReadingButtonStyle(emphasis: .primary))
                         .disabled(rating == nil)
@@ -156,7 +156,7 @@ private struct FinishedBookTimelineRow: View {
                             Button("Clear rating") {
                                 rating = nil
                                 model.saveRating(nil, for: entry.id)
-                                isEditing = false
+                                if model.errorMessage == nil { isEditing = false }
                             }
                         }
                     }
@@ -172,24 +172,131 @@ private struct FinishedBookTimelineRow: View {
 struct QuarterStarRating: View {
     @Binding var rating: Double?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
+    @FocusState private var focused: Bool
+    @State private var hovered: Double?
+    @State private var dragging = false
+    private var displayed: Double? { hovered ?? rating }
     private var value: Double { rating ?? 0 }
+    private let starWidth: CGFloat = 42
+    private let gap: CGFloat = 6
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            RatingStars(rating: rating)
-                .animation(reduceMotion ? nil : ReadingMotion.press, value: rating)
-            Slider(value: Binding(get: { value }, set: { rating = roundedQuarter($0) }), in: 0...5, step: 0.25)
-                .controlSize(.small)
-                .accessibilityLabel("Rating")
-                .accessibilityValue(RatingStars.description(for: rating))
-                .accessibilityHint("Use the arrow keys to adjust in quarter-star steps.")
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: gap) {
+                ForEach(0..<5, id: \.self) { index in
+                    FractionalStar(fill: min(1, max(0, (displayed ?? 0) - Double(index))), size: 32)
+                        .scaleEffect(!reduceMotion && hovered != nil && (hovered ?? 0) > Double(index) && (hovered ?? 0) <= Double(index + 1) ? 1.08 : 1)
+                        .frame(width: starWidth, height: 44)
+                }
+            }
+            .contentShape(Rectangle())
+            .background(ReadingPalette.ochre.opacity(0.055), in: RoundedRectangle(cornerRadius: 12))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(focused ? ReadingPalette.moss : .clear, lineWidth: 1.5))
+            .onContinuousHover { phase in
+                guard !dragging else { return }
+                switch phase {
+                case .active(let location): hovered = RatingSelection.value(at: location.x)
+                case .ended: hovered = nil
+                }
+            }
+            .gesture(DragGesture(minimumDistance: 0)
+                .onChanged { gesture in
+                    dragging = true; hovered = nil
+                    rating = RatingSelection.value(at: gesture.location.x)
+                }
+                .onEnded { gesture in
+                    rating = RatingSelection.value(at: gesture.location.x)
+                    dragging = false; hovered = nil
+                })
+            .focusable().focused($focused)
+            .onMoveCommand { direction in
+                hovered = nil
+                if direction == .left || direction == .down { rating = max(0, value - 0.25) }
+                if direction == .right || direction == .up { rating = min(5, value + 0.25) }
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Book rating")
+            .accessibilityValue(RatingStars.description(for: rating))
+            .accessibilityHint("Adjust in quarter-star steps. Zero is a rating; no rating is left blank.")
+            .accessibilityAdjustableAction { direction in
+                hovered = nil
+                switch direction {
+                case .increment: rating = min(5, value + 0.25)
+                case .decrement: rating = max(0, value - 0.25)
+                @unknown default: break
+                }
+            }
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.14), value: displayed)
+            HStack(spacing: 8) {
+                Text(displayed.map { $0.formatted(.number.precision(.fractionLength(0...2))) } ?? "Not rated")
+                    .font(.system(size: 21, weight: .semibold, design: .rounded)).monospacedDigit()
+                    .foregroundStyle(displayed == nil ? ReadingPalette.fadedInk : ReadingPalette.ochre)
+                if displayed != nil { Text("/ 5").font(.caption).foregroundStyle(ReadingPalette.fadedInk) }
+                Spacer(minLength: 0)
+                Button("0") { hovered = nil; rating = 0 }
+                    .accessibilityLabel("Rate zero stars")
+                Button { hovered = nil; rating = max(0, value - 0.25) } label: { Image(systemName: "minus") }
+                    .disabled(rating == nil || value <= 0).accessibilityLabel("Decrease rating by a quarter star")
+                Button { hovered = nil; rating = min(5, value + 0.25) } label: { Image(systemName: "plus") }
+                    .disabled(value >= 5).accessibilityLabel("Increase rating by a quarter star")
+            }.controlSize(.small).buttonStyle(ReadingButtonStyle())
+            Text("Click or drag the stars. Fine-tune by a quarter.")
+                .font(.system(size: 10)).foregroundStyle(ReadingPalette.fadedInk)
         }
-        .frame(maxWidth: 190)
+        .frame(width: 234)
     }
+}
 
-    private func roundedQuarter(_ value: Double) -> Double {
-        min(5, max(0, (value * 4).rounded() / 4))
+/// Star gaps belong to the star immediately before them; dragging outside the
+/// rail clamps to the endpoints. A dedicated zero button keeps nil distinct.
+enum RatingSelection {
+    static func value(at x: CGFloat) -> Double {
+        guard x.isFinite else { return 0 }
+        if x <= 0 { return 0 }
+        if x >= 234 { return 5 }
+        let index = min(4, Int(x / 48))
+        let within = min(42, max(0, x - CGFloat(index) * 48))
+        return min(5, Double(index) + ceil(Double(within / 42) * 4) / 4)
+    }
+}
+
+@MainActor
+struct BookRatingSection: View {
+    @ObservedObject var model: AppModel
+    let bookID: String
+    @State private var editing = false
+    @State private var draft: Double?
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Your rating").font(.system(size: 17, weight: .semibold, design: .rounded))
+                    if !editing { RatingStars(rating: model.rating(for: bookID)) }
+                }
+                Spacer()
+                if !editing {
+                    Button(model.rating(for: bookID) == nil ? "Rate this book" : "Edit rating") {
+                        draft = model.rating(for: bookID); editing = true
+                    }.controlSize(.small)
+                }
+            }
+            if editing {
+                QuarterStarRating(rating: $draft)
+                HStack(spacing: 10) {
+                    Button("Save rating") {
+                        model.saveRating(draft, for: bookID)
+                        if model.errorMessage == nil { editing = false }
+                    }.buttonStyle(ReadingButtonStyle(emphasis: .primary)).disabled(draft == nil)
+                    Button("Cancel") { draft = model.rating(for: bookID); editing = false }
+                    if model.rating(for: bookID) != nil {
+                        Button("Clear rating") {
+                            model.saveRating(nil, for: bookID)
+                            if model.errorMessage == nil { draft = nil; editing = false }
+                        }
+                    }
+                }.controlSize(.small)
+            }
+        }.readingPanel().buttonStyle(ReadingButtonStyle())
     }
 }
 
@@ -216,8 +323,10 @@ struct RatingStars: View {
     }
 }
 
-private struct FractionalStar: View {
-    let fill: Double
+private struct FractionalStar: View, Animatable {
+    var fill: Double
+    var size: CGFloat = 18
+    var animatableData: Double { get { fill } set { fill = newValue } }
 
     var body: some View {
         Image(systemName: "star.fill")
@@ -231,7 +340,8 @@ private struct FractionalStar: View {
                         }
                     }
             }
-            .frame(width: 18, height: 18)
+            .font(.system(size: size, weight: .regular))
+            .frame(width: size, height: size)
             .accessibilityHidden(true)
     }
 }
