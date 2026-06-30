@@ -7,108 +7,148 @@ struct LibraryView: View {
     let present: (DashboardSheet) -> Void
     @State private var shelf = LibraryShelf.reading
     @State private var search = ""
+    @State private var sort = LibrarySort.recent
+    @State private var showTimeline = false
 
     var body: some View {
         let resolver = BookMergeResolver(merges: model.merges)
-        let visible = visibleBooks(resolver: resolver)
-        ScrollView {
-            VStack(alignment: .leading, spacing: 26) {
-                PageHeading(title: "Library", subtitle: "Your books, reading pace, and finished reads.")
-                HStack(spacing: 18) {
-                    ReadingSegmentedControl(label: "Bookshelf", options: [LibraryShelf.reading, .finished, .all], selection: $shelf) { shelf in
-                        switch shelf {
-                        case .reading: return "Reading"
-                        case .finished: return "Finished · \(model.finishedBooks.count)"
-                        case .all: return "All books"
-                        }
-                    }.frame(maxWidth: 420)
-                    Spacer(minLength: 0)
-                    TextField("Search title or author", text: $search)
-                        .textFieldStyle(ReadingTextFieldStyle()).frame(maxWidth: 240)
-                }
-                if shelf == .finished {
-                    FinishedBookTimeline(model: model, search: search)
-                } else if visible.isEmpty {
-                    ReadingEmptyState(title: search.isEmpty ? "Your next chapter awaits" : "No matching books", symbol: "books.vertical", message: search.isEmpty ? "Open a book in Apple Books to start your reading journal. Your completed books live on the Finished shelf." : "Try another title or author.")
-                        .padding(.vertical, 80)
-                } else {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 300), spacing: 16, alignment: .topLeading)], alignment: .leading, spacing: 16) {
-                        ForEach(visible) { book in
-                            BookLibraryCard(book: book, pageTurns: model.pages(forBookID: book.id), pagesPerMinute: model.pagesPerMinute(forBookID: book.id), intervals: intervals(for: book, resolver: resolver)) {
-                                present(.book(book))
-                            }
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+        let books = model.books.filter { resolver.resolvedID(for: $0.id) == $0.id }
+        let finishedIDs = Set(model.finishedBooks.map { resolver.resolvedID(for: $0.id) })
+        let recent = model.intervals.reduce(into: [String: Date]()) { result, interval in
+            let id = resolver.resolvedID(for: interval.bookID)
+            result[id] = max(result[id] ?? .distantPast, interval.end)
+        }
+        let finishes = model.finishedBooks.reduce(into: [String: Date]()) { result, entry in
+            guard let date = entry.finishedAt else { return }
+            let id = resolver.resolvedID(for: entry.id)
+            result[id] = max(result[id] ?? .distantPast, date)
+        }
+        let visible = books.filter { book in
+            (shelf == .all || (shelf == .finished ? finishedIDs.contains(book.id) : !finishedIDs.contains(book.id)))
+                && (search.isEmpty || book.title.localizedCaseInsensitiveContains(search) || (book.author ?? "").localizedCaseInsensitiveContains(search))
+        }.sorted { lhs, rhs in
+            switch sort {
+            case .recent:
+                let left = shelf == .finished ? finishes[lhs.id] : recent[lhs.id]
+                let right = shelf == .finished ? finishes[rhs.id] : recent[rhs.id]
+                if left != right { return (left ?? .distantPast) > (right ?? .distantPast) }
+            case .author:
+                let order = (lhs.author ?? "").localizedStandardCompare(rhs.author ?? "")
+                if order != .orderedSame { return order == .orderedAscending }
+            case .title: break
+            }
+            let order = lhs.title.localizedStandardCompare(rhs.title)
+            return order == .orderedSame ? lhs.id < rhs.id : order == .orderedAscending
+        }
+        return VStack(alignment: .leading, spacing: 18) {
+            HStack(alignment: .top) {
+                PageHeading(title: "Library", subtitle: "\(books.count) \(books.count == 1 ? "book" : "books") in your reading journal")
+                Spacer()
+                Button { present(.manualAdd) } label: { Label("Add reading", systemImage: "plus") }
+                    .controlSize(.small)
+            }
+            ReadingSegmentedControl(label: "Bookshelf", options: [LibraryShelf.reading, .finished, .all], selection: $shelf) { item in
+                switch item {
+                case .reading: return "Reading · \(books.filter { !finishedIDs.contains($0.id) }.count)"
+                case .finished: return "Finished · \(finishedIDs.count)"
+                case .all: return "All · \(books.count)"
                 }
             }
-            .frame(maxWidth: 1120, alignment: .leading)
-            .padding(32)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 14) {
+                TextField("Find a title or author", text: $search)
+                    .textFieldStyle(ReadingTextFieldStyle()).frame(maxWidth: 330)
+                Spacer(minLength: 0)
+                if shelf == .finished {
+                    Button { showTimeline.toggle() } label: {
+                        Label(showTimeline ? "Bookshelf" : "Timeline", systemImage: showTimeline ? "square.grid.2x2" : "list.bullet")
+                    }.controlSize(.small).accessibilityLabel(showTimeline ? "Show book grid" : "Show finished timeline")
+                }
+                Menu {
+                    Picker("Sort books", selection: $sort) {
+                        ForEach(LibrarySort.allCases, id: \.self) { value in Text(value.rawValue).tag(value) }
+                    }
+                } label: { Label(sort.rawValue, systemImage: "arrow.up.arrow.down") }
+                .menuStyle(.borderlessButton).fixedSize()
+                .padding(.horizontal, 12).padding(.vertical, 8)
+                .background(ReadingPalette.surface, in: RoundedRectangle(cornerRadius: 12))
+                .disabled(shelf == .finished && showTimeline).accessibilityLabel("Sort books")
+            }
+            ScrollView {
+                if shelf == .finished && showTimeline {
+                    FinishedBookTimeline(model: model, search: search)
+                } else if visible.isEmpty {
+                    ReadingEmptyState(title: search.isEmpty ? (shelf == .finished ? "Stories to look back on" : "Your next chapter awaits") : "No matching books",
+                        symbol: "books.vertical",
+                        message: search.isEmpty ? (shelf == .finished ? "Books marked finished in Apple Books will appear here." : "Open a book in Apple Books, or add a reading session to start your shelf.") : "Try another title or author.")
+                        .padding(.vertical, 35)
+                } else {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 150, maximum: 220), spacing: 18, alignment: .topLeading)],
+                              alignment: .leading, spacing: 22) {
+                        ForEach(visible) { book in
+                            BookLibraryCard(book: book, pages: model.pages(forBookID: book.id),
+                                finished: finishedIDs.contains(book.id), date: finishedIDs.contains(book.id) ? finishes[book.id] : recent[book.id],
+                                rating: model.rating(for: book.id)) { present(.book(book)) }
+                        }
+                    }.padding(.vertical, 4)
+                }
+            }
         }
-    }
-
-    private func visibleBooks(resolver: BookMergeResolver) -> [BookRecord] {
-        let finishedIDs = Set(model.finishedBooks.map(\.id))
-        return model.books.filter {
-            resolver.resolvedID(for: $0.id) == $0.id
-                && (shelf == .all || !finishedIDs.contains($0.id))
-                && (search.isEmpty || $0.title.localizedCaseInsensitiveContains(search) || ($0.author ?? "").localizedCaseInsensitiveContains(search))
-        }
-    }
-
-    private func intervals(for book: BookRecord, resolver: BookMergeResolver) -> [ReadingInterval] {
-        model.intervals.filter { resolver.resolvedID(for: $0.bookID) == book.id }
+        .frame(maxWidth: 1060, maxHeight: .infinity, alignment: .topLeading)
+        .padding(30).frame(maxWidth: .infinity, alignment: .top)
+        .buttonStyle(ReadingButtonStyle())
     }
 }
 
 private enum LibraryShelf: Hashable { case reading, finished, all }
+private enum LibrarySort: String, CaseIterable { case recent = "Recent", title = "Title", author = "Author" }
 
 struct BookLibraryCard: View {
     let book: BookRecord
-    let pageTurns: Int
-    let pagesPerMinute: Double?
-    let intervals: [ReadingInterval]
+    let pages: Int
+    let finished: Bool
+    let date: Date?
+    let rating: Double?
     let open: () -> Void
-    @State private var isHovering = false
+    @State private var hovering = false
+    @FocusState private var focused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    private var credited: Double { intervals.filter { $0.disposition == .credited }.reduce(0) { $0 + $1.duration } }
-    private var firstRead: Date? { intervals.map(\.start).min() }
-    private var lastRead: Date? { intervals.map(\.end).max() }
-
     var body: some View {
         Button(action: open) {
-            HStack(alignment: .top, spacing: 16) {
-                BookCoverView(book: book, size: .library)
+            VStack(alignment: .leading, spacing: 10) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 16).fill(ReadingPalette.elevated.opacity(0.5))
+                    BookCoverView(book: book, size: .shelf)
+                        .shadow(color: .black.opacity(0.13), radius: 7, x: 0, y: 4)
+                }.frame(height: 182)
                 VStack(alignment: .leading, spacing: 5) {
-                    Text(book.title).font(.system(.headline, design: .serif)).lineLimit(2)
+                    Text(book.title).font(.system(size: 15, weight: .medium, design: .serif))
+                        .lineLimit(2).frame(height: 38, alignment: .topLeading)
                     Text(book.author?.isEmpty == false ? book.author! : "Author unavailable")
-                        .font(.callout).foregroundStyle(.secondary).lineLimit(1)
-                    Text(ReadingFormat.observedPages(pageTurns)).font(.headline).monospacedDigit().padding(.top, 7)
-                    if let pace = ReadingFormat.pagesPerMinute(pagesPerMinute) {
-                        Text(pace).font(.caption).monospacedDigit().foregroundStyle(ReadingPalette.moss)
-                    }
-                    Text("Time: \(ReadingFormat.duration(credited))")
-                        .font(.caption).monospacedDigit().foregroundStyle(.secondary)
-                    if let firstRead {
-                        Text("Started \(firstRead.formatted(date: .abbreviated, time: .omitted))")
-                            .font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                    }
-                    if let lastRead {
-                        Text("Last read \(lastRead.formatted(date: .abbreviated, time: .omitted))")
-                            .font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                    }
-                }
+                        .font(.caption).foregroundStyle(ReadingPalette.fadedInk).lineLimit(1)
+                    HStack {
+                        Text(finished ? "Finished" : "\(pages) \(pages == 1 ? "page" : "pages")")
+                            .font(.caption.weight(.medium)).foregroundStyle(ReadingPalette.moss)
+                        Spacer(minLength: 4)
+                        if let rating {
+                            Label(rating.formatted(.number.precision(.fractionLength(0...2))), systemImage: "star.fill")
+                                .font(.caption.weight(.medium)).foregroundStyle(ReadingPalette.ochre)
+                        }
+                    }.padding(.top, 3)
+                    Text(date.map { "\(finished ? "Finished" : "Last read") \($0.formatted(date: .abbreviated, time: .omitted))" } ?? (finished ? "Date unavailable" : "No reading recorded yet"))
+                        .font(.system(size: 10)).foregroundStyle(ReadingPalette.fadedInk).lineLimit(1)
+                }.padding(.horizontal, 3)
             }
-            .frame(maxWidth: .infinity, minHeight: 112, alignment: .leading)
-            .padding(18)
-            .background(isHovering ? ReadingPalette.elevated : ReadingPalette.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(isHovering ? ReadingPalette.moss.opacity(0.45) : ReadingPalette.border.opacity(0.45)))
+            .foregroundStyle(ReadingPalette.ink).padding(10)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .background(hovering ? ReadingPalette.surface : .clear, in: RoundedRectangle(cornerRadius: 20))
+            .contentShape(RoundedRectangle(cornerRadius: 20))
         }
-        .buttonStyle(.plain)
-        .onHover { isHovering = $0 }
-        .animation(reduceMotion ? nil : ReadingMotion.hover, value: isHovering)
-        .accessibilityLabel("Open \(book.title)")
+        .buttonStyle(.plain).focused($focused)
+        .overlay(RoundedRectangle(cornerRadius: 20).stroke(focused ? ReadingPalette.moss : .clear, lineWidth: 2))
+        .onHover { hovering = $0 }
+        .animation(reduceMotion ? nil : ReadingMotion.hover, value: hovering)
+        .accessibilityLabel("\(book.title), \(book.author ?? "author unavailable"), \(finished ? "finished" : "\(pages) pages recorded")")
+        .accessibilityHint("Open book details and rating")
     }
 }
 
@@ -155,9 +195,11 @@ struct BookDetailView: View {
                 VStack(alignment: .leading, spacing: 16) {
                     hero
                     readingSummary
+                    BookRatingSection(model: model, bookID: currentBook.id)
                     sessionHistory
                     privacyControls
-                    artworkControls
+                    DisclosureGroup("Cover art & sharing details") { artworkControls.padding(.top, 8) }
+                        .font(.callout).padding(.horizontal, 4)
                     advancedSection
                     footerActions
                 }
