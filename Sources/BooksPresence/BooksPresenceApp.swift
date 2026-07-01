@@ -65,6 +65,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         dashboard?.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
     }
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        showDashboard()
+        return true
+    }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
     func applicationWillTerminate(_ notification: Notification) {
         dismissMenuPanel()
