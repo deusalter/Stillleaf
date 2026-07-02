@@ -27,9 +27,13 @@ struct HistoryView: View {
             let pages = model.pages(on: day.day)
             return model.pageGoal(on: day.day).map { pages > 0 && pages >= $0 } ?? false
         }.count
-        return ScrollView {
+        return VStack(alignment: .leading, spacing: 0) {
+            PageHeading(title: "History", subtitle: "See how your reading adds up.")
+                .frame(maxWidth: 1060, alignment: .leading)
+                .padding(.horizontal, 30).padding(.top, 30)
+                .frame(maxWidth: .infinity, alignment: .center)
+            ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                PageHeading(title: "History", subtitle: "See how your reading adds up.")
                 HStack(spacing: 12) {
                     HistoryMetric(title: "Pages read", value: "\(pageTurns)")
                     HistoryMetric(title: "Goals reached", value: "\(pageGoalDays)")
@@ -64,6 +68,7 @@ struct HistoryView: View {
             .frame(maxWidth: 1060, alignment: .leading)
             .padding(30)
             .frame(maxWidth: .infinity, alignment: .center)
+        }
         }
         .onChange(of: model.timezoneID) { timezoneID in navigation.timezoneID = timezoneID }
         .buttonStyle(ReadingButtonStyle())
