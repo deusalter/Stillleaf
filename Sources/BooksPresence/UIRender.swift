@@ -66,6 +66,10 @@ func renderUIPreviews(to destination: URL) throws {
         if let book = model.books.first {
             previews.append(("book-detail", AnyView(BookDetailView(model: model, book: book))))
         }
+        previews.append(("troubleshooting", AnyView(TrackingHelpView(model: model))))
+        previews.append(("rating-quarter", AnyView(RatingPreview(value: 4.25))))
+        previews.append(("rating-zero", AnyView(RatingPreview(value: 0))))
+        previews.append(("rating-empty", AnyView(RatingPreview(value: nil))))
         previews.append(("manual-start", AnyView(ManualStartView(model: model))))
         previews.append(("manual-add", AnyView(ManualAdditionView(model: model))))
         if let interval = model.displayIntervals.first {
@@ -75,7 +79,8 @@ func renderUIPreviews(to destination: URL) throws {
             let view = view.environment(\.colorScheme, scheme)
             let sizes: [String: NSSize] = ["manual-start": NSSize(width: 470, height: 350),
                 "manual-add": NSSize(width: 500, height: 510), "review-editor": NSSize(width: 560, height: 600),
-                "book-detail": NSSize(width: 760, height: 720),
+                "book-detail": NSSize(width: 760, height: 720), "troubleshooting": NSSize(width: 740, height: 650),
+                "rating-quarter": NSSize(width: 320, height: 200), "rating-zero": NSSize(width: 320, height: 200), "rating-empty": NSSize(width: 320, height: 200),
                 "popover": NSSize(width: 350, height: 580), "popover-manual": NSSize(width: 350, height: 580),
                 "popover-setup": NSSize(width: 350, height: 500)]
             try renderNativeView(AnyView(view), size: sizes[name] ?? NSSize(width: 1180, height: 820), appearance: appearance,
@@ -89,6 +94,7 @@ func renderUIPreviews(to destination: URL) throws {
                              to: destination.appendingPathComponent("today-compact-\(dark ? "dark" : "light").png"))
     }
     try renderProgressMotion(model: exceededModel, to: destination)
+    try renderRatingMotion(to: destination)
     print("ui-render: synthetic light/dark native previews saved to \(destination.path)")
 }
 
@@ -117,7 +123,12 @@ private func seedPreviewHistory(at support: URL) throws {
     let store = try ReadingStore(url: support.appendingPathComponent("history.sqlite"))
     let books = [BookRecord(id: "preview-waves", title: "The Waves", author: "Virginia Woolf"),
                  BookRecord(id: "preview-walden", title: "Walden", author: "Henry David Thoreau"),
-                 BookRecord(id: "preview-rooms", title: "A Room of One’s Own", author: "Virginia Woolf")]
+                 BookRecord(id: "preview-rooms", title: "A Room of One’s Own", author: "Virginia Woolf"),
+                 BookRecord(id: "preview-garden", title: "The Secret Garden", author: "Frances Hodgson Burnett"),
+                 BookRecord(id: "preview-journey", title: "A Journey to the Centre of the Earth", author: "Jules Verne"),
+                 BookRecord(id: "preview-night", title: "Notes from a Quiet Night"),
+                 BookRecord(id: "preview-sea", title: "The Sea and the Mirror", author: "W. H. Auden"),
+                 BookRecord(id: "preview-orchard", title: "The Orchard", author: "A very long author name for a narrow shelf")]
     for book in books { try store.saveBook(book) }
     var calendar = Calendar(identifier: .gregorian)
     calendar.timeZone = TimeZone(identifier: "America/Los_Angeles")!
@@ -200,5 +211,53 @@ private func renderProgressMotion(model: AppModel, to destination: URL) throws {
         hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
         guard let data = bitmap.representation(using: .png, properties: [:]) else { throw UIPreviewError.renderFailed }
         try data.write(to: destination.appendingPathComponent("progress-motion-\(name).png"), options: .atomic)
+    }
+}
+
+private struct RatingPreview: View {
+    @State var value: Double?
+    var body: some View {
+        QuarterStarRating(rating: $value).padding(24)
+            .frame(width: 320, height: 200)
+            .foregroundStyle(ReadingPalette.ink).background(ReadingPalette.paper)
+    }
+}
+
+@MainActor
+private final class RatingMotionState: ObservableObject {
+    @Published var rating: Double? = 0
+}
+private struct RatingMotionPreview: View {
+    @ObservedObject var state: RatingMotionState
+    var body: some View {
+        QuarterStarRating(rating: $state.rating).padding(24)
+            .frame(width: 320, height: 200)
+            .foregroundStyle(ReadingPalette.ink).background(ReadingPalette.paper)
+    }
+}
+/// Native transition samples use isolated draft state and never save a user rating.
+@MainActor
+private func renderRatingMotion(to destination: URL) throws {
+    do {
+        let state = RatingMotionState()
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 200), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let hosting = NSHostingView(rootView: RatingMotionPreview(state: state)
+            .environment(\.colorScheme, .light))
+        window.contentView = hosting
+        window.orderBack(nil)
+        hosting.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        state.rating = 4.25
+        let started = Date()
+        for (name, time) in [("start", 0.01), ("middle", 0.07), ("end", 0.25)] {
+            RunLoop.current.run(until: started.addingTimeInterval(time))
+            hosting.displayIfNeeded()
+            guard let bitmap = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) else { throw UIPreviewError.renderFailed }
+            hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
+            guard let data = bitmap.representation(using: .png, properties: [:]) else { throw UIPreviewError.renderFailed }
+            try data.write(to: destination.appendingPathComponent("rating-motion-normal-\(name).png"), options: .atomic)
+        }
+        window.close()
     }
 }

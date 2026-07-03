@@ -16,6 +16,16 @@ func runUISmoke() throws {
     guard model.manualPages(forBookID: "smoke-pages-a") == 7 else {
         throw BooksAccessErrorForUI.failed("Manual page corrections were not exposed to the journal")
     }
+    guard RatingSelection.value(at: -5) == 0, RatingSelection.value(at: 1) == 0.25,
+          RatingSelection.value(at: 193) == 4.25, RatingSelection.value(at: 230) == 5,
+          RatingSelection.value(at: 46) == 1, RatingSelection.value(at: 999) == 5 else {
+        throw BooksAccessErrorForUI.failed("Quarter-star pointer selection lost boundaries or gap behavior")
+    }
+    model.showDashboard(section: .settings, settingsCategory: .discord)
+    guard model.dashboardSectionRequest == .settings, model.settingsCategoryRequest == .discord else {
+        throw BooksAccessErrorForUI.failed("Sharing setup did not route to the correct settings category")
+    }
+    model.dashboardSectionRequest = nil; model.settingsCategoryRequest = nil
     try checkLivePagination(model)
     model.discordEnabled = true
     model.discordApplicationID = ""
@@ -117,6 +127,8 @@ func runUISmoke() throws {
         ("review", AnyView(ReviewView(model: model, present: { _ in }))),
         ("popover", AnyView(PopoverView(model: model))),
         ("health", AnyView(HealthView(model: model))),
+        ("troubleshooting", AnyView(TrackingHelpView(model: model))),
+        ("rating", AnyView(QuarterStarRating(rating: .constant(4.25)))),
         ("manual-start", AnyView(ManualStartView(model: model))),
         ("manual-add", AnyView(ManualAdditionView(model: model))),
         ("review-editor", AnyView(IntervalReviewEditor(model: model, interval: interval))),
