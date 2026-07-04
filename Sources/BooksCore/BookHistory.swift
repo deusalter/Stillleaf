@@ -15,6 +15,19 @@ public struct BookRatingEvidence: Codable, Equatable {
     public init(value: Double?) { self.value = value }
 }
 
+public struct AnnualGoalEvidence: Codable, Equatable {
+    public var year: Int
+    /// `nil` explicitly disables the goal for this year.
+    public var books: Int?
+    public init(year: Int, books: Int?) { self.year = year; self.books = books }
+}
+
+public struct BookReviewEvidence: Codable, Equatable {
+    /// `nil` is an explicit clear operation when carried by a `bookReviewed` event.
+    public var text: String?
+    public init(text: String?) { self.text = text }
+}
+
 public struct FinishedBookEntry: Identifiable, Equatable {
     public var id: String
     public var title: String
@@ -74,6 +87,19 @@ public enum BookHistory {
             lhs.event.date == rhs.event.date ? lhs.index < rhs.index : lhs.event.date < rhs.event.date
         }) else { return nil }
         return chosen.event.rating?.value
+    }
+
+    /// Returns the latest explicit review text. A latest typed clear event
+    /// intentionally returns nil rather than exposing an older review.
+    public static func review(bookID: String, events: [AuditEvent]) -> String? {
+        let candidates = events.enumerated().compactMap { index, event -> (index: Int, event: AuditEvent)? in
+            guard event.kind == "bookReviewed", event.bookID == bookID, event.review != nil else { return nil }
+            return (index, event)
+        }
+        guard let chosen = candidates.max(by: { lhs, rhs in
+            lhs.event.date == rhs.event.date ? lhs.index < rhs.index : lhs.event.date < rhs.event.date
+        }) else { return nil }
+        return chosen.event.review?.text
     }
 
     private static func latest(_ values: [(index: Int, event: AuditEvent, evidence: BookCompletionEvidence)])

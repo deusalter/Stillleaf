@@ -4,6 +4,7 @@ public enum ReadingMode: String, Codable, CaseIterable { case automatic, manual,
 public enum IntervalDisposition: String, Codable { case credited, uncertain, excluded }
 public enum PauseReason: String, Codable { case disabled, background, noReadingWindow, locked, displayAsleep, permissionLost, excludedBook, stopped, captureFailure, recovery, clockDiscontinuity }
 public enum TrackerPhase: String, Codable { case paused, reading, uncertain }
+public enum DailyGoalUnit: String, Codable { case pages, minutes }
 
 public struct BookRecord: Codable, Identifiable, Equatable {
     public var id: String
@@ -55,8 +56,12 @@ public struct GoalChange: Codable, Identifiable, Equatable {
     public var minutes: Double
     public var pages: Double?
     public var createdAt: Date
-    public init(id: String = UUID().uuidString, effectiveDay: String, minutes: Double, pages: Double? = nil, createdAt: Date = Date()) {
-        self.id = id; self.effectiveDay = effectiveDay; self.minutes = minutes; self.pages = pages; self.createdAt = createdAt
+    public var primaryUnit: DailyGoalUnit?
+    public var resolvedUnit: DailyGoalUnit { primaryUnit ?? (pages == nil ? .minutes : .pages) }
+    public init(id: String = UUID().uuidString, effectiveDay: String, minutes: Double, pages: Double? = nil,
+                createdAt: Date = Date(), primaryUnit: DailyGoalUnit? = nil) {
+        self.id = id; self.effectiveDay = effectiveDay; self.minutes = minutes; self.pages = pages
+        self.createdAt = createdAt; self.primaryUnit = primaryUnit
     }
 }
 public struct AuditEvent: Codable, Identifiable, Equatable {
@@ -70,9 +75,16 @@ public struct AuditEvent: Codable, Identifiable, Equatable {
     public var pageAdjustment: ManualPageAdjustmentEvidence?
     public var completion: BookCompletionEvidence?
     public var rating: BookRatingEvidence?
-    public init(id: String = UUID().uuidString, date: Date = Date(), kind: String, bookID: String? = nil, sessionID: String? = nil, detail: String, pageTurn: PageTurnEvidence? = nil, pageAdjustment: ManualPageAdjustmentEvidence? = nil, completion: BookCompletionEvidence? = nil, rating: BookRatingEvidence? = nil) {
+    public var annualGoal: AnnualGoalEvidence?
+    public var review: BookReviewEvidence?
+    public init(id: String = UUID().uuidString, date: Date = Date(), kind: String, bookID: String? = nil,
+                sessionID: String? = nil, detail: String, pageTurn: PageTurnEvidence? = nil,
+                pageAdjustment: ManualPageAdjustmentEvidence? = nil, completion: BookCompletionEvidence? = nil,
+                rating: BookRatingEvidence? = nil, annualGoal: AnnualGoalEvidence? = nil,
+                review: BookReviewEvidence? = nil) {
         self.id = id; self.date = date; self.kind = kind; self.bookID = bookID; self.sessionID = sessionID; self.detail = detail
         self.pageTurn = pageTurn; self.pageAdjustment = pageAdjustment; self.completion = completion; self.rating = rating
+        self.annualGoal = annualGoal; self.review = review
     }
 }
 public struct IntervalCorrection: Codable, Identifiable, Equatable {
@@ -146,6 +158,16 @@ public struct DailyPageTotal: Identifiable, Equatable {
     public var qualifies: Bool { goalPages.map { $0.isFinite && $0 > 0 && Double(pages) >= $0 } ?? false }
     public init(day: String, pages: Int, goalPages: Double?) {
         self.day = day; self.pages = pages; self.goalPages = goalPages
+    }
+}
+public struct DailyGoalProgress: Equatable {
+    public var unit: DailyGoalUnit
+    public var value: Double
+    public var target: Double?
+    public var fraction: Double
+    public var reached: Bool
+    public init(unit: DailyGoalUnit, value: Double, target: Double?, fraction: Double, reached: Bool) {
+        self.unit = unit; self.value = value; self.target = target; self.fraction = fraction; self.reached = reached
     }
 }
 public struct StreakSummary {
