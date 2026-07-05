@@ -47,6 +47,22 @@ final class AppModel: ObservableObject {
     @Published var syncAppleBooksHistoryEnabled = true
     @Published var goalMinutes: Double = 20
     @Published var pageGoal: Double = 20
+    @Published var dailyGoalUnit: DailyGoalUnit = .pages
+    @Published var annualBookGoal: Int?
+    @Published private(set) var annualBooksFinished = 0
+    @Published private(set) var dailyGoalStreak = StreakSummary(current: 0, longest: 0, todayPending: true, provisional: false)
+    private var goalProgressByDay: [String: DailyGoalProgress] = [:]
+    private var goalHistory: [GoalChange] = []
+    private var celebratedCompletionIDs: Set<String> = []
+    var goalYear: Int {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: timezoneID) ?? .current
+        return calendar.component(.year, from: Date())
+    }
+    func dailyGoal(on day: String) -> DailyGoalProgress {
+        goalProgressByDay[day] ?? ReadingGoals.daily(day: day, pages: 0, creditedSeconds: 0, goals: goalHistory)
+    }
+    var todayGoal: DailyGoalProgress { dailyGoal(on: today.day) }
     @Published var timezoneID = TimeZone.current.identifier
     @Published var uncertaintyMinutes: Double = 20
     @Published var launchAtLogin = false
@@ -127,6 +143,7 @@ final class AppModel: ObservableObject {
     private var hasPageNavigationSignal = false
     private var savedGoal: Double = 20
     private var savedPageGoal: Double = 20
+    private var savedDailyGoalUnit: DailyGoalUnit = .pages
     private var sessionBreakIDs: Set<String> = []
     private var correctedIntervalIDs: Set<String> = []
     private var durableVisibleSessionIDs: Set<String>?
@@ -181,7 +198,7 @@ final class AppModel: ObservableObject {
         savedPageGoal = pageGoal
         launchAtLogin = LoginService.enabled
         if try store.archive().goals.isEmpty {
-            try store.setGoal(GoalChange(effectiveDay: ReadingStatistics.dayKey(Date(), timezoneID: zone), minutes: goalMinutes, pages: pageGoal))
+            try store.setGoal(GoalChange(effectiveDay: ReadingStatistics.dayKey(Date(), timezoneID: zone), minutes: goalMinutes, pages: pageGoal, primaryUnit: dailyGoalUnit))
         }
         syncGoalFromHistory()
         try ensureCurrentPageGoal()
@@ -479,6 +496,18 @@ final class AppModel: ObservableObject {
             todayPages = pageDays.first { $0.day == key }?.pages ?? 0
             sessionPages = snapshot.sessionID.map { pages(forSessionID: $0) } ?? 0
             pageStreak = PageStatistics.streak(days: pageDays, today: key)
+            goalHistory = archive.goals
+            goalProgressByDay = Dictionary(uniqueKeysWithValues: days.map { day in
+                (day.day, ReadingGoals.daily(day: day.day, pages: pageDaysByKey[day.day]?.pages ?? 0,
+                    creditedSeconds: day.creditedSeconds, goals: archive.goals))
+            })
+            dailyGoalStreak = ReadingStatistics.streak(days: days.map { day in
+                DailyTotal(day: day.day, creditedSeconds: goalProgressByDay[day.day]?.reached == true ? 60 : 0,
+                    uncertainSeconds: day.uncertainSeconds, manualSeconds: 0, goalMinutes: 1)
+            }, today: key)
+            annualBookGoal = ReadingGoals.annualTarget(year: goalYear, events: archive.events)
+            annualBooksFinished = ReadingGoals.finishedCount(year: goalYear, timezoneID: timezoneID,
+                books: books, events: archive.events, merges: merges)
             finishedBooks = BookHistory.completedBooks(books: books, events: archive.events)
             if let pending = pendingCompletion { pendingCompletion = finishedBooks.first { $0.id == pending.id } }
             lastRefresh = Date()
@@ -489,6 +518,7 @@ final class AppModel: ObservableObject {
         let todayKey = ReadingStatistics.dayKey(Date(), timezoneID: timezoneID)
         let matching = archive.goals.enumerated().filter { $0.element.effectiveDay <= todayKey }
         if let latest = matching.max(by: { a, b in a.element.effectiveDay == b.element.effectiveDay ? a.offset < b.offset : a.element.effectiveDay < b.element.effectiveDay })?.element {
+            dailyGoalUnit = latest.resolvedUnit; savedDailyGoalUnit = dailyGoalUnit
             goalMinutes = latest.minutes; savedGoal = latest.minutes; defaults.set(latest.minutes, forKey: "goalMinutes")
             if let pages = latest.pages { pageGoal = pages; savedPageGoal = pages; defaults.set(pages, forKey: "pageGoal") }
         }
@@ -500,7 +530,7 @@ final class AppModel: ObservableObject {
             lhs.element.effectiveDay == rhs.element.effectiveDay ? lhs.offset < rhs.offset : lhs.element.effectiveDay < rhs.element.effectiveDay
         }?.element
         if current?.pages == nil {
-            try store.setGoal(GoalChange(effectiveDay: todayKey, minutes: goalMinutes, pages: pageGoal))
+            try store.setGoal(GoalChange(effectiveDay: todayKey, minutes: goalMinutes, pages: pageGoal, primaryUnit: dailyGoalUnit))
         }
     }
     func pages(on dayKey: String) -> Int { pageDaysByKey[dayKey]?.pages ?? 0 }
@@ -585,6 +615,21 @@ final class AppModel: ObservableObject {
         perform { try store.appendEvent(AuditEvent(kind: "bookRated", bookID: bookID,
             detail: rating == nil ? "Rating cleared by the reader." : "Rating chosen by the reader.", rating: BookRatingEvidence(value: rating))) }
         if errorMessage == nil, pendingCompletion?.id == bookID { pendingCompletion = nil }
+    }
+    func review(for bookID: String) -> String? { BookHistory.review(bookID: bookID, events: events) }
+    func saveReview(_ text: String?, for bookID: String) {
+        guard books.contains(where: { $0.id == bookID }), (text?.count ?? 0) <= 50_000 else {
+            errorMessage = "Keep your review within 50,000 characters."; return
+        }
+        let value = text?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let review = value?.isEmpty == false ? value : nil
+        perform { try store.appendEvent(AuditEvent(kind: "bookReviewed", bookID: bookID,
+            detail: review == nil ? "Written review cleared by the reader." : "Local written review saved by the reader.",
+            review: BookReviewEvidence(text: review))) }
+    }
+    func claimCompletionCelebration(for entry: FinishedBookEntry) -> Bool {
+        guard pendingCompletion?.id == entry.id else { return false }
+        return celebratedCompletionIDs.insert(entry.id).inserted
     }
     func acknowledgeCompletion(_ entry: FinishedBookEntry) {
         if pendingCompletion?.id == entry.id { pendingCompletion = nil }
@@ -730,15 +775,20 @@ final class AppModel: ObservableObject {
     func requestAccessibility() { BooksCapture.requestAccess(); accessibilityGranted = BooksCapture.isTrusted; openAccessibilitySettings() }
     func openAccessibilitySettings() { NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!) }
     func saveSettings() {
-        guard pageGoal.isFinite, pageGoal >= 1, pageGoal <= 10_000, pageGoal.rounded() == pageGoal,
+        guard annualBookGoal.map({ (1...10_000).contains($0) }) ?? true,
+              pageGoal.isFinite, pageGoal >= 1, pageGoal <= 10_000, pageGoal.rounded() == pageGoal,
               goalMinutes.isFinite, goalMinutes >= 1, goalMinutes <= 1440, TimeZone(identifier: timezoneID) != nil, uncertaintyMinutes.isFinite, uncertaintyMinutes >= 1, uncertaintyMinutes <= 240 else { errorMessage = "Choose a whole-page goal from 1–10,000, a time goal from 1–1440 minutes, a valid timezone, and an uncertainty threshold from 1–240 minutes."; return }
         perform {
             if engine.timezoneID != timezoneID { try stopForMutation(); engine.timezoneID = timezoneID; try store.appendEvent(AuditEvent(kind: "calendarTimezoneChanged", detail: timezoneID)) }
             engine.uncertaintyThreshold = uncertaintyMinutes * 60
-            if savedGoal != goalMinutes || savedPageGoal != pageGoal {
-                try store.setGoal(GoalChange(effectiveDay: ReadingStatistics.dayKey(Date(), timezoneID: timezoneID), minutes: goalMinutes, pages: pageGoal))
-                savedGoal = goalMinutes; savedPageGoal = pageGoal
-            }
+            let dailyChanged = savedGoal != goalMinutes || savedPageGoal != pageGoal || savedDailyGoalUnit != dailyGoalUnit
+            let daily = dailyChanged ? GoalChange(effectiveDay: ReadingStatistics.dayKey(Date(), timezoneID: timezoneID),
+                minutes: goalMinutes, pages: pageGoal, primaryUnit: dailyGoalUnit) : nil
+            let annualChanged = ReadingGoals.annualTarget(year: goalYear, events: try store.archive().events) != annualBookGoal
+            let annual = annualChanged ? AuditEvent(kind: "annualGoalChanged", detail: "Yearly books goal chosen by the reader.",
+                annualGoal: AnnualGoalEvidence(year: goalYear, books: annualBookGoal)) : nil
+            try store.setReadingGoals(daily: daily, annual: annual)
+            savedGoal = goalMinutes; savedPageGoal = pageGoal; savedDailyGoalUnit = dailyGoalUnit
             defaults.set(pageGoal, forKey: "pageGoal")
             defaults.set(goalMinutes, forKey: "goalMinutes"); defaults.set(timezoneID, forKey: "timezoneID"); defaults.set(uncertaintyMinutes, forKey: "uncertaintyMinutes")
             defaults.set(discordApplicationID, forKey: "discordApplicationID"); defaults.set(discordAssetKey, forKey: "discordAssetKey")
