@@ -95,6 +95,7 @@ func renderUIPreviews(to destination: URL) throws {
     }
     try renderProgressMotion(model: exceededModel, to: destination)
     try renderRatingMotion(to: destination)
+    try renderCompletionMotion(to: destination)
     print("ui-render: synthetic light/dark native previews saved to \(destination.path)")
 }
 
@@ -258,6 +259,39 @@ private func renderRatingMotion(to destination: URL) throws {
             guard let data = bitmap.representation(using: .png, properties: [:]) else { throw UIPreviewError.renderFailed }
             try data.write(to: destination.appendingPathComponent("rating-motion-normal-\(name).png"), options: .atomic)
         }
+        window.close()
+    }
+}
+
+/// Samples the real badge task in a native host. These frames verify states,
+/// not display refresh pacing or input-to-render latency.
+@MainActor
+private func renderCompletionMotion(to destination: URL) throws {
+    for reduced in [false, true] {
+        var claims = 0
+        let badge = CompletionCelebrationBadge(forceReducedMotion: reduced, eventID: "synthetic-completion") {
+            claims += 1
+            return claims == 1
+        }
+        .frame(width: 100, height: 100)
+        .background(ReadingPalette.paper)
+        .environment(\.colorScheme, .light)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 100, height: 100), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let hosting = NSHostingView(rootView: badge)
+        window.contentView = hosting
+        window.orderBack(nil)
+        hosting.layoutSubtreeIfNeeded()
+        let started = Date()
+        for (name, time) in [("start", 0.02), ("middle", 0.25), ("end", 0.9)] {
+            RunLoop.current.run(until: started.addingTimeInterval(time))
+            hosting.displayIfNeeded()
+            guard let bitmap = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) else { throw UIPreviewError.renderFailed }
+            hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
+            guard let data = bitmap.representation(using: .png, properties: [:]) else { throw UIPreviewError.renderFailed }
+            try data.write(to: destination.appendingPathComponent("completion-motion-\(reduced ? "reduced" : "normal")-\(name).png"), options: .atomic)
+        }
+        guard claims == 1 else { throw UIPreviewError.renderFailed }
         window.close()
     }
 }
