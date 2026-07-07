@@ -203,13 +203,20 @@ struct HealthView: View {
 @MainActor
 struct TrackingHelpView: View {
     @ObservedObject var model: AppModel
+    @State private var showRecords = false
     @Environment(\.dismiss) private var dismiss
     var body: some View {
         VStack(spacing: 0) {
             ReadingSheetHeader(title: "Troubleshooting", subtitle: "Check permissions and recent tracking issues.", close: { dismiss() })
                 .padding(.horizontal, 30).padding(.top, 24)
+            HStack {
+                Text("Reading time can be corrected without changing your personal book reviews.").font(.caption).foregroundStyle(ReadingPalette.fadedInk)
+                Spacer()
+                Button("Reading records") { showRecords = true }.controlSize(.small)
+            }.padding(.horizontal, 30).padding(.top, 18)
             HealthView(model: model, showsHeading: false)
         }
+        .sheet(isPresented: $showRecords) { ReadingRecordsSheet(model: model).readingMotionAccessibility() }
         .frame(width: 740, height: 650)
         .background(ReadingPalette.paper).foregroundStyle(ReadingPalette.ink)
         .buttonStyle(ReadingButtonStyle()).tint(ReadingPalette.moss)
@@ -245,6 +252,9 @@ struct SettingsView: View {
     @State private var didLoadDrafts = false
     @State private var pageGoalDraft = "20"
     @State private var goalDraft = "20"
+    @State private var dailyUnitDraft: DailyGoalUnit = .pages
+    @State private var annualEnabledDraft = false
+    @State private var annualGoalDraft = "12"
     @State private var uncertaintyDraft = "20"
     @State private var timezoneDraft = TimeZone.current.identifier
     @State private var discordApplicationIDDraft = ""
@@ -313,16 +323,41 @@ struct SettingsView: View {
     private var readingSettings: some View {
         VStack(alignment: .leading, spacing: 18) {
             if model.automaticTrackingNeedsAccess { permissionNotice }
-            VStack(alignment: .leading, spacing: 18) {
-                HStack(spacing: 18) {
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text("Your daily page goal").font(.system(size: 19, weight: .semibold, design: .rounded))
-                        Text("A little reading, every day.").font(.callout).foregroundStyle(ReadingPalette.fadedInk)
-                    }
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Your daily goal").font(.system(size: 19, weight: .semibold, design: .rounded))
+                ReadingSegmentedControl(label: "Daily goal unit", options: [DailyGoalUnit.pages, .minutes],
+                    selection: $dailyUnitDraft, title: { $0 == .pages ? "Pages" : "Minutes" })
+                HStack {
+                    Text("A little reading, every day.").font(.callout).foregroundStyle(ReadingPalette.fadedInk)
                     Spacer(minLength: 8)
-                    numericEditor(label: "Daily page goal", value: $pageGoalDraft, range: 1...10_000, stepperValue: pageGoalBinding)
+                    if dailyUnitDraft == .pages {
+                        numericEditor(label: "Daily page goal", value: $pageGoalDraft, range: 1...10_000, stepperValue: pageGoalBinding)
+                    } else {
+                        numericEditor(label: "Daily goal minutes", value: $goalDraft, range: 1...1_440, stepperValue: goalBinding)
+                    }
                 }
-                Text("Counts tracked pages and any pages you add yourself.")
+                Text(dailyUnitDraft == .pages ? "Counts tracked pages and pages you add yourself." : "Counts credited reading time, including manual sessions. Unconfirmed time waits for review.")
+                    .font(.caption).foregroundStyle(ReadingPalette.fadedInk)
+                Text("Each unit remembers its own target. Changes apply from today.")
+                    .font(.caption).foregroundStyle(ReadingPalette.fadedInk)
+            }.readingPanel()
+            VStack(alignment: .leading, spacing: 14) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("Your \(String(model.goalYear)) books goal").font(.system(size: 17, weight: .semibold, design: .rounded))
+                        Text("An optional goal for books finished this year.").font(.caption).foregroundStyle(ReadingPalette.fadedInk)
+                    }
+                    Spacer()
+                    Toggle("Set a yearly books goal", isOn: $annualEnabledDraft).labelsHidden().toggleStyle(.switch)
+                }
+                if annualEnabledDraft {
+                    HStack {
+                        Text("\(model.annualBooksFinished) books finished so far").font(.callout).foregroundStyle(ReadingPalette.fadedInk)
+                        Spacer()
+                        numericEditor(label: "Yearly books goal", value: $annualGoalDraft, range: 1...10_000, stepperValue: annualGoalBinding)
+                    }
+                }
+                Text("Uses confirmed finish dates in your calendar time zone. Undated books are excluded.")
                     .font(.caption).foregroundStyle(ReadingPalette.fadedInk)
             }.readingPanel()
             settingsCard {
@@ -338,15 +373,6 @@ struct SettingsView: View {
             }
             DisclosureGroup(isExpanded: $showAdvancedReading) {
                 VStack(alignment: .leading, spacing: 16) {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Time goal").font(.headline)
-                            Text("A secondary goal, separate from pages.").font(.caption).foregroundStyle(ReadingPalette.fadedInk)
-                        }
-                        Spacer()
-                        numericEditor(label: "Daily goal minutes", value: $goalDraft, range: 1...1_440, stepperValue: goalBinding)
-                    }
-                    Divider().opacity(0.4)
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Calendar time zone").font(.headline)
                         TimeZoneChooser(selection: $timezoneDraft)
@@ -365,11 +391,11 @@ struct SettingsView: View {
             } label: {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Advanced reading").font(.headline)
-                    Text("Time goal, review behavior · \(timezoneDraft.replacingOccurrences(of: "_", with: " "))")
+                    Text("Review behavior · \(timezoneDraft.replacingOccurrences(of: "_", with: " "))")
                         .font(.caption).foregroundStyle(ReadingPalette.fadedInk)
                 }
             }.padding(18).background(ReadingPalette.surface, in: RoundedRectangle(cornerRadius: 20))
-            Text("Switches save immediately. Goal and advanced changes are saved together below.")
+            Text("Tracking and login switches save immediately. Goals and advanced changes use Save below.")
                 .font(.caption).foregroundStyle(ReadingPalette.fadedInk)
         }
     }
@@ -501,7 +527,10 @@ struct SettingsView: View {
     }
 
     private var readingDirty: Bool {
-        didLoadDrafts && (pageGoalDraft != String(Int(model.pageGoal.rounded()))
+        didLoadDrafts && (dailyUnitDraft != model.dailyGoalUnit
+            || annualEnabledDraft != (model.annualBookGoal != nil)
+            || (annualEnabledDraft && annualGoalDraft != String(model.annualBookGoal ?? 12))
+            || pageGoalDraft != String(Int(model.pageGoal.rounded()))
             || goalDraft != String(Int(model.goalMinutes.rounded()))
             || uncertaintyDraft != String(Int(model.uncertaintyMinutes.rounded())) || timezoneDraft != model.timezoneID)
     }
@@ -563,6 +592,9 @@ struct SettingsView: View {
         })
     }
 
+    private var annualGoalBinding: Binding<Int> {
+        Binding(get: { Int(annualGoalDraft) ?? 12 }, set: { annualGoalDraft = String($0); clearFeedback() })
+    }
     private var uncertaintyBinding: Binding<Int> {
         Binding(get: { Int(uncertaintyDraft) ?? 20 }, set: { value in
             uncertaintyDraft = String(value)
@@ -575,7 +607,7 @@ struct SettingsView: View {
               let goal = Int(goalDraft), (1...1_440).contains(goal),
               let uncertainty = Int(uncertaintyDraft), (1...240).contains(uncertainty),
               TimeZone(identifier: timezoneDraft) != nil else { return false }
-        return true
+        return !annualEnabledDraft || Int(annualGoalDraft).map { (1...10_000).contains($0) } == true
     }
 
     @ViewBuilder
@@ -586,7 +618,7 @@ struct SettingsView: View {
                 .frame(width: 78)
                 .multilineTextAlignment(.trailing)
                 .onSubmit { applyReadingDrafts() }
-            Text(label.contains("minute") ? "min" : "pages").font(.callout).foregroundStyle(.secondary)
+            Text(label.contains("minute") ? "min" : label.contains("books") ? "books" : "pages").font(.callout).foregroundStyle(.secondary)
             Button { stepperValue.wrappedValue = max(range.lowerBound, stepperValue.wrappedValue - 1) } label: { Image(systemName: "minus") }
                 .buttonStyle(ReadingButtonStyle(iconOnly: true)).disabled(stepperValue.wrappedValue <= range.lowerBound)
                 .accessibilityLabel("Decrease \(label)")
@@ -607,7 +639,7 @@ struct SettingsView: View {
                     .font(.callout)
                     .foregroundStyle(applyFailed ? ReadingPalette.ochre : ReadingPalette.moss)
             } else if !valid {
-                Text("Use 1–10,000 pages, 1–1,440 time-goal minutes, and 1–240 review minutes.")
+                Text("Use 1–10,000 pages or yearly books, 1–1,440 goal minutes, and 1–240 review minutes.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -644,6 +676,9 @@ struct SettingsView: View {
     private func reloadDrafts() { reloadReadingDrafts(); reloadDiscordDrafts(); clearFeedback() }
 
     private func reloadReadingDrafts() {
+        dailyUnitDraft = model.dailyGoalUnit
+        annualEnabledDraft = model.annualBookGoal != nil
+        annualGoalDraft = String(model.annualBookGoal ?? 12)
         pageGoalDraft = String(Int(model.pageGoal.rounded()))
         goalDraft = String(Int(model.goalMinutes.rounded()))
         uncertaintyDraft = String(Int(model.uncertaintyMinutes.rounded()))
@@ -662,11 +697,18 @@ struct SettingsView: View {
             applyFailed = true
             return
         }
+        let previous = (model.pageGoal, model.goalMinutes, model.dailyGoalUnit, model.annualBookGoal, model.uncertaintyMinutes, model.timezoneID)
+        model.dailyGoalUnit = dailyUnitDraft
+        model.annualBookGoal = annualEnabledDraft ? Int(annualGoalDraft) : nil
         model.pageGoal = Double(pageGoal)
         model.goalMinutes = Double(goal)
         model.uncertaintyMinutes = Double(uncertainty)
         model.timezoneID = timezoneDraft
         model.saveSettings()
+        if model.errorMessage != nil {
+            model.pageGoal = previous.0; model.goalMinutes = previous.1; model.dailyGoalUnit = previous.2
+            model.annualBookGoal = previous.3; model.uncertaintyMinutes = previous.4; model.timezoneID = previous.5
+        } else { reloadReadingDrafts() }
         showResult(success: "Reading settings applied.")
     }
 

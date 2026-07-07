@@ -22,11 +22,8 @@ struct HistoryView: View {
         let visibleDays = model.days.filter { $0.day >= firstKey && $0.day < endKey }
         let creditedSeconds = visibleDays.reduce(0) { $0 + $1.creditedSeconds }
         let pageTurns = model.pages(from: period.start, through: period.end)
-        let activeDays = visibleDays.filter { model.pages(on: $0.day) > 0 }.count
-        let pageGoalDays = visibleDays.filter { day in
-            let pages = model.pages(on: day.day)
-            return model.pageGoal(on: day.day).map { pages > 0 && pages >= $0 } ?? false
-        }.count
+        let activeDays = visibleDays.filter { model.pages(on: $0.day) > 0 || $0.creditedSeconds > 0 }.count
+        let pageGoalDays = visibleDays.filter { model.dailyGoal(on: $0.day).reached }.count
         return VStack(alignment: .leading, spacing: 0) {
             PageHeading(title: "History", subtitle: "See how your reading adds up.")
                 .frame(maxWidth: 1060, alignment: .leading)
@@ -170,7 +167,7 @@ private struct HistoryMonthDayCell: View {
     private var accent: Color {
         guard let total else { return ReadingPalette.ink.opacity(0.12) }
         let pages = model.pages(on: navigationDayKey)
-        if let goal = model.pageGoal(on: navigationDayKey), pages > 0 && pages >= goal { return ReadingPalette.moss }
+        if model.dailyGoal(on: navigationDayKey).reached { return ReadingPalette.moss }
         if pages > 0 { return ReadingPalette.ochre }
         if total.creditedSeconds > 0 { return ReadingPalette.fadedInk }
         if total.uncertainSeconds > 0 { return ReadingPalette.fadedInk }
@@ -246,7 +243,7 @@ private struct HistoryWeekCalendar: View {
         guard let total else { return ReadingPalette.ink.opacity(0.12) }
         let dayKey = navigation.dayKey(for: date)
         let pages = model.pages(on: dayKey)
-        if let goal = model.pageGoal(on: dayKey), pages > 0 && pages >= goal { return ReadingPalette.moss }
+        if model.dailyGoal(on: dayKey).reached { return ReadingPalette.moss }
         if pages > 0 { return ReadingPalette.ochre }
         if total.creditedSeconds > 0 { return ReadingPalette.fadedInk }
         if total.uncertainSeconds > 0 { return ReadingPalette.fadedInk }
@@ -317,7 +314,7 @@ private struct HistoryMiniMonth: View {
         guard let total = days[navigation.dayKey(for: cell.date)] else { return ReadingPalette.ink.opacity(0.10) }
         let dayKey = navigation.dayKey(for: cell.date)
         let pages = model.pages(on: dayKey)
-        if let goal = model.pageGoal(on: dayKey), pages > 0 && pages >= goal { return ReadingPalette.moss }
+        if model.dailyGoal(on: dayKey).reached { return ReadingPalette.moss }
         if pages > 0 { return ReadingPalette.ochre }
         if total.creditedSeconds > 0 { return ReadingPalette.fadedInk }
         if total.uncertainSeconds > 0 { return ReadingPalette.fadedInk }
@@ -394,7 +391,7 @@ private struct HistoryDayDetail: View {
             HStack {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Your reading day").font(.system(size: 19, weight: .semibold, design: .rounded))
-                    Text(pageGoal.map { "\(ReadingFormat.observedPages(pageTurns)) / \($0) page goal. Time stays available as supporting detail." } ?? "\(ReadingFormat.observedPages(pageTurns)). No page goal recorded for this day. Time stays available as supporting detail.")
+                    Text(model.dailyGoal(on: dayKey).summary + " · Daily goal")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer(); Button("Month", action: back).controlSize(.small)

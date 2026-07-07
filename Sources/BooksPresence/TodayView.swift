@@ -27,6 +27,7 @@ struct TodayView: View {
                         .fixedSize()
                 }
                 DailyReadingOverview(model: model)
+                AnnualReadingGoalView(model: model)
                 featuredReading
                 if let entry = model.pendingCompletion, model.snapshot.phase != .reading, !model.manualActive {
                     FinishedBookPrompt(model: model, entry: entry)
@@ -43,9 +44,6 @@ struct TodayView: View {
                     Button { present(.manualAdd) } label: { Label("Add time", systemImage: "plus") }
                 }
                 .controlSize(.small)
-                if !model.uncertainIntervals.isEmpty {
-                    UncertainNotice(count: model.uncertainIntervals.count) { present(.review(model.uncertainIntervals[0])) }
-                }
             }
             .frame(maxWidth: 1060, alignment: .leading)
             .padding(30)
@@ -129,23 +127,23 @@ struct GoalProgressView: View {
     @ObservedObject var model: AppModel
     let day: DailyTotal
     private var observedPages: Int { model.pages(on: day.day) }
-    private var pageGoal: Int? { model.pageGoal(on: day.day) }
+    private var daily: DailyGoalProgress { model.dailyGoal(on: day.day) }
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
             HStack {
                 Text("Daily goal").font(.callout.weight(.semibold))
                 Spacer()
-                Text(pageGoal.map { "\(observedPages) / \($0) pages" } ?? "\(observedPages) pages")
+                Text(daily.summary)
                     .font(.callout).monospacedDigit().foregroundStyle(ReadingPalette.fadedInk)
                     .fixedSize()
             }
-            if let pageGoal {
-                SegmentedReadingBar(progress: min(1, Double(observedPages) / Double(max(1, pageGoal))))
+            if daily.target != nil {
+                SegmentedReadingBar(progress: daily.fraction)
                     .frame(height: 8)
                     .animation(reduceMotion ? nil : .easeOut(duration: 0.24), value: observedPages)
-                    .accessibilityLabel("Daily page goal")
-                    .accessibilityValue("\(observedPages) of \(pageGoal) pages")
+                    .accessibilityLabel("Daily reading goal")
+                    .accessibilityValue(daily.summary)
             }
             HStack {
                 Text("\(ReadingFormat.duration(day.creditedSeconds)) reading time")

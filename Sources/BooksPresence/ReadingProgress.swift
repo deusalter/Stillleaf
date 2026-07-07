@@ -72,9 +72,10 @@ struct DailyReadingOverview: View {
     @ObservedObject var model: AppModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var appeared = false
-    private var goal: Int? { model.pageGoal(on: model.today.day) }
-    private var progress: Double { goal.map { min(1, Double(model.todayPages) / Double(max(1, $0))) } ?? 0 }
-    private var complete: Bool { goal.map { model.todayPages >= $0 && model.todayPages > 0 } ?? false }
+    private var daily: DailyGoalProgress { model.todayGoal }
+    private var goal: Double? { daily.target }
+    private var progress: Double { daily.fraction }
+    private var complete: Bool { daily.reached }
 
     var body: some View {
         HStack(spacing: 28) {
@@ -83,14 +84,14 @@ struct DailyReadingOverview: View {
                     .animation(reduceMotion ? nil : .easeOut(duration: 0.32), value: appeared)
                     .animation(reduceMotion ? nil : .easeOut(duration: 0.24), value: progress)
                 VStack(spacing: 1) {
-                    Text(model.todayPages.formatted())
+                    Text(daily.displayValue)
                         .font(.system(size: 68, weight: .bold, design: .rounded))
                         .tracking(-3).monospacedDigit().minimumScaleFactor(0.55).lineLimit(1)
-                    Text(model.todayPages == 1 ? "page today" : "pages today")
+                    Text(daily.todayLabel)
                         .font(.system(size: 13, weight: .medium)).foregroundStyle(ReadingPalette.fadedInk)
                 }
                 .frame(width: 176).offset(y: 2)
-                Label(complete ? "Goal complete" : "Your daily pages", systemImage: complete ? "checkmark" : "book")
+                Label(complete ? "Goal complete" : "Your daily reading", systemImage: complete ? "checkmark" : "book")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(ReadingPalette.moss)
                     .padding(.horizontal, 12).padding(.vertical, 7)
@@ -100,8 +101,8 @@ struct DailyReadingOverview: View {
             .frame(width: 254, height: 250)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Today's reading")
-            .accessibilityValue(goal.map { "\(model.todayPages) pages; daily goal \($0) pages\(complete ? "; goal complete" : "")" } ?? "\(model.todayPages) pages; no daily goal")
-            .help("Pages include tracked page turns and explicit manual corrections.")
+            .accessibilityValue(daily.summary)
+            .help("Goals use tracked pages or credited reading time, including manual records.")
 
             VStack(alignment: .leading, spacing: 22) {
                 VStack(alignment: .leading, spacing: 5) {
@@ -111,11 +112,11 @@ struct DailyReadingOverview: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 HStack(alignment: .top, spacing: 24) {
-                    overviewStat(value: ReadingFormat.duration(model.today.creditedSeconds), title: "Reading time", symbol: "clock", color: ReadingPalette.moss)
-                    overviewStat(value: "\(model.pageStreak.current) \(model.pageStreak.current == 1 ? "day" : "days")", title: "Goal streak", symbol: "flame", color: ReadingPalette.ochre)
+                    overviewStat(value: daily.unit == .pages ? ReadingFormat.duration(model.today.creditedSeconds) : model.todayPages.formatted(), title: daily.unit == .pages ? "Reading time" : "Pages read", symbol: daily.unit == .pages ? "clock" : "book", color: ReadingPalette.moss)
+                    overviewStat(value: "\(model.dailyGoalStreak.current) \(model.dailyGoalStreak.current == 1 ? "day" : "days")", title: "Goal streak", symbol: "flame", color: ReadingPalette.ochre)
                 }
                 ReadingWeekStrip(model: model)
-                if model.pageStreak.provisional || model.today.uncertainSeconds > 0 {
+                if model.dailyGoalStreak.provisional || model.today.uncertainSeconds > 0 {
                     Label("Some time is awaiting review", systemImage: "clock.badge.questionmark")
                         .font(.caption).foregroundStyle(ReadingPalette.ochre)
                 }
@@ -127,19 +128,8 @@ struct DailyReadingOverview: View {
         .onAppear { appeared = true }
     }
 
-    private var goalTitle: String {
-        guard let goal else { return "A day in pages" }
-        if complete { return "A good day for reading." }
-        if model.todayPages == 0 { return "Your next chapter awaits." }
-        let remaining = max(0, goal - model.todayPages)
-        return "\(remaining) \(remaining == 1 ? "page" : "pages") to your goal."
-    }
-    private var goalDetail: String {
-        guard let goal else { return "Choose a daily page goal in Settings." }
-        if model.todayPages > goal { return "\(model.todayPages - goal) pages beyond your \(goal)-page goal." }
-        if complete { return "You reached your \(goal)-page goal." }
-        return "Your daily goal is \(goal) pages."
-    }
+    private var goalTitle: String { daily.goalTitle }
+    private var goalDetail: String { daily.goalDetail }
     private func overviewStat(value: String, title: String, symbol: String, color: Color) -> some View {
         VStack(alignment: .leading, spacing: 7) {
             Label(title, systemImage: symbol).font(.system(size: 11, weight: .medium)).foregroundStyle(ReadingPalette.fadedInk)
@@ -163,15 +153,14 @@ private struct ReadingWeekStrip: View {
             HStack {
                 Text("This week").font(.system(size: 11, weight: .medium))
                 Spacer()
-                Text("Best: \(model.pageStreak.longest) \(model.pageStreak.longest == 1 ? "day" : "days")")
+                Text("Best: \(model.dailyGoalStreak.longest) \(model.dailyGoalStreak.longest == 1 ? "day" : "days")")
                     .font(.system(size: 10)).foregroundStyle(ReadingPalette.fadedInk)
             }
             HStack(alignment: .bottom, spacing: 8) {
                 ForEach(dates, id: \.self) { date in
                     let key = navigation.dayKey(for: date)
-                    let pages = model.pages(on: key)
-                    let goal = model.pageGoal(on: key)
-                    let fraction = goal.map { min(1, Double(pages) / Double(max(1, $0))) } ?? (pages > 0 ? 1 : 0)
+                    let daily = model.dailyGoal(on: key)
+                    let fraction = daily.fraction
                     let today = key == model.today.day
                     VStack(spacing: 6) {
                         RoundedRectangle(cornerRadius: 4).fill(ReadingPalette.progressTrack.opacity(0.65))
@@ -187,8 +176,8 @@ private struct ReadingWeekStrip: View {
                     }
                     .frame(maxWidth: .infinity)
                     .accessibilityElement(children: .ignore)
-                    .accessibilityLabel("\(key): \(pages) pages")
-                    .help("\(ReadingFormat.day(key)): \(pages) pages")
+                    .accessibilityLabel("\(key): \(daily.summary)")
+                    .help("\(ReadingFormat.day(key)): \(daily.summary)")
                 }
             }
             .animation(reduceMotion ? nil : .easeOut(duration: 0.24), value: model.todayPages)
@@ -201,9 +190,10 @@ struct MenuReadingGoal: View {
     @ObservedObject var model: AppModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var appeared = false
-    private var goal: Int? { model.pageGoal(on: model.today.day) }
-    private var progress: Double { goal.map { min(1, Double(model.todayPages) / Double(max(1, $0))) } ?? 0 }
-    private var reached: Bool { goal.map { model.todayPages >= $0 } ?? false }
+    private var daily: DailyGoalProgress { model.todayGoal }
+    private var goal: Double? { daily.target }
+    private var progress: Double { daily.fraction }
+    private var reached: Bool { daily.reached }
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 14) {
@@ -214,22 +204,22 @@ struct MenuReadingGoal: View {
                             .animation(reduceMotion ? nil : ReadingMotion.entrance, value: progress)
                     }
                     VStack(spacing: 1) {
-                        Text(model.todayPages.formatted())
+                        Text(daily.displayValue)
                             .font(.system(size: 34, weight: .bold, design: .rounded)).monospacedDigit()
                             .minimumScaleFactor(0.5).lineLimit(1)
-                        Text(model.todayPages == 1 ? "page today" : "pages today")
+                        Text(daily.todayLabel)
                             .font(.system(size: 10, weight: .medium)).foregroundStyle(ReadingPalette.fadedInk)
                     }.frame(width: 78).offset(y: 3)
                 }.frame(width: 112, height: 110)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("Today's reading")
-                .accessibilityValue(goal.map { "\(model.todayPages) pages out of a \($0) page goal" } ?? "\(model.todayPages) pages; no goal")
+                .accessibilityValue(daily.summary)
                 VStack(alignment: .leading, spacing: 6) {
                     Text(reached ? "Goal reached" : "Daily reading")
                         .font(.system(size: 15, weight: .semibold, design: .rounded))
-                    Text(goal.map { "\($0)-page goal\(model.todayPages > $0 ? " · +\(model.todayPages - $0)" : "")" } ?? "No goal set")
+                    Text(daily.targetText)
                         .font(.caption).foregroundStyle(ReadingPalette.fadedInk)
-                    Label(ReadingFormat.duration(model.today.creditedSeconds), systemImage: "clock")
+                    Label(daily.unit == .pages ? ReadingFormat.duration(model.today.creditedSeconds) : "\(model.todayPages) pages", systemImage: daily.unit == .pages ? "clock" : "book")
                         .font(.caption.weight(.medium)).foregroundStyle(ReadingPalette.moss)
                     if model.today.manualSeconds > 0 {
                         Text("Includes \(ReadingFormat.duration(model.today.manualSeconds)) manual time")
@@ -240,7 +230,7 @@ struct MenuReadingGoal: View {
             if model.today.uncertainSeconds > 0 {
                 Label("\(ReadingFormat.duration(model.today.uncertainSeconds)) awaiting review", systemImage: "clock.badge.questionmark")
                     .font(.caption2).foregroundStyle(ReadingPalette.ochre)
-            } else if model.pageStreak.provisional {
+            } else if model.dailyGoalStreak.provisional {
                 Text("Streak is provisional until pending time is reviewed.")
                     .font(.caption2).foregroundStyle(ReadingPalette.ochre)
             }
