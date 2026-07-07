@@ -33,7 +33,8 @@ struct DashboardView: View {
                     case .today: TodayView(model: model, present: { sheet = $0 })
                     case .history: HistoryView(model: model, initialScale: initialCalendarScale)
                     case .library: LibraryView(model: model, present: { sheet = $0 })
-                    case .review: ReviewView(model: model, present: { sheet = $0 })
+                    case .review: PersonalReviewsView(model: model)
+                    case .timeline: ReadingTimelineView(model: model)
                     case .health: HealthView(model: model)
                     case .settings: SettingsView(model: model, present: { sheet = $0 }, deleteAll: { deleteAllConfirmation = true }, uninstall: { uninstallConfirmation = true }, initialCategory: model.settingsCategoryRequest ?? initialSettingsCategory)
                         .id(model.settingsCategoryRequest)
@@ -197,13 +198,13 @@ struct PopoverView: View {
                     }.frame(maxWidth: .infinity, alignment: .leading)
                 }
                 VStack(alignment: .leading, spacing: 4) {
-                    Label("\(model.pageStreak.current) \(model.pageStreak.current == 1 ? "day" : "days")", systemImage: "flame")
+                    Label("\(model.dailyGoalStreak.current) \(model.dailyGoalStreak.current == 1 ? "day" : "days")", systemImage: "flame")
                         .font(.system(size: 17, weight: .semibold, design: .rounded)).monospacedDigit()
                         .foregroundStyle(ReadingPalette.ochre)
-                    Text(model.pageStreak.todayPending ? "Goal streak · today still open" : "Goal streak")
+                    Text(model.dailyGoalStreak.todayPending ? "Goal streak · today still open" : "Goal streak")
                         .font(.caption2).foregroundStyle(ReadingPalette.fadedInk)
                 }.frame(maxWidth: .infinity, alignment: .leading)
-                .help(model.pageStreak.provisional ? "This streak is provisional until pending time is reviewed." : "Consecutive days that met your page goal.")
+                .help(model.dailyGoalStreak.provisional ? "This streak is provisional until pending time is reviewed." : "Consecutive days that met your daily goal.")
             }
             if let pace = ReadingFormat.pagesPerMinute(model.sessionPagesPerMinute) {
                 Label(pace, systemImage: "gauge.with.dots.needle.50percent")
@@ -257,14 +258,15 @@ private struct PopoverSetupNotice<Accessory: View>: View {
 }
 
 enum DashboardSection: String, CaseIterable, Identifiable {
-    case today, history, library, review, health, settings
+    case today, history, library, timeline, review, health, settings
     var id: String { rawValue }
     var title: String {
         switch self {
         case .today: return "Today"
         case .history: return "History"
         case .library: return "Library"
-        case .review: return "Review"
+        case .review: return "Reviews"
+        case .timeline: return "Timeline"
         case .health: return "Data health"
         case .settings: return "Settings"
         }
@@ -274,7 +276,8 @@ enum DashboardSection: String, CaseIterable, Identifiable {
         case .today: return "text.book.closed"
         case .history: return "calendar"
         case .library: return "books.vertical"
-        case .review: return "checklist"
+        case .review: return "square.and.pencil"
+        case .timeline: return "clock"
         case .health: return "heart.text.square"
         case .settings: return "gearshape"
         }
@@ -300,7 +303,7 @@ private struct DashboardSidebar: View {
     @Binding var selection: DashboardSection
     @ObservedObject var model: AppModel
     let troubleshoot: () -> Void
-    private let destinations: [DashboardSection] = [.today, .history, .library, .review, .settings]
+    private let destinations: [DashboardSection] = [.today, .library, .timeline, .history, .review, .settings]
     @FocusState private var focusedSection: DashboardSection?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -325,11 +328,7 @@ private struct DashboardSidebar: View {
                             Image(systemName: item.symbol).font(.system(size: 16, weight: .medium)).frame(width: 22)
                             Text(item.title).font(.system(size: 13, weight: selection == item ? .semibold : .regular))
                             Spacer(minLength: 0)
-                            if item == .review, !model.uncertainIntervals.isEmpty {
-                                Text("\(model.uncertainIntervals.count)")
-                                    .font(.system(size: 10, weight: .semibold)).padding(.horizontal, 6).padding(.vertical, 2)
-                                    .background(ReadingPalette.ochre.opacity(0.18), in: Capsule())
-                            }
+
                         }
                         .foregroundStyle(selection == item ? ReadingPalette.ink : ReadingPalette.fadedInk)
                         .padding(.horizontal, 12).padding(.vertical, 11)

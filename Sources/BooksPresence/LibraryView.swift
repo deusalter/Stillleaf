@@ -5,10 +5,9 @@ import BooksCore
 struct LibraryView: View {
     @ObservedObject var model: AppModel
     let present: (DashboardSheet) -> Void
-    @State private var shelf = LibraryShelf.reading
+    @State private var shelf = LibraryShelf.all
     @State private var search = ""
     @State private var sort = LibrarySort.recent
-    @State private var showTimeline = false
 
     var body: some View {
         let resolver = BookMergeResolver(merges: model.merges)
@@ -58,11 +57,6 @@ struct LibraryView: View {
                 TextField("Find a title or author", text: $search)
                     .textFieldStyle(ReadingTextFieldStyle()).frame(maxWidth: 330)
                 Spacer(minLength: 0)
-                if shelf == .finished {
-                    Button { showTimeline.toggle() } label: {
-                        Label(showTimeline ? "Bookshelf" : "Timeline", systemImage: showTimeline ? "square.grid.2x2" : "list.bullet")
-                    }.controlSize(.small).accessibilityLabel(showTimeline ? "Show book grid" : "Show finished timeline")
-                }
                 Menu {
                     Picker("Sort books", selection: $sort) {
                         ForEach(LibrarySort.allCases, id: \.self) { value in Text(value.rawValue).tag(value) }
@@ -71,12 +65,10 @@ struct LibraryView: View {
                 .menuStyle(.borderlessButton).fixedSize()
                 .padding(.horizontal, 12).padding(.vertical, 8)
                 .background(ReadingPalette.surface, in: RoundedRectangle(cornerRadius: 12))
-                .disabled(shelf == .finished && showTimeline).accessibilityLabel("Sort books")
+                .accessibilityLabel("Sort books")
             }
             ScrollView {
-                if shelf == .finished && showTimeline {
-                    FinishedBookTimeline(model: model, search: search)
-                } else if visible.isEmpty {
+                if visible.isEmpty {
                     ReadingEmptyState(title: search.isEmpty ? (shelf == .finished ? "Stories to look back on" : "Your next chapter awaits") : "No matching books",
                         symbol: "books.vertical",
                         message: search.isEmpty ? (shelf == .finished ? "Books marked finished in Apple Books will appear here." : "Open a book in Apple Books, or add a reading session to start your shelf.") : "Try another title or author.")
@@ -173,7 +165,7 @@ struct BookDetailView: View {
         model.displayIntervals.filter { relatedBookIDs.contains($0.bookID) }.sorted { $0.start > $1.start }
     }
     private var sessionGroups: [ReadingSessionGroup] {
-        model.readingSessions.filter { relatedBookIDs.contains($0.bookID) }.sorted { $0.start > $1.start }
+        model.visibleReadingSessions.filter { relatedBookIDs.contains($0.bookID) }.sorted { $0.start > $1.start }
     }
     private var observations: [ProgressObservation] {
         model.progress.filter { relatedBookIDs.contains($0.bookID) }.sorted { $0.observedAt > $1.observedAt }
@@ -196,6 +188,7 @@ struct BookDetailView: View {
                     hero
                     readingSummary
                     BookRatingSection(model: model, bookID: currentBook.id)
+                    BookReviewSection(model: model, bookID: currentBook.id)
                     sessionHistory
                     privacyControls
                     DisclosureGroup("Cover art & sharing details") { artworkControls.padding(.top, 8) }

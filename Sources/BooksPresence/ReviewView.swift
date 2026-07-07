@@ -5,19 +5,20 @@ import BooksCore
 struct ReviewView: View {
     @ObservedObject var model: AppModel
     let present: (DashboardSheet) -> Void
+    var showsHeading = true
     @State private var visibleCount = 30
     @State private var visibleUncertainCount = 30
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 26) {
-                PageHeading(title: "Review", subtitle: "Confirm a reading session or make an adjustment.")
+                if showsHeading { PageHeading(title: "Reading records", subtitle: "Optional corrections and unconfirmed reading time.") }
                 if model.uncertainIntervals.isEmpty {
-                    ReadingEmptyState(title: "All caught up", symbol: "checkmark.seal", message: "There is no reading time waiting for your review.")
+                    ReadingEmptyState(title: "All caught up", symbol: "checkmark.seal", message: "There is no unconfirmed reading time.")
                         .readingPanel()
                 } else {
                     LazyVStack(alignment: .leading, spacing: 10) {
-                        Text("Awaiting review").font(.system(size: 20, weight: .semibold, design: .rounded))
+                        Text("Unconfirmed time").font(.system(size: 20, weight: .semibold, design: .rounded))
                         ForEach(model.uncertainIntervals.sorted { $0.start > $1.start }.prefix(visibleUncertainCount)) { interval in
                             UncertainIntervalRow(model: model, interval: interval, edit: { present(.review(interval)) })
                             Divider()
