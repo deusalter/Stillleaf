@@ -26,6 +26,13 @@ func runUIBenchmark() throws {
                 bookID: book.id, sessionID: session, detail: "Synthetic performance fixture",
                 pageTurn: PageTurnEvidence(fromPage: turn, toPage: turn + 3, pagesRead: 3, visiblePages: 1, layoutSignature: "fixture")))
     }
+    for (index, book) in archive.books.enumerated() {
+        let finished = end.addingTimeInterval(Double(-index) * 86_400)
+        archive.events.append(AuditEvent(date: finished, kind: "bookCompleted", bookID: book.id, detail: "Synthetic completion",
+            completion: BookCompletionEvidence(finishedAt: finished, source: "Fixture", imported: true)))
+        archive.events.append(AuditEvent(date: finished, kind: "bookReviewed", bookID: book.id, detail: "Synthetic written review",
+            review: BookReviewEvidence(text: String(repeating: "A memorable chapter. ", count: 35))))
+    }
     let fixture = root.appendingPathComponent("fixture.json")
     let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .millisecondsSince1970
     try encoder.encode(archive).write(to: fixture)
@@ -39,15 +46,15 @@ func runUIBenchmark() throws {
     let hosting = NSHostingView(rootView: AnyView(Text("Ready")))
     window.contentView = hosting; window.orderBack(nil)
     defer { window.close() }
-    print("ui-benchmark: 60 books, 2000 intervals, 2000 page events; synchronous destination layout (ms)")
+    print("ui-benchmark: 60 books, 2000 intervals, 2000 page events, 60 completions and 60 written reviews; synchronous destination layout (ms)")
     for pass in 0..<3 {
-        for target in ["month", "year", "week", "day", "library", "today", "settings", "review", "health"] {
+        for target in ["month", "year", "week", "day", "library", "timeline", "today", "settings", "review", "health"] {
             hosting.rootView = AnyView(Text("Ready")); hosting.layoutSubtreeIfNeeded()
             let start = ProcessInfo.processInfo.systemUptime
             if let scale = CalendarScale(rawValue: target) {
                 hosting.rootView = AnyView(HistoryView(model: model, initialScale: scale))
             } else {
-                let section: DashboardSection = target == "library" ? .library : target == "today" ? .today : target == "review" ? .review : target == "health" ? .health : .settings
+                let section: DashboardSection = target == "timeline" ? .timeline : target == "library" ? .library : target == "today" ? .today : target == "review" ? .review : target == "health" ? .health : .settings
                 hosting.rootView = AnyView(DashboardView(model: model, initialSection: section))
             }
             hosting.layoutSubtreeIfNeeded(); hosting.displayIfNeeded()

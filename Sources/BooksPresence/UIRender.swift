@@ -38,6 +38,15 @@ func renderUIPreviews(to destination: URL) throws {
     let manualModel = try AppModel(support: support.appendingPathComponent("manual"), defaults: defaults, startTracking: false)
     manualModel.startManual(title: "A Room of One’s Own", author: "Virginia Woolf")
     defer { manualModel.shutdown() }
+    let timeSupport = support.appendingPathComponent("minutes")
+    try seedPreviewHistory(at: timeSupport)
+    let timeModel = try AppModel(support: timeSupport, defaults: defaults, startTracking: false)
+    defer { timeModel.shutdown() }
+    timeModel.dailyGoalUnit = .minutes; timeModel.goalMinutes = 45; timeModel.annualBookGoal = 12
+    timeModel.saveSettings()
+    if let book = model.books.first {
+        model.saveReview("What stayed with me was the quiet confidence of the ending.\n\nA story I would return to, with more to notice each time.", for: book.id)
+    }
     emptyModel.discordEnabled = true
     emptyModel.discordApplicationID = ""
     for dark in [true, false] {
@@ -51,9 +60,12 @@ func renderUIPreviews(to destination: URL) throws {
         for category in SettingsCategory.allCases {
             previews.append(("settings-\(category.rawValue.lowercased())", AnyView(DashboardView(model: model, initialSection: .settings, initialSettingsCategory: category))))
         }
-        for section in [DashboardSection.today, .library, .review, .health] {
+        for section in [DashboardSection.today, .library, .timeline, .review, .health] {
             previews.append((section.rawValue, AnyView(DashboardView(model: model, initialSection: section))))
         }
+        previews.append(("today-minutes", AnyView(DashboardView(model: timeModel))))
+        previews.append(("settings-minutes", AnyView(DashboardView(model: timeModel, initialSection: .settings))))
+        previews.append(("popover-minutes", AnyView(PopoverView(model: timeModel))))
         previews.append(("popover", AnyView(PopoverView(model: exceededModel))))
         previews.append(("popover-manual", AnyView(PopoverView(model: manualModel))))
         previews.append(("popover-setup", AnyView(PopoverView(model: emptyModel, maximumHeight: 500))))
@@ -65,6 +77,7 @@ func renderUIPreviews(to destination: URL) throws {
         }
         if let book = model.books.first {
             previews.append(("book-detail", AnyView(BookDetailView(model: model, book: book))))
+            previews.append(("written-review", AnyView(BookReviewEditor(model: model, bookID: book.id))))
         }
         previews.append(("troubleshooting", AnyView(TrackingHelpView(model: model))))
         previews.append(("rating-quarter", AnyView(RatingPreview(value: 4.25))))
@@ -81,6 +94,7 @@ func renderUIPreviews(to destination: URL) throws {
                 "manual-add": NSSize(width: 500, height: 510), "review-editor": NSSize(width: 560, height: 600),
                 "book-detail": NSSize(width: 760, height: 720), "troubleshooting": NSSize(width: 740, height: 650),
                 "rating-quarter": NSSize(width: 320, height: 200), "rating-zero": NSSize(width: 320, height: 200), "rating-empty": NSSize(width: 320, height: 200),
+                "written-review": NSSize(width: 590, height: 540), "popover-minutes": NSSize(width: 350, height: 580),
                 "popover": NSSize(width: 350, height: 580), "popover-manual": NSSize(width: 350, height: 580),
                 "popover-setup": NSSize(width: 350, height: 500)]
             try renderNativeView(AnyView(view), size: sizes[name] ?? NSSize(width: 1180, height: 820), appearance: appearance,
@@ -89,6 +103,9 @@ func renderUIPreviews(to destination: URL) throws {
         let compact = DashboardView(model: model, initialSection: .history).environment(\.colorScheme, scheme)
         try renderNativeView(AnyView(compact), size: NSSize(width: 920, height: 660), appearance: appearance,
                              to: destination.appendingPathComponent("history-compact-\(dark ? "dark" : "light").png"))
+        let compactTimeline = DashboardView(model: model, initialSection: .timeline).environment(\.colorScheme, scheme)
+        try renderNativeView(AnyView(compactTimeline), size: NSSize(width: 920, height: 660), appearance: appearance,
+                             to: destination.appendingPathComponent("timeline-compact-\(dark ? "dark" : "light").png"))
         let compactToday = DashboardView(model: exceededModel).environment(\.colorScheme, scheme)
         try renderNativeView(AnyView(compactToday), size: NSSize(width: 920, height: 660), appearance: appearance,
                              to: destination.appendingPathComponent("today-compact-\(dark ? "dark" : "light").png"))

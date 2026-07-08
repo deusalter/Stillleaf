@@ -4,7 +4,7 @@ cd "$(dirname "$0")/.."
 scripts/build-local.sh
 OUT="${BOOKSPRESENCE_BUILD_DIR:-.build/local}"
 SWIFTC="${BOOKSPRESENCE_SWIFTC:-$(xcrun --find swiftc)}"
-for suite in core discord calendar books manual-pages session-history; do
+for suite in core discord calendar books manual-pages session-history goals; do
   "$SWIFTC" -sdk "$(xcrun --sdk macosx --show-sdk-path)" -target "$(uname -m)-apple-macosx13.0" -I "$OUT" -I Sources/CSQLite -L "$OUT" -lBooksCore -lBooksPlatform "scripts/$suite-smoke.swift" -o "$OUT/$suite-smoke" -Xlinker -rpath -Xlinker @executable_path
   "$OUT/$suite-smoke"
 done

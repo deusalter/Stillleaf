@@ -107,6 +107,32 @@ func runUISmoke() throws {
     guard model.rating(for: firstHistoryBook.id) == 0 else { throw BooksAccessErrorForUI.failed("Zero-star rating was not preserved") }
     model.saveRating(nil, for: firstHistoryBook.id)
     guard model.rating(for: firstHistoryBook.id) == nil else { throw BooksAccessErrorForUI.failed("Rating clear was not preserved") }
+    let savedPages = model.todayPages
+    model.pageGoal = 25; model.goalMinutes = 45; model.dailyGoalUnit = .minutes; model.annualBookGoal = 18
+    model.saveSettings()
+    model.saveReview("A quiet, memorable ending.\n\nI would read this again.", for: firstHistoryBook.id)
+    guard model.errorMessage == nil, model.todayGoal.unit == .minutes, model.todayGoal.target == 45,
+          abs(model.todayGoal.value - model.today.creditedSeconds / 60) < 0.001,
+          model.todayPages == savedPages else { throw BooksAccessErrorForUI.failed("Daily minutes goal changed page evidence") }
+    let reopened = try AppModel(support: root, defaults: defaults, startTracking: false)
+    guard reopened.dailyGoalUnit == .minutes, reopened.pageGoal == 25, reopened.goalMinutes == 45,
+          reopened.annualBookGoal == 18, reopened.review(for: firstHistoryBook.id)?.contains("memorable") == true else {
+        throw BooksAccessErrorForUI.failed("Goals or written review did not survive restart")
+    }
+    reopened.shutdown()
+    model.saveReview(String(repeating: "x", count: 50_001), for: firstHistoryBook.id)
+    guard model.errorMessage != nil, model.review(for: firstHistoryBook.id)?.contains("memorable") == true else {
+        throw BooksAccessErrorForUI.failed("Rejected review overwrote saved text")
+    }
+    model.saveReview(nil, for: firstHistoryBook.id)
+    guard model.review(for: firstHistoryBook.id) == nil, model.rating(for: firstHistoryBook.id) == nil else {
+        throw BooksAccessErrorForUI.failed("Clearing a review changed rating semantics")
+    }
+    model.dailyGoalUnit = .pages; model.annualBookGoal = nil; model.saveSettings()
+    guard model.todayGoal.unit == .pages, model.todayGoal.target == 25, model.goalMinutes == 45,
+          model.annualBookGoal == nil, model.todayPages == savedPages else {
+        throw BooksAccessErrorForUI.failed("Switching goals lost independent targets or reading evidence")
+    }
     defaults.set(Date().addingTimeInterval(-3600), forKey: "lastAppleHistorySync")
     let recentRecord = CatalogFinishedBook(book: secondHistoryBook, finishedAt: Date(), assetURL: nil)
     model.acceptFinishedHistory([firstRecord, recentRecord], staging: staging)
@@ -115,6 +141,11 @@ func runUISmoke() throws {
         throw BooksAccessErrorForUI.failed("Recent Apple Books completion did not remain separate from reading evidence")
     }
 
+    if let pending = model.pendingCompletion {
+        guard model.claimCompletionCelebration(for: pending), !model.claimCompletionCelebration(for: pending) else {
+            throw BooksAccessErrorForUI.failed("A completion celebration replayed")
+        }
+    }
     model.deleteBook(firstHistoryBook)
     model.acceptFinishedHistory([firstRecord, recentRecord], staging: staging)
     guard !model.books.contains(where: { $0.id == firstHistoryBook.id }),
@@ -124,11 +155,15 @@ func runUISmoke() throws {
     var views: [(String, AnyView)] = [
         ("today", AnyView(TodayView(model: model, present: { _ in }))),
         ("library", AnyView(LibraryView(model: model, present: { _ in }))),
-        ("review", AnyView(ReviewView(model: model, present: { _ in }))),
+        ("review", AnyView(PersonalReviewsView(model: model))),
+        ("timeline", AnyView(ReadingTimelineView(model: model))),
+        ("reading-records", AnyView(ReadingRecordsSheet(model: model))),
         ("popover", AnyView(PopoverView(model: model))),
         ("health", AnyView(HealthView(model: model))),
         ("troubleshooting", AnyView(TrackingHelpView(model: model))),
         ("rating", AnyView(QuarterStarRating(rating: .constant(4.25)))),
+        ("written-review", AnyView(BookReviewEditor(model: model, bookID: manualBook.id))),
+        ("annual-goal", AnyView(AnnualReadingGoalView(model: model))),
         ("manual-start", AnyView(ManualStartView(model: model))),
         ("manual-add", AnyView(ManualAdditionView(model: model))),
         ("review-editor", AnyView(IntervalReviewEditor(model: model, interval: interval))),
