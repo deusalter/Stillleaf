@@ -11,7 +11,7 @@ struct PersonalReviewsView: View {
                   search.isEmpty || book.title.localizedCaseInsensitiveContains(search)
                     || (book.author ?? "").localizedCaseInsensitiveContains(search)
                     || text.localizedCaseInsensitiveContains(search) else { return nil }
-            let date = model.events.first { $0.bookID == book.id && $0.kind == "bookReviewed" }?.date ?? .distantPast
+            let date = model.reviewUpdatedAt(for: book.id) ?? .distantPast
             return (book, text, date)
         }.sorted { $0.date == $1.date ? $0.book.id < $1.book.id : $0.date > $1.date }
     }

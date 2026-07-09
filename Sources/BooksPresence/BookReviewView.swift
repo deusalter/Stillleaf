@@ -62,7 +62,10 @@ struct BookReviewEditor: View {
             HStack {
                 Button("Cancel", action: requestClose)
                 Spacer()
-                Button("Save review") { save(draft) }.buttonStyle(ReadingButtonStyle(emphasis: .primary))
+                Button("Save review") {
+                    if draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, model.review(for: bookID) != nil { dialog = .clear }
+                    else { save(draft) }
+                }.buttonStyle(ReadingButtonStyle(emphasis: .primary))
                     .disabled(draft.count > 50_000)
             }
         }.padding(24).frame(width: 590, height: 540)

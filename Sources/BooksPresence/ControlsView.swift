@@ -572,8 +572,7 @@ struct SettingsView: View {
 
     private var launchAtLoginBinding: Binding<Bool> {
         Binding(get: { model.launchAtLogin }, set: { enabled in
-            model.launchAtLogin = enabled
-            model.saveSettings()
+            model.setLaunchAtLogin(enabled)
             showResult(success: enabled ? "Launch at login enabled." : "Launch at login disabled.")
         })
     }

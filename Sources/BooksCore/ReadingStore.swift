@@ -141,14 +141,18 @@ public final class ReadingStore {
     }
 
     /// Daily and yearly settings share one save action; neither should survive a failed pair.
-    public func setReadingGoals(daily: GoalChange?, annual: AuditEvent?) throws {
+    public func setReadingGoals(daily: GoalChange?, annual: AuditEvent?, calendarChange: AuditEvent? = nil) throws {
         if let annual, annual.kind != "annualGoalChanged" {
             throw ReadingStoreError.invalidData("annual goal settings require annual-goal evidence")
         }
-        guard daily != nil || annual != nil else { return }
+        if let calendarChange, calendarChange.kind != "calendarTimezoneChanged" || TimeZone(identifier: calendarChange.detail) == nil {
+            throw ReadingStoreError.invalidData("calendar settings require a valid time zone")
+        }
+        guard daily != nil || annual != nil || calendarChange != nil else { return }
         try transaction {
             if let daily { try setGoal(daily) }
             if let annual { try appendEvent(annual) }
+            if let calendarChange { try appendEvent(calendarChange) }
         }
     }
 

@@ -3,6 +3,31 @@ import SwiftUI
 import BooksCore
 
 @MainActor
+struct CompletionReviewSheet: View {
+    @ObservedObject var model: AppModel
+    let entry: FinishedBookEntry
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(spacing: 18) {
+            HStack {
+                Text("Book finished").font(.headline)
+                Spacer()
+                Button("Done") { model.acknowledgeCompletion(entry); dismiss() }
+                    .keyboardShortcut(.cancelAction)
+            }
+            FinishedBookPrompt(model: model, entry: entry)
+            if let error = model.errorMessage { Text(error).font(.caption).foregroundStyle(.red) }
+        }
+        .padding(24).frame(width: 660)
+        .background(ReadingPalette.paper).foregroundStyle(ReadingPalette.ink)
+        .buttonStyle(ReadingButtonStyle())
+        .onChange(of: model.pendingCompletion?.id) { id in if id != entry.id { dismiss() } }
+        .onDisappear { model.acknowledgeCompletion(entry) }
+    }
+}
+
+@MainActor
 struct FinishedBookPrompt: View {
     @ObservedObject var model: AppModel
     let entry: FinishedBookEntry
@@ -21,7 +46,7 @@ struct FinishedBookPrompt: View {
         HStack(alignment: .top, spacing: 18) {
             ZStack(alignment: .topTrailing) {
                 BookCoverView(book: book, size: .large)
-                CompletionCelebrationBadge(eventID: entry.id) {
+                CompletionCelebrationBadge(eventID: model.pendingCompletionEventID ?? entry.id) {
                     model.claimCompletionCelebration(for: entry)
                 }
                 .offset(x: 8, y: -8)

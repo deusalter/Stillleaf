@@ -85,6 +85,8 @@ struct DashboardView: View {
             ManualStartView(model: model)
         case .manualAdd:
             ManualAdditionView(model: model)
+        case .completion(let entry):
+            CompletionReviewSheet(model: model, entry: entry)
         case .book(let book):
             BookDetailView(model: model, book: book)
         case .review(let interval):
@@ -285,11 +287,12 @@ enum DashboardSection: String, CaseIterable, Identifiable {
 }
 
 enum DashboardSheet: Identifiable {
-    case manualStart, manualAdd, book(BookRecord), review(ReadingInterval), merge(BookRecord), restore, trackingHelp
+    case manualStart, manualAdd, completion(FinishedBookEntry), book(BookRecord), review(ReadingInterval), merge(BookRecord), restore, trackingHelp
     var id: String {
         switch self {
         case .manualStart: return "manualStart"
         case .manualAdd: return "manualAdd"
+        case .completion(let entry): return "completion-\(entry.id)"
         case .book(let book): return "book-\(book.id)"
         case .review(let interval): return "review-\(interval.id)"
         case .merge(let book): return "merge-\(book.id)"

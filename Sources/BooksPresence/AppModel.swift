@@ -29,6 +29,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var pageDays: [DailyPageTotal] = []
     @Published private(set) var finishedBooks: [FinishedBookEntry] = []
     @Published private(set) var pendingCompletion: FinishedBookEntry?
+    @Published private(set) var pendingCompletionEventID: String?
     @Published private(set) var appleHistoryStatus = "Reading Apple Books history…"
     @Published private var publicCoverURLs: [String: String] = [:]
     @Published private(set) var health = "Starting the local tracker…"
@@ -53,6 +54,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var dailyGoalStreak = StreakSummary(current: 0, longest: 0, todayPending: true, provisional: false)
     private var goalProgressByDay: [String: DailyGoalProgress] = [:]
     private var goalHistory: [GoalChange] = []
+    private var bookReviewCache: [String: String] = [:]
+    private var bookReviewDates: [String: Date] = [:]
     private var celebratedCompletionIDs: Set<String> = []
     var goalYear: Int {
         var calendar = Calendar(identifier: .gregorian)
@@ -475,6 +478,14 @@ final class AppModel: ObservableObject {
             books = archive.books.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
             intervals = try store.effectiveIntervals().sorted { $0.start > $1.start }
             events = archive.events.sorted { $0.date > $1.date }
+            var latestReviews: [String: AuditEvent] = [:]
+            let bookIDs = Set(books.map(\.id))
+            for event in archive.events where event.kind == "bookReviewed" && event.review != nil {
+                guard let id = event.bookID, bookIDs.contains(id) else { continue }
+                if latestReviews[id].map({ $0.date <= event.date }) ?? true { latestReviews[id] = event }
+            }
+            bookReviewCache = latestReviews.compactMapValues { $0.review?.text }
+            bookReviewDates = latestReviews.mapValues(\.date)
             progress = archive.progress.sorted { $0.observedAt > $1.observedAt }
             merges = archive.merges
             correctedIntervalIDs = Set(archive.corrections.flatMap { $0.replacements.map(\.id) })
@@ -606,6 +617,24 @@ final class AppModel: ObservableObject {
             } catch { /* A missing public cover never interrupts local reading. */ }
         }
     }
+    @discardableResult
+    func markFinished(_ book: BookRecord) -> FinishedBookEntry? {
+        let canonicalID = BookMergeResolver(merges: merges).resolvedID(for: book.id)
+        guard books.contains(where: { $0.id == canonicalID }) else {
+            errorMessage = "This book is no longer in your library."; return nil
+        }
+        if let existing = finishedBooks.first(where: { $0.id == canonicalID }) { return existing }
+        let now = Date()
+        let event = AuditEvent(date: now, kind: "bookCompleted", bookID: canonicalID,
+            detail: "Marked finished by the reader.",
+            completion: BookCompletionEvidence(finishedAt: now, source: "You", imported: false))
+        perform { try store.appendEvent(event) }
+        guard errorMessage == nil, let entry = finishedBooks.first(where: { $0.id == canonicalID }) else { return nil }
+        pendingCompletionEventID = event.id
+        pendingCompletion = entry
+        return entry
+    }
+
     func rating(for bookID: String) -> Double? { BookHistory.rating(bookID: bookID, events: events) }
     func saveRating(_ rating: Double?, for bookID: String) {
         guard books.contains(where: { $0.id == bookID }),
@@ -616,7 +645,8 @@ final class AppModel: ObservableObject {
             detail: rating == nil ? "Rating cleared by the reader." : "Rating chosen by the reader.", rating: BookRatingEvidence(value: rating))) }
         if errorMessage == nil, pendingCompletion?.id == bookID { pendingCompletion = nil }
     }
-    func review(for bookID: String) -> String? { BookHistory.review(bookID: bookID, events: events) }
+    func review(for bookID: String) -> String? { bookReviewCache[bookID] }
+    func reviewUpdatedAt(for bookID: String) -> Date? { bookReviewDates[bookID] }
     func saveReview(_ text: String?, for bookID: String) {
         guard books.contains(where: { $0.id == bookID }), (text?.count ?? 0) <= 50_000 else {
             errorMessage = "Keep your review within 50,000 characters."; return
@@ -628,8 +658,8 @@ final class AppModel: ObservableObject {
             review: BookReviewEvidence(text: review))) }
     }
     func claimCompletionCelebration(for entry: FinishedBookEntry) -> Bool {
-        guard pendingCompletion?.id == entry.id else { return false }
-        return celebratedCompletionIDs.insert(entry.id).inserted
+        guard pendingCompletion?.id == entry.id, let eventID = pendingCompletionEventID else { return false }
+        return celebratedCompletionIDs.insert(eventID).inserted
     }
     func acknowledgeCompletion(_ entry: FinishedBookEntry) {
         if pendingCompletion?.id == entry.id { pendingCompletion = nil }
@@ -691,6 +721,7 @@ final class AppModel: ObservableObject {
                 }
             }
             var newestCompletionID: String?
+            var newestCompletionEventID: String?
             var historyChanged = false
             let observedAt = Date()
             for record in records.sorted(by: { ($0.finishedAt ?? .distantPast) < ($1.finishedAt ?? .distantPast) }) {
@@ -717,16 +748,18 @@ final class AppModel: ObservableObject {
                     }
                 }
                 let recentlyCompleted = latestImported[book.id] == nil
+                    && !finishedBooks.contains(where: { $0.id == book.id })
                     && previousSync.map { previous in record.finishedAt.map { $0 >= previous } ?? false } == true
-                try store.appendEvent(AuditEvent(date: observedAt, kind: "bookCompleted", bookID: book.id,
+                let completionEvent = AuditEvent(date: observedAt, kind: "bookCompleted", bookID: book.id,
                     detail: recentlyCompleted ? "Apple Books reported a newly finished book." : "Imported saved Apple Books completion metadata; no reading time or pages inferred.",
-                    completion: completion))
+                    completion: completion)
+                try store.appendEvent(completionEvent)
                 historyChanged = true
-                if recentlyCompleted { newestCompletionID = book.id }
+                if recentlyCompleted { newestCompletionID = book.id; newestCompletionEventID = completionEvent.id }
             }
             defaults.set(observedAt, forKey: "lastAppleHistorySync")
             if historyChanged { refresh() }
-            if let id = newestCompletionID { pendingCompletion = finishedBooks.first { $0.id == id } }
+            if let id = newestCompletionID { pendingCompletionEventID = newestCompletionEventID; pendingCompletion = finishedBooks.first { $0.id == id } }
             appleHistoryStatus = "Synced \(records.count) finished books from Apple Books."
         } catch { appleHistoryStatus = "Could not save Apple Books history: \(error.localizedDescription)" }
     }
@@ -779,27 +812,34 @@ final class AppModel: ObservableObject {
               pageGoal.isFinite, pageGoal >= 1, pageGoal <= 10_000, pageGoal.rounded() == pageGoal,
               goalMinutes.isFinite, goalMinutes >= 1, goalMinutes <= 1440, TimeZone(identifier: timezoneID) != nil, uncertaintyMinutes.isFinite, uncertaintyMinutes >= 1, uncertaintyMinutes <= 240 else { errorMessage = "Choose a whole-page goal from 1–10,000, a time goal from 1–1440 minutes, a valid timezone, and an uncertainty threshold from 1–240 minutes."; return }
         perform {
-            if engine.timezoneID != timezoneID { try stopForMutation(); engine.timezoneID = timezoneID; try store.appendEvent(AuditEvent(kind: "calendarTimezoneChanged", detail: timezoneID)) }
-            engine.uncertaintyThreshold = uncertaintyMinutes * 60
+            let timezoneChanged = engine.timezoneID != timezoneID
+            if timezoneChanged { try stopForMutation() }
+            let calendarChange = timezoneChanged ? AuditEvent(kind: "calendarTimezoneChanged", detail: timezoneID) : nil
             let dailyChanged = savedGoal != goalMinutes || savedPageGoal != pageGoal || savedDailyGoalUnit != dailyGoalUnit
             let daily = dailyChanged ? GoalChange(effectiveDay: ReadingStatistics.dayKey(Date(), timezoneID: timezoneID),
                 minutes: goalMinutes, pages: pageGoal, primaryUnit: dailyGoalUnit) : nil
             let annualChanged = ReadingGoals.annualTarget(year: goalYear, events: try store.archive().events) != annualBookGoal
             let annual = annualChanged ? AuditEvent(kind: "annualGoalChanged", detail: "Yearly books goal chosen by the reader.",
                 annualGoal: AnnualGoalEvidence(year: goalYear, books: annualBookGoal)) : nil
-            try store.setReadingGoals(daily: daily, annual: annual)
+            try store.setReadingGoals(daily: daily, annual: annual, calendarChange: calendarChange)
+            engine.timezoneID = timezoneID
+            engine.uncertaintyThreshold = uncertaintyMinutes * 60
             savedGoal = goalMinutes; savedPageGoal = pageGoal; savedDailyGoalUnit = dailyGoalUnit
             defaults.set(pageGoal, forKey: "pageGoal")
             defaults.set(goalMinutes, forKey: "goalMinutes"); defaults.set(timezoneID, forKey: "timezoneID"); defaults.set(uncertaintyMinutes, forKey: "uncertaintyMinutes")
             defaults.set(discordApplicationID, forKey: "discordApplicationID"); defaults.set(discordAssetKey, forKey: "discordAssetKey")
             defaults.set(automaticPublicCovers, forKey: "automaticPublicCovers")
             defaults.set(syncAppleBooksHistoryEnabled, forKey: "syncAppleBooksHistoryEnabled")
-            if LoginService.enabled != launchAtLogin { try LoginService.setEnabled(launchAtLogin) }
         }
         // Show the actual registration state even if macOS rejected a change.
         launchAtLogin = LoginService.enabled
         publishPresence()
         if let book = snapshot.book { resolvePublicCoverIfNeeded(for: book) }
+    }
+    func setLaunchAtLogin(_ enabled: Bool) {
+        do { try LoginService.setEnabled(enabled); errorMessage = nil }
+        catch { errorMessage = "Could not change Open at login: \(error.localizedDescription)" }
+        launchAtLogin = LoginService.enabled
     }
     func setBookExclusions(_ book: BookRecord, tracking: Bool, sharing: Bool) {
         perform {

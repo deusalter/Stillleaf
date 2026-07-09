@@ -8,6 +8,7 @@ struct LibraryView: View {
     @State private var shelf = LibraryShelf.all
     @State private var search = ""
     @State private var sort = LibrarySort.recent
+    @State private var removingBook: BookRecord?
 
     var body: some View {
         let resolver = BookMergeResolver(merges: model.merges)
@@ -77,9 +78,23 @@ struct LibraryView: View {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 150, maximum: 220), spacing: 18, alignment: .topLeading)],
                               alignment: .leading, spacing: 22) {
                         ForEach(visible) { book in
-                            BookLibraryCard(book: book, pages: model.pages(forBookID: book.id),
-                                finished: finishedIDs.contains(book.id), date: finishedIDs.contains(book.id) ? finishes[book.id] : recent[book.id],
-                                rating: model.rating(for: book.id)) { present(.book(book)) }
+                            VStack(spacing: 0) {
+                                BookLibraryCard(book: book, pages: model.pages(forBookID: book.id),
+                                    finished: finishedIDs.contains(book.id), date: finishedIDs.contains(book.id) ? finishes[book.id] : recent[book.id],
+                                    rating: model.rating(for: book.id)) { present(.book(book)) }
+                                HStack {
+                                    Spacer()
+                                    Menu {
+                                        Button {
+                                            if let entry = model.markFinished(book) { present(.completion(entry)) }
+                                        } label: { Label("Mark as finished", systemImage: "checkmark.circle") }.disabled(finishedIDs.contains(book.id))
+                                        Divider()
+                                        Button("Remove from library…", role: .destructive) { removingBook = book }
+                                    } label: { Image(systemName: "ellipsis").frame(width: 28, height: 24) }
+                                    .menuStyle(.borderlessButton).fixedSize()
+                                    .accessibilityLabel("Actions for \(book.title)")
+                                }.padding(.horizontal, 12)
+                            }
                         }
                     }.padding(.vertical, 4)
                 }
@@ -88,6 +103,15 @@ struct LibraryView: View {
         .frame(maxWidth: 1060, maxHeight: .infinity, alignment: .topLeading)
         .padding(30).frame(maxWidth: .infinity, alignment: .top)
         .buttonStyle(ReadingButtonStyle())
+        .alert("Remove from library?", isPresented: Binding(get: { removingBook != nil }, set: { if !$0 { removingBook = nil } })) {
+            Button("Remove book", role: .destructive) {
+                if let book = removingBook { model.deleteBook(book) }
+                removingBook = nil
+            }
+            Button("Cancel", role: .cancel) { removingBook = nil }
+        } message: {
+            Text("This removes \(removingBook?.title ?? "this book") and its Stillleaf history, rating and review. The original Apple Books file stays untouched. Managed backups are cleared; exports saved elsewhere remain.")
+        }
     }
 }
 
@@ -151,6 +175,7 @@ struct BookDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var reviewInterval: ReadingInterval?
     @State private var deleteBookConfirmation = false
+    @State private var completionEntry: FinishedBookEntry?
     @State private var deleteSessionID: String?
     @State private var mergePresented = false
     @State private var showAllSessions = false
@@ -205,6 +230,7 @@ struct BookDetailView: View {
         .tint(ReadingPalette.moss)
         .foregroundStyle(ReadingPalette.ink)
         .buttonStyle(ReadingButtonStyle())
+        .sheet(item: $completionEntry) { CompletionReviewSheet(model: model, entry: $0).readingMotionAccessibility() }
         .sheet(item: $reviewInterval) { IntervalReviewEditor(model: model, interval: $0) }
         .sheet(isPresented: $mergePresented) { MergeBooksView(model: model, source: currentBook) }
         .onAppear { publicCoverURLDraft = model.publicCoverURL(for: currentBook) }
@@ -212,7 +238,7 @@ struct BookDetailView: View {
             Button("Delete book", role: .destructive) { model.deleteBook(currentBook); dismiss() }
             Button("Cancel", role: .cancel) { }
         } message: {
-            Text("This permanently removes this book and its stored data.")
+            Text("This removes its Stillleaf history, rating and review, and clears managed backups. The original Apple Books file and exports saved elsewhere remain.")
         }
         .alert("Delete this session?", isPresented: Binding(get: { deleteSessionID != nil }, set: { if !$0 { deleteSessionID = nil } })) {
             Button("Delete session", role: .destructive) {
@@ -255,6 +281,10 @@ struct BookDetailView: View {
                     Label(finishedEntry.finishedAt.map { "Finished \($0.formatted(date: .abbreviated, time: .omitted))" } ?? "Marked finished", systemImage: "checkmark.seal.fill")
                         .font(.caption)
                         .foregroundStyle(ReadingPalette.moss)
+                }
+                if finishedEntry == nil {
+                    Button { completionEntry = model.markFinished(currentBook) } label: { Label("Mark as finished", systemImage: "checkmark.circle") }
+                        .controlSize(.small).buttonStyle(ReadingButtonStyle(emphasis: .primary))
                 }
                 if let ratingText {
                     Label("Your rating: \(ratingText)", systemImage: "star.fill")

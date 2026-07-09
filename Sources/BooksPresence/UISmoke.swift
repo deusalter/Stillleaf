@@ -146,13 +146,39 @@ func runUISmoke() throws {
             throw BooksAccessErrorForUI.failed("A completion celebration replayed")
         }
     }
+    model.saveReview("A private review to remove with the book.", for: firstHistoryBook.id)
     model.deleteBook(firstHistoryBook)
     model.acceptFinishedHistory([firstRecord, recentRecord], staging: staging)
-    guard !model.books.contains(where: { $0.id == firstHistoryBook.id }),
+    guard !model.books.contains(where: { $0.id == firstHistoryBook.id }), model.review(for: firstHistoryBook.id) == nil,
           model.intervals.count == intervalsBeforeHistory, model.pages(forBookID: "smoke-pages-a") == pagesBeforeHistory else {
         throw BooksAccessErrorForUI.failed("Deleting an imported finished book allowed a later import to resurrect it")
     }
+    let beforeManualFinish = Date()
+    let annualBeforeManualFinish = model.annualBooksFinished
+    let completionEventsBefore = model.events.filter { $0.kind == "bookCompleted" }.count
+    let evidenceBeforeFinish = model.intervals.count
+    let pagesBeforeFinish = model.todayPages
+    guard let marked = model.markFinished(manualBook), let markedAt = marked.finishedAt,
+          markedAt >= beforeManualFinish, markedAt <= Date(), !marked.imported,
+          model.annualBooksFinished == annualBeforeManualFinish + 1,
+          model.intervals.count == evidenceBeforeFinish, model.todayPages == pagesBeforeFinish,
+          model.rating(for: manualBook.id) == nil, model.review(for: manualBook.id) == nil,
+          model.claimCompletionCelebration(for: marked), !model.claimCompletionCelebration(for: marked) else {
+        throw BooksAccessErrorForUI.failed("Manual completion timestamp, yearly total or optional feedback semantics failed")
+    }
+    model.acknowledgeCompletion(marked)
+    guard model.markFinished(manualBook)?.finishedAt == markedAt,
+          model.events.filter({ $0.kind == "bookCompleted" }).count == completionEventsBefore + 1,
+          model.annualBooksFinished == annualBeforeManualFinish + 1, model.pendingCompletion == nil else {
+        throw BooksAccessErrorForUI.failed("Repeated manual completion duplicated a finished book or celebration")
+    }
+    model.acceptFinishedHistory([CatalogFinishedBook(book: manualBook, finishedAt: Date(), assetURL: nil)], staging: staging)
+    guard model.pendingCompletion == nil, model.finishedBooks.first(where: { $0.id == manualBook.id })?.finishedAt == markedAt,
+          model.annualBooksFinished == annualBeforeManualFinish + 1 else {
+        throw BooksAccessErrorForUI.failed("Apple Books sync replayed or replaced a manual completion")
+    }
     var views: [(String, AnyView)] = [
+        ("completion-sheet", AnyView(CompletionReviewSheet(model: model, entry: marked))),
         ("today", AnyView(TodayView(model: model, present: { _ in }))),
         ("library", AnyView(LibraryView(model: model, present: { _ in }))),
         ("review", AnyView(PersonalReviewsView(model: model))),
