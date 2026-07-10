@@ -4,7 +4,9 @@ A native macOS menu-bar reading journal for Apple Books, with optional Discord R
 
 **Integration status:** the diagnostic has matched a live local EPUB in Books 8.0 and rejected its Library window. This reader omits `AXDocument`, so a version-scoped structural inference supplements exact document-path matching. Automatic tracking still requires Accessibility access for the packaged app itself and pauses for unsupported or ambiguous windows. Manual reading works independently. See [capabilities](docs/CAPABILITIES.md) and [verification](docs/VERIFICATION.md).
 
-The 1.4 interface brings a mint/green light and dark theme, animated daily page goals, and coordinated calendar, library, settings, review, and menu-bar controls. Motion respects the macOS Reduce Motion setting. The bookshelf includes search, sorting, Reading/Finished shelves and optional quarter-star ratings. Everyday settings are separated from advanced tracking and troubleshooting; the menu focuses on reading and immediate actions.
+The 1.5 interface brings a mint/green light and dark theme, animated daily goals in pages or minutes, and an optional yearly books goal. Library holds your saved books; Timeline follows confirmed finish dates; History shows daily reading activity; Reviews contains your private written book reviews. Mark any unfinished book as finished from its Library actions or details; Stillleaf records the current date and time, then offers an optional review and quarter-star rating. Library removal explicitly confirms deletion of its journal records and leaves original Apple Books files untouched. Tracking corrections live under Settings → Data & privacy → Troubleshooting → Reading records. Motion respects the macOS Reduce Motion setting.
+
+Daily page and minute targets are remembered independently; changing the unit applies from that calendar day without converting reading evidence. Yearly goals count dated, confirmed completions in the configured calendar time zone and deduplicate merged books. Written reviews are optional, local, and included in JSON/CSV exports and backups; nothing is posted online.
 
 ## Build and run
 
