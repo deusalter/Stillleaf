@@ -126,7 +126,7 @@ final class ReadingGoalsTests: XCTestCase {
         let book = BookRecord(id: "book", title: "Synthetic")
         try source.saveBook(book)
         let goal = GoalChange(id: "goal", effectiveDay: "2027-01-01", minutes: 25, pages: 15,
-                              primaryUnit: .pages)
+                              createdAt: Date(timeIntervalSince1970: 1_800_000_000), primaryUnit: .pages)
         try source.setGoal(goal)
         try source.appendEvent(annual(id: "annual", date: Date(timeIntervalSince1970: 1_800_000_000),
                                       year: 2027, books: 24))
