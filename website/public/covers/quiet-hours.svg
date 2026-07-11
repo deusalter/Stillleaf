@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 440" role="img" aria-labelledby="title">
+  <title id="title">Quiet Hours — an original decorative book jacket</title>
+  <defs>
+    <linearGradient id="green" x2="0" y2="1">
+      <stop stop-color="#416253"/>
+      <stop offset="1" stop-color="#25483e"/>
+    </linearGradient>
+  </defs>
+  <rect width="300" height="440" fill="url(#green)"/>
+  <rect x="17" y="17" width="266" height="406" fill="none" stroke="#dce0bc" stroke-opacity=".45"/>
+  <rect x="21" y="21" width="258" height="398" fill="none" stroke="#dce0bc" stroke-opacity=".15"/>
+  <circle cx="150" cy="134" r="66" fill="#d7dcbb"/>
+  <circle cx="178" cy="112" r="56" fill="#3e6051"/>
+  <g fill="none" stroke="#aebe9e" stroke-linecap="round" stroke-width="1.5">
+    <path d="M75 271C131 247 79 168 62 135m44 125c52-26 62-64 67-90m-69 101c77-5 97-46 130-60"/>
+  </g>
+  <g fill="#b8c8aa">
+    <path d="M101 239c-28 0-38-12-41-30 22-1 38 11 41 30Z"/>
+    <path d="M97 219c19-14 22-32 14-48-17 13-23 30-14 48Z"/>
+    <path d="M83 184c-26-4-34-18-33-35 22 4 34 17 33 35Z"/>
+    <path d="M142 227c-4-24 7-38 24-44 3 20-5 34-24 44Z"/>
+    <path d="M134 241c-24-8-30-23-25-39 19 7 28 20 25 39Z"/>
+    <path d="M183 247c-1-24 12-37 30-41 0 20-10 34-30 41Z"/>
+    <path d="M209 229c13-18 29-22 44-15-11 16-25 22-44 15Z"/>
+  </g>
+  <g fill="#e8e6cc" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif">
+    <text x="150" y="328" font-size="43" letter-spacing="3">QUIET</text>
+    <text x="150" y="375" font-size="43" letter-spacing="3">HOURS</text>
+  </g>
+  <g fill="#dce0bc">
+    <circle cx="74" cy="83" r="2"/>
+    <circle cx="225" cy="71" r="1.7"/>
+    <path d="m223 145 2 5 5 2-5 2-2 5-2-5-5-2 5-2Z"/>
+  </g>
+</svg>

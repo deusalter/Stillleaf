@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 440" role="img" aria-labelledby="title">
+  <title id="title">Tidelines — an original decorative book jacket</title>
+  <defs>
+    <linearGradient id="cloth" x2="1" y2="1">
+      <stop stop-color="#173842"/>
+      <stop offset="1" stop-color="#0a232d"/>
+    </linearGradient>
+    <clipPath id="trim"><rect x="25" y="142" width="250" height="269"/></clipPath>
+  </defs>
+  <rect width="300" height="440" fill="url(#cloth)"/>
+  <rect x="17" y="17" width="266" height="406" rx="1" fill="none" stroke="#d6d8ba" stroke-opacity=".5"/>
+  <rect x="21" y="21" width="258" height="398" rx="1" fill="none" stroke="#d6d8ba" stroke-opacity=".16"/>
+  <g fill="#e5e5cd" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif">
+    <text x="150" y="95" font-size="33" letter-spacing="2">TIDELINES</text>
+  </g>
+  <path d="M126 119h48" stroke="#d6d8ba" stroke-width="1"/>
+  <g clip-path="url(#trim)" fill="none" stroke="#d9ddc9" stroke-width="1.3" opacity=".8">
+    <path d="M-20 174C41 147 51 213 105 196S175 127 229 160s64 38 99 10"/>
+    <path d="M-20 186C43 160 53 225 107 208S176 138 230 172s63 38 98 10"/>
+    <path d="M-20 198C45 173 55 237 109 220S177 149 231 184s62 38 97 10"/>
+    <path d="M-20 210C47 186 57 249 111 232S178 160 232 196s61 38 96 10"/>
+    <path d="M-20 222C49 199 59 261 113 244S179 171 233 208s60 38 95 10"/>
+    <path d="M-20 234C51 212 61 273 115 256S180 182 234 220s59 38 94 10"/>
+    <path d="M-20 246C53 225 63 285 117 268S181 193 235 232s58 38 93 10"/>
+    <path d="M-20 258C55 238 65 297 119 280S182 204 236 244s57 38 92 10"/>
+    <path d="M-20 270C57 251 67 309 121 292S183 215 237 256s56 38 91 10"/>
+    <path d="M-20 282C59 264 69 321 123 304S184 226 238 268s55 38 90 10"/>
+    <path d="M-20 294C61 277 71 333 125 316S185 237 239 280s54 38 89 10"/>
+    <path d="M-20 306C63 290 73 345 127 328S186 248 240 292s53 38 88 10"/>
+    <path d="M-20 318C65 303 75 357 129 340S187 259 241 304s52 38 87 10"/>
+    <path d="M-20 330C67 316 77 369 131 352S188 270 242 316s51 38 86 10"/>
+    <path d="M-20 342C69 329 79 381 133 364S189 281 243 328s50 38 85 10"/>
+    <path d="M-20 354C71 342 81 393 135 376S190 292 244 340s49 38 84 10"/>
+    <path d="M-20 366C73 355 83 405 137 388S191 303 245 352s48 38 83 10"/>
+    <path d="M-20 378C75 368 85 417 139 400S192 314 246 364s47 38 82 10"/>
+    <path d="M-20 390C77 381 87 429 141 412S193 325 247 376s46 38 81 10"/>
+  </g>
+  <circle cx="201" cy="169" r="6" fill="#e3c18a"/>
+</svg>

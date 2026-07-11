@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 440" role="img" aria-labelledby="title">
+  <title id="title">The Little Things — an original decorative book jacket</title>
+  <rect width="300" height="440" fill="#d9a291"/>
+  <rect x="17" y="17" width="266" height="406" fill="none" stroke="#803d38" stroke-opacity=".6"/>
+  <rect x="21" y="21" width="258" height="398" fill="none" stroke="#f4d2bc" stroke-opacity=".6"/>
+  <g fill="#74372f" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif">
+    <text x="150" y="66" font-size="19" letter-spacing="5">THE</text>
+    <text x="150" y="110" font-size="40" letter-spacing="1">LITTLE</text>
+    <text x="150" y="153" font-size="40" letter-spacing="1">THINGS</text>
+  </g>
+  <g fill="none" stroke="#863e35" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M124 394c-8-48 35-75 31-119-2-25-19-53-4-84"/>
+    <path d="M135 349c-17-34-52-41-57-70m68 46c35-24 63-40 64-74m-56 45c-31-24-51-39-54-74m54 32c29-7 52-22 62-44"/>
+    <path d="M136 350c-35 0-53-17-57-36 27-3 44 6 57 36Z" fill="#a65949"/>
+    <path d="M146 325c7-28 28-39 55-40-2 21-23 38-55 40Z" fill="#9b4b40"/>
+    <path d="M123 280c-25 1-42-12-47-31 22-2 40 9 47 31Z" fill="#a65949"/>
+    <path d="M165 251c1-27 18-43 40-51 4 27-13 45-40 51Z" fill="#9b4b40"/>
+    <path d="M150 216c-21-4-31-17-31-36 20 4 31 16 31 36Z" fill="#a65949"/>
+    <path d="M159 372c9-12 17-22 18-38"/>
+    <path d="M177 343c12-10 17-22 12-35-13 7-18 19-12 35Z" fill="#a65949"/>
+  </g>
+  <g fill="#f0c8ac" stroke="#863e35" stroke-width="1.3">
+    <path d="M150 190c-14-10-20-22-11-28 8-4 14 5 13 14 4-13 14-17 19-10 6 9-3 18-21 24Z"/>
+    <path d="M79 280c-18-1-28-9-22-18 5-7 14-2 17 7-3-14 3-23 11-20 10 4 8 17-6 31Z"/>
+    <path d="M210 254c-8-16-7-29 3-28 9 0 9 10 4 17 10-9 21-8 22 1 0 11-12 15-29 10Z"/>
+  </g>
+  <path d="M108 395h60" stroke="#803d38" stroke-width="1"/>
+</svg>
