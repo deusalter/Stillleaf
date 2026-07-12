@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import BooksCore
 import BooksPlatform
+import CSQLite
 
 /// Explicit developer-only self-check. Uses temporary synthetic history and an isolated defaults suite.
 @MainActor
@@ -177,7 +178,53 @@ func runUISmoke() throws {
           model.annualBooksFinished == annualBeforeManualFinish + 1 else {
         throw BooksAccessErrorForUI.failed("Apple Books sync replayed or replaced a manual completion")
     }
+    let datesEventCount = model.events.count
+    let originalDates = ReadingCompletionDates(startedAt: marked.startedAt, finishedAt: marked.finishedAt)
+    guard marked.startedAt == nil,
+          model.saveReadingDates(originalDates, for: marked.id) == nil, model.events.count == datesEventCount else {
+        throw BooksAccessErrorForUI.failed("Skipping or saving unchanged dates changed completion evidence")
+    }
+    let invalidDates = ReadingCompletionDates(startedAt: markedAt.addingTimeInterval(60), finishedAt: markedAt)
+    guard model.saveReadingDates(invalidDates, for: marked.id) != nil, model.events.count == datesEventCount else {
+        throw BooksAccessErrorForUI.failed("Invalid date draft mutated saved evidence")
+    }
+    let knownStart = markedAt.addingTimeInterval(-86400 * 10)
+    var failureDB: OpaquePointer?
+    guard sqlite3_open(root.appendingPathComponent("history.sqlite").path, &failureDB) == SQLITE_OK else {
+        throw BooksAccessErrorForUI.failed("Could not open synthetic failure fixture")
+    }
+    defer { sqlite3_close(failureDB) }
+    guard sqlite3_exec(failureDB, "CREATE TRIGGER reject_date_test BEFORE INSERT ON events BEGIN SELECT RAISE(ABORT, 'synthetic write failure'); END", nil, nil, nil) == SQLITE_OK else {
+        throw BooksAccessErrorForUI.failed("Could not install synthetic write failure")
+    }
+    let failedSave = model.saveReadingDates(ReadingCompletionDates(startedAt: knownStart, finishedAt: markedAt), for: marked.id)
+    guard failedSave != nil, model.events.count == datesEventCount,
+          model.finishedBooks.first(where: { $0.id == marked.id })?.startedAt == nil else {
+        throw BooksAccessErrorForUI.failed("Failed date save changed durable or displayed evidence")
+    }
+    guard sqlite3_exec(failureDB, "DROP TRIGGER reject_date_test", nil, nil, nil) == SQLITE_OK else {
+        throw BooksAccessErrorForUI.failed("Could not remove synthetic failure")
+    }
+
+    guard model.saveReadingDates(ReadingCompletionDates(startedAt: knownStart, finishedAt: markedAt), for: marked.id) == nil,
+          model.finishedBooks.first(where: { $0.id == marked.id })?.startedAt == knownStart,
+          model.pendingCompletion == nil, !model.claimCompletionCelebration(for: marked),
+          model.intervals.count == evidenceBeforeFinish, model.todayPages == pagesBeforeFinish else {
+        throw BooksAccessErrorForUI.failed("Date correction changed reading activity or replayed completion")
+    }
+    guard model.saveReadingDates(ReadingCompletionDates(startedAt: knownStart, finishedAt: nil), for: marked.id) == nil,
+          model.annualBooksFinished == annualBeforeManualFinish,
+          model.finishedBooks.first(where: { $0.id == marked.id })?.finishedAt == nil,
+          model.markFinished(manualBook)?.startedAt == knownStart else {
+        throw BooksAccessErrorForUI.failed("Unknown finish date or repeated completion changed yearly semantics")
+    }
+    guard model.saveReadingDates(originalDates, for: marked.id) == nil else {
+        throw BooksAccessErrorForUI.failed("Could not restore synthetic reading dates")
+    }
     var views: [(String, AnyView)] = [
+        ("reading-dates", AnyView(ReadingDatesEditor(title: marked.title, dates: originalDates,
+            timezoneID: model.timezoneID, save: { _ in "Synthetic failure; draft must stay open." }))),
+        ("reading-calendar", AnyView(ReadingDateCalendar(selection: .constant(markedAt), timezoneID: model.timezoneID))),
         ("completion-sheet", AnyView(CompletionReviewSheet(model: model, entry: marked))),
         ("today", AnyView(TodayView(model: model, present: { _ in }))),
         ("library", AnyView(LibraryView(model: model, present: { _ in }))),

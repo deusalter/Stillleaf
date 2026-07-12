@@ -7,6 +7,9 @@ import CryptoKit
 
 @MainActor
 final class AppModel: ObservableObject {
+    let epubLibrary: EPUBLibraryController
+    private var transferringReaderState = Set<String>()
+    private let epubReaders: EPUBReaderWindows
     @Published private(set) var snapshot = TrackerSnapshot()
     @Published private(set) var books: [BookRecord] = []
     @Published private(set) var intervals: [ReadingInterval] = []
@@ -38,7 +41,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var discordStatus = "Discord sharing is off."
     @Published private(set) var lastDiscordResult: String?
     @Published private(set) var accessibilityGranted = BooksCapture.isTrusted
-    var automaticTrackingNeedsAccess: Bool { trackingEnabled && !manualActive && !accessibilityGranted }
+    var automaticTrackingNeedsAccess: Bool { trackingEnabled && !manualActive && epubReaders.focusedPublicationID == nil && !accessibilityGranted }
     var discordNeedsSetup: Bool { discordEnabled && discordApplicationID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     @Published var trackingEnabled = true { didSet { if ready { defaults.set(trackingEnabled, forKey: "trackingEnabled"); if !trackingEnabled { pause(.disabled) } else { perform { try ensureCurrentPageGoal() } }; tick() } } }
     @Published var discordEnabled = false { didSet { if ready { defaults.set(discordEnabled, forKey: "discordEnabled"); publishPresence() } } }
@@ -120,6 +123,8 @@ final class AppModel: ObservableObject {
     private var readerPagination = ReaderPagination()
     private let publicCoverResolver = PublicCoverResolver()
     private var coverLookups: Set<String> = []
+    private var coverLookupTasks: [String: Task<Void, Never>] = [:]
+    private var coverLookupGeneration = 0
     private var coverLookupDates: [String: Date] = [:]
     private let historyQueue = DispatchQueue(label: "BooksPresence.finished-history", qos: .utility)
     private var historySyncInFlight = false
@@ -177,6 +182,8 @@ final class AppModel: ObservableObject {
     init(support: URL, defaults: UserDefaults = .standard, startTracking: Bool = true) throws {
         self.support = support
         self.defaults = defaults
+        epubLibrary = EPUBLibraryController(directory: support.appendingPathComponent("Publications", isDirectory: true))
+        epubReaders = EPUBReaderWindows(stateDirectory: support.appendingPathComponent("ReaderState", isDirectory: true))
         try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: support.path)
         store = try ReadingStore(url: support.appendingPathComponent("history.sqlite"))
@@ -212,7 +219,7 @@ final class AppModel: ObservableObject {
         windowObserver = BooksWindowObserver { [weak self] in
             guard let self else { return }
             self.captureGeneration += 1
-            if self.manualBook == nil { self.pause(.noReadingWindow); self.tick() }
+            if self.manualBook == nil && self.epubReaders.focusedPublicationID == nil { self.pause(.noReadingWindow); self.tick() }
         }
         refresh()
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in Task { @MainActor [weak self] in self?.tick() } }
@@ -223,6 +230,133 @@ final class AppModel: ObservableObject {
         }
         tick()
         } else { refresh(); refreshDiscordStatus() }
+        epubReaders.didFocusReader = { [weak self] in self?.cancelExternalCoverLookups() }
+        epubReaders.libraryRequested = { [weak self] in self?.showDashboard(section: .library) }
+        epubLibrary.register = { [weak self] publication, directory in
+            try self?.registerPublication(publication, directory: directory)
+        }
+        epubLibrary.presentLibrary = { [weak self] in
+            self?.dashboardSectionRequest = .library
+            self?.dashboardAction?()
+        }
+        if startTracking { epubLibrary.recover() }
+    }
+
+    private func registerPublication(_ publication: EPUBPublication, directory: URL) throws {
+        let id = "epub:" + publication.id
+        var book = books.first(where: { $0.id == id }) ?? BookRecord(id: id, title: publication.title,
+            author: publication.authors.isEmpty ? nil : publication.authors.joined(separator: ", "), source: "stillleaf-epub")
+        // Preserve explicit user choices across a repeated import/recovery. This
+        // path never consults Apple Books or a public artwork provider.
+        if book.coverSource != "Manual override", let path = publication.coverPath {
+            let cover = try? covers.explicitEPUBImage(from: directory.appendingPathComponent("resources").appendingPathComponent(path))
+            book.coverPath = cover?.path; book.coverSource = cover?.source
+        }
+        try store.saveBook(book)
+        refresh()
+    }
+
+    func epubEditions(for book: BookRecord) -> [EPUBPublication] {
+        let resolver = BookMergeResolver(merges: merges), canonicalID = resolverID(book.id)
+        return epubLibrary.publications.values.filter { resolver.resolvedID(for: "epub:" + $0.id) == canonicalID }.sorted { $0.id < $1.id }
+    }
+    private func resolverID(_ id: String) -> String { BookMergeResolver(merges: merges).resolvedID(for: id) }
+    func hasEPUB(_ book: BookRecord) -> Bool { !epubEditions(for: book).isEmpty }
+    func hasImportedEPUB(_ book: BookRecord) -> Bool {
+        let canonical = resolverID(book.id)
+        return books.contains { $0.source == "stillleaf-epub" && resolverID($0.id) == canonical }
+    }
+    private func chooseEPUB(_ book: BookRecord) -> EPUBPublication? {
+        guard !epubReaders.isTerminating else { return nil }
+        let editions = epubEditions(for: book)
+        guard !editions.isEmpty else { errorMessage = "This book’s EPUB is not available. Import it again to read here."; return nil }
+        if editions.count == 1 { return editions[0] }
+        let alert = NSAlert(); alert.messageText = "Choose an EPUB edition"
+        alert.informativeText = "Each edition keeps its own reading position and notes. The short identifier distinguishes copies with the same title."
+        let choice = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 360, height: 28))
+        choice.addItems(withTitles: editions.map { "\($0.title) · \($0.spine.count) sections · \($0.id.prefix(8))" })
+        alert.accessoryView = choice; alert.addButton(withTitle: "Continue"); alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return nil }
+        return editions[choice.indexOfSelectedItem]
+    }
+    func readEPUB(_ book: BookRecord) {
+        guard let publication = chooseEPUB(book), !epubLibrary.removingIDs.contains(publication.id),
+              !transferringReaderState.contains(publication.id) else { return }
+        cancelExternalCoverLookups()
+        Task {
+            do { try await epubReaders.open(publication, directory: epubLibrary.directory.appendingPathComponent(publication.id)) }
+            catch { errorMessage = error.localizedDescription }
+        }
+    }
+
+    func removeEPUB(_ book: BookRecord, keepCopy: Bool) {
+        guard let publication = chooseEPUB(book) else { return }
+        let id = publication.id
+        let remove: (URL?) -> Void = { [weak self] destination in
+            guard let self else { return }
+            guard !self.transferringReaderState.contains(id), self.epubLibrary.reserveRemoval(id) else { return }
+            Task {
+                guard await self.epubReaders.close(publicationID: id) else { self.epubLibrary.cancelRemoval(id); return }
+                self.epubLibrary.remove(publicationID: id, keepingOriginalAt: destination) { [weak self] in self?.refresh() }
+            }
+        }
+        if keepCopy {
+            let panel = NSSavePanel()
+            panel.title = "Keep a usable EPUB copy"
+            panel.allowedContentTypes = [UTType(filenameExtension: "epub") ?? .data]
+            panel.nameFieldStringValue = book.title.replacingOccurrences(of: "/", with: "-") + ".epub"
+            panel.begin { response in
+                guard response == .OK, let url = panel.url else { return }
+                Task { @MainActor in remove(url) }
+            }
+        } else { remove(nil) }
+    }
+    func transferReaderState(_ book: BookRecord, importing: Bool) {
+        guard let publication = chooseEPUB(book) else { return }
+        let id = publication.id
+        guard !epubLibrary.removingIDs.contains(id), transferringReaderState.insert(id).inserted else { return }
+        let panel: NSSavePanel
+        if importing {
+            let picker = NSOpenPanel(); picker.canChooseDirectories = false; picker.allowsMultipleSelection = false
+            picker.title = "Import notes and reading settings"; panel = picker
+        } else {
+            panel = NSSavePanel(); panel.title = "Export notes and reading settings"
+            panel.nameFieldStringValue = book.title.replacingOccurrences(of: "/", with: "-") + " — reading state.json"
+        }
+        panel.allowedContentTypes = [.json]
+        panel.begin { [weak self] response in
+            guard let self else { return }
+            guard response == .OK, let url = panel.url else { self.transferringReaderState.remove(id); return }
+            Task { @MainActor in
+                defer { self.transferringReaderState.remove(id) }
+                guard await self.epubReaders.close(publicationID: id) else { return }
+                let transfer = ReaderStateTransfer(store: ReaderStateStore(directory: self.support.appendingPathComponent("ReaderState")))
+                do {
+                    if importing {
+                        let preview = try await Task.detached { try transfer.previewImport(from: url, publication: publication) }.value
+                        if preview.disposition == .stale { throw ReaderStateTransferError.staleImport }
+                        var replace = false
+                        if preview.disposition == .replacement {
+                            let alert = NSAlert()
+                            alert.messageText = "Replace this book’s saved reading state?"
+                            alert.informativeText = "Current: \(preview.localBookmarks) bookmarks and \(preview.localAnnotations) highlights or notes. Imported: \(preview.incomingBookmarks) bookmarks and \(preview.incomingAnnotations) highlights or notes. This replaces reading position and appearance settings too. Notes are not merged; export the current state first to keep both."
+                            alert.addButton(withTitle: "Cancel"); alert.addButton(withTitle: "Replace saved state")
+                            guard alert.runModal() == .alertSecondButtonReturn else { return }
+                            replace = true
+                        }
+                        let replacing = replace
+                        _ = try await Task.detached { try transfer.apply(preview, replacingExisting: replacing) }.value
+                    } else {
+                        _ = try await Task.detached { try transfer.export(publication: publication, to: url) }.value
+                    }
+                } catch { self.errorMessage = error.localizedDescription }
+            }
+        }
+    }
+
+    func prepareReaderTermination() async -> Bool {
+        guard transferringReaderState.isEmpty else { errorMessage = "Finish the reading-state file operation before quitting."; return false }
+        return await epubReaders.closeAll()
     }
 
     private func registerObservers() {
@@ -234,14 +368,14 @@ final class AppModel: ObservableObject {
                 self.captureGeneration += 1
                 self.readerWindow = nil
                 self.presencePolicy.reset()
-                if self.manualBook == nil { self.pause(.noReadingWindow) }
+                if self.manualBook == nil && self.epubReaders.focusedPublicationID == nil { self.pause(.noReadingWindow) }
                 else { self.publishPresence() }
             }
         })
         workspaceObservers.append(center.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self else { return }; self.captureGeneration += 1
-                if self.manualBook == nil && !SystemEligibility.booksForeground { self.pause(.background) }
+                if self.manualBook == nil && self.epubReaders.focusedPublicationID == nil && !SystemEligibility.booksForeground { self.pause(.background) }
                 self.tick()
             }
         })
@@ -281,7 +415,16 @@ final class AppModel: ObservableObject {
         if accessibilityGranted != trusted { accessibilityGranted = trusted }
         windowObserver?.refresh()
         if let reason = commonPauseReason() { pause(reason); return }
+        if epubReaders.focusedPublicationID != nil { cancelExternalCoverLookups() }
         if let book = manualBook { apply(book: book, progress: nil, mode: .manual, reason: book.trackingExcluded ? .excludedBook : nil, health: "Manual reading is active. Time is inferred until you stop or pause."); return }
+        if let edition = epubReaders.focusedPublicationID, let book = books.first(where: { $0.id == "epub:" + edition }) {
+            cancelExternalCoverLookups()
+            captureGeneration += 1
+            readerWindow = nil
+            apply(book: book, progress: nil, mode: .automatic, reason: book.trackingExcluded ? .excludedBook : nil,
+                  health: "Reading in Stillleaf. Time follows the active reader; reflowed pages are not counted as pages read.")
+            return
+        }
         guard accessibilityGranted else { health = "Automatic tracking needs Accessibility access. Manual reading is available."; pause(.permissionLost); return }
         guard SystemEligibility.booksForeground else {
             // Input in Discord or another app is not evidence of reading.
@@ -344,7 +487,7 @@ final class AppModel: ObservableObject {
                     recordedPageTurn = true
                 }
             } else { pageTurnTracker.reset(); readerPagination.reset(); currentPagePosition = nil }
-            recordHealth(reason, verifiedCapture: mode == .automatic && book != nil && reason == nil)
+            recordHealth(reason, verifiedCapture: mode == .automatic && book != nil && book?.source != "stillleaf-epub" && reason == nil)
             if recordedPageTurn || Date().timeIntervalSince(lastRefresh) >= 15 || previousPhase != snapshot.phase || previousBookID != snapshot.book?.id { refresh() }
             if let book, reason == nil { resolvePublicCoverIfNeeded(for: book) }
             publishPresence()
@@ -389,6 +532,10 @@ final class AppModel: ObservableObject {
         ready = false; timer?.invalidate(); presencePolicy.reset(); presenceState = .hidden; discord.clear()
     }
     private func publishPresence() {
+        if snapshot.book?.source == "stillleaf-epub" {
+            finishPublishingPresence(readerOpen: epubReaders.focusedPublicationID != nil && commonPauseReason() == nil)
+            return
+        }
         guard trackingEnabled, discordEnabled, accessibilityGranted, commonPauseReason() == nil,
               let window = readerWindow else { finishPublishingPresence(readerOpen: false); return }
         guard !readerCheckInFlight else { return }
@@ -413,7 +560,7 @@ final class AppModel: ObservableObject {
         discord.update(book: visible ? currentBook : nil, progress: latestProgress?.reliable == true ? latestProgress : nil,
                        elapsed: snapshot.sessionSeconds, enabled: discordEnabled && visible,
                        applicationID: discordApplicationID, assetKey: discordAssetKey, paused: presenceState == .paused,
-                       coverURL: currentBook.flatMap { publicCoverURLs[$0.id] }, currentPage: currentPage,
+                       coverURL: currentBook.flatMap { $0.source == "stillleaf-epub" ? nil : publicCoverURLs[$0.id] }, currentPage: currentPage,
                        currentTotalPages: currentTotalPages, pagesTurned: sessionPages)
         refreshDiscordStatus()
     }
@@ -590,8 +737,9 @@ final class AppModel: ObservableObject {
         PageStatistics.manualPages(events: events, effectiveIntervals: group.intervals, merges: merges,
                                    from: from, through: through, bookID: group.bookID)
     }
-    func publicCoverURL(for book: BookRecord) -> String { publicCoverURLs[book.id] ?? "" }
+    func publicCoverURL(for book: BookRecord) -> String { book.source == "stillleaf-epub" ? "" : publicCoverURLs[book.id] ?? "" }
     func savePublicCoverURL(_ value: String, for book: BookRecord) {
+        guard book.source != "stillleaf-epub" else { return }
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty { publicCoverURLs.removeValue(forKey: book.id) }
         else if let url = PublicBookCover.publicImageURL(trimmed) { publicCoverURLs[book.id] = url }
@@ -600,15 +748,21 @@ final class AppModel: ObservableObject {
         errorMessage = nil; publishPresence()
     }
     private func resolvePublicCoverIfNeeded(for book: BookRecord) {
-        guard automaticPublicCovers, discordEnabled, !book.sharingExcluded,
+        guard book.source != "stillleaf-epub", epubReaders.focusedPublicationID == nil, automaticPublicCovers, discordEnabled, !book.sharingExcluded,
               publicCoverURLs[book.id] == nil, !coverLookups.contains(book.id),
               Date().timeIntervalSince(coverLookupDates[book.id] ?? .distantPast) > 3600 else { return }
         coverLookups.insert(book.id); coverLookupDates[book.id] = Date()
-        Task { [weak self] in
+        let generation = coverLookupGeneration
+        coverLookupTasks[book.id] = Task { [weak self] in
             guard let self else { return }
-            defer { self.coverLookups.remove(book.id) }
+            defer {
+                if generation == self.coverLookupGeneration {
+                    self.coverLookups.remove(book.id); self.coverLookupTasks.removeValue(forKey: book.id)
+                }
+            }
             do {
                 if let match = try await self.publicCoverResolver.resolve(book: book),
+                   !Task.isCancelled, generation == self.coverLookupGeneration, self.epubReaders.focusedPublicationID == nil,
                    self.automaticPublicCovers, self.discordEnabled,
                    let current = self.books.first(where: { $0.id == book.id }), !current.sharingExcluded,
                    self.publicCoverURLs[book.id] == nil {
@@ -616,6 +770,12 @@ final class AppModel: ObservableObject {
                 }
             } catch { /* A missing public cover never interrupts local reading. */ }
         }
+    }
+    private func cancelExternalCoverLookups() {
+        guard !coverLookupTasks.isEmpty else { return }
+        coverLookupGeneration += 1
+        for (id, task) in coverLookupTasks { task.cancel(); coverLookupDates.removeValue(forKey: id) }
+        coverLookupTasks.removeAll(); coverLookups.removeAll()
     }
     @discardableResult
     func markFinished(_ book: BookRecord) -> FinishedBookEntry? {
@@ -633,6 +793,24 @@ final class AppModel: ObservableObject {
         pendingCompletionEventID = event.id
         pendingCompletion = entry
         return entry
+    }
+
+    /// Correct saved evidence without creating another completion prompt or celebration.
+    /// The editor owns its draft; failures leave the saved evidence untouched.
+    func saveReadingDates(_ dates: ReadingCompletionDates, for bookID: String) -> String? {
+        let canonicalID = BookMergeResolver(merges: merges).resolvedID(for: bookID)
+        guard let existing = finishedBooks.first(where: { $0.id == canonicalID }) else {
+            return "This book is no longer marked as read."
+        }
+        if existing.startedAt == dates.startedAt, existing.finishedAt == dates.finishedAt { return nil }
+        let now = Date()
+        if let message = dates.validationMessage(now: now) { return message }
+        let event = AuditEvent(date: now, kind: "bookCompleted", bookID: canonicalID,
+            detail: "Reading dates edited by the reader; no reading activity inferred.",
+            completion: BookCompletionEvidence(startedAt: dates.startedAt, finishedAt: dates.finishedAt,
+                                               source: "You", imported: false))
+        perform { try store.appendEvent(event) }
+        return errorMessage
     }
 
     func rating(for bookID: String) -> Double? { BookHistory.rating(bookID: bookID, events: events) }
@@ -947,6 +1125,7 @@ final class AppModel: ObservableObject {
     func quit() { NSApp.terminate(nil) }
     func shutdown() {
         ready = false
+        cancelExternalCoverLookups()
         timer?.invalidate(); windowObserver?.invalidate(); captureGeneration += 1
         readerWindow = nil
         do { try engine.stop() } catch { NSLog("BooksPresence could not persist the final interval; previous checkpoints remain recoverable.") }

@@ -80,6 +80,13 @@ func renderUIPreviews(to destination: URL) throws {
             previews.append(("written-review", AnyView(BookReviewEditor(model: model, bookID: book.id))))
         }
         previews.append(("troubleshooting", AnyView(TrackingHelpView(model: model))))
+        previews.append(("reading-calendar", AnyView(ReadingDateCalendar(selection: .constant(now),
+            timezoneID: model.timezoneID).padding(24).frame(width: 450).background(ReadingPalette.paper))))
+        previews.append(("reading-dates", AnyView(ReadingDatesEditor(title: "A Room of One’s Own",
+            dates: ReadingCompletionDates(finishedAt: now), timezoneID: model.timezoneID, save: { _ in nil }))))
+        previews.append(("reading-dates-expanded", AnyView(ReadingDatesEditor(title: "A Room of One’s Own",
+            dates: ReadingCompletionDates(finishedAt: now), timezoneID: model.timezoneID,
+            initiallyExpanded: true, save: { _ in nil }))))
         previews.append(("rating-quarter", AnyView(RatingPreview(value: 4.25))))
         previews.append(("rating-zero", AnyView(RatingPreview(value: 0))))
         previews.append(("rating-empty", AnyView(RatingPreview(value: nil))))
@@ -90,7 +97,10 @@ func renderUIPreviews(to destination: URL) throws {
         }
         for (name, view) in previews {
             let view = view.environment(\.colorScheme, scheme)
-            let sizes: [String: NSSize] = ["manual-start": NSSize(width: 470, height: 350),
+            let sizes: [String: NSSize] = ["reading-calendar": NSSize(width: 450, height: 410),
+                "reading-dates": NSSize(width: 540, height: 500),
+                "reading-dates-expanded": NSSize(width: 540, height: 760),
+"manual-start": NSSize(width: 470, height: 350),
                 "manual-add": NSSize(width: 500, height: 510), "review-editor": NSSize(width: 560, height: 600),
                 "book-detail": NSSize(width: 760, height: 720), "troubleshooting": NSSize(width: 740, height: 650),
                 "rating-quarter": NSSize(width: 320, height: 200), "rating-zero": NSSize(width: 320, height: 200), "rating-empty": NSSize(width: 320, height: 200),

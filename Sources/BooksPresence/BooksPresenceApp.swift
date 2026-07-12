@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import BooksPlatform
+import BooksCore
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
@@ -14,6 +15,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var dashboard: NSWindow?
     private var shutdownSignal: DispatchSourceSignal?
     private var diagnosticTimer: Timer?
+    private var pendingEPUBURLs: [URL] = []
+    private var pendingEPUBOverflow = 0
+    private var awaitingReaderTermination = false
     func applicationDidFinishLaunching(_ notification: Notification) {
         signal(SIGTERM, SIG_IGN)
         let termination = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
@@ -33,6 +37,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             item.button?.target = self; item.button?.action = #selector(togglePopover)
             statusItem = item
             menuPanel = makeMenuPanel(model: state)
+            if !pendingEPUBURLs.isEmpty {
+                let urls = pendingEPUBURLs; pendingEPUBURLs.removeAll()
+                state.epubLibrary.enqueue(urls)
+                if pendingEPUBOverflow > 0 {
+                    state.errorMessage = "The launch batch exceeded 1,000 files. Import the remaining \(pendingEPUBOverflow) files in another batch."
+                    pendingEPUBOverflow = 0
+                }
+            }
             // Explicit developer diagnostic, overwritten in place; normal launches create no report.
             let arguments = CommandLine.arguments
             if let index = arguments.firstIndex(of: "--status-report"), index + 1 < arguments.count {
@@ -46,6 +58,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             NSApp.terminate(nil)
         } catch {
             let alert = NSAlert(); alert.messageText = "Stillleaf could not start"; alert.informativeText = String(describing: error); alert.runModal(); NSApp.terminate(nil)
+        }
+    }
+    func application(_ application: NSApplication, open urls: [URL]) {
+        if let model { model.epubLibrary.enqueue(urls) }
+        else {
+            let remaining = EPUBImportQueue.maximumItems - pendingEPUBURLs.count
+            pendingEPUBURLs.append(contentsOf: urls.prefix(remaining))
+            pendingEPUBOverflow += max(0, urls.count - remaining)
         }
     }
     @objc private func togglePopover() {
@@ -70,6 +90,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         return true
     }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let model else { return .terminateNow }
+        if !awaitingReaderTermination {
+            awaitingReaderTermination = true
+            Task { @MainActor in
+                let ready = await model.prepareReaderTermination()
+                awaitingReaderTermination = false
+                sender.reply(toApplicationShouldTerminate: ready)
+            }
+        }
+        return .terminateLater
+    }
     func applicationWillTerminate(_ notification: Notification) {
         dismissMenuPanel()
         menuPanelSizeObservation?.invalidate()
@@ -173,6 +205,15 @@ struct BooksPresenceMain {
     static func main() {
         let application = NSApplication.shared
         application.setActivationPolicy(.accessory)
+        if let index = CommandLine.arguments.firstIndex(of: "--self-test-epub"), index + 1 < CommandLine.arguments.count {
+            let fixture = URL(fileURLWithPath: CommandLine.arguments[index + 1])
+            Task { @MainActor in
+                do { try await runEPUBReaderSmoke(fixture: fixture); exit(0) }
+                catch { fputs("epub-reader-smoke failed: \(error)\n", stderr); exit(1) }
+            }
+            application.run()
+            return
+        }
         if CommandLine.arguments.contains("--benchmark-ui") {
             do { try runUIBenchmark(); exit(0) }
             catch { fputs("ui-benchmark failed: \(error)\n", stderr); exit(1) }

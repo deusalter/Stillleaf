@@ -267,7 +267,7 @@ public final class ReadingStore {
         try Self.writeCSV(header: ["id", "created_at", "original_interval_ids", "replacement_interval_ids", "reason"], rows: correctionRows, to: directory.appendingPathComponent("corrections.csv"))
 
         let eventRows = snapshot.events.map(Self.eventCSVRow)
-        try Self.writeCSV(header: ["id", "date", "kind", "book_id", "session_id", "detail", "from_page", "to_page", "pages_read", "visible_pages", "layout_signature", "finished_at", "completion_source", "completion_imported", "rating_state", "rating_value", "adjustment_pages", "adjustment_recorded_at", "adjustment_reason", "annual_goal_year", "annual_goal_state", "annual_goal_books", "review_state", "review_text"], rows: eventRows, to: directory.appendingPathComponent("events.csv"))
+        try Self.writeCSV(header: ["id", "date", "kind", "book_id", "session_id", "detail", "from_page", "to_page", "pages_read", "visible_pages", "layout_signature", "finished_at", "completion_source", "completion_imported", "rating_state", "rating_value", "adjustment_pages", "adjustment_recorded_at", "adjustment_reason", "annual_goal_year", "annual_goal_state", "annual_goal_books", "review_state", "review_text", "started_at"], rows: eventRows, to: directory.appendingPathComponent("events.csv"))
 
         let progressRows = snapshot.progress.map { [$0.id, $0.bookID, Self.iso8601($0.observedAt), $0.page.map(String.init) ?? "", $0.totalPages.map(String.init) ?? "", $0.fraction.map { String($0) } ?? "", $0.location ?? "", $0.source, String($0.reliable)] }
         try Self.writeCSV(header: ["id", "book_id", "observed_at", "page", "total_pages", "fraction", "location", "source", "reliable"], rows: progressRows, to: directory.appendingPathComponent("progress.csv"))
@@ -710,7 +710,9 @@ public final class ReadingStore {
             guard event.kind == "bookCompleted", event.bookID?.isEmpty == false, event.sessionID == nil,
                   !source.isEmpty, source.count <= 128,
                   !source.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }),
-                  completion.finishedAt.map({ validDate($0) && $0 <= event.date }) ?? true else {
+                  (completion.finishedAt.map({ validDate($0) && $0 <= event.date }) ?? true),
+                  ReadingCompletionDates(startedAt: completion.startedAt, finishedAt: completion.finishedAt)
+                    .validationMessage(now: event.date) == nil else {
                 throw ReadingStoreError.invalidData("invalid book-completion event \(event.id)")
             }
         } else if event.kind == "bookCompleted" {
@@ -864,6 +866,7 @@ public final class ReadingStore {
         if let review = event.review {
             row += [review.text == nil ? "clear" : "set", review.text ?? ""]
         } else { row += ["", ""] }
+        row += [event.completion?.startedAt.map(iso8601) ?? ""]
         return row
     }
 
