@@ -9,14 +9,27 @@ jobs:
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: Reader/desktop/reader/package-lock.json
       - name: Toolchain
-        run: swift --version
+        run: swift --version && node --version
       - name: Build and test pure logic and synthetic adapters
         run: swift test --parallel
       - name: Release build
         run: swift build -c release
+      - name: Build reader renderer next to the release binary
+        run: scripts/build-reader-assets.sh .build/release
+      - name: Renderer tests (headless Chrome)
+        run: npm --prefix Reader/desktop/reader test
       - name: Native model and view self-check
         run: .build/release/BooksPresence --self-test-ui
+      - name: Native EPUB reader smoke (offscreen WKWebView, synthetic book)
+        run: |
+          python3 scripts/reader-review-fixture.py "$RUNNER_TEMP/reader-fixture.epub"
+          .build/release/BooksPresence --self-test-epub "$RUNNER_TEMP/reader-fixture.epub"
       - name: Package development app
         run: scripts/package-app.sh
       - uses: actions/upload-artifact@v4

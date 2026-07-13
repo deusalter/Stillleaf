@@ -4,8 +4,8 @@ import {createServer} from 'node:http';
 import {readFile,mkdir} from 'node:fs/promises';
 import path from 'node:path';
 import {chromium} from 'playwright';
-const root=path.resolve(import.meta.dirname,'../reader/dist');
-const artifacts=path.resolve(import.meta.dirname,'../reader/artifacts');
+const root=path.resolve(import.meta.dirname,'../dist');
+const artifacts=path.resolve(import.meta.dirname,'../artifacts');
 function fixture(){
  const chapter=(title,body)=>`<!doctype html><html lang="en"><head><title>${title}</title></head><body><h1>${title}</h1>${body}</body></html>`;
  const paragraph='The garden lay quiet in the early light. Beyond the window, small leaves held the last of the rain. She set her cup beside the book and returned to the sentence she had left unfinished.';

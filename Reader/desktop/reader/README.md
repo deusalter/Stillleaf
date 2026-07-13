@@ -1,6 +1,6 @@
 # Shared reading surface
 
-Browser-only Readium UI. No Node references or privileged bridge. Build from `Reader/desktop` with `npm run build:reader`; run headless interaction coverage with `node --test test/reader-ui.test.mjs`. Tests use installed Chrome (override `CHROME_PATH`) and generated text, with no user library or visible windows. September 24 local result: Chrome 153.0.8010.53 passed; this is not Windows or native WebKit evidence.
+Browser-only Readium UI. No Node references or privileged bridge. This directory is its own npm package: `npm ci && npm run build` writes `dist/`, which `scripts/build-reader-assets.sh` copies into the Mac build. `npm test` runs the headless interaction coverage in `test/`. Tests use installed Chrome (override `CHROME_PATH`) and generated text, with no user library or visible windows. September 24 local result: Chrome 153.0.8010.53 passed; this is not Windows or native WebKit evidence.
 
 ## Host contract
 
