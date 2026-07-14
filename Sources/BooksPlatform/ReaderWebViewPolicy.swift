@@ -34,8 +34,8 @@ public enum ReaderWebViewPolicy {
         configuration.setURLSchemeHandler(ReaderSchemeHandler(resources: resources), forURLScheme: "stillleaf-reader")
         configuration.userContentController.add(list)
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
-        // No native message handler is exposed. A future bridge needs separate
-        // main-frame, document-generation and payload validation before use.
+        // The reader window adds its own message handler; it validates the main
+        // frame, session token and edition of every message it accepts.
         return configuration
     }
 }

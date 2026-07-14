@@ -214,16 +214,36 @@ private final class EPUBReaderWindow: NSObject, NSWindowDelegate, WKNavigationDe
             guard values.isRegularFile == true else { continue }
             let path = String(url.path.dropFirst(shell.path.count + 1))
             let mime: String
-            switch url.pathExtension { case "html": mime = "text/html"; case "js": mime = "application/javascript"; case "css": mime = "text/css"; default: mime = "application/octet-stream" }
+            switch url.pathExtension {
+            case "html": mime = "text/html"; case "js": mime = "application/javascript"; case "css": mime = "text/css"
+            case "json", "map": mime = "application/json"; case "svg": mime = "image/svg+xml"; case "png": mime = "image/png"
+            case "woff2": mime = "font/woff2"; default: mime = "application/octet-stream"
+            }
             assets[path] = .init(data: try Data(contentsOf: url), mimeType: mime)
         }
-        let map = try ReaderResourceMap(resources: assets)
+        // Publication bytes stay on disk. The renderer fetches each file through the
+        // session scheme when a chapter needs it, instead of receiving the whole book.
+        let resourceRoot = directory.appendingPathComponent("resources", isDirectory: true)
+        let rootPath = resourceRoot.resolvingSymlinksInPath().standardizedFileURL.path + "/"
         var total = 0
-        let resources: [[String: Any]] = try publication.resources.map { item in
-            let data = try Data(contentsOf: directory.appendingPathComponent("resources").appendingPathComponent(item.path))
-            total += data.count
-            guard data.count <= 32 * 1_024 * 1_024, total <= 256 * 1_024 * 1_024 else { throw EPUBImportError.invalid("Book resources exceed the reader size limit.") }
-            return ["href": item.path, "type": item.mediaType, "dataBase64": data.base64EncodedString()]
+        let files: [ReaderResourceMap.FileAsset] = try publication.resources.map { item -> ReaderResourceMap.FileAsset in
+            // Imported paths were validated at import; still confirm each file sits inside this edition.
+            let file = resourceRoot.appendingPathComponent(item.path).standardizedFileURL
+            guard !item.path.hasPrefix("/"), file.resolvingSymlinksInPath().path.hasPrefix(rootPath),
+                  let values = try? file.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey]),
+                  values.isRegularFile == true, values.isSymbolicLink != true, let size = values.fileSize else {
+                throw EPUBImportError.invalid("A book resource is missing. Import the book again.")
+            }
+            total += size
+            guard size <= ReaderResourceMap.maximumFileAssetBytes, total <= 256 * 1_024 * 1_024 else { throw EPUBImportError.invalid("Book resources exceed the reader size limit.") }
+            // The renderer decides from the manifest type; the response header only needs to be well formed.
+            let served = ReaderResourceMap.isValidMIMEType(item.mediaType) ? item.mediaType : "application/octet-stream"
+            return ReaderResourceMap.FileAsset(file: file, mimeType: served, byteCount: size)
+        }
+        let map = try ReaderResourceMap(resources: assets, files: files)
+        let resources: [[String: Any]] = try publication.resources.enumerated().map { index, item -> [String: Any] in
+            guard let url = map.fileURL(at: index) else { throw EPUBImportError.invalid("Book resources could not be prepared.") }
+            return ["href": item.path, "type": item.mediaType, "url": url.absoluteString, "size": files[index].byteCount]
         }
         var input: [String: Any] = ["editionId": publication.id, "title": publication.title, "creators": publication.authors,
             "layout": publication.layout ?? "reflowable", "canReturnToLibrary": true,
@@ -291,6 +311,9 @@ func runEPUBReaderSmoke(fixture: URL) async throws {
     guard rendered else {
         let detail = (try? await reader.testDiagnostic()) ?? "No page diagnostics"
         throw EPUBImportError.invalid("Native reader did not render imported chapter text: \(detail)")
+    }
+    guard try await reader.testFixtureAssets() else {
+        throw EPUBImportError.invalid("Chapter stylesheet or image did not load through the reader scheme.")
     }
     if let index = CommandLine.arguments.firstIndex(of: "--reader-artifacts"), index + 1 < CommandLine.arguments.count {
         try await reader.testRenderReviewSnapshots(directory: URL(fileURLWithPath: CommandLine.arguments[index + 1]))
@@ -440,6 +463,16 @@ private extension EPUBReaderWindow {
         if let index = CommandLine.arguments.firstIndex(of: "--reader-artifacts"), index + 1 < CommandLine.arguments.count {
             try Data(metrics.utf8).write(to: URL(fileURLWithPath: CommandLine.arguments[index + 1]).appendingPathComponent("native-experimental-continuous-metrics.json"))
         }
+    }
+    /// Fixtures with `#fixture-figure` must show the lazily fetched image, styled by a fetched stylesheet.
+    func testFixtureAssets() async throws -> Bool {
+        let deadline = Date().addingTimeInterval(5)
+        repeat {
+            let status = try await webView.evaluateJavaScript("(()=>{const f=[...document.querySelectorAll('#reader iframe')].find(f=>f.contentDocument?.getElementById('fixture-figure'));if(!f)return [...document.querySelectorAll('#reader iframe')].some(f=>f.contentDocument?.body?.innerText)?'absent':'pending';const i=f.contentDocument.getElementById('fixture-figure');return (i.getAttribute('src')||'').startsWith('blob:')&&i.complete&&i.naturalWidth===1&&parseFloat(f.contentWindow.getComputedStyle(i).borderLeftWidth)>0?'ok':'pending'})()") as? String ?? "pending"
+            if status != "pending" { return true }
+            try await Task.sleep(nanoseconds: 100_000_000)
+        } while Date() < deadline
+        return false
     }
     func testPreferences() async throws -> String {
         try await webView.evaluateJavaScript("JSON.stringify(window.StillleafReader.exportState().preferences)") as? String ?? ""

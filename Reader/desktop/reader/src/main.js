@@ -59,7 +59,14 @@ function headingFor(href){
  if(headingCache.has(href))return headingCache.get(href);
  const index=input.readingOrder.findIndex(x=>x.href===href),link=input.readingOrder[index];
  if(link?.title){headingCache.set(href,link.title);return link.title;}
- try{const doc=new DOMParser().parseFromString(pool.chapter(href),'text/html');const title=doc.querySelector('h1,h2')?.textContent?.trim().slice(0,200)||`Chapter ${index+1}`;headingCache.set(href,title);return title}catch{return `Chapter ${index+1}`}
+ // Chapters load on demand; show the ordinal until the heading is known.
+ const fallback=`Chapter ${index+1}`,owner=pool;headingCache.set(href,fallback);
+ pool.chapter(href).then(html=>{
+  if(pool!==owner)return;
+  const title=new DOMParser().parseFromString(html,'text/html').querySelector('h1,h2')?.textContent?.trim().slice(0,200);
+  if(title){headingCache.set(href,title);if(lastLocator?.href===href)updatePosition()}
+ },()=>{});
+ return fallback;
 }
 function updatePosition(){
  if(!lastLocator)return;
@@ -250,7 +257,8 @@ async function searchBook(){
  $('search-status').textContent='Searching…';let found=0;
  for(const link of input.readingOrder){
   if(generation!==searchGeneration)return;
-  const doc=new DOMParser().parseFromString(pool.chapter(link.href),'text/html');
+  let doc;try{doc=new DOMParser().parseFromString(await pool.chapter(link.href),'text/html')}catch{continue}
+  if(generation!==searchGeneration)return;
   const candidates=[...doc.querySelectorAll('h1,h2,h3,p,li,blockquote,pre,td,dd,dt')].filter(x=>!x.querySelector('h1,h2,h3,p,li,blockquote,pre,td,dd,dt'));
   for(const element of candidates){
    const text=element.textContent,index=text.toLocaleLowerCase().indexOf(query.toLocaleLowerCase());if(index<0)continue;

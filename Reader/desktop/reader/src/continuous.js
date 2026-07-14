@@ -40,7 +40,7 @@ export class ContinuousNavigator {
   this.container.classList.add('continuous-reader');this.container.style.removeProperty('width');this.container.tabIndex=0;this.container.setAttribute('aria-label','Continuous book');
   for(const [index,link]of this.input.readingOrder.entries()){
    const section=document.createElement('section');section.className='continuous-chapter';section.dataset.href=link.href;section.setAttribute('aria-label',link.title||`Section ${index+1}`);
-   const size=this.pool.map.get(link.href)?.bytes.length??0;const height=Math.max(240,Math.min(50000,size*.35));section.style.height=height+'px';this.container.append(section);this.entries.push({index,link,section,height,frame:null,url:null,observer:null,failed:null,ranges:[]});
+   const size=this.pool.size(link.href);const height=Math.max(240,Math.min(50000,size*.35));section.style.height=height+'px';this.container.append(section);this.entries.push({index,link,section,height,frame:null,url:null,observer:null,failed:null,ranges:[]});
   }
   this.container.addEventListener('scroll',this.onScroll,{passive:true});this.resizeObserver=new ResizeObserver(this.onResize);this.resizeObserver.observe(this.container);
   const index=Math.max(0,this.entries.findIndex(e=>e.link.href===this.initial?.href));await this.ensureWindow(index);
@@ -54,8 +54,10 @@ export class ContinuousNavigator {
  }
  async mount(entry){
   if(this.destroyed||entry.frame||entry.failed)return;
-  if((this.pool.map.get(entry.link.href)?.bytes.length??0)>MAX_CHAPTER_BYTES)throw Error('This section is too large for continuous view. Use Single page or Facing pages.');
-  const generation=this.epoch,doc=new DOMParser().parseFromString(this.pool.chapter(entry.link.href),'text/html');
+  if(this.pool.size(entry.link.href)>MAX_CHAPTER_BYTES)throw Error('This section is too large for continuous view. Use Single page or Facing pages.');
+  const generation=this.epoch,html=await this.pool.chapter(entry.link.href);
+  if(this.destroyed||entry.frame||generation!==this.epoch)return;
+  const doc=new DOMParser().parseFromString(html,'text/html');
   if(!doc.documentElement.lang)doc.documentElement.lang=this.input.languages?.[0]||this.input.language||'en';
   if(!doc.documentElement.hasAttribute('dir')&&this.input.readingProgression==='rtl')doc.documentElement.dir='rtl';
   const base=doc.createElement('style');base.textContent=this.baseCSS();doc.head.prepend(base);
