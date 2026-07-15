@@ -29,6 +29,10 @@ public enum ReaderStateValidation {
         guard let value = try JSONSerialization.jsonObject(with: data) as? [String: Any], integer(value["revision"]), let result = number(value["revision"]) else { throw Failure.invalidState }
         return result
     }
+    /// Appearance ids shared with the renderer's `appearance.js`. Ids are never renamed once saved.
+    public static let themes: Set<String> = ["system", "original", "paper", "sepia", "calm", "focus", "quiet", "dark", "night"]
+    public static let fontFamilies: Set<String> = ["publisher", "newyork", "sans", "athelas", "charter", "serif", "iowan", "palatino", "seravek", "times"]
+    public static let marginChoices: Set<String> = ["narrow", "normal", "wide"]
     public static func validate(_ data: Data, publication: EPUBPublication) throws {
         guard data.count <= maximumBytes, publication.id.count == 64, publication.id.allSatisfy({ "0123456789abcdef".contains($0) }),
               let value = try JSONSerialization.jsonObject(with: data) as? [String: Any], number(value["schemaVersion"]) == 1,
@@ -36,8 +40,8 @@ public enum ReaderStateValidation {
               let bookmarks = value["bookmarks"] as? [[String: Any]], bookmarks.count <= 2000,
               let annotations = value["annotations"] as? [[String: Any]], annotations.count <= 2000,
               let preferences = value["preferences"] as? [String: Any],
-              let theme = preferences["theme"] as? String, ["system", "paper", "sepia", "dark"].contains(theme),
-              let family = preferences["fontFamily"] as? String, ["publisher", "serif", "sans"].contains(family) else { throw Failure.invalidState }
+              let theme = preferences["theme"] as? String, themes.contains(theme),
+              let family = preferences["fontFamily"] as? String, fontFamilies.contains(family) else { throw Failure.invalidState }
         for (key, lower, upper) in [("fontSize", 0.5, 3.0), ("lineHeight", 1.0, 3.0), ("measure", 20.0, 120.0)] {
             guard let n = number(preferences[key]), n >= lower, n <= upper else { throw Failure.invalidState }
         }
@@ -55,6 +59,7 @@ public enum ReaderStateValidation {
         }
         if let alignment = preferences["textAlign"] { guard let alignment = alignment as? String, ["publisher", "start", "justify"].contains(alignment) else { throw Failure.invalidState } }
         if let columns = preferences["columns"] { guard let columns = columns as? String, ["one", "two"].contains(columns) else { throw Failure.invalidState } }
+        if let margins = preferences["margins"] { guard let margins = margins as? String, marginChoices.contains(margins) else { throw Failure.invalidState } }
         let paths = Set(publication.resources.map(\.path))
         func locator(_ raw: Any?) -> Bool {
             guard let raw = raw as? [String: Any], let href = raw["href"] as? String, paths.contains(href) else { return false }

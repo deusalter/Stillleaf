@@ -121,7 +121,7 @@ public final class ReaderStateTransfer {
         }
         var result = pick(source, ["schemaVersion", "editionId", "revision"])
         result["position"] = locator(source["position"])
-        result["preferences"] = pick(source["preferences"] as! [String: Any], ["theme", "fontFamily", "fontSize", "lineHeight", "measure", "scroll", "fontWeight", "textAlign", "hyphens", "letterSpacing", "wordSpacing", "columns"])
+        result["preferences"] = pick(source["preferences"] as! [String: Any], ["theme", "fontFamily", "fontSize", "lineHeight", "measure", "scroll", "fontWeight", "textAlign", "hyphens", "letterSpacing", "wordSpacing", "columns", "margins"])
         for key in ["bookmarks", "annotations"] {
             let keys = key == "bookmarks" ? ["id", "label", "createdAt"] : ["id", "quote", "note", "color", "createdAt", "updatedAt"]
             result[key] = (source[key] as! [[String: Any]]).map { item -> [String: Any] in

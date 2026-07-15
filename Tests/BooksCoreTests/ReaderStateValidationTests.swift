@@ -19,6 +19,42 @@ final class ReaderStateValidationTests: XCTestCase {
         value["position"] = ["href": "appendix.xhtml", "locations": ["progression": 1.0]] as [String: Any]
         XCTAssertNoThrow(try validate(value))
     }
+    func testEveryAppearanceChoiceIsAcceptedAndUnknownOnesAreNot() throws {
+        for (key, values) in [("theme", ReaderStateValidation.themes), ("fontFamily", ReaderStateValidation.fontFamilies), ("margins", ReaderStateValidation.marginChoices)] {
+            for choice in values {
+                var value = state
+                var preferences = value["preferences"] as! [String: Any]
+                preferences[key] = choice; value["preferences"] = preferences
+                XCTAssertNoThrow(try validate(value), "\(key)=\(choice)")
+            }
+            var value = state
+            var preferences = value["preferences"] as! [String: Any]
+            preferences[key] = "unknown"; value["preferences"] = preferences
+            XCTAssertThrowsError(try validate(value), key)
+        }
+    }
+    /// The renderer writes these ids; a mismatch would make every save of a new choice fail.
+    func testAppearanceIdsMatchTheRenderer() throws {
+        let source = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Reader/desktop/reader/src/appearance.js")
+        let text = try String(contentsOf: source, encoding: .utf8)
+        func ids(between start: String, and end: String) throws -> Set<String> {
+            let lower = try XCTUnwrap(text.range(of: start))
+            let upper = try XCTUnwrap(text.range(of: end, range: lower.upperBound..<text.endIndex))
+            let section = String(text[lower.upperBound..<upper.lowerBound])
+            let pattern = try NSRegularExpression(pattern: "\\{id:'([a-z]+)'")
+            return Set(pattern.matches(in: section, range: NSRange(section.startIndex..., in: section)).compactMap {
+                Range($0.range(at: 1), in: section).map { String(section[$0]) }
+            })
+        }
+        XCTAssertEqual(try ids(between: "export const THEMES", and: "export const THEME_IDS").union(["system"]), ReaderStateValidation.themes)
+        XCTAssertEqual(try ids(between: "export const FONTS", and: "export const FONT_IDS"), ReaderStateValidation.fontFamilies)
+        let margins = try XCTUnwrap(text.range(of: "export const MARGINS"))
+        let marginsEnd = try XCTUnwrap(text.range(of: "export const MARGIN_IDS"))
+        let marginSection = String(text[margins.upperBound..<marginsEnd.lowerBound])
+        XCTAssertEqual(Set(ReaderStateValidation.marginChoices.filter { marginSection.contains(" \($0):{") }), ReaderStateValidation.marginChoices)
+        XCTAssertEqual(marginSection.components(separatedBy: ":{label:").count - 1, ReaderStateValidation.marginChoices.count)
+    }
     func testBooleansAreNotNumericVersionsOrRevisions() {
         for key in ["schemaVersion", "revision"] {
             var value = state; value[key] = true
