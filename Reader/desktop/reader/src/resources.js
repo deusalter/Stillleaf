@@ -90,13 +90,15 @@ export class PublicationResources {
   const item=this.map.get(href);if(!item||!htmlTypes.has(item.type))throw Error('Only HTML EPUB chapters are supported in this build');
   if(this.chapters.has(href)){const html=this.chapters.get(href);this.chapters.delete(href);this.chapters.set(href,html);return html}
   const source=new TextDecoder().decode(await this.read(href));
-  for(let round=0;round<MAX_PRELOAD_ROUNDS;round++){
-   let needed;this.pending=new Set();
-   try{this.rewrite(source,href,true)}finally{needed=[...this.pending];this.pending=null}
-   if(!needed.length)break;
+  let html=null;
+  for(let round=0;round<MAX_PRELOAD_ROUNDS&&html===null;round++){
+   let needed,result;this.pending=new Set();
+   try{result=this.rewrite(source,href,true)}finally{needed=[...this.pending];this.pending=null}
+   // Nothing left to fetch: this pass already produced the final document.
+   if(!needed.length){for(const warning of result.warnings)this.warnings.add(warning);html=result.html;break}
    await Promise.all(needed.map(ref=>this.read(ref).catch(error=>this.warnings.add(error.message))));
   }
-  const html=this.rewrite(source,href,false);
+  html??=this.rewrite(source,href,false).html;
   this.release(item);this.chapters.set(href,html);
   while(this.chapters.size>CHAPTER_CACHE)this.chapters.delete(this.chapters.keys().next().value);
   return html;
@@ -122,7 +124,7 @@ export class PublicationResources {
    if(el.tagName==='LINK'&&el.getAttribute('rel')!=='stylesheet')el.remove();
   }
   const flow=doc.createElement('style');flow.textContent=':where(h1,h2,h3,h4,h5,h6){break-after:avoid;page-break-after:avoid;}';doc.head.insertBefore(flow,doc.head.firstChild);
-  return '<!doctype html>'+doc.documentElement.outerHTML;
+  return {html:'<!doctype html>'+doc.documentElement.outerHTML,warnings};
  }
  close(){for(const url of this.urls.values())URL.revokeObjectURL(url);this.urls.clear();this.chapters.clear();}
 }
