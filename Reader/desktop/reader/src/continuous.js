@@ -145,6 +145,9 @@ export class ContinuousNavigator {
   try{await this.ensureWindow(index);if(this.destroyed)return false;const entry=this.entries[index];if(!entry.frame)return false;
    const range=locatorRange(entry.frame.contentDocument,locator);const viewport=this.container.getBoundingClientRect();const delta=range?range.getBoundingClientRect().top:Math.max(0,Math.min(1,locator.locations?.progression??0))*Math.max(0,entry.height-this.container.clientHeight);
    this.container.scrollTop+=entry.frame.getBoundingClientRect().top-viewport.top+delta;this.currentIndex=index;await nextPaint();
+   // A jump is where the reader now is, even if report() is suppressed by other window work;
+   // otherwise the next resize restores the chapter the reader just left.
+   const landed=this.captureAnchor();this.lastAnchor=landed;this.current=landed?.locator??locator;
   }finally{this.suppress--}await this.ensureWindow(index);this.report();return true;
  }
  go(locator,_animated,callback){this.navigate(locator).then(callback,error=>{this.listeners.error?.(error);callback(false)})}
