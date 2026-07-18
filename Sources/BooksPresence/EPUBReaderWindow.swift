@@ -203,8 +203,13 @@ private final class EPUBReaderWindow: NSObject, NSWindowDelegate, WKNavigationDe
         let fm = FileManager.default
         let executableFolder = URL(fileURLWithPath: CommandLine.arguments[0]).deletingLastPathComponent()
         let candidates = [Bundle.main.resourceURL?.appendingPathComponent("Reader"), executableFolder.appendingPathComponent("Reader")].compactMap { $0 }
-        guard let shell = candidates.first(where: { fm.fileExists(atPath: $0.appendingPathComponent("index.html").path) }),
-              let enumerator = fm.enumerator(at: shell, includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey]) else {
+        // Resolve the folder first: SwiftPM's .build/release is a symlink, and the
+        // enumerator reports resolved paths, so an unresolved prefix yields wrong keys.
+        guard let found = candidates.first(where: { fm.fileExists(atPath: $0.appendingPathComponent("index.html").path) }) else {
+            throw EPUBImportError.invalid("Reader files are missing from this local build.")
+        }
+        let shell = found.resolvingSymlinksInPath().standardizedFileURL
+        guard let enumerator = fm.enumerator(at: shell, includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey]) else {
             throw EPUBImportError.invalid("Reader files are missing from this local build.")
         }
         var assets: [String: ReaderResourceMap.Asset] = [:]
@@ -212,7 +217,9 @@ private final class EPUBReaderWindow: NSObject, NSWindowDelegate, WKNavigationDe
             let values = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
             guard values.isSymbolicLink != true else { throw EPUBImportError.invalid("Invalid reader build resource.") }
             guard values.isRegularFile == true else { continue }
-            let path = String(url.path.dropFirst(shell.path.count + 1))
+            let filePath = url.resolvingSymlinksInPath().standardizedFileURL.path
+            guard filePath.hasPrefix(shell.path + "/") else { throw EPUBImportError.invalid("Invalid reader build resource.") }
+            let path = String(filePath.dropFirst(shell.path.count + 1))
             let mime: String
             switch url.pathExtension {
             case "html": mime = "text/html"; case "js": mime = "application/javascript"; case "css": mime = "text/css"
@@ -241,6 +248,7 @@ private final class EPUBReaderWindow: NSObject, NSWindowDelegate, WKNavigationDe
             return ReaderResourceMap.FileAsset(file: file, mimeType: served, byteCount: size)
         }
         let map = try ReaderResourceMap(resources: assets, files: files)
+        guard map.url(for: "index.html") != nil else { throw EPUBImportError.invalid("Reader files are missing from this local build.") }
         let resources: [[String: Any]] = try publication.resources.enumerated().map { index, item -> [String: Any] in
             guard let url = map.fileURL(at: index) else { throw EPUBImportError.invalid("Book resources could not be prepared.") }
             return ["href": item.path, "type": item.mediaType, "url": url.absoluteString, "size": files[index].byteCount]
