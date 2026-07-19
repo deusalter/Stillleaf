@@ -91,3 +91,7 @@ An initial continuous mount failure restores a working paginated mode and retain
 - Margins: Narrow, Normal and Wide set the page gutter and the inset above and below the page. Page width follows the chosen line length measured in the chosen typeface.
 
 `test/appearance.test.mjs` checks each theme's colours inside the book frame, the typeface list, margins, keyboard selection and persistence across reopen.
+
+## Page evidence
+
+The renderer reports `pageLayout` (a key per layout, and pages per turn: 1, or 2 for facing pages) and `pageTurn` (direction, pages, layout). Only deliberate sequential movement is a turn: paginated next/previous that actually moved, or one full screen of net scrolling in scroll mode. Contents, search, links, bookmarks, restores, reflow, resizes and multi-screen scrubbing never are. The Mac host keeps its own counter and samples it with the same bounded page-turn tracker used for Apple Books, so goals and streaks treat both sources alike. `test/page-evidence.test.mjs` covers these cases.

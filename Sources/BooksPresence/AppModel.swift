@@ -422,7 +422,8 @@ final class AppModel: ObservableObject {
             captureGeneration += 1
             readerWindow = nil
             apply(book: book, progress: nil, mode: .automatic, reason: book.trackingExcluded ? .excludedBook : nil,
-                  health: "Reading in Stillleaf. Time follows the active reader; reflowed pages are not counted as pages read.")
+                  health: "Reading in Stillleaf. Time follows the active reader; page turns count as pages, jumps and reflow do not.",
+                  pagePosition: epubReaders.focusedPagePosition)
             return
         }
         guard accessibilityGranted else { health = "Automatic tracking needs Accessibility access. Manual reading is available."; pause(.permissionLost); return }

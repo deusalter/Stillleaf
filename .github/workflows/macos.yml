@@ -33,13 +33,13 @@ jobs:
         id: epub-smoke
         if: ${{ !cancelled() && steps.reader-assets.outcome == 'success' }}
         run: |
-          python3 scripts/reader-review-fixture.py "$RUNNER_TEMP/reader-fixture.epub"
+          python3 scripts/reader-review-fixture.py "$RUNNER_TEMP/reader-fixture.epub" --chapters 3
           .build/release/BooksPresence --self-test-epub "$RUNNER_TEMP/reader-fixture.epub"
       - name: Native EPUB reader crash diagnostics
         if: ${{ failure() && steps.epub-smoke.outcome == 'failure' }}
         run: |
           fixture="$RUNNER_TEMP/reader-fixture.epub"
-          [[ -f "$fixture" ]] || python3 scripts/reader-review-fixture.py "$fixture"
+          [[ -f "$fixture" ]] || python3 scripts/reader-review-fixture.py "$fixture" --chapters 3
           report=$(ls -t ~/Library/Logs/DiagnosticReports/BooksPresence* 2>/dev/null | head -1 || true)
           if [[ -n "$report" ]]; then
             python3 - "$report" <<'PY'
