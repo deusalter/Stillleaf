@@ -1,11 +1,12 @@
 import Foundation
 
 public struct BookCompletionEvidence: Codable, Equatable {
+    public var startedAt: Date?
     public var finishedAt: Date?
     public var source: String
     public var imported: Bool
-    public init(finishedAt: Date?, source: String, imported: Bool) {
-        self.finishedAt = finishedAt; self.source = source; self.imported = imported
+    public init(startedAt: Date? = nil, finishedAt: Date?, source: String, imported: Bool) {
+        self.startedAt = startedAt; self.finishedAt = finishedAt; self.source = source; self.imported = imported
     }
 }
 
@@ -32,12 +33,13 @@ public struct FinishedBookEntry: Identifiable, Equatable {
     public var id: String
     public var title: String
     public var author: String?
+    public var startedAt: Date?
     public var finishedAt: Date?
     public var source: String
     public var imported: Bool
-    public init(id: String, title: String, author: String? = nil, finishedAt: Date? = nil,
+    public init(id: String, title: String, author: String? = nil, startedAt: Date? = nil, finishedAt: Date? = nil,
                 source: String, imported: Bool) {
-        self.id = id; self.title = title; self.author = author; self.finishedAt = finishedAt
+        self.id = id; self.title = title; self.author = author; self.startedAt = startedAt; self.finishedAt = finishedAt
         self.source = source; self.imported = imported
     }
 }
@@ -61,7 +63,7 @@ public enum BookHistory {
             let chosen = latest(manual.isEmpty ? values : manual)
             guard let chosen, let book = booksByID[bookID] else { continue }
             output.append(FinishedBookEntry(id: bookID, title: book.title, author: book.author,
-                                            finishedAt: chosen.evidence.finishedAt, source: chosen.evidence.source,
+                                            startedAt: chosen.evidence.startedAt, finishedAt: chosen.evidence.finishedAt, source: chosen.evidence.source,
                                             imported: chosen.evidence.imported))
         }
         return output.sorted { lhs, rhs in

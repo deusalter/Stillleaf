@@ -1,5 +1,6 @@
 import SwiftUI
 import BooksCore
+import UniformTypeIdentifiers
 
 @MainActor
 struct LibraryView: View {
@@ -9,6 +10,7 @@ struct LibraryView: View {
     @State private var search = ""
     @State private var sort = LibrarySort.recent
     @State private var removingBook: BookRecord?
+    @State private var removingEPUB: BookRecord?
 
     var body: some View {
         let resolver = BookMergeResolver(merges: model.merges)
@@ -44,9 +46,12 @@ struct LibraryView: View {
             HStack(alignment: .top) {
                 PageHeading(title: "Library", subtitle: "\(books.count) \(books.count == 1 ? "book" : "books") in your reading journal")
                 Spacer()
+                Button { model.epubLibrary.chooseFiles() } label: { Label("Import EPUBs", systemImage: "square.and.arrow.down") }
+                    .controlSize(.small)
                 Button { present(.manualAdd) } label: { Label("Add reading", systemImage: "plus") }
                     .controlSize(.small)
             }
+            EPUBImportStatusView(controller: model.epubLibrary)
             ReadingSegmentedControl(label: "Bookshelf", options: [LibraryShelf.reading, .finished, .all], selection: $shelf) { item in
                 switch item {
                 case .reading: return "Reading · \(books.filter { !finishedIDs.contains($0.id) }.count)"
@@ -72,7 +77,7 @@ struct LibraryView: View {
                 if visible.isEmpty {
                     ReadingEmptyState(title: search.isEmpty ? (shelf == .finished ? "Stories to look back on" : "Your next chapter awaits") : "No matching books",
                         symbol: "books.vertical",
-                        message: search.isEmpty ? (shelf == .finished ? "Books marked finished in Apple Books will appear here." : "Open a book in Apple Books, or add a reading session to start your shelf.") : "Try another title or author.")
+                        message: search.isEmpty ? (shelf == .finished ? "Books you mark finished will appear here." : "Import an EPUB, open a book in Apple Books, or add a reading session to start your shelf.") : "Try another title or author.")
                         .padding(.vertical, 35)
                 } else {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 150, maximum: 220), spacing: 18, alignment: .topLeading)],
@@ -83,13 +88,27 @@ struct LibraryView: View {
                                     finished: finishedIDs.contains(book.id), date: finishedIDs.contains(book.id) ? finishes[book.id] : recent[book.id],
                                     rating: model.rating(for: book.id)) { present(.book(book)) }
                                 HStack {
+                                    if model.hasImportedEPUB(book) {
+                                        if model.hasEPUB(book) {
+                                            Button("Read") { model.readEPUB(book) }.controlSize(.small)
+                                        } else {
+                                            Button("Import to read") { model.epubLibrary.chooseFiles() }.controlSize(.small)
+                                        }
+                                    }
                                     Spacer()
                                     Menu {
                                         Button {
                                             if let entry = model.markFinished(book) { present(.completion(entry)) }
                                         } label: { Label("Mark as finished", systemImage: "checkmark.circle") }.disabled(finishedIDs.contains(book.id))
                                         Divider()
-                                        Button("Remove from library…", role: .destructive) { removingBook = book }
+                                        if model.hasEPUB(book) {
+                                            Button("Export notes and reading settings…") { model.transferReaderState(book, importing: false) }
+                                            Button("Import notes and reading settings…") { model.transferReaderState(book, importing: true) }
+                                            Divider()
+                                            Button("Remove EPUB…") { removingEPUB = book }
+                                        } else {
+                                            Button("Delete journal entry…", role: .destructive) { removingBook = book }
+                                        }
                                     } label: { Image(systemName: "ellipsis").frame(width: 28, height: 24) }
                                     .menuStyle(.borderlessButton).fixedSize()
                                     .accessibilityLabel("Actions for \(book.title)")
@@ -103,6 +122,18 @@ struct LibraryView: View {
         .frame(maxWidth: 1060, maxHeight: .infinity, alignment: .topLeading)
         .padding(30).frame(maxWidth: .infinity, alignment: .top)
         .buttonStyle(ReadingButtonStyle())
+        .onDrop(of: [UTType.fileURL.identifier], isTargeted: nil) { model.epubLibrary.acceptDrop($0) }
+        .alert("Remove the managed EPUB?", isPresented: Binding(get: { removingEPUB != nil }, set: { if !$0 { removingEPUB = nil } })) {
+            Button("Keep EPUB elsewhere…") {
+                if let book = removingEPUB { model.removeEPUB(book, keepCopy: true) }; removingEPUB = nil
+            }
+            Button("Move EPUB to Trash", role: .destructive) {
+                if let book = removingEPUB { model.removeEPUB(book, keepCopy: false) }; removingEPUB = nil
+            }
+            Button("Cancel", role: .cancel) { removingEPUB = nil }
+        } message: {
+            Text("Your history, rating, review and saved reading state stay in Stillleaf. Keep a usable copy elsewhere, or move only Stillleaf's managed EPUB files to Trash. The original file you imported stays untouched.")
+        }
         .alert("Remove from library?", isPresented: Binding(get: { removingBook != nil }, set: { if !$0 { removingBook = nil } })) {
             Button("Remove book", role: .destructive) {
                 if let book = removingBook { model.deleteBook(book) }
@@ -372,6 +403,7 @@ struct BookDetailView: View {
                 Image(systemName: model.publicCoverURL(for: currentBook).isEmpty ? "photo.on.rectangle.angled" : "checkmark.seal.fill")
                     .foregroundStyle(model.publicCoverURL(for: currentBook).isEmpty ? ReadingPalette.fadedInk : ReadingPalette.moss)
             }
+            if currentBook.source != "stillleaf-epub" {
             DisclosureGroup("Use a different public cover link") {
                 VStack(alignment: .leading, spacing: 8) {
                     TextField("Public HTTPS image URL", text: $publicCoverURLDraft)
@@ -389,6 +421,10 @@ struct BookDetailView: View {
                     }
                 }
                 .padding(.top, 7)
+            }
+            } else {
+                Text("Reading here uses local cover art only. Discord uses the app's generic artwork; your EPUB cover is never uploaded.")
+                    .font(.caption).foregroundStyle(ReadingPalette.fadedInk)
             }
             DisclosureGroup("Local cover override") {
                 VStack(alignment: .leading, spacing: 7) {

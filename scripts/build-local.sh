@@ -12,6 +12,9 @@ FLAGS=(-sdk "$SDK" -target "$(uname -m)-apple-macosx13.0" -I Sources/CSQLite -en
 "$SWIFTC" "${FLAGS[@]}" -I "$OUT" -L "$OUT" -lBooksCore -emit-library -emit-module -module-name BooksPlatform Sources/BooksPlatform/*.swift -emit-module-path "$OUT/BooksPlatform.swiftmodule" -o "$OUT/libBooksPlatform.dylib" -Xlinker -install_name -Xlinker @rpath/libBooksPlatform.dylib
 "$SWIFTC" "${FLAGS[@]}" -I "$OUT" -L "$OUT" -lBooksCore -lBooksPlatform Sources/BooksDiagnostic/main.swift -o "$OUT/books-diagnostic" -Xlinker -rpath -Xlinker @executable_path -Xlinker -rpath -Xlinker @executable_path/../Frameworks
 if [[ "${1:-}" != "--diagnostic-only" ]]; then
+  if [[ "${BOOKSPRESENCE_SKIP_READER_BUILD:-0}" != "1" ]]; then
+    scripts/build-reader-assets.sh "$OUT"
+  fi
   "$SWIFTC" "${FLAGS[@]}" -I "$OUT" -L "$OUT" -lBooksCore -lBooksPlatform -parse-as-library Sources/BooksPresence/*.swift -o "$OUT/BooksPresence" -Xlinker -rpath -Xlinker @executable_path -Xlinker -rpath -Xlinker @executable_path/../Frameworks
 fi
 printf 'Built into %s\n' "$OUT"

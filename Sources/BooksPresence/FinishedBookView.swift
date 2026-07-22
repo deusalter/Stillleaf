@@ -33,6 +33,7 @@ struct FinishedBookPrompt: View {
     let entry: FinishedBookEntry
     @State private var rating: Double?
     @State private var writingReview = false
+    @State private var editingDates = false
 
     init(model: AppModel, entry: FinishedBookEntry) {
         self.model = model
@@ -60,6 +61,9 @@ struct FinishedBookPrompt: View {
                     Text(author).font(.callout).foregroundStyle(.secondary)
                 }
                 Text(finishDetail).font(.caption).foregroundStyle(.secondary)
+                Button("Reading dates · optional") { editingDates = true }.controlSize(.small)
+                Text("Already marked as read. You can skip dates and feedback.")
+                    .font(.caption).foregroundStyle(ReadingPalette.fadedInk)
                 Text("Congratulations. How did this one stay with you?")
                     .font(.callout).foregroundStyle(.secondary)
                 QuarterStarRating(rating: $rating)
@@ -87,9 +91,19 @@ struct FinishedBookPrompt: View {
         .buttonStyle(ReadingButtonStyle())
         .accessibilityElement(children: .contain)
         .sheet(isPresented: $writingReview) { BookReviewEditor(model: model, bookID: entry.id).readingMotionAccessibility() }
+        .sheet(isPresented: $editingDates) {
+            ReadingDatesEditor(title: entry.title,
+                dates: ReadingCompletionDates(startedAt: savedEntry.startedAt, finishedAt: savedEntry.finishedAt),
+                timezoneID: model.timezoneID) { dates in model.saveReadingDates(dates, for: entry.id) }
+        }
+    }
+
+    private var savedEntry: FinishedBookEntry {
+        model.finishedBooks.first { $0.id == entry.id } ?? entry
     }
 
     private var finishDetail: String {
+        let entry = savedEntry
         let date = entry.finishedAt.map { ReadingFormat.date($0) } ?? "Finish date unavailable"
         return "\(date) · \(entry.imported ? "Imported history" : entry.source)"
     }
@@ -218,6 +232,7 @@ private struct FinishedBookTimelineRow: View {
     let calendar: Calendar
     @State private var rating: Double?
     @State private var isEditing = false
+    @State private var editingDates = false
 
     init(model: AppModel, entry: FinishedBookEntry, calendar: Calendar) {
         self.model = model
@@ -264,6 +279,11 @@ private struct FinishedBookTimelineRow: View {
             }
         }
         .accessibilityElement(children: .contain)
+        .sheet(isPresented: $editingDates) {
+            ReadingDatesEditor(title: entry.title,
+                dates: ReadingCompletionDates(startedAt: entry.startedAt, finishedAt: entry.finishedAt),
+                timezoneID: model.timezoneID) { dates in model.saveReadingDates(dates, for: entry.id) }
+        }
     }
 
     private var wideLayout: some View {
@@ -331,6 +351,7 @@ private struct FinishedBookTimelineRow: View {
                     .font(.caption).foregroundStyle(ReadingPalette.fadedInk)
                 Spacer(minLength: 6)
                 VStack(alignment: .leading, spacing: 7) {
+                    Button("Edit reading dates") { editingDates = true }.controlSize(.small)
                     RatingStars(rating: model.rating(for: entry.id))
                     Button(model.rating(for: entry.id) == nil ? "Rate this book" : "Edit rating") {
                         rating = model.rating(for: entry.id)

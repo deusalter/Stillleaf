@@ -1,0 +1,21 @@
+{
+  "name": "stillleaf-reader-renderer",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Shared offline EPUB renderer loaded by the Mac and desktop reader hosts",
+  "type": "module",
+  "scripts": {
+    "build": "vite build --config vite.config.mjs",
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "@readium/navigator": "2.10.3",
+    "@readium/shared": "2.5.1",
+    "css-tree": "3.2.1",
+    "dompurify": "3.4.16"
+  },
+  "devDependencies": {
+    "playwright": "^1.56.1",
+    "vite": "7.3.6"
+  }
+}

@@ -24,6 +24,10 @@ public final class CoverCache {
         lastCheck.removeValue(forKey: bookID)
         return result
     }
+    public func explicitEPUBImage(from url: URL) throws -> CachedCover {
+        lock.lock(); defer { lock.unlock() }
+        return try cache(boundedImage(url), source: "EPUB embedded cover")
+    }
     public func cover(bookID: String, assetURL: URL) throws -> CachedCover? {
         lock.lock(); defer { lock.unlock() }
         if let recent = lastCheck[bookID], Date().timeIntervalSince(recent.0) < 60 { return recent.1 }
