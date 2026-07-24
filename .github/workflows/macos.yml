@@ -9,14 +9,56 @@ jobs:
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: Reader/desktop/reader/package-lock.json
       - name: Toolchain
-        run: swift --version
+        run: swift --version && node --version
       - name: Build and test pure logic and synthetic adapters
         run: swift test --parallel
       - name: Release build
         run: swift build -c release
+      - name: Build reader renderer next to the release binary
+        id: reader-assets
+        run: scripts/build-reader-assets.sh .build/release
+      - name: Renderer tests (headless Chrome)
+        run: npm --prefix Reader/desktop/reader test
+      # Native checks still run when renderer tests fail, so one red step never hides another.
       - name: Native model and view self-check
+        if: ${{ !cancelled() && steps.reader-assets.outcome == 'success' }}
         run: .build/release/BooksPresence --self-test-ui
+      - name: Native EPUB reader smoke (offscreen WKWebView, synthetic book)
+        id: epub-smoke
+        if: ${{ !cancelled() && steps.reader-assets.outcome == 'success' }}
+        run: |
+          python3 scripts/reader-review-fixture.py "$RUNNER_TEMP/reader-fixture.epub" --chapters 3
+          .build/release/BooksPresence --self-test-epub "$RUNNER_TEMP/reader-fixture.epub"
+      - name: Native EPUB reader crash diagnostics
+        if: ${{ failure() && steps.epub-smoke.outcome == 'failure' }}
+        run: |
+          fixture="$RUNNER_TEMP/reader-fixture.epub"
+          [[ -f "$fixture" ]] || python3 scripts/reader-review-fixture.py "$fixture" --chapters 3
+          report=$(ls -t ~/Library/Logs/DiagnosticReports/BooksPresence* 2>/dev/null | head -1 || true)
+          if [[ -n "$report" ]]; then
+            python3 - "$report" <<'PY'
+          import json, sys
+          text = open(sys.argv[1]).read()
+          header, _, body = text.partition("\n")
+          crash = json.loads(body)
+          print("exception:", crash.get("exception"), crash.get("termination", {}).get("indicator"))
+          images = crash.get("usedImages", [])
+          thread = crash["threads"][crash.get("faultingThread", 0)]
+          for frame in thread.get("frames", [])[:40]:
+              image = images[frame["imageIndex"]].get("name", "?") if frame.get("imageIndex", -1) < len(images) else "?"
+              print(f"{image:28} {frame.get('symbol', hex(frame.get('imageOffset', 0)))} {frame.get('sourceFile', '')}:{frame.get('sourceLine', '')}")
+          PY
+          fi
+          # Debug builds report the exact trap message and source line.
+          swift build
+          scripts/build-reader-assets.sh .build/debug
+          .build/debug/BooksPresence --self-test-epub "$fixture" || true
       - name: Package development app
         run: scripts/package-app.sh
       - uses: actions/upload-artifact@v4

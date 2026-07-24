@@ -1,6 +1,6 @@
 # Shared reading surface
 
-Browser-only Readium UI. No Node references or privileged bridge. Build from `Reader/desktop` with `npm run build:reader`; run headless interaction coverage with `node --test test/reader-ui.test.mjs`. Tests use installed Chrome (override `CHROME_PATH`) and generated text, with no user library or visible windows. September 24 local result: Chrome 153.0.8010.53 passed; this is not Windows or native WebKit evidence.
+Browser-only Readium UI. No Node references or privileged bridge. This directory is its own npm package: `npm ci && npm run build` writes `dist/`, which `scripts/build-reader-assets.sh` copies into the Mac build. `npm test` runs the headless interaction coverage in `test/`. Tests use installed Chrome (override `CHROME_PATH`) and generated text, with no user library or visible windows. September 24 local result: Chrome 153.0.8010.53 passed; this is not Windows or native WebKit evidence.
 
 ## Host contract
 
@@ -81,3 +81,17 @@ Current explicit limits: 8MiB source per continuous chapter,250000CSSpx chapter 
 Review hardening: frame bookkeeping is a WeakSet, with explicit unload deletion; a CDP forced-GC regression confirms sampled evicted windows are collectible after repeated jumps. This is bounded evidence, not a universal heap-size guarantee. Quote fallback now requires supplied before/after context to match and never substitutes a whole selector as a highlight. Injected appearance/highlight styles use element references, preserving colliding publisher IDs. Rendered body/descendant rectangles determine chapter height in CSS pixels; WebKit's already-zoomed scrollHeight is never multiplied again. Layout traversal rejects sections above20000elements.
 
 An initial continuous mount failure restores a working paginated mode and retains personal state, with an explicit notice. Missing CSS Custom Highlight support triggers that fallback; on such older engines saved notes remain available in the Notes list/state, but visual decorations are unavailable in either navigator. The host minimum-version/fidelity review must account for that limitation. Regression covers missing API, oversized initial layout, preserved annotation payloads and no unhandled page errors.
+
+## Appearance
+
+`src/appearance.js` is the single table of page themes, typefaces and margins. Its ids are saved in reader state and whitelisted by the native validator (`ReaderStateValidation`), which has an XCTest that fails if the two lists drift; ids are never renamed once shipped.
+
+- Themes: System (Stillleaf by day, Dark at night), Original, Stillleaf, Warm, Calm, Focus, Quiet, Dark and Night. The reader bar and panels take the page's colours. Night keeps contrast low and dims illustrations.
+- Typefaces: Original (publisher), New York, San Francisco, Athelas, Charter, Georgia, Iowan, Palatino, Seravek and Times New Roman. Only faces installed on the computer are offered, detected by measuring text against the generic fallbacks; a saved choice stays visible even where it is missing.
+- Margins: Narrow, Normal and Wide set the page gutter and the inset above and below the page. Page width follows the chosen line length measured in the chosen typeface.
+
+`test/appearance.test.mjs` checks each theme's colours inside the book frame, the typeface list, margins, keyboard selection and persistence across reopen.
+
+## Page evidence
+
+The renderer reports `pageLayout` (a key per layout, and pages per turn: 1, or 2 for facing pages) and `pageTurn` (direction, pages, layout). Only deliberate sequential movement is a turn: paginated next/previous that actually moved, or one full screen of net scrolling in scroll mode. Contents, search, links, bookmarks, restores, reflow, resizes and multi-screen scrubbing never are. The Mac host keeps its own counter and samples it with the same bounded page-turn tracker used for Apple Books, so goals and streaks treat both sources alike. `test/page-evidence.test.mjs` covers these cases.

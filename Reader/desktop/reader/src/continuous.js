@@ -40,7 +40,7 @@ export class ContinuousNavigator {
   this.container.classList.add('continuous-reader');this.container.style.removeProperty('width');this.container.tabIndex=0;this.container.setAttribute('aria-label','Continuous book');
   for(const [index,link]of this.input.readingOrder.entries()){
    const section=document.createElement('section');section.className='continuous-chapter';section.dataset.href=link.href;section.setAttribute('aria-label',link.title||`Section ${index+1}`);
-   const size=this.pool.map.get(link.href)?.bytes.length??0;const height=Math.max(240,Math.min(50000,size*.35));section.style.height=height+'px';this.container.append(section);this.entries.push({index,link,section,height,frame:null,url:null,observer:null,failed:null,ranges:[]});
+   const size=this.pool.size(link.href);const height=Math.max(240,Math.min(50000,size*.35));section.style.height=height+'px';this.container.append(section);this.entries.push({index,link,section,height,frame:null,url:null,observer:null,failed:null,ranges:[]});
   }
   this.container.addEventListener('scroll',this.onScroll,{passive:true});this.resizeObserver=new ResizeObserver(this.onResize);this.resizeObserver.observe(this.container);
   const index=Math.max(0,this.entries.findIndex(e=>e.link.href===this.initial?.href));await this.ensureWindow(index);
@@ -50,12 +50,14 @@ export class ContinuousNavigator {
  preferenceCSS(){
   const p=this.settings,gutter=p.scrollPaddingLeft??44,weight=p.fontWeight==null?'':`font-weight:${p.fontWeight}!important;`,family=p.fontFamily?`font-family:${p.fontFamily}!important;`:'';
   const align=p.textAlign?`text-align:${p.textAlign}!important;`:'';const hyphens=typeof p.hyphens==='boolean'?`hyphens:${p.hyphens?'auto':'none'}!important;-webkit-hyphens:${p.hyphens?'auto':'none'}!important;`:'';
-  return `html{background:${p.backgroundColor};color:${p.textColor}}body{padding:24px ${gutter}px 32px!important;zoom:${p.fontSize};color:${p.textColor}!important;background:${p.backgroundColor}!important;line-height:${p.lineHeight}!important;${weight}${family}}:where(p,li,dd,dt,blockquote){${weight?'font-weight:inherit!important;':''}${family?'font-family:inherit!important;':''}${align}${hyphens}letter-spacing:${p.letterSpacing??0}rem!important;word-spacing:${p.wordSpacing??0}rem!important}a{color:${p.linkColor}!important}::selection{background:${p.selectionBackgroundColor}}`;
+  return `html{background:${p.backgroundColor};color:${p.textColor}}body{padding:24px ${gutter}px 32px!important;zoom:${p.fontSize};color:${p.textColor}!important;background:${p.backgroundColor}!important;line-height:${p.lineHeight}!important;${weight}${family}}:where(p,li,dd,dt,blockquote){${weight?'font-weight:inherit!important;':''}${family?'font-family:inherit!important;':''}${align}${hyphens}letter-spacing:${p.letterSpacing??0}rem!important;word-spacing:${p.wordSpacing??0}rem!important}a{color:${p.linkColor}!important}::selection{background:${p.selectionBackgroundColor}}${p.darkenFilter?'img,svg,video{filter:brightness(.8)}':''}`;
  }
  async mount(entry){
   if(this.destroyed||entry.frame||entry.failed)return;
-  if((this.pool.map.get(entry.link.href)?.bytes.length??0)>MAX_CHAPTER_BYTES)throw Error('This section is too large for continuous view. Use Single page or Facing pages.');
-  const generation=this.epoch,doc=new DOMParser().parseFromString(this.pool.chapter(entry.link.href),'text/html');
+  if(this.pool.size(entry.link.href)>MAX_CHAPTER_BYTES)throw Error('This section is too large for continuous view. Use Single page or Facing pages.');
+  const generation=this.epoch,html=await this.pool.chapter(entry.link.href);
+  if(this.destroyed||entry.frame||generation!==this.epoch)return;
+  const doc=new DOMParser().parseFromString(html,'text/html');
   if(!doc.documentElement.lang)doc.documentElement.lang=this.input.languages?.[0]||this.input.language||'en';
   if(!doc.documentElement.hasAttribute('dir')&&this.input.readingProgression==='rtl')doc.documentElement.dir='rtl';
   const base=doc.createElement('style');base.textContent=this.baseCSS();doc.head.prepend(base);
@@ -143,6 +145,9 @@ export class ContinuousNavigator {
   try{await this.ensureWindow(index);if(this.destroyed)return false;const entry=this.entries[index];if(!entry.frame)return false;
    const range=locatorRange(entry.frame.contentDocument,locator);const viewport=this.container.getBoundingClientRect();const delta=range?range.getBoundingClientRect().top:Math.max(0,Math.min(1,locator.locations?.progression??0))*Math.max(0,entry.height-this.container.clientHeight);
    this.container.scrollTop+=entry.frame.getBoundingClientRect().top-viewport.top+delta;this.currentIndex=index;await nextPaint();
+   // A jump is where the reader now is, even if report() is suppressed by other window work;
+   // otherwise the next resize restores the chapter the reader just left.
+   const landed=this.captureAnchor();this.lastAnchor=landed;this.current=landed?.locator??locator;
   }finally{this.suppress--}await this.ensureWindow(index);this.report();return true;
  }
  go(locator,_animated,callback){this.navigate(locator).then(callback,error=>{this.listeners.error?.(error);callback(false)})}

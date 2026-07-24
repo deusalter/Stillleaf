@@ -3,6 +3,7 @@ import {Manifest,Publication,Locator} from '@readium/shared';
 import {PublicationResources,PublicationFetcher} from './resources';
 import {ContinuousNavigator} from './continuous';
 import {DEFAULT_PREFERENCES,preferences,restoreState,selectorFor,rangePoint} from './state';
+import {THEMES,FONTS,MARGINS,resolveTheme,fontStack,fontAvailable,marginMetrics,averageCharacterWidth} from './appearance';
 
 const $=id=>document.getElementById(id);
 const clone=value=>JSON.parse(JSON.stringify(value));
@@ -59,7 +60,14 @@ function headingFor(href){
  if(headingCache.has(href))return headingCache.get(href);
  const index=input.readingOrder.findIndex(x=>x.href===href),link=input.readingOrder[index];
  if(link?.title){headingCache.set(href,link.title);return link.title;}
- try{const doc=new DOMParser().parseFromString(pool.chapter(href),'text/html');const title=doc.querySelector('h1,h2')?.textContent?.trim().slice(0,200)||`Chapter ${index+1}`;headingCache.set(href,title);return title}catch{return `Chapter ${index+1}`}
+ // Chapters load on demand; show the ordinal until the heading is known.
+ const fallback=`Chapter ${index+1}`,owner=pool;headingCache.set(href,fallback);
+ pool.chapter(href).then(html=>{
+  if(pool!==owner)return;
+  const title=new DOMParser().parseFromString(html,'text/html').querySelector('h1,h2')?.textContent?.trim().slice(0,200);
+  if(title){headingCache.set(href,title);if(lastLocator?.href===href)updatePosition()}
+ },()=>{});
+ return fallback;
 }
 function updatePosition(){
  if(!lastLocator)return;
@@ -69,18 +77,57 @@ function updatePosition(){
  $('save-bookmark').setAttribute('aria-pressed',String(saved));$('save-bookmark').setAttribute('aria-label',saved?'Remove bookmark':'Add bookmark');$('save-bookmark').title=saved?'Remove bookmark':'Add bookmark';
 }
 function samePlace(a,b){return a.href===b.href&&Math.abs((a.locations?.progression??0)-(b.locations?.progression??0))<.002}
-function theme(){return state?.preferences.theme==='system'?(media.matches?'dark':'paper'):(state?.preferences.theme??'paper')}
+function currentTheme(){return resolveTheme(state?.preferences.theme??'system',media.matches)}
+function theme(){return currentTheme().id}
+const compactWindow=()=>innerWidth<640;
 function readiumPreferences(){
- const p=state.preferences,t=theme(),dark=t==='dark',warm=t==='sepia';
- return {fontSize:p.fontSize,fontFamily:p.fontFamily==='serif'?'Georgia, "Times New Roman", serif':p.fontFamily==='sans'?'system-ui, sans-serif':null,fontWeight:p.fontWeight,textAlign:p.textAlign==='publisher'?null:p.textAlign,hyphens:p.hyphens,letterSpacing:p.letterSpacing,wordSpacing:p.wordSpacing,scroll:p.scroll,scrollPaddingTop:0,scrollPaddingBottom:0,scrollPaddingLeft:innerWidth<640?20:44,scrollPaddingRight:innerWidth<640?20:44,lineHeight:p.lineHeight,optimalLineLength:p.measure,maximalLineLength:Math.min(75,p.measure+5),minimalLineLength:effectiveColumns()===2?Math.min(20,p.measure):Math.min(p.measure,Math.max(20,p.measure-15)),pageGutter:innerWidth<640?20:44,columnCount:effectiveColumns(),backgroundColor:dark?'#1C302D':warm?'#F6F1E3':'#F0F7F3',textColor:dark?'#E7F3EA':warm?'#403B2C':'#183D33',linkColor:dark?'#70DAB2':'#087D65',selectionBackgroundColor:dark?'#466858':'#B9DCCE'};
+ const p=state.preferences,t=currentTheme(),{gutter}=marginMetrics(p.margins,compactWindow());
+ return {fontSize:p.fontSize,fontFamily:fontStack(p.fontFamily),fontWeight:p.fontWeight,textAlign:p.textAlign==='publisher'?null:p.textAlign,hyphens:p.hyphens,letterSpacing:p.letterSpacing,wordSpacing:p.wordSpacing,scroll:p.scroll,scrollPaddingTop:0,scrollPaddingBottom:0,scrollPaddingLeft:gutter,scrollPaddingRight:gutter,lineHeight:p.lineHeight,optimalLineLength:p.measure,maximalLineLength:Math.min(75,p.measure+5),minimalLineLength:effectiveColumns()===2?Math.min(20,p.measure):Math.min(p.measure,Math.max(20,p.measure-15)),pageGutter:gutter,columnCount:effectiveColumns(),backgroundColor:t.background,textColor:t.text,linkColor:t.link,selectionBackgroundColor:t.selection,darkenFilter:t.dimImages===true};
+}
+/** Page width for the chosen measure: the chosen typeface's measured advance, or an
+ *  average serif estimate when the publisher's own font is in use. */
+function readingWidth(){
+ const p=state.preferences,{gutter}=marginMetrics(p.margins,compactWindow()),size=16*p.fontSize,stack=fontStack(p.fontFamily);
+ const perCharacter=(stack&&averageCharacterWidth(stack,size))||size*.48;
+ return (p.measure*perCharacter+2*gutter)*effectiveColumns();
+}
+function applyChromeTheme(t){
+ const root=document.documentElement.style;root.colorScheme=t.scheme;
+ for(const [name,value]of [['chrome',t.chrome],['paper',t.background],['ink',t.text],['muted',t.muted],['accent',t.link],['line',t.text+(t.scheme==='dark'?'20':'1c')],['hover',t.scheme==='dark'?'#ffffff0d':t.text+'0f'],['panel',t.panel]])root.setProperty('--'+name,value);
+}
+function renderAppearanceControls(){
+ const themes=$('theme-options');
+ if(!themes.childElementCount){
+  const system={id:'system',label:'System'};
+  for(const t of [system,...THEMES]){
+   const b=document.createElement('button');b.dataset.theme=t.id;b.setAttribute('aria-label',t.label);b.setAttribute('aria-pressed','false');b.title=t.label;
+   const swatch=document.createElement('span');swatch.className='swatch';
+   if(t.id==='system'){const day=resolveTheme('system',false),night=resolveTheme('system',true);swatch.style.background=`linear-gradient(90deg,${day.background} 50%,${night.background} 50%)`;swatch.style.color=day.link}
+   else{swatch.style.background=t.background;swatch.style.color=t.text}
+   b.append(swatch,document.createTextNode(t.label));b.onclick=()=>void setPreferences({theme:t.id});themes.append(b);
+  }
+ }
+ const fonts=$('font-options'),chosen=state?.preferences.fontFamily,focused=fonts.contains(document.activeElement)?document.activeElement.dataset.font:null;fonts.replaceChildren();
+ for(const f of FONTS){
+  // Offer installed typefaces; keep a saved choice visible even if this Mac lacks it.
+  if(!fontAvailable(f.id)&&f.id!==chosen)continue;
+  const b=document.createElement('button');b.className='font-option';b.dataset.font=f.id;b.setAttribute('role','radio');b.setAttribute('aria-checked',String(f.id===chosen));b.tabIndex=f.id===chosen?0:-1;
+  b.textContent=f.label;if(f.stack)b.style.fontFamily=f.stack;if(!fontAvailable(f.id))b.title=f.label+' is not installed on this computer';
+  b.onclick=()=>void setPreferences({fontFamily:f.id});fonts.append(b);
+ }
+ if(focused)fonts.querySelector(`[data-font="${focused}"]`)?.focus();
+ const margins=$('margins');
+ if(!margins.childElementCount)for(const [id,m]of Object.entries(MARGINS)){const b=document.createElement('button');b.dataset.margins=id;b.setAttribute('role','radio');b.textContent=m.label;b.onclick=()=>void setPreferences({margins:id});margins.append(b)}
+ for(const b of margins.children){const on=b.dataset.margins===(state?.preferences.margins??'normal');b.setAttribute('aria-checked',String(on));b.tabIndex=on?0:-1}
 }
 function syncAppearance(){
  if(!state)return;
- document.documentElement.dataset.theme=theme();
+ const t=currentTheme();document.documentElement.dataset.theme=t.id;applyChromeTheme(t);
  // Bound the parent Readium measures, rather than clipping its computed frame.
- document.documentElement.style.setProperty('--reading-width',((state.preferences.measure*16*state.preferences.fontSize*.48+88)*effectiveColumns())+'px');
+ document.documentElement.style.setProperty('--reading-width',readingWidth()+'px');
+ document.documentElement.style.setProperty('--page-inset',marginMetrics(state.preferences.margins,compactWindow()).inset+'px');
+ renderAppearanceControls();
  for(const button of document.querySelectorAll('[data-theme]'))button.setAttribute('aria-pressed',String(button.dataset.theme===state.preferences.theme));
- $('font-family').value=state.preferences.fontFamily;
  $('reading-mode').value=state.preferences.scroll?'continuous':state.preferences.columns==='two'?'facing':'single';$('font-weight').querySelector('[data-custom]')?.remove();if(state.preferences.fontWeight!==null&&![400,700].includes(state.preferences.fontWeight)){const option=document.createElement('option');option.dataset.custom='true';option.value=String(state.preferences.fontWeight);option.textContent='Custom ('+state.preferences.fontWeight+')';$('font-weight').append(option)}$('font-weight').value=state.preferences.fontWeight==null?'publisher':String(state.preferences.fontWeight);$('text-align').value=state.preferences.textAlign;$('hyphens').value=state.preferences.hyphens==null?'publisher':String(state.preferences.hyphens);
  $('previous').title=state.preferences.scroll?'Previous section':'Previous page';$('next').title=state.preferences.scroll?'Next section':'Next page';
  $('columns-note').textContent=state.preferences.scroll?'Columns apply when reading in pages.':state.preferences.columns==='two'&&!widePage.matches?'Two columns return when the window is wider.':'Two columns use one column in narrow windows.';
@@ -105,7 +152,7 @@ async function setPreferences(value,retained){
  if(!state)return;
  const location=retained??(navigator?.kind==='continuous'?visibleAnchor():stableAnchor??visibleAnchor());if(location)stableAnchor=clone(location);reflowCount++;
  const restore=Object.keys(value).some(key=>!['theme'].includes(key))||Object.keys(value).length===0;
- state.preferences=preferences({...state.preferences,...value});syncAppearance();changed();
+ state.preferences=preferences({...state.preferences,...value});syncAppearance();changed();relayout();
  const settings=readiumPreferences(),generation=lifecycle;
  preferenceQueue=preferenceQueue.catch(()=>{}).then(async()=>{if(generation!==lifecycle||!navigator)return;const current=navigator,continuous=Boolean(input.experimentalContinuous&&settings.scroll);if((current.kind==='continuous')!==continuous){await current.destroy();if(generation===lifecycle)await installNavigator(location,settings)}else{await current.submitPreferences(new EpubPreferences(settings));if(restore&&location&&current===navigator&&generation===lifecycle){await new Promise(resolve=>setTimeout(resolve,120));if(generation===lifecycle)await go(location,false)}}});
  try{await preferenceQueue}finally{reflowCount=Math.max(0,reflowCount-1)}
@@ -219,12 +266,35 @@ function editNote(item=selection){
  showDialog('note-panel','note-text');
 }
 async function go(value,recordHistory=true){
- const locator=validLocator(value);if(!navigator||!locator)return false;
+ const locator=validLocator(value);if(!navigator||!locator)return false;quietUntil=performance.now()+800;
  if(!input.readingOrder.some(link=>link.href===locator.href)){notice('This saved passage is outside the supported reading sequence.');return false;}
  const before=lastLocator?clone(lastLocator):null;dismissSelection();
  return new Promise(resolve=>{const timeout=setTimeout(()=>resolve(false),4000);try{navigator.go(engineLocator(locator),false,ok=>{clearTimeout(timeout);if(ok){stableAnchor=clone(locator)}if(ok&&recordHistory&&before){jumpHistory.push(before);if(jumpHistory.length>100)jumpHistory.shift();updateHistory();}resolve(ok)})}catch(error){clearTimeout(timeout);notice('This passage could not be opened.');resolve(false)}});
 }
-function turn(direction){dismissSelection();if(navigator)(direction==='next'?navigator.goForward.bind(navigator):navigator.goBackward.bind(navigator))(false,()=>{stableAnchor=visibleAnchor();if(!state?.preferences.scroll&&!matchMedia('(prefers-reduced-motion: reduce)').matches)$('reader').animate([{opacity:.84,transform:`perspective(1600px) rotateY(${direction==='next'?'-':'+'}1.5deg)`},{opacity:1,transform:'none'}],{duration:140,easing:'ease-out'})})}
+// Page evidence for reading goals. Only deliberate sequential movement is reported:
+// page turns in paginated modes and full screens scrolled by the reader. Jumps
+// (contents, search, links, bookmarks), restores, reflow and resizes never are. Each
+// layout gets its own key, so the host starts a fresh baseline after any change.
+let layoutGeneration=0,announcedLayout=null,quietUntil=0,scrollState=new WeakMap();
+const pagesPerTurn=()=>state?.preferences.scroll?1:effectiveColumns();
+const layoutKey=()=>(state?.preferences.scroll?'s':'p')+pagesPerTurn()+'-'+layoutGeneration;
+function announceLayout(){if(!state||opening||navigator?.kind==='continuous')return;const layout=layoutKey();if(layout===announcedLayout)return;announcedLayout=layout;emit('pageLayout',{layout,pages:pagesPerTurn()})}
+function relayout(){layoutGeneration++;quietUntil=performance.now()+800;scrollState=new WeakMap();announceLayout()}
+function pageTurned(direction){if(!state||navigator?.kind==='continuous')return;announceLayout();emit('pageTurn',{direction,pages:pagesPerTurn(),layout:layoutKey()})}
+/** Scroll mode: one page-equivalent per full screen of net movement by the reader. */
+function trackScroll(wnd){
+ if(!state?.preferences.scroll||navigator?.kind==='continuous')return;
+ const y=wnd.scrollY,height=wnd.innerHeight,now=performance.now(),last=scrollState.get(wnd);
+ if(!last||now<quietUntil||boundaryBusy||reflowCount||resizing||!(height>0)){scrollState.set(wnd,{y,net:0});return}
+ const delta=y-last.y;
+ // Scrubbing or programmatic jumps move several screens at once; they are never reading.
+ if(Math.abs(delta)>height*1.5){scrollState.set(wnd,{y,net:0});return}
+ let net=last.net+delta;
+ while(net>=height){net-=height;pageTurned('forward')}
+ while(net<=-height){net+=height;pageTurned('backward')}
+ scrollState.set(wnd,{y,net});
+}
+function turn(direction){dismissSelection();if(navigator)(direction==='next'?navigator.goForward.bind(navigator):navigator.goBackward.bind(navigator))(false,moved=>{if(moved===true&&!state?.preferences.scroll)pageTurned(direction==='next'?'forward':'backward');stableAnchor=visibleAnchor();if(!state?.preferences.scroll&&!matchMedia('(prefers-reduced-motion: reduce)').matches)$('reader').animate([{opacity:.84,transform:`perspective(1600px) rotateY(${direction==='next'?'-':'+'}1.5deg)`},{opacity:1,transform:'none'}],{duration:140,easing:'ease-out'})})}
 let boundaryBusy=false;
 async function crossScrollBoundary(wnd,delta,event){
  if(navigator?.kind==='continuous'||!state?.preferences.scroll||boundaryBusy||!delta||document.querySelector('dialog[open]'))return;
@@ -250,7 +320,8 @@ async function searchBook(){
  $('search-status').textContent='Searching…';let found=0;
  for(const link of input.readingOrder){
   if(generation!==searchGeneration)return;
-  const doc=new DOMParser().parseFromString(pool.chapter(link.href),'text/html');
+  let doc;try{doc=new DOMParser().parseFromString(await pool.chapter(link.href),'text/html')}catch{continue}
+  if(generation!==searchGeneration)return;
   const candidates=[...doc.querySelectorAll('h1,h2,h3,p,li,blockquote,pre,td,dd,dt')].filter(x=>!x.querySelector('h1,h2,h3,p,li,blockquote,pre,td,dd,dt'));
   for(const element of candidates){
    const text=element.textContent,index=text.toLocaleLowerCase().indexOf(query.toLocaleLowerCase());if(index<0)continue;
@@ -270,7 +341,7 @@ async function installNavigator(location,settings=readiumPreferences()){
    positionChanged:locator=>{if(generation!==lifecycle||!state)return;lastLocator=locator.serialize();if(opening&&state.position){updatePosition();return;}state.position=clone(lastLocator);updatePosition();changed(false);emit('relocated',{locator:lastLocator,cause:'unknown',eligibleForProgress:false})},
    frameUnloaded:wnd=>frames.delete(wnd),
    textSelected:value=>{if(generation===lifecycle)selected(value)},
-   frameLoaded:wnd=>{if(!wnd.CSS?.highlights&&navigator)navigator.decorationsAvailable=false;if(!frames.has(wnd)){frames.add(wnd);wnd.document.addEventListener('keydown',keyboard);wnd.addEventListener('wheel',event=>{void crossScrollBoundary(wnd,event.deltaY,event);if(!boundaryBusy)setTimeout(()=>{if(!reflowCount&&!resizing)stableAnchor=visibleAnchor()},100)},{passive:false});wnd.document.addEventListener('keydown',event=>{if(['ArrowDown','PageDown','ArrowUp','PageUp'].includes(event.key)&&!['INPUT','TEXTAREA','SELECT'].includes(event.target?.tagName)){void crossScrollBoundary(wnd,['ArrowDown','PageDown'].includes(event.key)?1:-1,event);setTimeout(()=>{if(!boundaryBusy&&!reflowCount&&!resizing)stableAnchor=visibleAnchor()},100)}});wnd.document.addEventListener('pointerup',followPublicationLink,true);wnd.document.addEventListener('click',followPublicationLink,true);wnd.document.addEventListener('keyup',()=>{const text=wnd.getSelection()?.toString();if(text&&lastLocator&&navigator?.kind!=='continuous')selected({text,locator:Locator.deserialize({...lastLocator,text:{highlight:text}})});});}},
+   frameLoaded:wnd=>{if(!wnd.CSS?.highlights&&navigator)navigator.decorationsAvailable=false;if(!frames.has(wnd)){frames.add(wnd);wnd.document.addEventListener('keydown',keyboard);wnd.addEventListener('wheel',event=>{void crossScrollBoundary(wnd,event.deltaY,event);if(!boundaryBusy)setTimeout(()=>{if(!reflowCount&&!resizing)stableAnchor=visibleAnchor()},100)},{passive:false});wnd.document.addEventListener('keydown',event=>{if(['ArrowDown','PageDown','ArrowUp','PageUp'].includes(event.key)&&!['INPUT','TEXTAREA','SELECT'].includes(event.target?.tagName)){void crossScrollBoundary(wnd,['ArrowDown','PageDown'].includes(event.key)?1:-1,event);setTimeout(()=>{if(!boundaryBusy&&!reflowCount&&!resizing)stableAnchor=visibleAnchor()},100)}});wnd.document.addEventListener('pointerup',followPublicationLink,true);wnd.addEventListener('scroll',()=>trackScroll(wnd),{passive:true});wnd.document.addEventListener('click',followPublicationLink,true);wnd.document.addEventListener('keyup',()=>{const text=wnd.getSelection()?.toString();if(text&&lastLocator&&navigator?.kind!=='continuous')selected({text,locator:Locator.deserialize({...lastLocator,text:{highlight:text}})});});}},
    error:error=>{notice(error.message);emit('error',{message:error.message})}
   };
   navigator=input.experimentalContinuous&&settings.scroll?new ContinuousNavigator($('reader'),input,pool,listeners,location,settings):new EpubNavigator($('reader'),publication,listeners,positions,location?engineLocator(location):undefined,{preferences:settings,defaults:{}});
@@ -293,7 +364,7 @@ async function open(value){
   const override=validLocator(value.locator);if(override)state.position=override;
   $('reader').replaceChildren();$('book-title').textContent=value.title??'Untitled';$('book-author').textContent=value.creators?.join(', ')??'';document.title=(value.title??'Book')+' · Stillleaf';$('back').hidden=!value.canReturnToLibrary;
   syncAppearance();
-  await installNavigator(state.position);opening=false;emit('ready',{warnings:[...pool.warnings]});changed();
+  await installNavigator(state.position);opening=false;emit('ready',{warnings:[...pool.warnings]});announcedLayout=null;relayout();changed();
   if(pool.warnings.size&&$('notice').hidden)notice('Some original styling or illustrations could not be displayed.');
  }catch(error){opening=false;$('error').textContent=error.message;$('error').hidden=false;emit('error',{message:error.message});throw error}
 }
@@ -313,15 +384,19 @@ $('appearance').onclick=()=>{if(state){syncAppearance();showDialog('appearance-p
 $('search').onclick=()=>{if(state)showDialog('search-panel','search-query')};
 for(const tab of ['contents','bookmarks','notes'])$('tab-'+tab).onclick=()=>renderPanel(tab);
 document.querySelector('.panel-tabs').addEventListener('keydown',event=>{if(['ArrowRight','ArrowLeft'].includes(event.key)){event.preventDefault();const tabs=['contents','bookmarks','notes'];const next=tabs[(tabs.indexOf(activeTab)+(event.key==='ArrowRight'?1:2))%3];renderPanel(next);$('tab-'+next).focus()}});
-for(const button of document.querySelectorAll('[data-theme]'))button.onclick=()=>void setPreferences({theme:button.dataset.theme});
-$('font-family').onchange=()=>void setPreferences({fontFamily:$('font-family').value});
+// Radio groups: arrow keys move the choice, as in native segmented controls.
+for(const group of [$('font-options'),$('margins')])group.addEventListener('keydown',event=>{
+ const step={ArrowRight:1,ArrowDown:1,ArrowLeft:-1,ArrowUp:-1}[event.key];if(!step)return;event.preventDefault();
+ const items=[...group.querySelectorAll('[role=radio]')],next=items[(items.indexOf(document.activeElement)+step+items.length)%items.length];next?.focus();next?.click();
+});
+document.fonts?.ready.then(()=>{if(state)renderAppearanceControls()});
 for(const [id,key]of [['font-size','fontSize'],['line-height','lineHeight'],['measure','measure']])$(id).oninput=()=>void setPreferences({[key]:Number($(id).value)});
 $('reading-mode').onchange=()=>{const mode=$('reading-mode').value;void setPreferences({scroll:mode==='continuous',...(mode!=='continuous'?{columns:mode==='facing'?'two':'one'}:{})})};
 $('font-weight').onchange=()=>void setPreferences({fontWeight:$('font-weight').value==='publisher'?null:Number($('font-weight').value)});
 $('text-align').onchange=()=>void setPreferences({textAlign:$('text-align').value});
 $('hyphens').onchange=()=>void setPreferences({hyphens:$('hyphens').value==='publisher'?null:$('hyphens').value==='true'});
 for(const [id,key]of [['letter-spacing','letterSpacing'],['word-spacing','wordSpacing']])$(id).oninput=()=>void setPreferences({[key]:Number($(id).value)});
-window.addEventListener('resize',()=>{if(!state)return;resizing=true;const anchor=stableAnchor?clone(stableAnchor):lastLocator?clone(lastLocator):null;clearTimeout(resizeTimer);resizeTimer=setTimeout(()=>{void setPreferences({},anchor).finally(()=>{resizing=false})},100)});
+window.addEventListener('resize',()=>{if(!state)return;resizing=true;relayout();const anchor=stableAnchor?clone(stableAnchor):lastLocator?clone(lastLocator):null;clearTimeout(resizeTimer);resizeTimer=setTimeout(()=>{void setPreferences({},anchor).finally(()=>{resizing=false})},100)});
 $('reset-appearance').onclick=()=>void setPreferences(DEFAULT_PREFERENCES);
 $('search-form').onsubmit=event=>{event.preventDefault();void searchBook()};$('search-query').oninput=()=>{clearTimeout(searchTimer);searchTimer=setTimeout(()=>void searchBook(),180)};
 $('highlight-selection').onclick=()=>{if(selection){annotate({...selection,color:'gold'});dismissSelection();notice('Passage highlighted.')}};
