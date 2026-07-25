@@ -98,6 +98,11 @@ function validateLocator(value, paths) {
   }
   return locator;
 }
+// Appearance ids shared with Reader/desktop/reader/src/appearance.js and the Mac
+// validator (ReaderStateValidation). Ids are never renamed once saved.
+const THEMES = ["system", "original", "paper", "sepia", "calm", "focus", "quiet", "dark", "night"];
+const FONT_FAMILIES = ["publisher", "newyork", "sans", "athelas", "charter", "serif", "iowan", "palatino", "seravek", "times"];
+const MARGINS = ["narrow", "normal", "wide"];
 function emptyState(id) {
   return {
     schemaVersion: 1,
@@ -133,8 +138,8 @@ function validateState(value, id, publication) {
   const p = value.preferences;
   if (
     !p ||
-    !["system", "paper", "sepia", "dark"].includes(p.theme) ||
-    !["publisher", "serif", "sans"].includes(p.fontFamily)
+    !THEMES.includes(p.theme) ||
+    !FONT_FAMILIES.includes(p.fontFamily)
   )
     throw Error("Invalid reader preferences");
   result.preferences = { theme: p.theme, fontFamily: p.fontFamily };
@@ -165,7 +170,7 @@ function validateState(value, id, publication) {
       result.preferences[key] = p[key];
     }
   }
-  for (const [key, allowed] of [["textAlign", ["publisher", "start", "justify"]], ["columns", ["one", "two"]]]) {
+  for (const [key, allowed] of [["textAlign", ["publisher", "start", "justify"]], ["columns", ["one", "two"]], ["margins", MARGINS]]) {
     if (p[key] !== undefined) {
       if (!allowed.includes(p[key])) throw Error("Invalid " + key);
       result.preferences[key] = p[key];
@@ -318,6 +323,9 @@ function saveReaderState(root, id, publication, value) {
   return task;
 }
 module.exports = {
+  THEMES,
+  FONT_FAMILIES,
+  MARGINS,
   checkedID,
   emptyState,
   validateState,
