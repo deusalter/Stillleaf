@@ -61,6 +61,10 @@ test('only deliberate page movement is reported as page evidence',{timeout:12000
  await page.evaluate(()=>window.StillleafReader.setPreferences({scroll:true}));await settle();
  events=await take();const scroll=events.at(-1);assert.equal(scroll.type,'pageLayout');assert.match(scroll.layout,/^s1-/);
  const scrollFrame=async(dy,steps)=>{for(let i=0;i<steps;i++){await page.evaluate(dy=>{const f=[...document.querySelectorAll('#reader iframe')].find(f=>getComputedStyle(f).visibility!=='hidden');f.contentWindow.scrollBy(0,dy*f.contentWindow.innerHeight)},dy);await page.waitForTimeout(60)}};
+ // Mid-chapter, so there is room in both directions; the first scroll after a jump only
+ // sets the baseline (tracking undercounts rather than guesses), so prime it first.
+ await page.evaluate(()=>window.StillleafReader.go({href:'c2.html',type:'text/html',locations:{progression:.5}}));await settle();
+ await take();await scrollFrame(.05,1);assert.deepEqual(await take(),[],'a small scroll is not a page');
  await scrollFrame(.25,5);
  events=await take();assert.deepEqual(events.map(e=>[e.type,e.direction,e.pages,e.layout]),[['pageTurn','forward',1,scroll.layout]],'1.25 screens scrolled is one page');
  await scrollFrame(-.25,6); // net movement: the 0.25 screen left over from above must be undone too
