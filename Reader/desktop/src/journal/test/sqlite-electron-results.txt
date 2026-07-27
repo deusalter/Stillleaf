@@ -1,0 +1,19 @@
+✔ edition identity persists and explicit edition linking counts one journal book (16.191625ms)
+✔ dated zero-page minutes and position are independent; no fabricated intervals; restart (9.370166ms)
+✔ completion click is idempotent and creates no page or minute evidence (2.751792ms)
+✔ manual completion wins later imports; unknown imported finish remains unknown (3.57525ms)
+✔ civil timezone year boundary, future cutoff, edited completion and unique totals (7.858167ms)
+✔ quarter stars including zero and explicit clears; personal Unicode review (8.942334ms)
+✔ effective daily goal history and annual clear/ties; combined save atomic (6.545792ms)
+✔ SQLite backup is consistent and refuses overwrite (9.182208ms)
+✔ future and unknown schemas and symlink paths reject without changing source (5.761ms)
+✔ explicit prototype import retains exact source, unknown fields and provenance with no fake finish time (6.501417ms)
+✔ changed prototype records reject atomically; future version leaves source untouched (5.000917ms)
+ℹ tests 11
+ℹ suites 0
+ℹ pass 11
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 170.761333

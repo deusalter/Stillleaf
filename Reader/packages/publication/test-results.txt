@@ -1,0 +1,238 @@
+TAP version 13
+# Subtest: valid EPUB imported atomically, SHA256 identity, original intact, duplicate outcome
+ok 1 - valid EPUB imported atomically, SHA256 identity, original intact, duplicate outcome
+  ---
+  duration_ms: 25.663792
+  type: 'test'
+  ...
+# Subtest: EPUB2 explicit cover and no arbitrary-image fallback
+ok 2 - EPUB2 explicit cover and no arbitrary-image fallback
+  ---
+  duration_ms: 5.167208
+  type: 'test'
+  ...
+# Subtest: reject archive path ../escape
+ok 3 - reject archive path ../escape
+  ---
+  duration_ms: 2.143792
+  type: 'test'
+  ...
+# Subtest: reject archive path /absolute
+ok 4 - reject archive path /absolute
+  ---
+  duration_ms: 1.2245
+  type: 'test'
+  ...
+# Subtest: reject archive path C:/drive
+ok 5 - reject archive path C:/drive
+  ---
+  duration_ms: 1.1245
+  type: 'test'
+  ...
+# Subtest: reject archive path EPUB/..%2fescape
+ok 6 - reject archive path EPUB/..%2fescape
+  ---
+  duration_ms: 0.945625
+  type: 'test'
+  ...
+# Subtest: reject archive path EPUB/%2e%2e/escape
+ok 7 - reject archive path EPUB/%2e%2e/escape
+  ---
+  duration_ms: 1.511583
+  type: 'test'
+  ...
+# Subtest: reject archive path EPUB/a\\b
+ok 8 - reject archive path EPUB/a\\b
+  ---
+  duration_ms: 1.294542
+  type: 'test'
+  ...
+# Subtest: reject archive path EPUB/con.txt
+ok 9 - reject archive path EPUB/con.txt
+  ---
+  duration_ms: 1.223792
+  type: 'test'
+  ...
+# Subtest: reject archive path EPUB/a.
+ok 10 - reject archive path EPUB/a.
+  ---
+  duration_ms: 1.261208
+  type: 'test'
+  ...
+# Subtest: reject archive path EPUB/a//b
+ok 11 - reject archive path EPUB/a//b
+  ---
+  duration_ms: 0.932583
+  type: 'test'
+  ...
+# Subtest: reject archive path EPUB/./a
+ok 12 - reject archive path EPUB/./a
+  ---
+  duration_ms: 1.350125
+  type: 'test'
+  ...
+# Subtest: duplicate/colliding entry or file-parent conflict
+ok 13 - duplicate/colliding entry or file-parent conflict
+  ---
+  duration_ms: 1.311
+  type: 'test'
+  ...
+# Subtest: duplicate/colliding entry or file-parent conflict
+ok 14 - duplicate/colliding entry or file-parent conflict
+  ---
+  duration_ms: 0.849541
+  type: 'test'
+  ...
+# Subtest: duplicate/colliding entry or file-parent conflict
+ok 15 - duplicate/colliding entry or file-parent conflict
+  ---
+  duration_ms: 0.928708
+  type: 'test'
+  ...
+# Subtest: reject symlink
+ok 16 - reject symlink
+  ---
+  duration_ms: 0.891917
+  type: 'test'
+  ...
+# Subtest: reject encrypted
+ok 17 - reject encrypted
+  ---
+  duration_ms: 1.146625
+  type: 'test'
+  ...
+# Subtest: reject DRM
+ok 18 - reject DRM
+  ---
+  duration_ms: 0.897542
+  type: 'test'
+  ...
+# Subtest: reject local mismatch
+ok 19 - reject local mismatch
+  ---
+  duration_ms: 1.571416
+  type: 'test'
+  ...
+# Subtest: reject bomb
+ok 20 - reject bomb
+  ---
+  duration_ms: 3.971291
+  type: 'test'
+  ...
+# Subtest: reject unsafe/missing OPF href ../../escape.xhtml
+ok 21 - reject unsafe/missing OPF href ../../escape.xhtml
+  ---
+  duration_ms: 2.541459
+  type: 'test'
+  ...
+# Subtest: reject unsafe/missing OPF href https://example.invalid/chapter
+ok 22 - reject unsafe/missing OPF href https://example.invalid/chapter
+  ---
+  duration_ms: 2.427458
+  type: 'test'
+  ...
+# Subtest: reject unsafe/missing OPF href %2e%2e/chapter.xhtml
+ok 23 - reject unsafe/missing OPF href %2e%2e/chapter.xhtml
+  ---
+  duration_ms: 3.598042
+  type: 'test'
+  ...
+# Subtest: reject unsafe/missing OPF href missing.xhtml
+ok 24 - reject unsafe/missing OPF href missing.xhtml
+  ---
+  duration_ms: 2.104292
+  type: 'test'
+  ...
+# Subtest: reject unsafe/missing OPF href chapter.xhtml?query
+ok 25 - reject unsafe/missing OPF href chapter.xhtml?query
+  ---
+  duration_ms: 1.738
+  type: 'test'
+  ...
+# Subtest: safe relative canonical references and encoded spaces
+ok 26 - safe relative canonical references and encoded spaces
+  ---
+  duration_ms: 0.104042
+  type: 'test'
+  ...
+# Subtest: preinflation entry/total/archive limits
+ok 27 - preinflation entry/total/archive limits
+  ---
+  duration_ms: 1.25175
+  type: 'test'
+  ...
+# Subtest: DTD and malformed XML rejected, ambiguous cover rejected
+ok 28 - DTD and malformed XML rejected, ambiguous cover rejected
+  ---
+  duration_ms: 9.700708
+  type: 'test'
+  ...
+# Subtest: corruption late in extraction removes staged partial output and preserves source
+ok 29 - corruption late in extraction removes staged partial output and preserves source
+  ---
+  duration_ms: 7.8425
+  type: 'test'
+  ...
+# Subtest: cancelled import does not publish
+ok 30 - cancelled import does not publish
+  ---
+  duration_ms: 1.26375
+  type: 'test'
+  ...
+# Subtest: managed directory symlinks rejected
+ok 31 - managed directory symlinks rejected
+  ---
+  duration_ms: 2.876458
+  type: 'test'
+  ...
+# Subtest: preflight refuses bomb before malformed metadata could inflate
+ok 32 - preflight refuses bomb before malformed metadata could inflate
+  ---
+  duration_ms: 4.108792
+  type: 'test'
+  ...
+# Subtest: lying deflate size rejected and partial output cleaned
+ok 33 - lying deflate size rejected and partial output cleaned
+  ---
+  duration_ms: 9.358792
+  type: 'test'
+  ...
+# Subtest: incomplete existing edition is not overwritten
+ok 34 - incomplete existing edition is not overwritten
+  ---
+  duration_ms: 7.0445
+  type: 'test'
+  ...
+# Subtest: existing edition symlink is not followed
+ok 35 - existing edition symlink is not followed
+  ---
+  duration_ms: 3.829042
+  type: 'test'
+  ...
+# Subtest: Unicode names and quoted angle brackets cannot evade XML depth limit
+ok 36 - Unicode names and quoted angle brackets cannot evade XML depth limit
+  ---
+  duration_ms: 1.951625
+  type: 'test'
+  ...
+# Subtest: damaged managed original is rejected as duplicate without replacing either copy
+ok 37 - damaged managed original is rejected as duplicate without replacing either copy
+  ---
+  duration_ms: 11.648291
+  type: 'test'
+  ...
+# Subtest: fixed layout declarations survive metadata extraction for explicit renderer rejection
+ok 38 - fixed layout declarations survive metadata extraction for explicit renderer rejection
+  ---
+  duration_ms: 8.815417
+  type: 'test'
+  ...
+1..38
+# tests 38
+# suites 0
+# pass 38
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 204.373291
