@@ -513,6 +513,12 @@ private extension EPUBReaderWindow {
             throw EPUBImportError.invalid("A page turn did not reach the host page counter: \(String(describing: pagePosition))")
         }
         _ = try await webView.evaluateJavaScript("window.StillleafReader.previous(); true")
+        // Later checks read the chapter href, so wait for the turn back to land.
+        let backDeadline = Date().addingTimeInterval(5)
+        while pagePosition?.page != before.page && Date() < backDeadline { try await Task.sleep(nanoseconds: 50_000_000) }
+        guard pagePosition?.page == before.page else {
+            throw EPUBImportError.invalid("Turning back did not return to the starting page: \(String(describing: pagePosition))")
+        }
     }
     /// Fixtures with `#fixture-figure` must show the lazily fetched image, styled by a fetched stylesheet.
     func testFixtureAssets() async throws -> Bool {

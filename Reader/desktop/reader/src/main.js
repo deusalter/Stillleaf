@@ -294,7 +294,9 @@ function trackScroll(wnd){
  while(net<=-height){net+=height;pageTurned('backward')}
  scrollState.set(wnd,{y,net});
 }
-function turn(direction){dismissSelection();if(navigator)(direction==='next'?navigator.goForward.bind(navigator):navigator.goBackward.bind(navigator))(false,moved=>{if(moved===true&&!state?.preferences.scroll)pageTurned(direction==='next'?'forward':'backward');stableAnchor=visibleAnchor();if(!state?.preferences.scroll&&!matchMedia('(prefers-reduced-motion: reduce)').matches)$('reader').animate([{opacity:.84,transform:`perspective(1600px) rotateY(${direction==='next'?'-':'+'}1.5deg)`},{opacity:1,transform:'none'}],{duration:140,easing:'ease-out'})})}
+// One turn at a time: overlapping goForward/goBackward calls across a chapter edge left every frame hidden.
+let turning=false,turnWatchdog=0;
+function turn(direction){dismissSelection();if(!navigator||turning)return;turning=true;clearTimeout(turnWatchdog);turnWatchdog=setTimeout(()=>turning=false,2000);(direction==='next'?navigator.goForward.bind(navigator):navigator.goBackward.bind(navigator))(false,moved=>{turning=false;clearTimeout(turnWatchdog);if(moved===true&&!state?.preferences.scroll)pageTurned(direction==='next'?'forward':'backward');stableAnchor=visibleAnchor();if(!state?.preferences.scroll&&!matchMedia('(prefers-reduced-motion: reduce)').matches)$('reader').animate([{opacity:.84,transform:`perspective(1600px) rotateY(${direction==='next'?'-':'+'}1.5deg)`},{opacity:1,transform:'none'}],{duration:140,easing:'ease-out'})})}
 let boundaryBusy=false;
 async function crossScrollBoundary(wnd,delta,event){
  if(navigator?.kind==='continuous'||!state?.preferences.scroll||boundaryBusy||!delta||document.querySelector('dialog[open]'))return;

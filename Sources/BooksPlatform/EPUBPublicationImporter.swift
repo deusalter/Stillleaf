@@ -221,7 +221,7 @@ public final class EPUBPublicationImporter {
     }
     private func parseNavigation(_ url: URL, sourcePath: String, manifest: Set<String>, ncx: Bool) throws -> [String: [EPUBNavigationLink]] {
         let data = try Data(contentsOf: url)
-        guard data.count <= 2 * 1024 * 1024, let text = String(data: data, encoding: .utf8), !text.uppercased().contains("<!DOCTYPE"), !text.uppercased().contains("<!ENTITY") else { throw EPUBImportError.invalid("Navigation XML must be bounded UTF-8 without DTDs or entities.") }
+        guard Self.boundedXMLText(data) != nil else { throw EPUBImportError.invalid("Navigation XML must be bounded UTF-8 without DTD subsets or entities.") }
         let delegate = NavigationXML(ncx: ncx), parser = XMLParser(data: data)
         parser.shouldResolveExternalEntities = false; parser.shouldProcessNamespaces = true; parser.shouldReportNamespacePrefixes = true; parser.delegate = delegate
         guard parser.parse(), delegate.validRoot else { throw EPUBImportError.invalid("Invalid EPUB navigation XML.") }
@@ -341,44 +341,88 @@ public final class EPUBPublicationImporter {
     }
     private func deobfuscateFonts(content: URL, package: PackageXML, resources: [EPUBResource]) throws {
         let data = try Data(contentsOf: content.appendingPathComponent("META-INF/encryption.xml"))
-        guard data.count <= 2 * 1024 * 1024, let text = String(data: data, encoding: .utf8),
-              !text.uppercased().contains("<!DOCTYPE"), !text.uppercased().contains("<!ENTITY") else { throw EPUBImportError.invalid("Invalid bounded font-obfuscation XML.") }
+        guard Self.boundedXMLText(data) != nil else { throw EPUBImportError.invalid("Invalid bounded font-obfuscation XML.") }
         let delegate = FontEncryptionXML(), parser = XMLParser(data: data)
         parser.shouldResolveExternalEntities = false; parser.shouldProcessNamespaces = true; parser.delegate = delegate
-        guard parser.parse(), !delegate.targets.isEmpty, delegate.targets.count <= limits.entries,
-              package.identifierValues.count == 1, let identifier = package.identifierValues.first else { throw EPUBImportError.invalid("Unsupported encryption or missing unique publication identifier.") }
-        let normalized = identifier.unicodeScalars.filter { ![0x20, 0x09, 0x0D, 0x0A].contains($0.value) }.map(String.init).joined()
-        guard !normalized.isEmpty, normalized.utf8.count <= 16384 else { throw EPUBImportError.invalid("Invalid font-obfuscation identifier.") }
-        let key = Array(Insecure.SHA1.hash(data: Data(normalized.utf8)))
-        let fontTypes: Set<String> = ["font/otf", "font/ttf", "font/woff", "font/woff2", "application/vnd.ms-opentype", "application/font-sfnt", "application/font-woff"]
-        var targets: [String] = [], seen = Set<String>()
-        for uri in delegate.targets {
+        guard parser.parse(), !delegate.targets.isEmpty, delegate.targets.count <= limits.entries else { throw EPUBImportError.invalid("Unsupported encryption or missing unique publication identifier.") }
+        // IDPF keys are the SHA-1 of the unique identifier; Adobe keys are the 16 bytes of the book's urn:uuid.
+        var idpfKey: [UInt8]?, adobeKey: [UInt8]?
+        if delegate.targets.contains(where: { $0.algorithm == FontEncryptionXML.idpf }) {
+            guard package.identifierValues.count == 1, let identifier = package.identifierValues.first else { throw EPUBImportError.invalid("Unsupported encryption or missing unique publication identifier.") }
+            let normalized = identifier.unicodeScalars.filter { ![0x20, 0x09, 0x0D, 0x0A].contains($0.value) }.map(String.init).joined()
+            guard !normalized.isEmpty, normalized.utf8.count <= 16384 else { throw EPUBImportError.invalid("Invalid font-obfuscation identifier.") }
+            idpfKey = Array(Insecure.SHA1.hash(data: Data(normalized.utf8)))
+        }
+        if delegate.targets.contains(where: { $0.algorithm == FontEncryptionXML.adobe }) {
+            guard let key = Self.adobeFontKey(package.identifierValues + package.otherIdentifierValues) else { throw EPUBImportError.invalid("Adobe font obfuscation needs a urn:uuid publication identifier.") }
+            adobeKey = key
+        }
+        let fontTypes: Set<String> = ["font/otf", "font/ttf", "font/woff", "font/woff2", "font/sfnt", "font/opentype", "font/truetype", "application/vnd.ms-opentype",
+                                      "application/font-sfnt", "application/font-woff", "application/x-font-ttf", "application/x-font-otf", "application/x-font-opentype",
+                                      "application/x-font-truetype", "application/x-font-woff", "application/font-ttf", "application/font-otf"]
+        var targets: [(path: String, adobe: Bool)] = [], seen = Set<String>()
+        for target in delegate.targets {
+            let uri = target.uri
             guard !uri.contains("?"), !uri.contains("#"), let decoded = uri.removingPercentEncoding else { throw EPUBImportError.invalid("Invalid obfuscated font URI.") }
             let path = try Self.safePath(decoded)
             let matches = resources.filter { $0.path == path }
-            guard seen.insert(path).inserted, matches.count == 1, fontTypes.contains(matches[0].mediaType) else { throw EPUBImportError.invalid("Obfuscation must reference a unique manifest font resource.") }
-            targets.append(path)
+            guard seen.insert(path).inserted, matches.count == 1, fontTypes.contains(matches[0].mediaType.lowercased()) else { throw EPUBImportError.invalid("Obfuscation must reference a unique manifest font resource.") }
+            targets.append((path, target.algorithm == FontEncryptionXML.adobe))
         }
         // Only staged extracted bytes change. The archived original and its SHA256 identity remain intact.
-        for path in targets {
-            let file = try FileHandle(forUpdating: content.appendingPathComponent(path)); defer { try? file.close() }
-            var prefix = try file.read(upToCount: 1040) ?? Data()
+        for target in targets {
+            let file = try FileHandle(forUpdating: content.appendingPathComponent(target.path)); defer { try? file.close() }
+            let key = (target.adobe ? adobeKey : idpfKey)!, length = target.adobe ? 1024 : 1040
+            var prefix = try file.read(upToCount: length) ?? Data()
             for index in prefix.indices { prefix[index] ^= key[index % key.count] }
+            // A wrong Adobe key yields noise; leave such a font as it was and let the reader fall back.
+            if target.adobe, !Self.looksLikeFont(prefix) { continue }
             try file.seek(toOffset: 0); try file.write(contentsOf: prefix)
         }
     }
+    /// One plain DOCTYPE, as in most EPUB 2 NCX files and EPUB 3 XHTML, is allowed. An internal
+    /// subset, where entity declarations live, is not, and external entities are never resolved.
+    static func boundedXMLText(_ data: Data) -> String? {
+        guard data.count <= 2 * 1024 * 1024, let text = String(data: data, encoding: .utf8) else { return nil }
+        let upper = text.uppercased()
+        guard !upper.contains("<!ENTITY") else { return nil }
+        let parts = upper.components(separatedBy: "<!DOCTYPE")
+        guard parts.count <= 2 else { return nil }
+        if parts.count == 2 {
+            guard let end = parts[1].firstIndex(of: ">"), !parts[1][..<end].contains("[") else { return nil }
+        }
+        return text
+    }
+    /// Adobe's legacy scheme XORs the first 1024 bytes with the 16 bytes of a uuid identifier.
+    static func adobeFontKey(_ identifiers: [String]) -> [UInt8]? {
+        for identifier in identifiers {
+            var value = identifier.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if value.hasPrefix("urn:uuid:") { value.removeFirst("urn:uuid:".count) }
+            let hex = Array(value.replacingOccurrences(of: "-", with: ""))
+            guard hex.count == 32, hex.allSatisfy(\.isHexDigit) else { continue }
+            return stride(from: 0, to: 32, by: 2).compactMap { UInt8(String(hex[$0..<$0 + 2]), radix: 16) }
+        }
+        return nil
+    }
+    static func looksLikeFont(_ prefix: Data) -> Bool {
+        guard prefix.count >= 4 else { return false }
+        let signature = Array(prefix.prefix(4))
+        return signature == [0x00, 0x01, 0x00, 0x00] || [Array("OTTO".utf8), Array("true".utf8), Array("typ1".utf8), Array("ttcf".utf8), Array("wOFF".utf8), Array("wOF2".utf8)].contains(signature)
+    }
     private func parse(_ url: URL) throws -> PackageXML {
         let data = try Data(contentsOf: url)
-        guard data.count <= 2 * 1024 * 1024, let text = String(data: data, encoding: .utf8), !text.uppercased().contains("<!DOCTYPE"), !text.uppercased().contains("<!ENTITY") else { throw EPUBImportError.invalid("XML metadata must be bounded UTF-8 without DTDs or entities.") }
+        guard Self.boundedXMLText(data) != nil else { throw EPUBImportError.invalid("XML metadata must be bounded UTF-8 without DTD subsets or entities.") }
         let parser = XMLParser(data: data), delegate = PackageXML()
         parser.shouldResolveExternalEntities = false; parser.shouldProcessNamespaces = true; parser.delegate = delegate
         guard parser.parse() else { throw EPUBImportError.invalid("Invalid EPUB XML metadata.") }
         return delegate
     }
 }
-/// A deliberately narrow XML Encryption subset: IDPF fonts only, never DRM or external transforms.
+/// A deliberately narrow XML Encryption subset: IDPF and Adobe font obfuscation only, never DRM or external transforms.
 private final class FontEncryptionXML: NSObject, XMLParserDelegate {
-    var targets: [String] = []
+    static let idpf = "http://www.idpf.org/2008/embedding", adobe = "http://ns.adobe.com/pdf/enc#RC"
+    var targets: [(uri: String, algorithm: String)] = []
+    private var algorithm = ""
     private var stack: [String] = []
     private var method = false, reference = false, cipher = false
     func parser(_ parser: XMLParser, didStartElement name: String, namespaceURI: String?, qualifiedName: String?, attributes: [String: String]) {
@@ -389,15 +433,17 @@ private final class FontEncryptionXML: NSObject, XMLParserDelegate {
             guard namespaceURI == "urn:oasis:names:tc:opendocument:xmlns:container" else { parser.abortParsing(); return }
         case (1, "EncryptedData", "encryption"):
             guard namespaceURI == encryption else { parser.abortParsing(); return }
-            method = false; reference = false; cipher = false
+            method = false; reference = false; cipher = false; algorithm = ""
         case (2, "EncryptionMethod", "EncryptedData"):
-            guard namespaceURI == encryption, !method, attributes["Algorithm"] == "http://www.idpf.org/2008/embedding" else { parser.abortParsing(); return }
-            method = true
+            guard namespaceURI == encryption, !method, let value = attributes["Algorithm"], [Self.idpf, Self.adobe].contains(value) else { parser.abortParsing(); return }
+            method = true; algorithm = value
         case (2, "CipherData", "EncryptedData"):
             guard namespaceURI == encryption, !cipher else { parser.abortParsing(); return }; cipher = true
         case (3, "CipherReference", "CipherData"):
             guard namespaceURI == encryption, !reference, let uri = attributes["URI"], !uri.isEmpty, uri.utf8.count <= 8192 else { parser.abortParsing(); return }
-            reference = true; targets.append(uri)
+            // XML Encryption orders EncryptionMethod before CipherData.
+            guard method else { parser.abortParsing(); return }
+            reference = true; targets.append((uri, algorithm))
         default: parser.abortParsing(); return
         }
         // xml:base would change URI meaning and is intentionally unsupported.
@@ -422,6 +468,9 @@ private final class PackageXML: NSObject, XMLParserDelegate {
     var package: String?, coverID: String?, items: [Item] = [], spine: [String] = [], titles: [String] = [], authors: [String] = []
     var rootName: String?, rootNamespace: String?, rootVersion: String?
     var uniqueIdentifier: String?, identifierValues: [String] = []
+    /// Non-unique dc:identifier values; only used to find an Adobe urn:uuid font key.
+    var otherIdentifierValues: [String] = []
+    private var otherIdentifier = false, otherValue = ""
     private var elements: [String] = []
     private var metadataNamespace: String?
     var fixedLayout = false
@@ -452,12 +501,18 @@ private final class PackageXML: NSObject, XMLParserDelegate {
             if a["name"] == "fixed-layout", a["content"]?.lowercased() == "true" { fixedLayout = true }
         case "title", "creator": field = name; value = ""
         case "identifier":
-            if depth == 3, parent == "metadata", metadataNamespace == "http://www.idpf.org/2007/opf", namespaceURI == "http://purl.org/dc/elements/1.1/", let uniqueIdentifier, !uniqueIdentifier.isEmpty, a["id"] == uniqueIdentifier { field = name; value = "" }
+            if depth == 3, parent == "metadata", metadataNamespace == "http://www.idpf.org/2007/opf", namespaceURI == "http://purl.org/dc/elements/1.1/" {
+                if let uniqueIdentifier, !uniqueIdentifier.isEmpty, a["id"] == uniqueIdentifier { field = name; value = "" }
+                else if otherIdentifierValues.count < 32 { otherIdentifier = true; otherValue = "" }
+            }
         case "language": if namespaceURI == "http://purl.org/dc/elements/1.1/" { field = name; value = "" }
         default: break
         }
     }
-    func parser(_ parser: XMLParser, foundCharacters string: String) { if field != nil { value += string } }
+    func parser(_ parser: XMLParser, foundCharacters string: String) {
+        if field != nil { value += string }
+        if otherIdentifier, otherValue.utf8.count < 1024 { otherValue += string }
+    }
     func parser(_ parser: XMLParser, foundCDATA CDATABlock: Data) {
         guard let text = String(data: CDATABlock, encoding: .utf8) else { parser.abortParsing(); return }
         self.parser(parser, foundCharacters: text)
@@ -465,6 +520,7 @@ private final class PackageXML: NSObject, XMLParserDelegate {
     func parser(_ parser: XMLParser, didEndElement elementName: String, namespaceURI: String?, qualifiedName: String?) {
         depth -= 1; elements.removeLast()
         let name = elementName.split(separator: ":").last.map(String.init)
+        if otherIdentifier, name == "identifier" { otherIdentifierValues.append(otherValue); otherIdentifier = false }
         if name == field {
             if field == "identifier" { identifierValues.append(value) }
             let text = value.trimmingCharacters(in: .whitespacesAndNewlines)

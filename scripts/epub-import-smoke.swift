@@ -39,6 +39,22 @@ make('navunknown',[(p,d.replace('chapter.xhtml#start','missing.xhtml') if p=='EP
 ncx='<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/"><navMap><navPoint><navLabel><text>Chapter &amp; title</text></navLabel><content src="chapter.xhtml#start"/><navPoint><navLabel><text>Footnote</text></navLabel><content src="chapter.xhtml#fn1"/></navPoint></navPoint></navMap><pageList><pageTarget><navLabel><text>7</text></navLabel><content src="chapter.xhtml#page7"/></pageTarget></pageList></ncx>'
 make('ncx',[(p,d.replace('version="3.0"','version="2.0"').replace('</manifest>','<item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/></manifest>').replace('<spine>','<spine toc="ncx">').replace('</package>','<guide><reference type="text" title="Start &amp; read" href="chapter.xhtml#start"/></guide></package>') if p=='EPUB/book.opf' else d) for p,d in base]+[('EPUB/toc.ncx',ncx)])
 
+# Adobe's legacy font obfuscation: XOR the first 1024 bytes with the 16 bytes of a urn:uuid,
+# here a secondary identifier beside an ISBN, with a legacy font media type.
+adobe_uuid='0f2e7c3a-9b1d-4e5f-8a6b-1c2d3e4f5a6b'
+adobe_key=bytes.fromhex(adobe_uuid.replace('-',''))
+adobe_plain=b'OTTO'+bytes(i%249 for i in range(2000))
+adobe_encoded=bytes(b^adobe_key[i%16] if i<1024 else b for i,b in enumerate(adobe_plain))
+adobe_opf=opf.replace('version="3.0"','version="3.0" unique-identifier="isbn"').replace('</metadata>','<dc:identifier id="isbn">9780000000000</dc:identifier><dc:identifier>urn:uuid:'+adobe_uuid+'</dc:identifier></metadata>').replace('</manifest>','<item id="font" href="font.otf" media-type="application/x-font-otf"/></manifest>')
+adobe_encryption=encryption.replace('http://www.idpf.org/2008/embedding','http://ns.adobe.com/pdf/enc#RC')
+make('adobefont',[(p,adobe_opf if p=='EPUB/book.opf' else d) for p,d in base]+[('EPUB/font.otf',adobe_encoded),('META-INF/encryption.xml',adobe_encryption)])
+make('adobenoise',[(p,adobe_opf.replace(adobe_uuid,'11111111-2222-3333-4444-555555555555') if p=='EPUB/book.opf' else d) for p,d in base]+[('EPUB/font.otf',adobe_encoded),('META-INF/encryption.xml',adobe_encryption)])
+# A plain DOCTYPE is ordinary in EPUB 2 NCX and EPUB 3 XHTML; an internal subset is not allowed.
+ncx_doctype='<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE ncx PUBLIC "-//NISO//DTD ncx 2005-1//EN" "http://www.daisy.org/z3986/2005/ncx-2005-1.dtd">'
+make('ncxdoctype',[(p,d.replace('version="3.0"','version="2.0"').replace('</manifest>','<item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/></manifest>').replace('<spine>','<spine toc="ncx">') if p=='EPUB/book.opf' else d) for p,d in base]+[('EPUB/toc.ncx',ncx_doctype+ncx)])
+make('navdoctype',[(p,'<!DOCTYPE html>'+d if p=='EPUB/nav.xhtml' else d) for p,d in navbase])
+make('navdtdsubset',[(p,'<!DOCTYPE html [<!ELEMENT x ANY>]>'+d if p=='EPUB/nav.xhtml' else d) for p,d in navbase])
+make('navtwodoctypes',[(p,'<!DOCTYPE html><!DOCTYPE html>'+d if p=='EPUB/nav.xhtml' else d) for p,d in navbase])
 make('rtl',[(p,d.replace('</metadata>','<dc:language>ar</dc:language><dc:language>en-US</dc:language></metadata>').replace('<spine>','<spine page-progression-direction="rtl">') if p=='EPUB/book.opf' else d) for p,d in base])
 make('badlanguage',[(p,d.replace('</metadata>','<dc:language>'+('x'*129)+'</dc:language></metadata>') if p=='EPUB/book.opf' else d) for p,d in base])
 make('baddirection',[(p,d.replace('<spine>','<spine page-progression-direction="vertical">') if p=='EPUB/book.opf' else d) for p,d in base])
@@ -95,6 +111,14 @@ for name in ["method", "remote", "traversal", "missing", "nonfont", "namespace",
 let fontEntries = try FileManager.default.contentsOfDirectory(atPath: fontManaged.path)
 precondition(fontEntries.count == 2 && !fontEntries.contains { $0.hasPrefix(".import-") })
 print("epub-import-smoke: IDPF known SHA1 vector, XML whitespace, short/1040-byte prefix boundary, original preservation and font rejection cleanup passed")
+let adobeImporter = EPUBPublicationImporter(directory: temporary.appendingPathComponent("adobe-managed"))
+let adobe = try adobeImporter.importPublication(from: temporary.appendingPathComponent("adobefont.epub"))
+let adobePlain = Data(Array("OTTO".utf8) + (0..<2000).map { UInt8($0 % 249) })
+precondition(try Data(contentsOf: adobe.directory.appendingPathComponent("resources/EPUB/font.otf")) == adobePlain)
+let noise = try adobeImporter.importPublication(from: temporary.appendingPathComponent("adobenoise.epub"))
+let noiseFont = try Data(contentsOf: noise.directory.appendingPathComponent("resources/EPUB/font.otf"))
+precondition(noiseFont != adobePlain && noiseFont.count == adobePlain.count, "a wrong Adobe key must leave the font as it was")
+print("epub-import-smoke: Adobe urn:uuid font de-obfuscation beside an ISBN, legacy font type, and wrong-key fonts left untouched passed")
 let managed = temporary.appendingPathComponent("managed")
 let importer = EPUBPublicationImporter(directory: managed)
 let source = temporary.appendingPathComponent("safe.epub"), before = try Data(contentsOf: source)
@@ -105,7 +129,7 @@ let after = try Data(contentsOf: source); precondition(after == before)
 let copied = try Data(contentsOf: first.directory.appendingPathComponent("original.epub")); precondition(copied == before)
 let again = try importer.importPublication(from: source)
 precondition(again.alreadyImported && again.publication.id == first.publication.id)
-for name in ["traversal", "absolute", "backslash", "duplicate", "casealias", "dtd", "encrypted", "symlink", "truncated", "ratio", "windowsname", "entity", "largeauthor", "encryptionflag", "windowsunicode", "wrongroot", "wrongnamespace", "wrongversion", "badlanguage", "baddirection", "navremote", "navtraversal", "navunknown"] {
+for name in ["traversal", "absolute", "backslash", "duplicate", "casealias", "dtd", "encrypted", "symlink", "truncated", "ratio", "windowsname", "entity", "largeauthor", "encryptionflag", "windowsunicode", "wrongroot", "wrongnamespace", "wrongversion", "badlanguage", "baddirection", "navremote", "navtraversal", "navunknown", "navdtdsubset", "navtwodoctypes"] {
     do { _ = try importer.importPublication(from: temporary.appendingPathComponent(name + ".epub")); fatalError("accepted hostile fixture: " + name) }
     catch { print("rejected \(name): \(error.localizedDescription)") }
 }
@@ -121,6 +145,11 @@ precondition(ncxEdition.publication.toc?.first?.children?.first?.href == "EPUB/c
 precondition(ncxEdition.publication.landmarks?.first?.title == "Start & read" && ncxEdition.publication.pageList?.first?.title == "7")
 let alternatePrefix = try navImporter.importPublication(from: temporary.appendingPathComponent("navprefix.epub"))
 precondition(alternatePrefix.publication.toc?.first?.title == "Part & One")
+let doctypeImporter = EPUBPublicationImporter(directory: temporary.appendingPathComponent("doctype-managed"))
+let ncxDoctype = try doctypeImporter.importPublication(from: temporary.appendingPathComponent("ncxdoctype.epub"))
+precondition(ncxDoctype.publication.toc?.first?.title == "Chapter & title", "EPUB 2 NCX with its standard DOCTYPE")
+let navDoctype = try doctypeImporter.importPublication(from: temporary.appendingPathComponent("navdoctype.epub"))
+precondition(navDoctype.publication.toc?.first?.title == "Part & One", "EPUB 3 navigation with <!DOCTYPE html>")
 let recoveredNav = try navImporter.loadLibrary()
 precondition(recoveredNav.count == 3)
 var oldNav = try JSONSerialization.jsonObject(with: JSONEncoder().encode(navEdition.publication)) as! [String: Any]

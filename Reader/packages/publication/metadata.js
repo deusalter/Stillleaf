@@ -8,8 +8,16 @@ export function xml(bytes) {
   } catch {
     fail("XML", "Metadata must be UTF-8");
   }
-  if (/<!\s*(?:DOCTYPE|ENTITY)/iu.test(text) || /\x00/u.test(text))
+  // Real books carry a plain DOCTYPE (XHTML nav, NCX); only an internal subset
+  // or entity declaration can expand, so those stay forbidden.
+  const doctypes = [...text.matchAll(/<!\s*DOCTYPE/giu)];
+  if (/<!\s*ENTITY/iu.test(text) || doctypes.length > 1 || /\x00/u.test(text))
     fail("XML", "DTD/entity declarations forbidden");
+  if (doctypes.length) {
+    const end = text.indexOf(">", doctypes[0].index);
+    if (end === -1 || text.slice(doctypes[0].index, end).includes("["))
+      fail("XML", "DTD/entity declarations forbidden");
+  }
   // Bound structure before DOM allocation; honor quoted > and Unicode names.
   let depth = 0,
     tags = 0,
@@ -38,7 +46,7 @@ export function xml(bytes) {
     const token = text.slice(cursor + 1, end).trim();
     if (++tags > 20000) fail("XML", "Too many XML tags");
     if (token.startsWith("/")) depth--;
-    else if (!token.endsWith("/")) depth++;
+    else if (!token.startsWith("!") && !token.endsWith("/")) depth++;
     if (depth > 128 || depth < 0)
       fail("XML", "XML nesting exceeds budget or is malformed");
     cursor = end + 1;

@@ -18,14 +18,15 @@ const book=[
  {href:'text/three.html',type:'application/xhtml+xml',body:chapter('Third chapter','<p>Still near the start.</p>')},
  {href:'text/four.html',type:'application/xhtml+xml',body:chapter('Fourth chapter','<p>Beyond the preload window.</p>')},
  {href:'text/five.html',type:'application/xhtml+xml',body:chapter('Fifth chapter','<p>Further still.</p>')},
- {href:'text/six.html',type:'application/xhtml+xml',body:chapter('','<p>The lantern keeper counted every heron.</p><img id="late" src="../images/three.png" alt="">')},
+ {href:'text/six.html',type:'application/xhtml+xml',body:chapter('','<div id="cover-page"><svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 1 1" preserveAspectRatio="xMidYMid meet"><image width="1" height="1" xlink:href="../images/cover.png"/></svg></div><p>The lantern keeper counted every heron.</p><img id="late" src="../images/three.png" alt="">')},
  {href:'styles/book.css',type:'text/css',body:'@import "base.css"; #styled{background:url(../images/tile.png)}'},
  {href:'styles/base.css',type:'text/css',body:'#styled{border-left:7px solid black}'},
  {href:'images/one.png',type:'image/png',body:pixel},
  {href:'images/three.png',type:'image/png',body:pixel},
  {href:'images/tile.png',type:'image/png',body:pixel},
  {href:'images/unused.png',type:'image/png',body:pixel},
- {href:'images/vector.svg',type:'image/svg+xml',body:'<svg xmlns="http://www.w3.org/2000/svg"/>'}
+ {href:'images/vector.svg',type:'image/svg+xml',body:'<svg xmlns="http://www.w3.org/2000/svg"/>'},
+ {href:'images/cover.png',type:'image/png',body:pixel}
 ].map((item,index)=>({...item,bytes:Buffer.isBuffer(item.body)?item.body:Buffer.from(item.body),index}));
 function input(overrides={}){
  return {editionId:'lazy-fixture',title:'Lanterns',creators:['A. Keeper'],language:'en',
@@ -67,6 +68,9 @@ test('host-served resources load on demand and render',{timeout:90000},async t=>
  await page.evaluate(()=>window.StillleafReader.go({href:'text/six.html',type:'text/html',locations:{progression:0}}));
  await frameWith('#late');
  assert.ok(requested.includes('images/three.png'),'later chapter image fetched on navigation');
+ // Calibre-style SVG cover wrapper becomes a plain image instead of being stripped to a blank page.
+ const cover=await page.evaluate(()=>{const d=[...document.querySelectorAll('#reader iframe')].map(f=>f.contentDocument).find(d=>d?.getElementById('cover-page'));const box=d.getElementById('cover-page');return {svg:Boolean(box.querySelector('svg')),src:box.querySelector('img')?.getAttribute('src')??''}});
+ assert.equal(cover.svg,false);assert.match(cover.src,/^blob:/,'SVG-wrapped cover rendered as an image');
  assert.equal(await page.evaluate(()=>document.getElementById('chapter-label').textContent),'Chapter 6','untitled chapter falls back while its heading is empty');
 
  await page.getByRole('button',{name:'Search book',exact:true}).click();
