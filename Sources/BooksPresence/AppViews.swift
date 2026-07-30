@@ -435,30 +435,6 @@ struct ReadingEmptyState: View {
     }
 }
 
-enum ReadingPalette {
-    private static func adaptive(_ light: UInt32, _ dark: UInt32) -> Color {
-        Color(NSColor(name: nil) { appearance in
-            let hex = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light
-            return NSColor(srgbRed: Double((hex >> 16) & 0xff) / 255,
-                           green: Double((hex >> 8) & 0xff) / 255,
-                           blue: Double(hex & 0xff) / 255, alpha: 1)
-        })
-    }
-    static let paper = adaptive(0xDFECE7, 0x132422)
-    static let surface = adaptive(0xF0F7F3, 0x1C302D)
-    static let elevated = adaptive(0xD1E6DD, 0x28423B)
-    static let sidebar = adaptive(0xE9F2ED, 0x172A27)
-    static let parchment = adaptive(0xB9D8CA, 0x355A4D)
-    static let ink = adaptive(0x183D33, 0xE7F3EA)
-    static let moss = adaptive(0x087D65, 0x70DAB2)
-    static let ochre = adaptive(0x885A27, 0xE4B779)
-    static let fadedInk = adaptive(0x526F64, 0xADC5B8)
-    static let border = adaptive(0xB5CFC2, 0x39544A)
-    static let progressTrack = adaptive(0xC7DED3, 0x304B40)
-    static let accentEnd = adaptive(0x18998A, 0x92DEC8)
-    static let onAccent = adaptive(0xFFFFFF, 0x10392B)
-}
-
 enum ReadingFormat {
     static func observedPages(_ value: Int) -> String {
         "\(value) observed \(value == 1 ? "page" : "pages")"
