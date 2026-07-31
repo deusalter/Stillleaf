@@ -286,25 +286,6 @@ struct LabeledValue: View {
     }
 }
 
-struct PageHeading: View {
-    let title: String
-    let subtitle: String
-    var body: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            Text(title).font(.system(size: 29, weight: .semibold, design: .rounded)).tracking(-0.7)
-            Text(subtitle).font(.callout).foregroundStyle(ReadingPalette.fadedInk)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
-extension View {
-    func readingPanel() -> some View {
-        padding(20)
-            .background(ReadingPalette.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-    }
-}
-
 func pauseDescription(_ reason: PauseReason) -> String {
     switch reason {
     case .disabled: return "tracking is disabled"
