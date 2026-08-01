@@ -15,96 +15,95 @@ struct TodayView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 26) {
-                HStack(alignment: .center) {
-                    PageHeading(title: "Today", subtitle: ReadingFormat.day(model.today.day))
-                    Spacer(minLength: 12)
+            VStack(alignment: .leading, spacing: 36) {
+                PageHeader("Today", subtitle: todaySubtitle) {
                     Label(trackingLabel, systemImage: model.snapshot.phase == .reading ? "book" : "leaf")
                         .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(ReadingPalette.moss)
-                        .padding(.horizontal, 12).padding(.vertical, 8)
-                        .background(ReadingPalette.moss.opacity(0.09), in: Capsule())
+                        .foregroundStyle(ReadingPalette.accent)
+                        .padding(.horizontal, 11).padding(.vertical, 6)
+                        .background(ReadingPalette.accent.opacity(0.10), in: Capsule())
                         .fixedSize()
                 }
                 DailyReadingOverview(model: model)
-                AnnualReadingGoalView(model: model)
-                featuredReading
                 if let entry = model.pendingCompletion, model.snapshot.phase != .reading, !model.manualActive {
                     FinishedBookPrompt(model: model, entry: entry)
                 }
-                HStack(spacing: 10) {
-                    Label("Your reading journal", systemImage: "square.and.pencil")
-                        .font(.callout).foregroundStyle(ReadingPalette.fadedInk)
-                    Spacer(minLength: 8)
-                    if model.manualActive {
-                        Button("Stop manual reading") { model.stopManual() }
-                    } else {
-                        Button("Read manually") { present(.manualStart) }
-                    }
-                    Button { present(.manualAdd) } label: { Label("Add time", systemImage: "plus") }
+                featuredReading
+                ReadingSection("This year") {
+                    AnnualReadingGoalView(model: model)
                 }
-                .controlSize(.small)
+                ReadingSection("Your reading journal") {
+                    HStack(spacing: 10) {
+                        Text("Log reading that happened away from Apple Books.")
+                            .font(.callout).foregroundStyle(ReadingPalette.secondaryInk)
+                        Spacer(minLength: 8)
+                        if model.manualActive {
+                            Button("Stop manual reading") { model.stopManual() }
+                        } else {
+                            Button("Read manually") { present(.manualStart) }
+                        }
+                        Button { present(.manualAdd) } label: { Label("Add time", systemImage: "plus") }
+                    }
+                    .controlSize(.small)
+                }
             }
-            .frame(maxWidth: 1060, alignment: .leading)
-            .padding(30)
-            .frame(maxWidth: .infinity, alignment: .center)
+            .readingPage()
         }
         .buttonStyle(ReadingButtonStyle())
     }
 
+    private var todaySubtitle: String {
+        DayParser.date(model.today.day)?.formatted(.dateTime.weekday(.wide).month(.wide).day()) ?? ReadingFormat.day(model.today.day)
+    }
+
     private var featuredReading: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Text(model.snapshot.book == nil ? "Last read" : "Your current read")
-                    .font(.system(size: 17, weight: .semibold, design: .rounded))
-                Spacer()
-                if let book = featuredBook {
-                    Button("Book details") { present(.book(book)) }.controlSize(.small)
-                }
+        ReadingSection(model.snapshot.book == nil ? "Last read" : "Your current read", accessory: {
+            if let book = featuredBook {
+                Button("Book details") { present(.book(book)) }.controlSize(.small)
             }
-            HStack(alignment: .center, spacing: 22) {
+        }) {
+            HStack(alignment: .center, spacing: 28) {
                 if let book = featuredBook {
-                    BookCoverView(book: book, size: .large)
-                        .shadow(color: .black.opacity(0.12), radius: 9, x: 0, y: 5)
+                    BookCoverView(book: book, size: .hero)
+                        .shadow(color: ReadingPalette.ink.opacity(0.16), radius: 12, x: 0, y: 7)
                     VStack(alignment: .leading, spacing: 8) {
-                        Text(book.title).font(.system(size: 24, weight: .semibold, design: .serif)).lineLimit(2)
+                        Text(book.title).font(ReadingType.bookTitle(30)).lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
                         if let author = book.author, !author.isEmpty {
-                            Text(author).font(.callout).foregroundStyle(ReadingPalette.fadedInk)
+                            Text(author).font(.body).foregroundStyle(ReadingPalette.secondaryInk)
                         }
                         if model.snapshot.book != nil {
-                            ActivityStateLabel(snapshot: model.snapshot).padding(.top, 3)
-                            HStack(spacing: 18) {
+                            ActivityStateLabel(snapshot: model.snapshot).padding(.top, 4)
+                            HStack(spacing: 28) {
                                 LabeledValue(label: "Session pages", value: "\(model.sessionPages)")
                                 LabeledValue(label: "Reading time", value: ReadingFormat.duration(model.snapshot.sessionSeconds))
                                 if let page = model.currentPageText { LabeledValue(label: "In this book", value: page) }
-                            }.padding(.top, 3)
+                            }.padding(.top, 6)
                         } else {
                             HStack(spacing: 6) {
                                 Image(systemName: "bookmark")
                                 Text("\(model.pages(forBookID: book.id)) pages in your journal")
-                            }.font(.caption).foregroundStyle(ReadingPalette.fadedInk).padding(.top, 3)
+                            }.font(.callout).foregroundStyle(ReadingPalette.secondaryInk).padding(.top, 2)
                         }
                         Button { openBooks() } label: { Label("Open Apple Books", systemImage: "book") }
-                            .buttonStyle(ReadingButtonStyle(emphasis: .primary)).padding(.top, 6)
+                            .buttonStyle(ReadingButtonStyle(emphasis: .primary)).padding(.top, 10)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 } else {
                     Image(systemName: "books.vertical")
-                        .font(.system(size: 40, weight: .light)).foregroundStyle(ReadingPalette.moss)
-                        .frame(width: 88, height: 112)
-                        .background(ReadingPalette.moss.opacity(0.08), in: RoundedRectangle(cornerRadius: 22))
+                        .font(.system(size: 40, weight: .light)).foregroundStyle(ReadingPalette.accent)
+                        .frame(width: 96, height: 128)
+                        .background(ReadingPalette.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                     VStack(alignment: .leading, spacing: 9) {
-                        Text("Make room for a good book.").font(.system(size: 23, weight: .medium, design: .serif))
+                        Text("Make room for a good book.").font(ReadingType.bookTitle(26))
                         Text("Open a book to start your reading day.")
-                            .font(.callout).foregroundStyle(ReadingPalette.fadedInk)
+                            .font(.callout).foregroundStyle(ReadingPalette.secondaryInk)
                         Button { openBooks() } label: { Label("Open Apple Books", systemImage: "book") }
                             .buttonStyle(ReadingButtonStyle(emphasis: .primary)).padding(.top, 5)
                     }.frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
         }
-        .padding(24)
-        .background(ReadingPalette.surface, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 
     private var trackingLabel: String {
@@ -156,7 +155,7 @@ struct GoalProgressView: View {
 }
 
 struct BookCoverView: View {
-    enum Size { case compact, menu, large, library, shelf }
+    enum Size { case compact, menu, large, library, shelf, shelfLarge, hero, timeline }
     let book: BookRecord?
     let size: Size
     @State private var thumbnail: NSImage?
@@ -168,6 +167,9 @@ struct BookCoverView: View {
         case .shelf: return CGSize(width: 108, height: 154)
         case .large: return CGSize(width: 104, height: 148)
         case .library: return CGSize(width: 72, height: 104)
+        case .shelfLarge: return CGSize(width: 150, height: 225)
+        case .hero: return CGSize(width: 132, height: 198)
+        case .timeline: return CGSize(width: 64, height: 96)
         }
     }
 
@@ -186,9 +188,9 @@ struct BookCoverView: View {
                     VStack(spacing: 8) {
                         Image(systemName: "book.closed")
                             .font(.system(size: max(16, dimensions.width * 0.22), weight: .light))
-                        if size != .compact && size != .menu {
+                        if size != .compact && size != .menu && size != .timeline {
                             Text(book?.title ?? "Your next read")
-                                .font(.system(size: size == .large ? 13 : 11, weight: .medium, design: .serif))
+                                .font(.system(size: size == .large || size == .hero || size == .shelfLarge ? 14 : 11, weight: .medium, design: .serif))
                                 .multilineTextAlignment(.center).lineLimit(3)
                         }
                     }
@@ -268,7 +270,7 @@ struct CompactMetric: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(value).font(.system(.headline, design: .rounded)).monospacedDigit()
-            Text(label).font(.caption).foregroundStyle(.secondary)
+            Text(label).font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 8)
@@ -280,7 +282,7 @@ struct LabeledValue: View {
     let value: String
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(label).font(.caption).foregroundStyle(.secondary)
+            Text(label).font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
             Text(value).font(.callout).monospacedDigit()
         }
     }

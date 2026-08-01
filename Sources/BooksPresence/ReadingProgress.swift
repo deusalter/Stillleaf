@@ -85,8 +85,8 @@ struct DailyReadingOverview: View {
                     .animation(reduceMotion ? nil : .easeOut(duration: 0.24), value: progress)
                 VStack(spacing: 1) {
                     Text(daily.displayValue)
-                        .font(.system(size: 68, weight: .bold, design: .rounded))
-                        .tracking(-3).monospacedDigit().minimumScaleFactor(0.55).lineLimit(1)
+                        .font(ReadingType.numeral(72))
+                        .tracking(-1.5).monospacedDigit().minimumScaleFactor(0.55).lineLimit(1)
                     Text(daily.todayLabel)
                         .font(.system(size: 13, weight: .medium)).foregroundStyle(ReadingPalette.fadedInk)
                 }
@@ -106,14 +106,14 @@ struct DailyReadingOverview: View {
 
             VStack(alignment: .leading, spacing: 22) {
                 VStack(alignment: .leading, spacing: 5) {
-                    Text(goalTitle).font(.system(size: 21, weight: .semibold, design: .rounded))
+                    Text(goalTitle).font(ReadingType.bookTitle(24))
                         .fixedSize(horizontal: false, vertical: true)
                     Text(goalDetail).font(.callout).foregroundStyle(ReadingPalette.fadedInk)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 HStack(alignment: .top, spacing: 24) {
                     overviewStat(value: daily.unit == .pages ? ReadingFormat.duration(model.today.creditedSeconds) : model.todayPages.formatted(), title: daily.unit == .pages ? "Reading time" : "Pages read", symbol: daily.unit == .pages ? "clock" : "book", color: ReadingPalette.moss)
-                    overviewStat(value: "\(model.dailyGoalStreak.current) \(model.dailyGoalStreak.current == 1 ? "day" : "days")", title: "Goal streak", symbol: "flame", color: ReadingPalette.ochre)
+                    overviewStat(value: "\(model.dailyGoalStreak.current) \(model.dailyGoalStreak.current == 1 ? "day" : "days")", title: "Goal streak", symbol: "flame", color: ReadingPalette.accent)
                 }
                 ReadingWeekStrip(model: model)
                 if model.dailyGoalStreak.provisional || model.today.uncertainSeconds > 0 {
@@ -123,8 +123,8 @@ struct DailyReadingOverview: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(24)
-        .background(ReadingPalette.surface, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+        .padding(28)
+        .background(ReadingPalette.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         .onAppear { appeared = true }
     }
 
@@ -134,7 +134,7 @@ struct DailyReadingOverview: View {
         VStack(alignment: .leading, spacing: 7) {
             Label(title, systemImage: symbol).font(.system(size: 11, weight: .medium)).foregroundStyle(ReadingPalette.fadedInk)
                 .labelStyle(.titleAndIcon)
-            Text(value).font(.system(size: 25, weight: .semibold, design: .rounded)).monospacedDigit()
+            Text(value).font(ReadingType.numeral(28)).monospacedDigit()
                 .foregroundStyle(color).lineLimit(1).minimumScaleFactor(0.75)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -151,7 +151,7 @@ private struct ReadingWeekStrip: View {
         let calendar = navigation.calendar
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text("This week").font(.system(size: 11, weight: .medium))
+                Text("This week").font(.system(size: 11, weight: .medium)).foregroundStyle(ReadingPalette.secondaryInk)
                 Spacer()
                 Text("Best: \(model.dailyGoalStreak.longest) \(model.dailyGoalStreak.longest == 1 ? "day" : "days")")
                     .font(.system(size: 10)).foregroundStyle(ReadingPalette.fadedInk)

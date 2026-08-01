@@ -39,12 +39,12 @@ struct ReadingTheme: Identifiable, Equatable {
 
     static let all: [ReadingTheme] = [
         ReadingTheme(id: "stillleaf", name: "Stillleaf",
-            light: ThemeColors(canvas: 0xDFECE7, surface: 0xF0F7F3, elevated: 0xD1E6DD, ink: 0x183D33, secondaryInk: 0x526F64,
-                               accent: 0x087D65, onAccent: 0xFFFFFF, border: 0xB5CFC2, track: 0xC7DED3, warning: 0x885A27,
-                               chart: [0x087D65, 0x885A27, 0x6C857A]),
-            dark: ThemeColors(canvas: 0x132422, surface: 0x1C302D, elevated: 0x28423B, ink: 0xE7F3EA, secondaryInk: 0xADC5B8,
-                              accent: 0x70DAB2, onAccent: 0x10392B, border: 0x39544A, track: 0x304B40, warning: 0xE4B779,
-                              chart: [0x70DAB2, 0xE4B779, 0x86A094])),
+            light: ThemeColors(canvas: 0xF5F8F5, surface: 0xE9F1ED, elevated: 0xDCE9E2, ink: 0x183D33, secondaryInk: 0x4B6A5E,
+                               accent: 0x176650, onAccent: 0xFFFFFF, border: 0xD0DED6, track: 0xD5E4DC, warning: 0x8A5A1F,
+                               chart: [0x176650, 0x9A6424, 0x6E877C]),
+            dark: ThemeColors(canvas: 0x111A18, surface: 0x18251F, elevated: 0x22332D, ink: 0xE6F1EB, secondaryInk: 0xA3BAAF,
+                              accent: 0x6FD4AE, onAccent: 0x0E2E23, border: 0x2A3B35, track: 0x24352F, warning: 0xE2B574,
+                              chart: [0x6FD4AE, 0xE2B574, 0x7F978C])),
         ReadingTheme(id: "graphite", name: "Graphite",
             light: ThemeColors(canvas: 0xF6F6F7, surface: 0xECECEE, elevated: 0xE1E1E4, ink: 0x1D1D1F, secondaryInk: 0x5A5A61,
                                accent: 0x2A5BD7, onAccent: 0xFFFFFF, border: 0xD6D6DB, track: 0xDDDDE2, warning: 0x8F5500,

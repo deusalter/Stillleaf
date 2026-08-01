@@ -16,12 +16,14 @@ struct DashboardView: View {
         self.initialSettingsCategory = initialSettingsCategory
     }
     @State private var sheet: DashboardSheet?
+    @ObservedObject private var theme = ThemeStore.shared
     @State private var deleteAllConfirmation = false
     @State private var uninstallConfirmation = false
 
     var body: some View {
         NavigationSplitView {
             DashboardSidebar(selection: $section, model: model, troubleshoot: { sheet = .trackingHelp })
+                .id(theme.revision)
                 .navigationSplitViewColumnWidth(min: 205, ideal: 225, max: 260)
         } detail: {
             VStack(spacing: 0) {
@@ -41,7 +43,8 @@ struct DashboardView: View {
                     }
                 }
                 .readingEntrance()
-                .id(section)
+                // Settings owns unsaved drafts, so it re-keys only its own content on a theme change.
+                .id(section == .settings ? section.rawValue : "\(section.rawValue)-\(theme.revision)")
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .background(ReadingPalette.paper)
@@ -105,6 +108,7 @@ struct DashboardView: View {
 struct PopoverView: View {
     @ObservedObject var model: AppModel
     var maximumHeight: CGFloat = 640
+    @ObservedObject private var theme = ThemeStore.shared
     @State private var showingManualStart = false
     @State private var bodyHeight: CGFloat = 390
 
@@ -148,6 +152,7 @@ struct PopoverView: View {
                 .accessibilityLabel("More actions")
             }
         }
+        .id(theme.revision)
         .padding(20).frame(width: 350)
         .foregroundStyle(ReadingPalette.ink)
         .background(ReadingPalette.paper, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
@@ -312,33 +317,31 @@ private struct DashboardSidebar: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 10) {
+            HStack(spacing: 9) {
                 Image(systemName: "leaf.fill")
-                    .font(.system(size: 17, weight: .medium))
-                    .foregroundStyle(ReadingPalette.moss)
-                    .frame(width: 36, height: 36)
-                    .background(ReadingPalette.moss.opacity(0.10), in: RoundedRectangle(cornerRadius: 12))
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Stillleaf").font(.system(size: 17, weight: .semibold, design: .rounded))
-                    Text("A little more, every day").font(.system(size: 11)).foregroundStyle(ReadingPalette.fadedInk)
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(ReadingPalette.accent)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Stillleaf").font(.system(size: 21, weight: .regular, design: .serif)).tracking(-0.3)
+                    Text("A little more, every day").font(.system(size: 11)).foregroundStyle(ReadingPalette.secondaryInk)
                 }
             }
-            .padding(.horizontal, 18).padding(.top, 24).padding(.bottom, 30)
-            VStack(spacing: 5) {
+            .padding(.horizontal, 20).padding(.top, 26).padding(.bottom, 26)
+            VStack(spacing: 2) {
                 ForEach(destinations) { item in
                     Button { selection = item } label: {
-                        HStack(spacing: 11) {
-                            Image(systemName: item.symbol).font(.system(size: 16, weight: .medium)).frame(width: 22)
+                        HStack(spacing: 10) {
+                            Image(systemName: item.symbol).font(.system(size: 14, weight: .regular)).frame(width: 20)
+                                .foregroundStyle(selection == item ? ReadingPalette.accent : ReadingPalette.secondaryInk)
                             Text(item.title).font(.system(size: 13, weight: selection == item ? .semibold : .regular))
                             Spacer(minLength: 0)
-
                         }
-                        .foregroundStyle(selection == item ? ReadingPalette.ink : ReadingPalette.fadedInk)
-                        .padding(.horizontal, 12).padding(.vertical, 11)
+                        .foregroundStyle(selection == item ? ReadingPalette.ink : ReadingPalette.secondaryInk)
+                        .padding(.horizontal, 10).padding(.vertical, 8)
                         .background {
                             if selection == item {
-                                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                    .fill(ReadingPalette.moss.opacity(0.14))
+                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    .fill(ReadingPalette.accent.opacity(0.12))
                                     .transition(.opacity)
                             }
                         }
@@ -348,7 +351,7 @@ private struct DashboardSidebar: View {
                     .buttonStyle(.plain)
                     .focusable()
                     .focused($focusedSection, equals: item)
-                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(focusedSection == item ? ReadingPalette.moss : .clear, lineWidth: 2))
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(focusedSection == item ? ReadingPalette.accent : .clear, lineWidth: 2))
                     .accessibilityLabel(item.title)
                     .accessibilityAddTraits(selection == item ? .isSelected : [])
                     .accessibilityIdentifier("navigation-\(item.rawValue)")
@@ -363,29 +366,27 @@ private struct DashboardSidebar: View {
                 focusedSection = selection
             }
             Spacer(minLength: 28)
-            VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 6) {
                 if model.automaticTrackingNeedsAccess || model.snapshot.pauseReason == .captureFailure {
                     Button(action: troubleshoot) {
                         Label(trackingStatus, systemImage: "exclamationmark.circle")
-                            .font(.system(size: 11, weight: .medium)).foregroundStyle(ReadingPalette.ochre)
+                            .font(.system(size: 11, weight: .medium)).foregroundStyle(ReadingPalette.warning)
                     }.buttonStyle(.plain).help("Open tracking help")
                 } else {
                     HStack(spacing: 6) {
-                        Circle().fill(model.snapshot.phase == .reading ? ReadingPalette.moss : ReadingPalette.fadedInk).frame(width: 6, height: 6)
-                        Text(trackingStatus).font(.system(size: 11, weight: .medium)).foregroundStyle(ReadingPalette.fadedInk)
+                        Circle().fill(model.snapshot.phase == .reading ? ReadingPalette.accent : ReadingPalette.secondaryInk).frame(width: 6, height: 6)
+                        Text(trackingStatus).font(.system(size: 11, weight: .medium)).foregroundStyle(ReadingPalette.secondaryInk)
                     }
                 }
+                Text("History stored on this Mac")
+                    .font(.system(size: 10)).foregroundStyle(ReadingPalette.secondaryInk)
             }
-            .font(.system(size: 12)).toggleStyle(.switch).controlSize(.small)
-            .padding(14)
-            .background(ReadingPalette.surface, in: RoundedRectangle(cornerRadius: 12))
-            .padding(12)
-            Text("History stored on this Mac")
-                .font(.system(size: 10)).foregroundStyle(ReadingPalette.fadedInk)
-                .frame(maxWidth: .infinity).padding(.bottom, 16)
+            .padding(.horizontal, 20).padding(.bottom, 18)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(ReadingPalette.sidebar)
+        .foregroundStyle(ReadingPalette.ink)
+        .background(ReadingPalette.canvas)
+        .overlay(alignment: .trailing) { Hairline(axis: .vertical) }
     }
 
     private var trackingStatus: String {

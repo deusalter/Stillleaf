@@ -249,6 +249,7 @@ struct SettingsView: View {
     let uninstall: () -> Void
 
     @State private var category: SettingsCategory
+    @ObservedObject private var theme = ThemeStore.shared
     @State private var didLoadDrafts = false
     @State private var pageGoalDraft = "20"
     @State private var goalDraft = "20"
@@ -300,6 +301,8 @@ struct SettingsView: View {
                     .font(.caption).foregroundStyle(applyFailed ? ReadingPalette.ochre : ReadingPalette.fadedInk)
             }
         }
+        // Re-key the rendered content only; drafts live in this view's own state and survive.
+        .id(theme.revision)
         .frame(maxWidth: 840, maxHeight: .infinity, alignment: .topLeading)
         .padding(30).frame(maxWidth: .infinity, alignment: .top)
         .background(ReadingPalette.paper).foregroundStyle(ReadingPalette.ink)
