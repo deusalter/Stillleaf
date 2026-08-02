@@ -17,7 +17,7 @@ struct CompletionReviewSheet: View {
                     .keyboardShortcut(.cancelAction)
             }
             FinishedBookPrompt(model: model, entry: entry)
-            if let error = model.errorMessage { Text(error).font(.caption).foregroundStyle(.red) }
+            if let error = model.errorMessage { Text(error).font(.caption).foregroundStyle(ReadingPalette.warning) }
         }
         .padding(24).frame(width: 660)
         .background(ReadingPalette.paper).foregroundStyle(ReadingPalette.ink)
@@ -55,17 +55,17 @@ struct FinishedBookPrompt: View {
 
             VStack(alignment: .leading, spacing: 10) {
                 Text("Another story, finished.")
-                    .font(.system(size: 19, weight: .semibold, design: .rounded)).foregroundStyle(ReadingPalette.moss)
-                Text(entry.title).font(.system(.title2, design: .serif))
+                    .font(.system(size: 15, weight: .semibold)).foregroundStyle(ReadingPalette.accent)
+                Text(entry.title).font(ReadingType.bookTitle(24))
                 if let author = entry.author, !author.isEmpty {
-                    Text(author).font(.callout).foregroundStyle(.secondary)
+                    Text(author).font(.callout).foregroundStyle(ReadingPalette.secondaryInk)
                 }
-                Text(finishDetail).font(.caption).foregroundStyle(.secondary)
+                Text(finishDetail).font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
                 Button("Reading dates · optional") { editingDates = true }.controlSize(.small)
                 Text("Already marked as read. You can skip dates and feedback.")
                     .font(.caption).foregroundStyle(ReadingPalette.fadedInk)
                 Text("Congratulations. How did this one stay with you?")
-                    .font(.callout).foregroundStyle(.secondary)
+                    .font(.callout).foregroundStyle(ReadingPalette.secondaryInk)
                 QuarterStarRating(rating: $rating)
                 Button(model.review(for: entry.id) == nil ? "Write a review" : "Edit written review") { writingReview = true }
                     .controlSize(.small)
@@ -114,6 +114,8 @@ struct FinishedBookTimeline: View {
     @ObservedObject var model: AppModel
     var search = ""
     var showsHeading = true
+    /// Opens book details, where rating and reading dates are edited.
+    var present: (DashboardSheet) -> Void = { _ in }
 
     private var calendar: Calendar {
         var calendar = Calendar(identifier: .gregorian)
@@ -153,68 +155,62 @@ struct FinishedBookTimeline: View {
     }
 
     var body: some View {
-        LazyVStack(alignment: .leading, spacing: 24) {
+        LazyVStack(alignment: .leading, spacing: 40) {
             if showsHeading {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Finished").font(.system(size: 34, weight: .medium, design: .serif))
-                    Text("Your completed books, ordered by the day you finished them.")
-                        .font(.callout).foregroundStyle(ReadingPalette.fadedInk)
-                }
+                PageHeader("Finished", subtitle: "Your completed books, ordered by the day you finished them.")
             }
             if entries.isEmpty {
                 Text(search.isEmpty ? "Books marked finished in Apple Books will appear here." : "No finished books match your search.")
-                    .foregroundStyle(.secondary).padding(.vertical, 28)
+                    .foregroundStyle(ReadingPalette.secondaryInk).padding(.vertical, 28)
             }
             ForEach(years) { year in
-                LazyVStack(alignment: .leading, spacing: 16) {
-                    Text(String(year.year))
-                        .font(.system(size: 31, weight: .bold, design: .rounded))
-                        .foregroundStyle(ReadingPalette.moss)
-                        .padding(.top, 8)
-                    ForEach(year.entries) { entry in
-                        FinishedBookTimelineRow(model: model, entry: entry, calendar: calendar)
-                    }
-                }
+                yearGroup(title: String(year.year), note: "\(year.entries.count) \(year.entries.count == 1 ? "book" : "books")", entries: year.entries)
             }
             if !undatedEntries.isEmpty {
-                LazyVStack(alignment: .leading, spacing: 16) {
-                    Text("Date unavailable")
-                        .font(.system(size: 24, weight: .semibold, design: .rounded))
-                        .foregroundStyle(ReadingPalette.fadedInk)
-                        .padding(.top, 8)
-                    Text("These completion records have no saved finish date, so they appear after the dated timeline.")
-                        .font(.callout).foregroundStyle(ReadingPalette.fadedInk)
-                    ForEach(undatedEntries) { entry in
-                        FinishedBookTimelineRow(model: model, entry: entry, calendar: calendar)
-                    }
-                }
+                yearGroup(title: "Date unavailable",
+                          note: "These completion records have no saved finish date, so they appear after the dated timeline.",
+                          entries: undatedEntries)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .readingPanel()
         .buttonStyle(ReadingButtonStyle())
+    }
+
+    private func yearGroup(title: String, note: String, entries: [FinishedBookEntry]) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(title).font(ReadingType.numeral(30)).foregroundStyle(ReadingPalette.ink)
+                    .accessibilityAddTraits(.isHeader)
+                Spacer(minLength: 12)
+                Text(note).font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
+                    .multilineTextAlignment(.trailing)
+            }
+            Hairline().padding(.bottom, 6)
+            ForEach(entries) { entry in
+                FinishedBookTimelineRow(model: model, entry: entry, calendar: calendar, present: present)
+            }
+        }
     }
 }
 
 @MainActor
 struct ReadingTimelineView: View {
     @ObservedObject var model: AppModel
+    var present: (DashboardSheet) -> Void = { _ in }
     @State private var search = ""
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            PageHeading(title: "Timeline", subtitle: "Finished books, ordered by their recorded completion date")
-            TextField("Find a finished title or author", text: $search)
-                .textFieldStyle(ReadingTextFieldStyle())
-                .frame(maxWidth: 330)
-            ScrollView {
-                FinishedBookTimeline(model: model, search: search, showsHeading: false)
-                    .padding(.vertical, 4)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 30) {
+                PageHeader("Timeline", subtitle: "Finished books, ordered by their recorded completion date") {
+                    TextField("Find a finished title or author", text: $search)
+                        .textFieldStyle(ReadingTextFieldStyle())
+                        .frame(width: 260)
+                }
+                FinishedBookTimeline(model: model, search: search, showsHeading: false, present: present)
             }
+            .readingPage(maxWidth: 860)
         }
-        .frame(maxWidth: 1060, maxHeight: .infinity, alignment: .topLeading)
-        .padding(30)
-        .frame(maxWidth: .infinity, alignment: .top)
         .buttonStyle(ReadingButtonStyle())
     }
 }
@@ -225,147 +221,88 @@ private struct FinishedTimelineYear: Identifiable {
     var id: Int { year }
 }
 
+/// One finished book. The whole row opens book details, where rating and dates are edited.
 @MainActor
 private struct FinishedBookTimelineRow: View {
     @ObservedObject var model: AppModel
     let entry: FinishedBookEntry
     let calendar: Calendar
-    @State private var rating: Double?
-    @State private var isEditing = false
-    @State private var editingDates = false
-
-    init(model: AppModel, entry: FinishedBookEntry, calendar: Calendar) {
-        self.model = model
-        self.entry = entry
-        self.calendar = calendar
-        _rating = State(initialValue: model.rating(for: entry.id))
-    }
+    let present: (DashboardSheet) -> Void
+    @State private var hovering = false
+    @FocusState private var focused: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var book: BookRecord? { model.books.first { $0.id == entry.id } }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            ViewThatFits(in: .horizontal) {
-                wideLayout.frame(minWidth: 650, alignment: .leading)
-                compactLayout
-            }
-            if isEditing {
-                VStack(alignment: .leading, spacing: 8) {
-                    QuarterStarRating(rating: $rating)
-                    HStack(spacing: 10) {
-                        Button("Save rating") {
-                            model.saveRating(rating, for: entry.id)
-                            if model.errorMessage == nil { isEditing = false }
-                        }
-                        .buttonStyle(ReadingButtonStyle(emphasis: .primary))
-                        .disabled(rating == nil)
-                        Button("Cancel") {
-                            rating = model.rating(for: entry.id)
-                            isEditing = false
-                        }
-                        if model.rating(for: entry.id) != nil {
-                            Button("Clear rating") {
-                                rating = nil
-                                model.saveRating(nil, for: entry.id)
-                                if model.errorMessage == nil { isEditing = false }
-                            }
-                        }
+        Button {
+            present(.book(book ?? BookRecord(id: entry.id, title: entry.title, author: entry.author)))
+        } label: {
+            HStack(alignment: .center, spacing: 20) {
+                dateColumn.frame(width: 56, alignment: .leading)
+                BookCoverView(book: book, size: .timeline)
+                    .shadow(color: ReadingPalette.ink.opacity(0.14), radius: 6, x: 0, y: 3)
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(entry.title)
+                        .font(ReadingType.bookTitle(20))
+                        .foregroundStyle(ReadingPalette.ink)
+                        .lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                    if let author = entry.author, !author.isEmpty {
+                        Text(author).font(.callout).foregroundStyle(ReadingPalette.secondaryInk).lineLimit(1)
                     }
-                    .controlSize(.small)
+                    HStack(spacing: 10) {
+                        if model.rating(for: entry.id) != nil {
+                            RatingStars(rating: model.rating(for: entry.id))
+                        } else {
+                            Text("Not rated").font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
+                        }
+                        Text("·").font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
+                        Text(entry.imported ? "Imported history" : entry.source)
+                            .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
+                    }
+                    .padding(.top, 2)
                 }
-                .padding(16)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(ReadingPalette.elevated.opacity(0.52), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(ReadingPalette.secondaryInk)
+                    .opacity(hovering || focused ? 1 : 0.5)
             }
+            .padding(.vertical, 12).padding(.horizontal, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(hovering ? ReadingPalette.surface : .clear, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
-        .accessibilityElement(children: .contain)
-        .sheet(isPresented: $editingDates) {
-            ReadingDatesEditor(title: entry.title,
-                dates: ReadingCompletionDates(startedAt: entry.startedAt, finishedAt: entry.finishedAt),
-                timezoneID: model.timezoneID) { dates in model.saveReadingDates(dates, for: entry.id) }
-        }
-    }
-
-    private var wideLayout: some View {
-        HStack(alignment: .top, spacing: 18) {
-            dateColumn
-                .frame(width: 96, alignment: .trailing)
-            timelineMarker
-            bookCard
-        }
-    }
-
-    private var compactLayout: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            dateColumn
-            bookCard
-        }
+        .buttonStyle(.plain)
+        .focused($focused)
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(focused ? ReadingPalette.accent : .clear, lineWidth: 2))
+        .onHover { hovering = $0 }
+        .animation(reduceMotion ? nil : ReadingMotion.hover, value: hovering)
+        .padding(.horizontal, -12)
+        .accessibilityLabel(accessibilityText)
+        .accessibilityHint("Open book details to rate or edit reading dates")
     }
 
     private var dateColumn: some View {
-        VStack(alignment: .trailing, spacing: 1) {
+        VStack(alignment: .leading, spacing: 1) {
             if let date = entry.finishedAt {
-                Text(String(calendar.component(.day, from: date)))
-                    .font(.system(size: 44, weight: .bold, design: .rounded))
-                    .foregroundStyle(ReadingPalette.moss)
-                    .monospacedDigit()
-                Text(calendar.shortMonthSymbols[calendar.component(.month, from: date) - 1])
-                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                Text(calendar.shortMonthSymbols[calendar.component(.month, from: date) - 1] + " " + String(calendar.component(.day, from: date)))
+                    .font(.system(size: 13, weight: .semibold)).monospacedDigit()
                     .foregroundStyle(ReadingPalette.ink)
                 Text(calendar.shortWeekdaySymbols[calendar.component(.weekday, from: date) - 1])
-                    .font(.caption).foregroundStyle(ReadingPalette.fadedInk)
+                    .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
             } else {
                 Image(systemName: "calendar.badge.exclamationmark")
-                    .font(.title2).foregroundStyle(ReadingPalette.fadedInk)
-                Text("Date unavailable")
-                    .font(.caption.weight(.medium)).foregroundStyle(ReadingPalette.fadedInk)
-                    .multilineTextAlignment(.trailing)
+                    .font(.callout).foregroundStyle(ReadingPalette.secondaryInk)
             }
         }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(entry.finishedAt.map { "Finished on \(formattedDate($0))" } ?? "Finish date unavailable")
-    }
-
-    private var timelineMarker: some View {
-        VStack(spacing: 0) {
-            Circle().fill(ReadingPalette.moss).frame(width: 12, height: 12)
-            Rectangle().fill(ReadingPalette.moss.opacity(0.28)).frame(width: 2).frame(minHeight: 142)
-        }
-        .frame(width: 14)
         .accessibilityHidden(true)
     }
 
-    private var bookCard: some View {
-        HStack(alignment: .top, spacing: 20) {
-            BookCoverView(book: book, size: .shelf)
-                .shadow(color: ReadingPalette.ink.opacity(0.12), radius: 7, x: 0, y: 4)
-            VStack(alignment: .leading, spacing: 7) {
-                Text(entry.title)
-                    .font(.system(size: 25, weight: .medium, design: .serif))
-                    .foregroundStyle(ReadingPalette.ink)
-                    .fixedSize(horizontal: false, vertical: true)
-                if let author = entry.author, !author.isEmpty {
-                    Text(author).font(.callout).foregroundStyle(ReadingPalette.fadedInk)
-                }
-                Text(entry.imported ? "Imported history" : entry.source)
-                    .font(.caption).foregroundStyle(ReadingPalette.fadedInk)
-                Spacer(minLength: 6)
-                VStack(alignment: .leading, spacing: 7) {
-                    Button("Edit reading dates") { editingDates = true }.controlSize(.small)
-                    RatingStars(rating: model.rating(for: entry.id))
-                    Button(model.rating(for: entry.id) == nil ? "Rate this book" : "Edit rating") {
-                        rating = model.rating(for: entry.id)
-                        isEditing.toggle()
-                    }
-                    .controlSize(.small)
-                }
-            }
-            .frame(maxWidth: .infinity, minHeight: 154, alignment: .leading)
-        }
-        .padding(18)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(ReadingPalette.surface, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(ReadingPalette.border.opacity(0.48)))
+    private var accessibilityText: String {
+        let finished = entry.finishedAt.map { "finished \(formattedDate($0))" } ?? "finish date unavailable"
+        let rating = model.rating(for: entry.id).map { ", rated \($0.formatted(.number.precision(.fractionLength(0...2)))) of 5" } ?? ", not rated"
+        return "\(entry.title)\(entry.author.map { " by \($0)" } ?? ""), \(finished)\(rating)"
     }
 
     private func formattedDate(_ date: Date) -> String {
@@ -386,7 +323,7 @@ struct BookRatingSection: View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Your rating").font(.system(size: 17, weight: .semibold, design: .rounded))
+                    Text("Your rating").font(ReadingType.bookTitle(19))
                     if !editing { RatingStars(rating: model.rating(for: bookID)) }
                 }
                 Spacer()

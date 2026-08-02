@@ -220,6 +220,7 @@ struct BookDetailView: View {
     @State private var mergePresented = false
     @State private var showAllSessions = false
     @State private var publicCoverURLDraft = ""
+    @State private var editingDates = false
 
     private var resolver: BookMergeResolver { BookMergeResolver(merges: model.merges) }
     private var currentBook: BookRecord { model.books.first(where: { $0.id == book.id }) ?? book }
@@ -273,6 +274,13 @@ struct BookDetailView: View {
         .sheet(item: $completionEntry) { CompletionReviewSheet(model: model, entry: $0).readingMotionAccessibility() }
         .sheet(item: $reviewInterval) { IntervalReviewEditor(model: model, interval: $0) }
         .sheet(isPresented: $mergePresented) { MergeBooksView(model: model, source: currentBook) }
+        .sheet(isPresented: $editingDates) {
+            if let entry = finishedEntry {
+                ReadingDatesEditor(title: entry.title,
+                    dates: ReadingCompletionDates(startedAt: entry.startedAt, finishedAt: entry.finishedAt),
+                    timezoneID: model.timezoneID) { dates in model.saveReadingDates(dates, for: entry.id) }
+            }
+        }
         .onAppear { publicCoverURLDraft = model.publicCoverURL(for: currentBook) }
         .alert("Delete \(currentBook.title)?", isPresented: $deleteBookConfirmation) {
             Button("Delete book", role: .destructive) { model.deleteBook(currentBook); dismiss() }
@@ -294,7 +302,7 @@ struct BookDetailView: View {
     private var toolbar: some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("Book details").font(.headline)
+                Text("Book details").font(ReadingType.bookTitle(19))
                 Text("Your local reading journal").font(.caption).foregroundStyle(ReadingPalette.fadedInk)
             }
             Spacer()
@@ -307,20 +315,26 @@ struct BookDetailView: View {
     }
 
     private var hero: some View {
-        HStack(alignment: .top, spacing: 18) {
-            BookCoverView(book: currentBook, size: .large)
-            VStack(alignment: .leading, spacing: 6) {
+        HStack(alignment: .top, spacing: 24) {
+            BookCoverView(book: currentBook, size: .hero)
+                .shadow(color: ReadingPalette.ink.opacity(0.16), radius: 12, x: 0, y: 7)
+            VStack(alignment: .leading, spacing: 7) {
                 Text(currentBook.title)
-                    .font(.system(size: 29, weight: .medium, design: .serif))
+                    .font(ReadingType.bookTitle(30))
                     .foregroundStyle(ReadingPalette.ink)
                     .fixedSize(horizontal: false, vertical: true)
                 Text(currentBook.author?.isEmpty == false ? currentBook.author! : "Author unavailable")
                     .font(.callout)
                     .foregroundStyle(ReadingPalette.fadedInk)
                 if let finishedEntry {
-                    Label(finishedEntry.finishedAt.map { "Finished \($0.formatted(date: .abbreviated, time: .omitted))" } ?? "Marked finished", systemImage: "checkmark.seal.fill")
-                        .font(.caption)
-                        .foregroundStyle(ReadingPalette.moss)
+                    HStack(spacing: 10) {
+                        Label(finishedEntry.finishedAt.map { "Finished \($0.formatted(date: .abbreviated, time: .omitted))" } ?? "Marked finished", systemImage: "checkmark.seal.fill")
+                            .font(.caption)
+                            .foregroundStyle(ReadingPalette.accent)
+                        Button("Edit reading dates") { editingDates = true }
+                            .controlSize(.small)
+                            .accessibilityHint("Change when you started and finished this book")
+                    }.padding(.top, 4)
                 }
                 if finishedEntry == nil {
                     Button { completionEntry = model.markFinished(currentBook) } label: { Label("Mark as finished", systemImage: "checkmark.circle") }
@@ -334,8 +348,7 @@ struct BookDetailView: View {
             }
             Spacer(minLength: 0)
         }
-        .padding(18)
-        .background(ReadingPalette.surface, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .padding(.vertical, 8)
     }
 
     private var readingSummary: some View {
@@ -687,12 +700,12 @@ struct SessionRow: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(ReadingFormat.date(interval.start)).font(.headline)
                 Text("\(interval.mode.rawValue.capitalized) · \(interval.disposition.rawValue)")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
             }
             Spacer()
             VStack(alignment: .trailing, spacing: 2) {
                 Text(ReadingFormat.observedPages(pageTurns)).monospacedDigit()
-                Text(ReadingFormat.duration(interval.duration)).font(.caption).monospacedDigit().foregroundStyle(.secondary)
+                Text(ReadingFormat.duration(interval.duration)).font(.caption).monospacedDigit().foregroundStyle(ReadingPalette.secondaryInk)
             }
             Button("Review", action: review).controlSize(.small)
             Button(role: .destructive, action: delete) { Image(systemName: "trash") }
