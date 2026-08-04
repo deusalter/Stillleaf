@@ -352,27 +352,30 @@ struct BookDetailView: View {
     }
 
     private var readingSummary: some View {
-        VStack(alignment: .leading, spacing: 11) {
-            Text("Reading at a glance").font(.system(size: 17, weight: .semibold, design: .rounded)).foregroundStyle(ReadingPalette.ink)
-            HStack(spacing: 10) {
-                BookDetailStat(label: "Pages", value: "\(observedPages)", symbol: "book.pages")
-                BookDetailStat(label: "Reading time", value: ReadingFormat.duration(credited), symbol: "clock")
-                BookDetailStat(label: "Pace", value: ReadingFormat.pagesPerMinute(pagesPerMinute) ?? "Building pace", symbol: "gauge.with.dots.needle.50percent")
-            }
-            let corrected = model.manualPages(forBookID: currentBook.id)
-            if corrected > 0 {
-                Text("Includes \(corrected) manually added pages. Pace uses automatic observations only.")
-                    .font(.caption).foregroundStyle(ReadingPalette.fadedInk)
+        ReadingSection("Reading at a glance") {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .top, spacing: 0) {
+                    StatLine(value: "\(observedPages)", label: "Pages")
+                    Hairline(axis: .vertical).frame(height: 44).padding(.horizontal, 18)
+                    StatLine(value: ReadingFormat.duration(credited), label: "Reading time")
+                    Hairline(axis: .vertical).frame(height: 44).padding(.horizontal, 18)
+                    StatLine(value: ReadingFormat.pagesPerMinute(pagesPerMinute) ?? "Building pace", label: "Pace")
+                }
+                let corrected = model.manualPages(forBookID: currentBook.id)
+                if corrected > 0 {
+                    Text("Includes \(corrected) manually added pages. Pace uses automatic observations only.")
+                        .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
+                }
             }
         }
-        .readingPanel()
+        .padding(.vertical, 6)
     }
 
     private var sessionHistory: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Session history").font(.system(size: 17, weight: .semibold, design: .rounded)).foregroundStyle(ReadingPalette.ink)
+                    Text("Session history").font(ReadingType.bookTitle(19)).foregroundStyle(ReadingPalette.ink)
                     Text("Review or remove a saved session.").font(.caption).foregroundStyle(ReadingPalette.fadedInk)
                 }
                 Spacer()
@@ -404,7 +407,7 @@ struct BookDetailView: View {
 
     private var privacyControls: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("This book").font(.system(size: 17, weight: .semibold, design: .rounded)).foregroundStyle(ReadingPalette.ink)
+            Text("This book").font(ReadingType.bookTitle(19)).foregroundStyle(ReadingPalette.ink)
             BookDetailToggleRow(title: "Track reading", message: "Include new reading evidence in your journal.", isOn: trackingBinding)
             Divider()
             BookDetailToggleRow(title: "Share with Discord", message: "Allow this title on your Discord card when sharing is on.", isOn: sharingBinding)
@@ -418,7 +421,7 @@ struct BookDetailView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Discord artwork").font(.system(size: 17, weight: .semibold, design: .rounded)).foregroundStyle(ReadingPalette.ink)
+                    Text("Discord artwork").font(ReadingType.bookTitle(19)).foregroundStyle(ReadingPalette.ink)
                     Text(artworkStatus).font(.caption).foregroundStyle(ReadingPalette.fadedInk)
                 }
                 Spacer()
@@ -548,22 +551,6 @@ struct BookDetailView: View {
     }
 }
 
-private struct BookDetailStat: View {
-    let label: String
-    let value: String
-    let symbol: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Label(label, systemImage: symbol).font(.caption).foregroundStyle(ReadingPalette.fadedInk)
-            Text(value).font(.system(size: 22, weight: .semibold, design: .rounded)).monospacedDigit().foregroundStyle(ReadingPalette.moss)
-                .lineLimit(2)
-        }
-        .frame(maxWidth: .infinity, minHeight: 58, alignment: .leading)
-        .padding(10)
-        .background(ReadingPalette.paper.opacity(0.62), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-    }
-}
 
 private struct BookDetailToggleRow: View {
     let title: String
@@ -686,7 +673,7 @@ struct ProgressDescription: View {
             }
         }
         .font(.callout)
-        .foregroundStyle(observation.reliable ? ReadingPalette.moss : .secondary)
+        .foregroundStyle(observation.reliable ? ReadingPalette.accent : ReadingPalette.secondaryInk)
     }
 }
 
