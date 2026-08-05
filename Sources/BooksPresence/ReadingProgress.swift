@@ -31,7 +31,7 @@ struct DottedReadingArc: View, Animatable {
                     // A smooth leading edge follows the interpolated fraction.
                     let coverage = min(1, max(0, fraction * Double(count) - Double(index)))
                     if coverage > 0 {
-                        context.fill(dot, with: .color((position < 0.58 ? ReadingPalette.moss : ReadingPalette.accentEnd)
+                        context.fill(dot, with: .color((position < 0.58 ? ReadingPalette.moss : ReadingPalette.accent)
                             .opacity(coverage * (row == 0 ? 1 : 0.7))))
                     }
                 }
@@ -205,7 +205,7 @@ struct MenuReadingGoal: View {
                     }
                     VStack(spacing: 1) {
                         Text(daily.displayValue)
-                            .font(.system(size: 34, weight: .bold, design: .rounded)).monospacedDigit()
+                            .font(ReadingType.numeral(36)).monospacedDigit()
                             .minimumScaleFactor(0.5).lineLimit(1)
                         Text(daily.todayLabel)
                             .font(.system(size: 10, weight: .medium)).foregroundStyle(ReadingPalette.fadedInk)
@@ -216,7 +216,7 @@ struct MenuReadingGoal: View {
                 .accessibilityValue(daily.summary)
                 VStack(alignment: .leading, spacing: 6) {
                     Text(reached ? "Goal reached" : "Daily reading")
-                        .font(.system(size: 15, weight: .semibold, design: .rounded))
+                        .font(ReadingType.bookTitle(17))
                     Text(daily.targetText)
                         .font(.caption).foregroundStyle(ReadingPalette.fadedInk)
                     Label(daily.unit == .pages ? ReadingFormat.duration(model.today.creditedSeconds) : "\(model.todayPages) pages", systemImage: daily.unit == .pages ? "clock" : "book")
@@ -235,7 +235,7 @@ struct MenuReadingGoal: View {
                     .font(.caption2).foregroundStyle(ReadingPalette.ochre)
             }
         }
-        .padding(14).background(ReadingPalette.surface, in: RoundedRectangle(cornerRadius: 18))
+        .padding(14).background(ReadingPalette.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .help("Pages include tracked page turns and explicit manual corrections. Time is recorded separately.")
         .onAppear { appeared = true }
     }
