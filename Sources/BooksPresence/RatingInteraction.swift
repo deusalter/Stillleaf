@@ -115,7 +115,7 @@ struct RatingStars: View {
                 FractionalStar(fill: min(1, max(0, (rating ?? 0) - Double(index))))
             }
             Text(Self.description(for: rating))
-                .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                .font(.caption).foregroundStyle(ReadingPalette.secondaryInk).monospacedDigit()
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Rating: \(Self.description(for: rating))")

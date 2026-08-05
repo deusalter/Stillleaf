@@ -36,8 +36,8 @@ private struct ReadingButtonStyleBody: View {
     var body: some View {
         let destructive = configuration.role == .destructive
         let primary = emphasis == .primary
-        let accent = destructive ? Color.red : ReadingPalette.moss
-        let foreground = primary ? ReadingPalette.onAccent : (destructive ? Color.red : ReadingPalette.ink)
+        let accent = destructive ? ReadingPalette.warning : ReadingPalette.accent
+        let foreground = primary ? ReadingPalette.onAccent : (destructive ? ReadingPalette.warning : ReadingPalette.ink)
         let hovering = isHovering && isEnabled
         let compact = controlSize == .small || controlSize == .mini
         let background = primary ? accent.opacity(hovering ? 0.90 : 1) : accent.opacity(destructive ? (hovering ? 0.15 : 0.08) : (hovering ? 0.14 : 0.075))
@@ -51,7 +51,7 @@ private struct ReadingButtonStyleBody: View {
             .background(background, in: RoundedRectangle(cornerRadius: compact ? 9 : 13, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: compact ? 9 : 13, style: .continuous)
-                    .stroke(isFocused ? ReadingPalette.moss : (primary ? .clear : accent.opacity(destructive ? 0.25 : (hovering ? 0.20 : 0.08))), lineWidth: isFocused ? 2 : 1)
+                    .stroke(isFocused ? ReadingPalette.accent : (primary ? .clear : accent.opacity(destructive ? 0.25 : (hovering ? 0.20 : 0.08))), lineWidth: isFocused ? 2 : 1)
             }
             .contentShape(RoundedRectangle(cornerRadius: compact ? 9 : 13, style: .continuous))
             .opacity(isEnabled ? (configuration.isPressed ? 0.84 : 1) : 0.42)
