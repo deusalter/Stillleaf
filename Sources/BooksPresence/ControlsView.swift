@@ -292,12 +292,17 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 26) {
-                    PageHeader("Settings", subtitle: "Make Stillleaf fit your reading.")
-                    ReadingSegmentedControl(label: "Settings category", options: SettingsCategory.allCases,
-                        selection: $category, title: { item in
-                            item.title + ((item == .reading && readingDirty) || (item == .discord && discordDirty) ? " •" : "")
-                        })
+                    VStack(alignment: .leading, spacing: 26) {
+                        PageHeader("Settings", subtitle: "Make Stillleaf fit your reading.")
+                        ReadingSegmentedControl(label: "Settings category", options: SettingsCategory.allCases,
+                            selection: $category, title: { item in
+                                item.title + ((item == .reading && readingDirty) || (item == .discord && discordDirty) ? " •" : "")
+                            })
+                    }
+                    .id(theme.revision)
+                    // Theme changes re-key inside the entrance so the category never replays its fade.
                     categoryDetail
+                        .id(theme.revision)
                         .readingEntrance().id(category)
                         .padding(.bottom, 4)
                 }
@@ -319,10 +324,10 @@ struct SettingsView: View {
                 .frame(maxWidth: 820).padding(.horizontal, 40).padding(.vertical, 14)
                 .frame(maxWidth: .infinity)
                 .background(ReadingPalette.canvas)
+                .id(theme.revision)
             }
         }
-        // Re-key the rendered content only; drafts live in this view's own state and survive.
-        .id(theme.revision)
+        // Drafts live in this view's own state, so only rendered subtrees above are re-keyed.
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(ReadingPalette.paper).foregroundStyle(ReadingPalette.ink)
         .tint(ReadingPalette.moss).buttonStyle(ReadingButtonStyle())

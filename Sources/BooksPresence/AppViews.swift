@@ -42,9 +42,12 @@ struct DashboardView: View {
                         .id(model.settingsCategoryRequest)
                     }
                 }
+                // A theme change re-keys only the rendered content, inside the entrance, so it
+                // swaps instantly instead of replaying the fade. Settings owns unsaved drafts
+                // and re-keys its own content instead.
+                .id(section == .settings ? "settings" : "content-\(theme.revision)")
                 .readingEntrance()
-                // Settings owns unsaved drafts, so it re-keys only its own content on a theme change.
-                .id(section == .settings ? section.rawValue : "\(section.rawValue)-\(theme.revision)")
+                .id(section)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .background(ReadingPalette.paper)
