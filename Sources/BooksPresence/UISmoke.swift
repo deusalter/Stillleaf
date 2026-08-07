@@ -221,7 +221,41 @@ func runUISmoke() throws {
     guard model.saveReadingDates(originalDates, for: marked.id) == nil else {
         throw BooksAccessErrorForUI.failed("Could not restore synthetic reading dates")
     }
+    // Themes: fallback, persistence and contrast, in an isolated defaults suite.
+    let themeSuiteName = suite + ".theme"
+    let themeSuite = UserDefaults(suiteName: themeSuiteName)!
+    defer {
+        themeSuite.removePersistentDomain(forName: themeSuiteName)
+        ThemeStore.shared.reload(from: .standard)
+    }
+    let store = ThemeStore.shared
+    themeSuite.set("bogus", forKey: ThemeStore.themeKey)
+    themeSuite.set("bogus", forKey: ThemeStore.accentKey)
+    store.reload(from: themeSuite)
+    guard store.themeID == "stillleaf", store.accentID == nil else {
+        throw BooksAccessErrorForUI.failed("Unknown theme or accent id did not fall back to the defaults")
+    }
+    let revisionBefore = store.revision
+    store.select(theme: "ocean"); store.select(accent: "rose")
+    guard store.revision > revisionBefore, themeSuite.string(forKey: ThemeStore.themeKey) == "ocean",
+          themeSuite.string(forKey: ThemeStore.accentKey) == "rose",
+          ThemeSnapshot.current().dark.accent == AccentPreset.named("rose")!.dark else {
+        throw BooksAccessErrorForUI.failed("Theme choice did not persist or reach the palette")
+    }
+    store.reload(from: themeSuite)
+    guard store.themeID == "ocean", store.accentID == "rose" else {
+        throw BooksAccessErrorForUI.failed("Theme choice did not survive a reload")
+    }
+    store.select(accent: nil)
+    guard themeSuite.object(forKey: ThemeStore.accentKey) == nil,
+          ThemeSnapshot.current().light.accent == ReadingTheme.named("ocean").light.accent else {
+        throw BooksAccessErrorForUI.failed("Clearing the accent did not restore the theme's own accent")
+    }
+    guard ThemeContrast.failures().isEmpty else { throw BooksAccessErrorForUI.failed("Theme contrast regressed") }
+    guard SettingsCategory.allCases.contains(.appearance) else { throw BooksAccessErrorForUI.failed("Appearance settings are missing") }
     var views: [(String, AnyView)] = [
+        ("appearance", AnyView(AppearancePicker(store: store))),
+        ("timeline-present", AnyView(ReadingTimelineView(model: model, present: { _ in }))),
         ("reading-dates", AnyView(ReadingDatesEditor(title: marked.title, dates: originalDates,
             timezoneID: model.timezoneID, save: { _ in "Synthetic failure; draft must stay open." }))),
         ("reading-calendar", AnyView(ReadingDateCalendar(selection: .constant(markedAt), timezoneID: model.timezoneID))),
@@ -266,6 +300,21 @@ func runUISmoke() throws {
             print("ui-smoke: \(name) \(dark ? "dark" : "light") instantiated and laid out")
         }
     }
+    for theme in ReadingTheme.all {
+        store.select(theme: theme.id)
+        for dark in [false, true] {
+            NSApp.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+            for (name, view) in [("popover", AnyView(PopoverView(model: model))), ("timeline", AnyView(ReadingTimelineView(model: model))),
+                                 ("settings-appearance", AnyView(SettingsView(model: model, present: { _ in }, deleteAll: {}, uninstall: {}, initialCategory: .appearance)))] {
+                let hosting = NSHostingView(rootView: view.environment(\.colorScheme, dark ? .dark : .light))
+                hosting.frame = NSRect(x: 0, y: 0, width: name == "popover" ? 350 : 690, height: name == "popover" ? 500 : 660)
+                hosting.layoutSubtreeIfNeeded()
+                guard hosting.fittingSize.width.isFinite else { throw BooksAccessErrorForUI.failed("Invalid \(name) layout in \(theme.id)") }
+            }
+        }
+    }
+    store.select(theme: "stillleaf")
+    print("ui-smoke: \(ReadingTheme.all.count) themes persisted, fell back, passed contrast and laid out popover, timeline and appearance")
     let cachedBookIDs = model.books.map(\.id)
     let started = ProcessInfo.processInfo.systemUptime
     var cachedPageSum = 0
