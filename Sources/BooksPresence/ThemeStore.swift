@@ -116,6 +116,16 @@ enum ReadingPalette {
     static var warning: Color { token("warning") { $0.warning } }
     static func chart(_ index: Int) -> Color { token("chart\(index)") { $0.chart[min(max(index, 0), $0.chart.count - 1)] } }
 
+    // Stars are gold in every theme, so they only vary by appearance.
+    static let star = appearanceColor(light: StarColors.fillLight, dark: StarColors.fillDark)
+    static let starEdge = appearanceColor(light: StarColors.edgeLight, dark: StarColors.edgeDark)
+
+    private static func appearanceColor(light: UInt32, dark: UInt32) -> Color {
+        Color(NSColor(name: nil) { appearance in
+            nsColor(appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light)
+        })
+    }
+
     // Legacy names used across the dashboard; they alias the tokens above.
     static var paper: Color { canvas }
     static var sidebar: Color { canvas }

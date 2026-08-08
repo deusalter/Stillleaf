@@ -83,6 +83,15 @@ struct ReadingTheme: Identifiable, Equatable {
     ]
 }
 
+/// Rating stars stay gold in every theme, like a printed star. The edge tone gives
+/// light fills a defined outline against pale canvases.
+enum StarColors {
+    static let fillLight: UInt32 = 0xF0B43C
+    static let fillDark: UInt32 = 0xF5C65E
+    static let edgeLight: UInt32 = 0xB9770F
+    static let edgeDark: UInt32 = 0xD99A2B
+}
+
 /// An accent-only override. Each tone is pre-checked against every theme.
 struct AccentPreset: Identifiable, Equatable {
     let id: String
@@ -144,6 +153,8 @@ enum ThemeContrast {
                             ("warning on canvas", c.warning, c.canvas, 4.5)
                         ]
                         checks += c.chart.enumerated().map { ("chart \($0.offset) on surface", $0.element, c.surface, 3) }
+                        let edge = dark ? StarColors.edgeDark : StarColors.edgeLight
+                        checks += [("star edge on canvas", edge, c.canvas, 3), ("star edge on surface", edge, c.surface, 3)]
                     }
                     for (name, fg, bg, minimum) in checks where ratio(fg, bg) < minimum {
                         failures.append("\(label): \(name) \(String(format: "%.2f", ratio(fg, bg))) < \(minimum)")

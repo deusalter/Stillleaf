@@ -251,16 +251,11 @@ private struct FinishedBookTimelineRow: View {
                         Text(author).font(.callout).foregroundStyle(ReadingPalette.secondaryInk).lineLimit(1)
                     }
                     HStack(spacing: 10) {
-                        if model.rating(for: entry.id) != nil {
-                            RatingStars(rating: model.rating(for: entry.id))
-                        } else {
-                            Text("Not rated").font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
-                        }
-                        Text("·").font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
+                        RatingStars(rating: model.rating(for: entry.id))
                         Text(entry.imported ? "Imported history" : entry.source)
                             .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
                     }
-                    .padding(.top, 2)
+                    .padding(.top, 3)
                 }
                 Spacer(minLength: 8)
                 Image(systemName: "chevron.right")
@@ -324,7 +319,7 @@ struct BookRatingSection: View {
             HStack {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Your rating").font(ReadingType.bookTitle(19))
-                    if !editing { RatingStars(rating: model.rating(for: bookID)) }
+                    if !editing { RatingStars(rating: model.rating(for: bookID), size: 20) }
                 }
                 Spacer()
                 if !editing {
