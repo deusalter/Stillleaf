@@ -26,9 +26,15 @@ struct ReadingTheme: Identifiable, Equatable {
     func colors(dark isDark: Bool, accent: AccentPreset?) -> ThemeColors {
         var colors = isDark ? dark : light
         if let accent {
+            let themeAccent = colors.accent
             colors.accent = isDark ? accent.dark : accent.light
             colors.onAccent = isDark ? accent.onDark : accent.onLight
             colors.chart[0] = colors.accent
+            // A warm accent can land on the warm "pages" series; hand that series the
+            // theme's own accent so the calendar keeps two distinct colours.
+            if ThemeContrast.distance(colors.chart[0], colors.chart[1]) < 60 {
+                colors.chart[1] = themeAccent
+            }
         }
         return colors
     }
@@ -127,6 +133,19 @@ enum ThemeContrast {
         return 0.2126 * channel(hex >> 16) + 0.7152 * channel(hex >> 8) + 0.0722 * channel(hex)
     }
 
+    /// Straight RGB distance; enough to catch two chart series that read as one colour.
+    static func distance(_ a: UInt32, _ b: UInt32) -> Double {
+        let d = [16, 8, 0].map { Double(Int((a >> UInt32($0)) & 0xFF) - Int((b >> UInt32($0)) & 0xFF)) }
+        return (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).squareRoot()
+    }
+
+    static func blend(_ top: UInt32, over bottom: UInt32, alpha: Double) -> UInt32 {
+        [16, 8, 0].reduce(UInt32(0)) { result, shift in
+            let t = Double((top >> UInt32(shift)) & 0xFF), b = Double((bottom >> UInt32(shift)) & 0xFF)
+            return result | (UInt32((t * alpha + b * (1 - alpha)).rounded()) << UInt32(shift))
+        }
+    }
+
     static func ratio(_ a: UInt32, _ b: UInt32) -> Double {
         let (x, y) = (luminance(a), luminance(b))
         return (max(x, y) + 0.05) / (min(x, y) + 0.05)
@@ -153,8 +172,16 @@ enum ThemeContrast {
                             ("warning on canvas", c.warning, c.canvas, 4.5)
                         ]
                         checks += c.chart.enumerated().map { ("chart \($0.offset) on surface", $0.element, c.surface, 3) }
+                        // Mini-month digits sit in ink on a 32% tint of each series over the surface.
+                        for (index, fill) in c.chart.enumerated() where ratio(c.ink, blend(fill, over: c.surface, alpha: 0.32)) < 4.5 {
+                            failures.append("\(label): ink on chart \(index) tint \(String(format: "%.2f", ratio(c.ink, blend(fill, over: c.surface, alpha: 0.32)))) < 4.5")
+                        }
                         let edge = dark ? StarColors.edgeDark : StarColors.edgeLight
                         checks += [("star edge on canvas", edge, c.canvas, 3), ("star edge on surface", edge, c.surface, 3)]
+                    }
+                    // "Page goal met" and "Reading pages" must stay tellable apart in the calendar.
+                    if distance(c.chart[0], c.chart[1]) < 60 {
+                        failures.append("\(label): goal and pages chart colours are too similar")
                     }
                     for (name, fg, bg, minimum) in checks where ratio(fg, bg) < minimum {
                         failures.append("\(label): \(name) \(String(format: "%.2f", ratio(fg, bg))) < \(minimum)")

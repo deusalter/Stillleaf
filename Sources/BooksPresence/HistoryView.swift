@@ -298,11 +298,12 @@ private struct HistoryMiniMonth: View {
                 LazyVGrid(columns: columns, spacing: 2) {
                     ForEach(monthNavigation.monthCells) { cell in
                         ZStack {
-                            RoundedRectangle(cornerRadius: 1.5, style: .continuous).fill(color(for: cell))
+                            // A tint of the series colour keeps ink digits at full contrast.
+                            RoundedRectangle(cornerRadius: 3, style: .continuous).fill(color(for: cell).opacity(0.32))
                             if cell.isInMonth {
                                 Text("\(navigation.calendar.component(.day, from: cell.date))")
-                                    .font(.system(size: 8, weight: .medium, design: .rounded))
-                                    .foregroundStyle(textColor(for: cell))
+                                    .font(.system(size: 8, weight: .medium))
+                                    .foregroundStyle(ReadingPalette.ink)
                             }
                         }
                         .frame(height: 16)
@@ -317,19 +318,14 @@ private struct HistoryMiniMonth: View {
         .buttonStyle(.plain).disabled(isFuture).accessibilityLabel("Open \(HistoryCalendarFormat.month(month, timezoneID: navigation.timezoneID))")
     }
     private func color(for cell: CalendarMonthCell) -> Color {
-        guard let total = days[navigation.dayKey(for: cell.date)] else { return ReadingPalette.ink.opacity(0.10) }
+        guard let total = days[navigation.dayKey(for: cell.date)] else { return ReadingPalette.track }
         let dayKey = navigation.dayKey(for: cell.date)
         let pages = model.pages(on: dayKey)
         if model.dailyGoal(on: dayKey).reached { return ReadingPalette.chart(0) }
         if pages > 0 { return ReadingPalette.chart(1) }
         if total.creditedSeconds > 0 { return ReadingPalette.chart(2) }
         if total.uncertainSeconds > 0 { return ReadingPalette.secondaryInk }
-        return ReadingPalette.ink.opacity(0.10)
-    }
-    private func textColor(for cell: CalendarMonthCell) -> Color {
-        guard let total = days[navigation.dayKey(for: cell.date)],
-              model.pages(on: navigation.dayKey(for: cell.date)) > 0 || total.creditedSeconds > 0 || total.uncertainSeconds > 0 else { return ReadingPalette.ink }
-        return ReadingPalette.surface
+        return ReadingPalette.track
     }
     private var monthCreditedSeconds: Double {
         monthNavigation.monthCells
