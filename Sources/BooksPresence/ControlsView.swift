@@ -302,7 +302,7 @@ struct SettingsView: View {
                     .id(theme.revision)
                     // Theme changes re-key inside the entrance so the category never replays its fade.
                     categoryDetail
-                        .id(theme.revision)
+                        .id(Self.categoryKey(for: category, revision: theme.revision))
                         .readingEntrance().id(category)
                         .padding(.bottom, 4)
                 }
@@ -337,6 +337,12 @@ struct SettingsView: View {
         }
         .onChange(of: category) { _ in clearFeedback() }
         .onChange(of: model.discordNeedsSetup) { needed in if needed { showDiscordConnection = true } }
+    }
+
+    /// The Appearance picker observes the theme itself and keeps its identity, so the
+    /// swatch someone just chose keeps keyboard and VoiceOver focus.
+    static func categoryKey(for category: SettingsCategory, revision: Int) -> Int {
+        category == .appearance ? -1 : revision
     }
 
     @ViewBuilder private var categoryDetail: some View {

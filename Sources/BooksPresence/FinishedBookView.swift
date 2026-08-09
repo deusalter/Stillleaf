@@ -176,6 +176,11 @@ struct FinishedBookTimeline: View {
         .buttonStyle(ReadingButtonStyle())
     }
 
+    /// Book details for a finished entry, even when its journal record is missing.
+    static func sheet(for entry: FinishedBookEntry, books: [BookRecord]) -> DashboardSheet {
+        .book(books.first { $0.id == entry.id } ?? BookRecord(id: entry.id, title: entry.title, author: entry.author))
+    }
+
     private func yearGroup(title: String, note: String, entries: [FinishedBookEntry]) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline) {
@@ -236,7 +241,7 @@ private struct FinishedBookTimelineRow: View {
 
     var body: some View {
         Button {
-            present(.book(book ?? BookRecord(id: entry.id, title: entry.title, author: entry.author)))
+            present(FinishedBookTimeline.sheet(for: entry, books: model.books))
         } label: {
             HStack(alignment: .center, spacing: 20) {
                 dateColumn.frame(width: 56, alignment: .leading)

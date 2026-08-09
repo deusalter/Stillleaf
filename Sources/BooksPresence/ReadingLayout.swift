@@ -90,8 +90,10 @@ extension ReadingSection where Accessory == EmptyView {
 /// A 1px rule in the theme's border colour; vertical when `axis` is `.vertical`.
 struct Hairline: View {
     var axis: Axis = .horizontal
+    /// Captured at creation so a theme change gives the view new input and it redraws.
+    var color: Color = ReadingPalette.border
     var body: some View {
-        Rectangle().fill(ReadingPalette.border)
+        Rectangle().fill(color)
             .frame(width: axis == .vertical ? 1 : nil, height: axis == .horizontal ? 1 : nil)
             .accessibilityHidden(true)
     }

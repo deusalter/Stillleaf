@@ -218,6 +218,17 @@ func runUISmoke() throws {
           model.markFinished(manualBook)?.startedAt == knownStart else {
         throw BooksAccessErrorForUI.failed("Unknown finish date or repeated completion changed yearly semantics")
     }
+    // Review focus 4: an undated finished book still lays out and still opens book details.
+    guard let undated = model.finishedBooks.first(where: { $0.id == marked.id }), undated.finishedAt == nil else {
+        throw BooksAccessErrorForUI.failed("Undated fixture was not undated")
+    }
+    guard case .book(let undatedBook) = FinishedBookTimeline.sheet(for: undated, books: []), undatedBook.id == undated.id,
+          case .book(let knownBook) = FinishedBookTimeline.sheet(for: undated, books: model.books), knownBook.id == undated.id else {
+        throw BooksAccessErrorForUI.failed("A timeline row did not open book details for its own book")
+    }
+    let undatedHost = NSHostingView(rootView: ReadingTimelineView(model: model))
+    undatedHost.frame = NSRect(x: 0, y: 0, width: 690, height: 660)
+    undatedHost.layoutSubtreeIfNeeded()
     guard model.saveReadingDates(originalDates, for: marked.id) == nil else {
         throw BooksAccessErrorForUI.failed("Could not restore synthetic reading dates")
     }
@@ -253,6 +264,14 @@ func runUISmoke() throws {
     }
     guard ThemeContrast.failures().isEmpty else { throw BooksAccessErrorForUI.failed("Theme contrast regressed") }
     guard SettingsCategory.allCases.contains(.appearance) else { throw BooksAccessErrorForUI.failed("Appearance settings are missing") }
+    // Review focus 1: Settings (which owns unsaved drafts) and the picker being used keep their identity
+    // across theme changes; other screens re-key so their colours re-resolve.
+    guard DashboardView.contentKey(for: .settings, revision: 1) == DashboardView.contentKey(for: .settings, revision: 2),
+          DashboardView.contentKey(for: .today, revision: 1) != DashboardView.contentKey(for: .today, revision: 2),
+          SettingsView.categoryKey(for: .appearance, revision: 1) == SettingsView.categoryKey(for: .appearance, revision: 2),
+          SettingsView.categoryKey(for: .reading, revision: 1) != SettingsView.categoryKey(for: .reading, revision: 2) else {
+        throw BooksAccessErrorForUI.failed("Theme re-keying would reset settings drafts or the focused appearance picker")
+    }
     var views: [(String, AnyView)] = [
         ("appearance", AnyView(AppearancePicker(store: store))),
         ("timeline-present", AnyView(ReadingTimelineView(model: model, present: { _ in }))),

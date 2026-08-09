@@ -145,7 +145,8 @@ private func renderNativeView(_ view: AnyView, size: NSSize, appearance: NSAppea
     RunLoop.current.run(until: Date().addingTimeInterval(settle))
     hosting.layoutSubtreeIfNeeded()
     hosting.displayIfNeeded()
-    defer { window.close() }
+    // Detach the SwiftUI tree so closed previews stop observing the model and theme store.
+    defer { window.contentView = nil; window.close() }
     guard let bitmap = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) else {
         throw UIPreviewError.renderFailed
     }
@@ -248,6 +249,7 @@ private func renderThemePreviews(model: AppModel, to destination: URL) throws {
         guard let bitmap = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) else { throw UIPreviewError.renderFailed }
         hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
         try bitmap.representation(using: .png, properties: [:])?.write(to: destination.appendingPathComponent("live-switch-\(section.rawValue).png"))
+        window.contentView = nil
         window.close()
     }
     for theme in ReadingTheme.all {

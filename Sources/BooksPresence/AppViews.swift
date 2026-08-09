@@ -45,7 +45,7 @@ struct DashboardView: View {
                 // A theme change re-keys only the rendered content, inside the entrance, so it
                 // swaps instantly instead of replaying the fade. Settings owns unsaved drafts
                 // and re-keys its own content instead.
-                .id(section == .settings ? "settings" : "content-\(theme.revision)")
+                .id(Self.contentKey(for: section, revision: theme.revision))
                 .readingEntrance()
                 .id(section)
             }
@@ -76,6 +76,12 @@ struct DashboardView: View {
         } message: {
             Text("This disables startup and moves the installed app to Trash. Your local reading history remains. Use Delete all reading data to remove managed history, backups, and cached covers.")
         }
+    }
+
+    /// Identity of the rendered screen for a theme revision. Settings keeps one identity
+    /// because it owns unsaved drafts; every other screen re-keys so colours re-resolve.
+    static func contentKey(for section: DashboardSection, revision: Int) -> String {
+        section == .settings ? "settings" : "content-\(revision)"
     }
 
     private func acceptNavigationRequest() {
