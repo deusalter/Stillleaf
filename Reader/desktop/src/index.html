@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; img-src data:; connect-src 'none'; frame-src 'none'; form-action 'none'"
+    />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Stillleaf · Library</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <aside>
+      <div class="brand">Stillleaf<span>A place for your reading</span></div>
+      <nav aria-label="Journal">
+        <button data-view="library" aria-current="page">Library</button
+        ><button data-view="timeline">Timeline</button
+        ><button data-view="reviews">Reviews</button>
+      </nav>
+      <button id="goals" class="quiet">Reading goals</button>
+      <p class="local-note">
+        Your books, on this computer.<br />No account needed.
+      </p>
+    </aside>
+    <main>
+      <header>
+        <div>
+          <h1 id="heading">Library</h1>
+          <p id="count"></p>
+        </div>
+        <div class="header-actions">
+          <button id="add-book" class="quiet">Add book</button
+          ><button id="import">
+            Import EPUBs <span aria-hidden="true">＋</span>
+          </button>
+        </div>
+      </header>
+      <section id="queue" aria-label="Import progress" hidden>
+        <div class="queue-header">
+          <h2>Adding to your Library</h2>
+          <button id="cancel">Cancel remaining</button>
+        </div>
+        <p id="summary" role="status"></p>
+        <details id="queue-details">
+          <summary>Import details</summary>
+          <ul id="items"></ul>
+        </details>
+        <button id="dismiss-queue" class="quiet">Dismiss import results</button>
+      </section>
+      <p id="error" role="alert"></p>
+      <p id="notice" role="status"></p>
+      <section id="progress" aria-label="Reading goals"></section>
+      <section id="books" aria-label="Books"></section>
+      <section id="timeline" aria-label="Reading timeline" hidden></section>
+      <section id="reviews" aria-label="Personal reviews" hidden></section>
+      <section id="empty">
+        <h2>Make yourself at home.</h2>
+        <p>
+          Import an EPUB to read here, or choose Add book to keep a reading
+          record.
+        </p>
+      </section>
+      <p class="build-note">
+        Local development build · Reading history stays on this computer.
+      </p>
+    </main>
+    <dialog id="editor">
+      <form id="editor-form">
+        <h2 id="editor-title"></h2>
+        <p id="editor-description"></p>
+        <div id="editor-fields"></div>
+        <p id="editor-error" role="alert"></p>
+        <footer>
+          <button type="button" id="editor-cancel" class="quiet">Cancel</button
+          ><button type="submit" id="editor-save">Save changes</button>
+        </footer>
+      </form>
+    </dialog>
+    <dialog id="records">
+      <h2 id="records-title">Reading records</h2>
+      <p id="records-book"></p>
+      <div id="records-list"></div>
+      <footer>
+        <button id="records-close" class="quiet">Close</button
+        ><button id="records-log">Log reading</button>
+      </footer>
+    </dialog>
+    <dialog id="draft-guard">
+      <h2>Keep your changes?</h2>
+      <p>You have unsaved journal changes.</p>
+      <footer>
+        <button id="draft-keep" class="quiet">Keep editing</button
+        ><button id="draft-discard" class="quiet">Discard changes</button
+        ><button id="draft-save">Save changes</button>
+      </footer>
+    </dialog>
+    <script src="renderer.js"></script>
+  </body>
+</html>

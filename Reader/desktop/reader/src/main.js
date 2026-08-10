@@ -152,7 +152,7 @@ async function setPreferences(value,retained){
  if(!state)return;
  const location=retained??(navigator?.kind==='continuous'?visibleAnchor():stableAnchor??visibleAnchor());if(location)stableAnchor=clone(location);reflowCount++;
  const restore=Object.keys(value).some(key=>!['theme'].includes(key))||Object.keys(value).length===0;
- state.preferences=preferences({...state.preferences,...value});syncAppearance();changed();
+ state.preferences=preferences({...state.preferences,...value});syncAppearance();changed();relayout();
  const settings=readiumPreferences(),generation=lifecycle;
  preferenceQueue=preferenceQueue.catch(()=>{}).then(async()=>{if(generation!==lifecycle||!navigator)return;const current=navigator,continuous=Boolean(input.experimentalContinuous&&settings.scroll);if((current.kind==='continuous')!==continuous){await current.destroy();if(generation===lifecycle)await installNavigator(location,settings)}else{await current.submitPreferences(new EpubPreferences(settings));if(restore&&location&&current===navigator&&generation===lifecycle){await new Promise(resolve=>setTimeout(resolve,120));if(generation===lifecycle)await go(location,false)}}});
  try{await preferenceQueue}finally{reflowCount=Math.max(0,reflowCount-1)}
@@ -266,12 +266,35 @@ function editNote(item=selection){
  showDialog('note-panel','note-text');
 }
 async function go(value,recordHistory=true){
- const locator=validLocator(value);if(!navigator||!locator)return false;
+ const locator=validLocator(value);if(!navigator||!locator)return false;quietUntil=performance.now()+800;
  if(!input.readingOrder.some(link=>link.href===locator.href)){notice('This saved passage is outside the supported reading sequence.');return false;}
  const before=lastLocator?clone(lastLocator):null;dismissSelection();
  return new Promise(resolve=>{const timeout=setTimeout(()=>resolve(false),4000);try{navigator.go(engineLocator(locator),false,ok=>{clearTimeout(timeout);if(ok){stableAnchor=clone(locator)}if(ok&&recordHistory&&before){jumpHistory.push(before);if(jumpHistory.length>100)jumpHistory.shift();updateHistory();}resolve(ok)})}catch(error){clearTimeout(timeout);notice('This passage could not be opened.');resolve(false)}});
 }
-function turn(direction){dismissSelection();if(navigator)(direction==='next'?navigator.goForward.bind(navigator):navigator.goBackward.bind(navigator))(false,()=>{stableAnchor=visibleAnchor();if(!state?.preferences.scroll&&!matchMedia('(prefers-reduced-motion: reduce)').matches)$('reader').animate([{opacity:.84,transform:`perspective(1600px) rotateY(${direction==='next'?'-':'+'}1.5deg)`},{opacity:1,transform:'none'}],{duration:140,easing:'ease-out'})})}
+// Page evidence for reading goals. Only deliberate sequential movement is reported:
+// page turns in paginated modes and full screens scrolled by the reader. Jumps
+// (contents, search, links, bookmarks), restores, reflow and resizes never are. Each
+// layout gets its own key, so the host starts a fresh baseline after any change.
+let layoutGeneration=0,announcedLayout=null,quietUntil=0,scrollState=new WeakMap();
+const pagesPerTurn=()=>state?.preferences.scroll?1:effectiveColumns();
+const layoutKey=()=>(state?.preferences.scroll?'s':'p')+pagesPerTurn()+'-'+layoutGeneration;
+function announceLayout(){if(!state||opening||navigator?.kind==='continuous')return;const layout=layoutKey();if(layout===announcedLayout)return;announcedLayout=layout;emit('pageLayout',{layout,pages:pagesPerTurn()})}
+function relayout(){layoutGeneration++;quietUntil=performance.now()+800;scrollState=new WeakMap();announceLayout()}
+function pageTurned(direction){if(!state||navigator?.kind==='continuous')return;announceLayout();emit('pageTurn',{direction,pages:pagesPerTurn(),layout:layoutKey()})}
+/** Scroll mode: one page-equivalent per full screen of net movement by the reader. */
+function trackScroll(wnd){
+ if(!state?.preferences.scroll||navigator?.kind==='continuous')return;
+ const y=wnd.scrollY,height=wnd.innerHeight,now=performance.now(),last=scrollState.get(wnd);
+ if(!last||now<quietUntil||boundaryBusy||reflowCount||resizing||!(height>0)){scrollState.set(wnd,{y,net:0});return}
+ const delta=y-last.y;
+ // Scrubbing or programmatic jumps move several screens at once; they are never reading.
+ if(Math.abs(delta)>height*1.5){scrollState.set(wnd,{y,net:0});return}
+ let net=last.net+delta;
+ while(net>=height){net-=height;pageTurned('forward')}
+ while(net<=-height){net+=height;pageTurned('backward')}
+ scrollState.set(wnd,{y,net});
+}
+function turn(direction){dismissSelection();if(navigator)(direction==='next'?navigator.goForward.bind(navigator):navigator.goBackward.bind(navigator))(false,moved=>{if(moved===true&&!state?.preferences.scroll)pageTurned(direction==='next'?'forward':'backward');stableAnchor=visibleAnchor();if(!state?.preferences.scroll&&!matchMedia('(prefers-reduced-motion: reduce)').matches)$('reader').animate([{opacity:.84,transform:`perspective(1600px) rotateY(${direction==='next'?'-':'+'}1.5deg)`},{opacity:1,transform:'none'}],{duration:140,easing:'ease-out'})})}
 let boundaryBusy=false;
 async function crossScrollBoundary(wnd,delta,event){
  if(navigator?.kind==='continuous'||!state?.preferences.scroll||boundaryBusy||!delta||document.querySelector('dialog[open]'))return;
@@ -318,7 +341,7 @@ async function installNavigator(location,settings=readiumPreferences()){
    positionChanged:locator=>{if(generation!==lifecycle||!state)return;lastLocator=locator.serialize();if(opening&&state.position){updatePosition();return;}state.position=clone(lastLocator);updatePosition();changed(false);emit('relocated',{locator:lastLocator,cause:'unknown',eligibleForProgress:false})},
    frameUnloaded:wnd=>frames.delete(wnd),
    textSelected:value=>{if(generation===lifecycle)selected(value)},
-   frameLoaded:wnd=>{if(!wnd.CSS?.highlights&&navigator)navigator.decorationsAvailable=false;if(!frames.has(wnd)){frames.add(wnd);wnd.document.addEventListener('keydown',keyboard);wnd.addEventListener('wheel',event=>{void crossScrollBoundary(wnd,event.deltaY,event);if(!boundaryBusy)setTimeout(()=>{if(!reflowCount&&!resizing)stableAnchor=visibleAnchor()},100)},{passive:false});wnd.document.addEventListener('keydown',event=>{if(['ArrowDown','PageDown','ArrowUp','PageUp'].includes(event.key)&&!['INPUT','TEXTAREA','SELECT'].includes(event.target?.tagName)){void crossScrollBoundary(wnd,['ArrowDown','PageDown'].includes(event.key)?1:-1,event);setTimeout(()=>{if(!boundaryBusy&&!reflowCount&&!resizing)stableAnchor=visibleAnchor()},100)}});wnd.document.addEventListener('pointerup',followPublicationLink,true);wnd.document.addEventListener('click',followPublicationLink,true);wnd.document.addEventListener('keyup',()=>{const text=wnd.getSelection()?.toString();if(text&&lastLocator&&navigator?.kind!=='continuous')selected({text,locator:Locator.deserialize({...lastLocator,text:{highlight:text}})});});}},
+   frameLoaded:wnd=>{if(!wnd.CSS?.highlights&&navigator)navigator.decorationsAvailable=false;if(!frames.has(wnd)){frames.add(wnd);wnd.document.addEventListener('keydown',keyboard);wnd.addEventListener('wheel',event=>{void crossScrollBoundary(wnd,event.deltaY,event);if(!boundaryBusy)setTimeout(()=>{if(!reflowCount&&!resizing)stableAnchor=visibleAnchor()},100)},{passive:false});wnd.document.addEventListener('keydown',event=>{if(['ArrowDown','PageDown','ArrowUp','PageUp'].includes(event.key)&&!['INPUT','TEXTAREA','SELECT'].includes(event.target?.tagName)){void crossScrollBoundary(wnd,['ArrowDown','PageDown'].includes(event.key)?1:-1,event);setTimeout(()=>{if(!boundaryBusy&&!reflowCount&&!resizing)stableAnchor=visibleAnchor()},100)}});wnd.document.addEventListener('pointerup',followPublicationLink,true);wnd.addEventListener('scroll',()=>trackScroll(wnd),{passive:true});wnd.document.addEventListener('click',followPublicationLink,true);wnd.document.addEventListener('keyup',()=>{const text=wnd.getSelection()?.toString();if(text&&lastLocator&&navigator?.kind!=='continuous')selected({text,locator:Locator.deserialize({...lastLocator,text:{highlight:text}})});});}},
    error:error=>{notice(error.message);emit('error',{message:error.message})}
   };
   navigator=input.experimentalContinuous&&settings.scroll?new ContinuousNavigator($('reader'),input,pool,listeners,location,settings):new EpubNavigator($('reader'),publication,listeners,positions,location?engineLocator(location):undefined,{preferences:settings,defaults:{}});
@@ -341,7 +364,7 @@ async function open(value){
   const override=validLocator(value.locator);if(override)state.position=override;
   $('reader').replaceChildren();$('book-title').textContent=value.title??'Untitled';$('book-author').textContent=value.creators?.join(', ')??'';document.title=(value.title??'Book')+' · Stillleaf';$('back').hidden=!value.canReturnToLibrary;
   syncAppearance();
-  await installNavigator(state.position);opening=false;emit('ready',{warnings:[...pool.warnings]});changed();
+  await installNavigator(state.position);opening=false;emit('ready',{warnings:[...pool.warnings]});announcedLayout=null;relayout();changed();
   if(pool.warnings.size&&$('notice').hidden)notice('Some original styling or illustrations could not be displayed.');
  }catch(error){opening=false;$('error').textContent=error.message;$('error').hidden=false;emit('error',{message:error.message});throw error}
 }
@@ -373,7 +396,7 @@ $('font-weight').onchange=()=>void setPreferences({fontWeight:$('font-weight').v
 $('text-align').onchange=()=>void setPreferences({textAlign:$('text-align').value});
 $('hyphens').onchange=()=>void setPreferences({hyphens:$('hyphens').value==='publisher'?null:$('hyphens').value==='true'});
 for(const [id,key]of [['letter-spacing','letterSpacing'],['word-spacing','wordSpacing']])$(id).oninput=()=>void setPreferences({[key]:Number($(id).value)});
-window.addEventListener('resize',()=>{if(!state)return;resizing=true;const anchor=stableAnchor?clone(stableAnchor):lastLocator?clone(lastLocator):null;clearTimeout(resizeTimer);resizeTimer=setTimeout(()=>{void setPreferences({},anchor).finally(()=>{resizing=false})},100)});
+window.addEventListener('resize',()=>{if(!state)return;resizing=true;relayout();const anchor=stableAnchor?clone(stableAnchor):lastLocator?clone(lastLocator):null;clearTimeout(resizeTimer);resizeTimer=setTimeout(()=>{void setPreferences({},anchor).finally(()=>{resizing=false})},100)});
 $('reset-appearance').onclick=()=>void setPreferences(DEFAULT_PREFERENCES);
 $('search-form').onsubmit=event=>{event.preventDefault();void searchBook()};$('search-query').oninput=()=>{clearTimeout(searchTimer);searchTimer=setTimeout(()=>void searchBook(),180)};
 $('highlight-selection').onclick=()=>{if(selection){annotate({...selection,color:'gold'});dismissSelection();notice('Passage highlighted.')}};

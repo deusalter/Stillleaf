@@ -1,0 +1,17 @@
+node --test Reader/desktop/test/electron.test.mjs
+PASS isolated desktop import, explicit reader, offline resources and persistent receipts
+Duration4221.695666ms;1test,1pass,0fail.
+Electron44.4.5, macOS (darwin), hidden synthetic windows only.
+Expected hostile network fixture CSP/block messages observed; no external response accepted.
+Screenshots generated: library-macos.png, timeline-macos.png, reviews-macos.png.
+Runtime main probe: Node24.21.0, SQLite3.53.4, prepared statement roundtrip verified.
+No Windows execution, installed-app replacement, live relaunch, or prototype mutation claimed.
+
+Design-review revision + scoped state transfer:
+node --test Reader/desktop/test/electron.test.mjs
+PASS1/1 duration7883.786916ms.
+node --test Reader/desktop/test/journal-ui.test.mjs
+PASS1/1 final combined-run fixture duration2072.013958ms.
+Curated5book light/dark/narrow screens + quarter keyboard/pointer/AX + time-only records + written-review filter verified.
+Transfer host tests: active reader close/flush, no overwrite, replacement preview counts, cancellation unchanged, identical no-op, stale rejection.
+All executions macOS Electron44.4.5, hidden fixtures only.

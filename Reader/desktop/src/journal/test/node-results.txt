@@ -1,0 +1,174 @@
+TAP version 13
+# (node:99362) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: edition identity persists and explicit edition linking counts one journal book
+ok 1 - edition identity persists and explicit edition linking counts one journal book
+  ---
+  duration_ms: 22.025584
+  type: 'test'
+  ...
+# Subtest: dated zero-page minutes and position are independent; no fabricated intervals; restart
+ok 2 - dated zero-page minutes and position are independent; no fabricated intervals; restart
+  ---
+  duration_ms: 6.584416
+  type: 'test'
+  ...
+# Subtest: completion click is idempotent and creates no page or minute evidence
+ok 3 - completion click is idempotent and creates no page or minute evidence
+  ---
+  duration_ms: 2.761791
+  type: 'test'
+  ...
+# Subtest: manual completion wins later imports; unknown imported finish remains unknown
+ok 4 - manual completion wins later imports; unknown imported finish remains unknown
+  ---
+  duration_ms: 4.8835
+  type: 'test'
+  ...
+# Subtest: civil timezone year boundary, future cutoff, edited completion and unique totals
+ok 5 - civil timezone year boundary, future cutoff, edited completion and unique totals
+  ---
+  duration_ms: 5.613834
+  type: 'test'
+  ...
+# Subtest: quarter stars including zero and explicit clears; personal Unicode review
+ok 6 - quarter stars including zero and explicit clears; personal Unicode review
+  ---
+  duration_ms: 23.214
+  type: 'test'
+  ...
+# Subtest: effective daily goal history and annual clear/ties; combined save atomic
+ok 7 - effective daily goal history and annual clear/ties; combined save atomic
+  ---
+  duration_ms: 9.622917
+  type: 'test'
+  ...
+# Subtest: SQLite backup is consistent and refuses overwrite
+ok 8 - SQLite backup is consistent and refuses overwrite
+  ---
+  duration_ms: 9.638167
+  type: 'test'
+  ...
+# Subtest: future and unknown schemas and symlink paths reject without changing source
+ok 9 - future and unknown schemas and symlink paths reject without changing source
+  ---
+  duration_ms: 3.719
+  type: 'test'
+  ...
+# Subtest: explicit prototype import retains exact source, unknown fields and provenance with no fake finish time
+ok 10 - explicit prototype import retains exact source, unknown fields and provenance with no fake finish time
+  ---
+  duration_ms: 7.57075
+  type: 'test'
+  ...
+# Subtest: changed prototype records reject atomically; future version leaves source untouched
+ok 11 - changed prototype records reject atomically; future version leaves source untouched
+  ---
+  duration_ms: 6.041709
+  type: 'test'
+  ...
+# Subtest: cold OS events wait for host readiness and present one Library
+ok 12 - cold OS events wait for host readiness and present one Library
+  ---
+  duration_ms: 0.97725
+  type: 'test'
+  ...
+# Subtest: warm events append to one serial queue, preserve failure and cancellation outcomes
+ok 13 - warm events append to one serial queue, preserve failure and cancellation outcomes
+  ---
+  duration_ms: 3.293875
+  type: 'test'
+  ...
+# Subtest: later explicit open can return a duplicate without reading
+ok 14 - later explicit open can return a duplicate without reading
+  ---
+  duration_ms: 0.2715
+  type: 'test'
+  ...
+# Subtest: invalid importer results fail and next file proceeds; queue cap bounds a batch
+ok 15 - invalid importer results fail and next file proceeds; queue cap bounds a batch
+  ---
+  duration_ms: 0.334292
+  type: 'test'
+  ...
+# Subtest: OS arguments exclude executables and options
+ok 16 - OS arguments exclude executables and options
+  ---
+  duration_ms: 0.119667
+  type: 'test'
+  ...
+# Subtest: Windows argv and case aliases use Windows path semantics even in fixture tests
+ok 17 - Windows argv and case aliases use Windows path semantics even in fixture tests
+  ---
+  duration_ms: 0.221875
+  type: 'test'
+  ...
+# Subtest: receipt-backed Library preserves corrupt records and rejects resource traversal
+ok 18 - receipt-backed Library preserves corrupt records and rejects resource traversal
+  ---
+  duration_ms: 12.618333
+  type: 'test'
+  ...
+# Subtest: versioned locator/annotations persist, stale events rejected, corrupt primary recovers backup
+ok 19 - versioned locator/annotations persist, stale events rejected, corrupt primary recovers backup
+  ---
+  duration_ms: 63.319542
+  type: 'test'
+  ...
+# Subtest: state rejects unknown locations, forged edition and unreasonable payloads
+ok 20 - state rejects unknown locations, forged edition and unreasonable payloads
+  ---
+  duration_ms: 13.607334
+  type: 'test'
+  ...
+# Subtest: keep EPUB saves exact usable copy then trashes only managed assets; state and journal retained
+ok 21 - keep EPUB saves exact usable copy then trashes only managed assets; state and journal retained
+  ---
+  duration_ms: 44.648875
+  type: 'test'
+  ...
+# Subtest: keep export refuses overwrite or managed destination, cancellation does not invoke removal
+ok 22 - keep export refuses overwrite or managed destination, cancellation does not invoke removal
+  ---
+  duration_ms: 15.841334
+  type: 'test'
+  ...
+# Subtest: Trash failure retains Library/assets/history and reports successful export honestly
+ok 23 - Trash failure retains Library/assets/history and reports successful export honestly
+  ---
+  duration_ms: 26.396083
+  type: 'test'
+  ...
+# Subtest: delete choice uses Trash without touching external original
+ok 24 - delete choice uses Trash without touching external original
+  ---
+  duration_ms: 14.162667
+  type: 'test'
+  ...
+# Subtest: Trash error after actual move reports removed assets truthfully
+ok 25 - Trash error after actual move reports removed assets truthfully
+  ---
+  duration_ms: 15.8315
+  type: 'test'
+  ...
+# Subtest: damaged managed original cannot produce a misleading kept EPUB
+ok 26 - damaged managed original cannot produce a misleading kept EPUB
+  ---
+  duration_ms: 11.689583
+  type: 'test'
+  ...
+# Subtest: annotation DOM ranges survive validation and restart
+ok 27 - annotation DOM ranges survive validation and restart
+  ---
+  duration_ms: 10.504541
+  type: 'test'
+  ...
+1..27
+# tests 27
+# suites 0
+# pass 27
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 280.219125

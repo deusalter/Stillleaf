@@ -1,0 +1,24 @@
+{
+  "name": "@stillleaf/publication",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.js",
+    "./metadata": "./metadata.js",
+    "./path-policy": "./path-policy.js"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@xmldom/xmldom": "0.9.12",
+    "yauzl": "3.4.0"
+  },
+  "devDependencies": {
+    "prettier": "3.9.9"
+  }
+}

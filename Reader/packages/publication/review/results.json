@@ -1,0 +1,74 @@
+[
+  {
+    "name": "valid",
+    "code": 0,
+    "output": "ACCEPT 34d9113391b53ecb55f21f4560643985a11c514fd01210e3c094a08f51838c0d duplicate=false spine=[\"EPUB/chapter.xhtml\"]",
+    "stderr": ""
+  },
+  {
+    "name": "parent-after-child",
+    "code": 2,
+    "output": "REJECT Cannot stage resource.",
+    "stderr": ""
+  },
+  {
+    "name": "parent-before-child",
+    "code": 2,
+    "output": "REJECT The file “EPUB” couldn’t be saved in the folder “resources” because a file with the same name already exists.",
+    "stderr": ""
+  },
+  {
+    "name": "size-lie",
+    "code": 2,
+    "output": "REJECT Corrupt ZIP resource.",
+    "stderr": ""
+  },
+  {
+    "name": "bad-crc",
+    "code": 2,
+    "output": "REJECT Corrupt ZIP resource.",
+    "stderr": ""
+  },
+  {
+    "name": "local-name-mismatch",
+    "code": 2,
+    "output": "REJECT Malformed, unsupported, or unsafe ZIP directory.",
+    "stderr": ""
+  },
+  {
+    "name": "windows-superscript-device",
+    "code": 0,
+    "output": "ACCEPT b48eb0ea083459c922d42b5b336b3ecb891745ea6a41fc91965c991043aea92e duplicate=false spine=[\"EPUB/chapter.xhtml\"]",
+    "stderr": ""
+  },
+  {
+    "name": "multiple-explicit-covers",
+    "code": 0,
+    "output": "ACCEPT 28f3181414db7182f2604443add8043cbc243ce0980748888a2890a071effdcf duplicate=false spine=[\"EPUB/chapter.xhtml\"]",
+    "stderr": ""
+  },
+  {
+    "name": "wrong-namespace-no-package",
+    "code": 0,
+    "output": "ACCEPT 5815f62ac74562fc69253613bf9d4d71714f7eb73c7bf2919b4e183d147fd416 duplicate=false spine=[\"EPUB/chapter.xhtml\"]",
+    "stderr": ""
+  },
+  {
+    "name": "rights-marker",
+    "code": 0,
+    "output": "ACCEPT a1d687d996279c61a12562e93eaba9fac32a6fdbf54171db1aaf27282d33b775 duplicate=false spine=[\"EPUB/chapter.xhtml\"]",
+    "stderr": ""
+  },
+  {
+    "name": "tamper-managed-original",
+    "code": 0,
+    "output": "ACCEPT 34d9113391b53ecb55f21f4560643985a11c514fd01210e3c094a08f51838c0d duplicate=false spine=[\"EPUB/chapter.xhtml\"]",
+    "stderr": ""
+  },
+  {
+    "name": "duplicate-after-original-corruption",
+    "code": 0,
+    "output": "ACCEPT 34d9113391b53ecb55f21f4560643985a11c514fd01210e3c094a08f51838c0d duplicate=true spine=[\"EPUB/chapter.xhtml\"]",
+    "stderr": ""
+  }
+]

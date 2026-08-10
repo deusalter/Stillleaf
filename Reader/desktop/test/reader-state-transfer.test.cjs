@@ -1,0 +1,45 @@
+"use strict";
+const { test } = require("node:test"), assert = require("node:assert/strict");
+const fs = require("node:fs/promises"), path = require("node:path"), os = require("node:os");
+const { emptyState, saveReaderState, loadReaderState } = require("../src/reader-state.cjs");
+const { exportState, previewImport, applyImport } = require("../src/reader-state-transfer.cjs");
+test("portable state transfer preserves data, previews conflicts and refuses stale or changed local state", async t => {
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), "stillleaf-state-transfer-"));
+  t.after(() => fs.rm(temp, { recursive: true, force: true }));
+  const root = path.join(temp, "library"), other = path.join(temp, "other"), id = "a".repeat(64);
+  const publication = { manifest: [{ path: "chapter.xhtml" }] };
+  const state = emptyState(id); state.revision = 3;
+  state.preferences.scroll = true; state.preferences.fontWeight = null;
+  state.annotations.push({ id: "note", locator: { href: "chapter.xhtml", type: "text/html" }, quote: "A passage", note: "Private thought 🌿", color: "sage", createdAt: "2026-09-24T12:00:00Z", updatedAt: "2026-09-24T12:00:00Z" });
+  const file = path.join(temp, "notes.json");
+  await assert.rejects(exportState(root, id, publication, file), /no saved/);
+  await saveReaderState(root, id, publication, state);
+  const result = await exportState(root, id, publication, file);
+  assert.equal(result.sha256.length, 64); assert.ok(result.bytes > 0);
+  const original = await fs.readFile(file);
+  await assert.rejects(exportState(root, id, publication, file), { code: "EEXIST" });
+  assert.deepEqual(await fs.readFile(file), original);
+  const fresh = await previewImport(other, id, publication, file);
+  assert.equal(fresh.disposition, "newEditionState"); assert.equal(await applyImport(fresh), true);
+  assert.deepEqual((await loadReaderState(other, id, publication)).state, (await loadReaderState(root, id, publication)).state);
+  assert.equal(await applyImport(await previewImport(root, id, publication, file)), false);
+  const changed = structuredClone(state); changed.annotations[0].note = "Different same-revision note";
+  await fs.writeFile(file, JSON.stringify(changed));
+  const conflict = await previewImport(root, id, publication, file);
+  assert.equal(conflict.disposition, "replacement");
+  await assert.rejects(applyImport(conflict), /Explicit replacement/);
+  await applyImport(conflict, { replacingExisting: true });
+  state.revision = 4; await saveReaderState(root, id, publication, state);
+  await assert.rejects(applyImport(conflict, { replacingExisting: true }), /after the preview/);
+  const stale = await previewImport(root, id, publication, file);
+  assert.equal(stale.disposition, "stale");
+  await assert.rejects(applyImport(stale, { replacingExisting: true }), /older/);
+  for (const bad of [{ ...state, editionId: "b".repeat(64) }, { ...state, schemaVersion: 2 }]) {
+    await fs.writeFile(file, JSON.stringify(bad)); await assert.rejects(previewImport(root, id, publication, file));
+  }
+  await fs.writeFile(file, " ".repeat(2 * 1024 * 1024 + 1));
+  await assert.rejects(previewImport(root, id, publication, file), /size limit/);
+  const linked = path.join(temp, "linked.json"); await fs.symlink(file, linked);
+  await assert.rejects(previewImport(root, id, publication, linked), /regular/);
+  assert.deepEqual((await loadReaderState(root, id, publication)).state.annotations, state.annotations);
+});

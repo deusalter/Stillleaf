@@ -1,0 +1,793 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#e5eeea" />
+    <meta
+      name="description"
+      content="Stillleaf brings EPUB reading, a personal journal, and reading progress together. In development for Mac and Windows, with optional external-reader connections."
+    />
+    <meta name="robots" content="noindex, nofollow" />
+    <link rel="icon" type="image/svg+xml" href="/leaf.svg" />
+    <title>Stillleaf — Make room for reading</title>
+  </head>
+  <body class="motion-paused">
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site-header">
+      <a class="wordmark" href="#" aria-label="Stillleaf home">
+        <svg
+          class="brand-mark"
+          viewBox="0 0 36 38"
+          fill="none"
+          aria-hidden="true"
+        >
+          <path
+            d="M18 31V12M18 27C6 27 3 17 5 5c10 1 15 7 13 17M18 22C29 22 32 12 30 2c-8 2-12 7-12 15"
+            stroke="currentColor"
+            stroke-width="1.7"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+          <path
+            d="M5 34c8-3 18-3 26 0"
+            stroke="currentColor"
+            stroke-width="1.7"
+            stroke-linecap="round"
+          />
+        </svg>
+        <span>Stillleaf</span>
+      </a>
+      <nav aria-label="Main navigation">
+        <a href="#daily-reading">The journal</a>
+        <a href="#next-chapter">What’s next</a>
+        <a class="nav-release" href="#downloads"
+          >Get Stillleaf <span aria-hidden="true">↗</span></a
+        >
+      </nav>
+    </header>
+
+    <main id="main" tabindex="-1">
+      <section class="hero" aria-labelledby="hero-title">
+        <div class="book-scene" aria-hidden="true">
+          <div class="scene-light"></div>
+          <div class="book-position book-one">
+            <div class="book-drift">
+              <div class="book-object" data-cover="quiet-hours">
+                <div class="book-back"></div>
+                <div class="book-pages"></div>
+                <div class="book-top"></div>
+                <div class="book-bottom"></div>
+                <div class="book-spine"><span>Quiet hours</span></div>
+                <div class="book-front">
+                  <img
+                    src="/covers/quiet-hours.svg"
+                    alt=""
+                    fetchpriority="high"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="book-position book-two">
+            <div class="book-drift">
+              <div class="book-object" data-cover="little-things">
+                <div class="book-back"></div>
+                <div class="book-pages"></div>
+                <div class="book-top"></div>
+                <div class="book-bottom"></div>
+                <div class="book-spine"><span>The little things</span></div>
+                <div class="book-front">
+                  <img src="/covers/little-things.svg" alt="" />
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="book-position book-three">
+            <div class="book-drift">
+              <div class="book-object" data-cover="tidelines">
+                <div class="book-back"></div>
+                <div class="book-pages"></div>
+                <div class="book-top"></div>
+                <div class="book-bottom"></div>
+                <div class="book-spine"><span>Tidelines</span></div>
+                <div class="book-front">
+                  <img src="/covers/tidelines.svg" alt="" />
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="book-position book-four">
+            <div class="book-drift">
+              <div class="book-object" data-cover="wandering">
+                <div class="book-back"></div>
+                <div class="book-pages"></div>
+                <div class="book-top"></div>
+                <div class="book-bottom"></div>
+                <div class="book-spine"><span>A place to wander</span></div>
+                <div class="book-front">
+                  <img src="/covers/wandering.svg" alt="" />
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="book-position book-five">
+            <div class="book-drift">
+              <div class="book-object" data-cover="blue-hour">
+                <div class="book-back"></div>
+                <div class="book-pages"></div>
+                <div class="book-top"></div>
+                <div class="book-bottom"></div>
+                <div class="book-spine"><span>The blue hour</span></div>
+                <div class="book-front">
+                  <img src="/covers/blue-hour.svg" alt="" />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="hero-copy">
+          <p class="intro-line">
+            <span class="little-leaf" aria-hidden="true"></span>A quieter kind
+            of reading companion
+          </p>
+          <h1 id="hero-title">Make room<br />for reading.</h1>
+          <p class="hero-description">
+            An EPUB reader and reading journal, together.<br
+              class="desktop-break"
+            />
+            For the books you read and the thoughts they leave.
+          </p>
+          <a class="button button-primary" href="#daily-reading"
+            >Meet Stillleaf
+            <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+              <path
+                d="M10 4v12m-5-5 5 5 5-5"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              /></svg
+          ></a>
+          <p class="hero-availability">In development for Mac and Windows.</p>
+        </div>
+        <div class="hero-foot">
+          <a class="quiet-link" href="#daily-reading"
+            >Made for a life with books <span aria-hidden="true">↓</span></a
+          >
+        </div>
+      </section>
+
+      <div class="reading-journey">
+        <span
+          id="reader-transition"
+          class="reader-scroll-anchor"
+          aria-hidden="true"
+        ></span>
+        <div class="journey-pin">
+          <div class="story-atmosphere" aria-hidden="true">
+            <span class="scene-orbit"></span
+            ><span class="scene-leaf leaf-one"></span
+            ><span class="scene-leaf leaf-two"></span>
+            <div class="journey-book">
+              <img
+                src="/covers/quiet-hours.svg"
+                alt=""
+                width="96"
+                height="141"
+              />
+            </div>
+            <span class="journey-sheet sheet-one"></span
+            ><span class="journey-sheet sheet-two"></span>
+          </div>
+          <section
+            class="daily-story product-story"
+            id="daily-reading"
+            aria-labelledby="daily-title"
+          >
+            <div class="story-stage section-wrap">
+              <div class="story-copy">
+                <span class="status-note"
+                  ><span></span>A little more, every day</span
+                >
+                <h2 id="daily-title">A page today.<br />A habit, in time.</h2>
+                <a class="journey-continue" href="#reader-transition"
+                  >Continue to the reader preview ↓</a
+                >
+                <p>
+                  Make a little space for reading. Set a daily goal in pages or
+                  minutes, and watch the small moments add up.
+                </p>
+                <p class="story-instruction">
+                  <span class="scroll-instruction"
+                    >Scroll to follow a sample day.</span
+                  ><span class="static-instruction"
+                    >Try a sample daily goal.</span
+                  >
+                </p>
+              </div>
+              <figure class="daily-demonstration">
+                <div class="daily-panel">
+                  <div class="daily-panel-header">
+                    <strong>Today</strong><span>Sample day</span>
+                  </div>
+                  <div class="daily-panel-body">
+                    <div
+                      class="goal-arc"
+                      role="progressbar"
+                      aria-label="Sample daily reading goal"
+                      aria-valuemin="0"
+                      aria-valuemax="24"
+                      aria-valuenow="12"
+                      aria-valuetext="12 of 24 sample pages"
+                    >
+                      <svg
+                        id="daily-arc"
+                        viewBox="0 0 254 250"
+                        aria-hidden="true"
+                      >
+                        <image href="/daily-arc.svg" width="254" height="250" />
+                      </svg>
+                      <div class="goal-arc-count" aria-hidden="true">
+                        <strong id="daily-pages">12</strong
+                        ><span>pages today</span>
+                      </div>
+                      <span
+                        class="goal-arc-badge"
+                        id="daily-badge"
+                        aria-hidden="true"
+                        ><span>⌑</span> Your daily reading</span
+                      >
+                    </div>
+                    <div class="daily-goal-copy">
+                      <h3 id="daily-goal-title">12 pages to your goal.</h3>
+                      <p>Your daily goal is 24 pages.</p>
+                      <div class="sample-book">
+                        <img
+                          src="/covers/quiet-hours.svg"
+                          alt=""
+                          width="40"
+                          height="59"
+                          loading="lazy"
+                        />
+                        <div>
+                          <span>A little time with</span
+                          ><strong>Quiet Hours</strong
+                          ><small>Illustrative book</small>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <details class="daily-preview-input" hidden>
+                    <summary>Explore at your own pace</summary>
+                    <label for="daily-range"
+                      >Explore the sample day
+                      <output
+                        aria-live="off"
+                        id="daily-range-value"
+                        for="daily-range"
+                        >12 / 24 pages</output
+                      ></label
+                    ><input
+                      id="daily-range"
+                      type="range"
+                      min="0"
+                      max="24"
+                      step="1"
+                      value="12"
+                    />
+                  </details>
+                </div>
+                <figcaption>
+                  Stillleaf’s daily goal arc, recreated with sample reading
+                  data.
+                </figcaption>
+              </figure>
+            </div>
+          </section>
+
+          <section
+            class="customization-story product-story next-chapter"
+            id="next-chapter"
+            aria-labelledby="next-title"
+          >
+            <div class="story-stage section-wrap">
+              <div class="story-copy custom-copy">
+                <span class="development-label"
+                  >Reader preview · In development</span
+                >
+                <h2 id="next-title">Settle into<br />your kind of page.</h2>
+                <p>
+                  A different light. A familiar typeface. A little more room
+                  between the lines. Make the page feel like a place you want to
+                  stay.
+                </p>
+                <p class="custom-context">
+                  We’re bringing EPUB reading and your journal together on Mac
+                  and Windows, with optional connections to other readers.
+                </p>
+                <div class="reader-options" hidden>
+                  <fieldset class="theme-choices">
+                    <legend>Try a reading mood</legend>
+                    <div class="theme-choice-grid">
+                      <button
+                        type="button"
+                        data-theme-choice="sea-glass"
+                        aria-pressed="true"
+                      >
+                        <span
+                          class="theme-swatch swatch-sea-glass"
+                          aria-hidden="true"
+                        ></span
+                        >Sea glass
+                      </button>
+                      <button
+                        type="button"
+                        data-theme-choice="paper"
+                        aria-pressed="false"
+                      >
+                        <span
+                          class="theme-swatch swatch-paper"
+                          aria-hidden="true"
+                        ></span
+                        >Paper
+                      </button>
+                      <button
+                        type="button"
+                        data-theme-choice="dusk"
+                        aria-pressed="false"
+                      >
+                        <span
+                          class="theme-swatch swatch-dusk"
+                          aria-hidden="true"
+                        ></span
+                        >Dusk
+                      </button>
+                      <button
+                        type="button"
+                        data-theme-choice="midnight"
+                        aria-pressed="false"
+                      >
+                        <span
+                          class="theme-swatch swatch-midnight"
+                          aria-hidden="true"
+                        ></span
+                        >Midnight
+                      </button>
+                    </div>
+                  </fieldset>
+                  <div class="reader-setting-row">
+                    <label for="reader-font"
+                      >Typeface<select id="reader-font">
+                        <option value="literary">Literary serif</option>
+                        <option value="classic">Classic serif</option>
+                        <option value="modern">Modern sans</option>
+                      </select></label
+                    ><label for="reader-spacing"
+                      >Line spacing
+                      <output
+                        aria-live="off"
+                        id="reader-spacing-value"
+                        for="reader-spacing"
+                        >1.8</output
+                      ><input
+                        id="reader-spacing"
+                        type="range"
+                        min="1.45"
+                        max="2"
+                        step="0.05"
+                        value="1.8"
+                    /></label>
+                  </div>
+                </div>
+              </div>
+              <figure class="reader-demonstration">
+                <div
+                  class="reader-window"
+                  data-reader-theme="sea-glass"
+                  data-reader-font="literary"
+                >
+                  <div class="reader-toolbar">
+                    <span class="reader-bookmark" aria-hidden="true">⌑</span
+                    ><span>The quiet between things</span
+                    ><span class="reader-type-icon" aria-hidden="true">Aa</span>
+                  </div>
+                  <article
+                    class="reader-passage"
+                    aria-label="Original sample reading passage"
+                  >
+                    <p class="passage-chapter">A place to return</p>
+                    <h3>A little room<br />for the world.</h3>
+                    <p>
+                      The path ended at the water. She put her book on the bench
+                      and sat beside it, leaving enough room for someone who
+                      might come along.
+                    </p>
+                    <p>
+                      Across the inlet, a window caught the last light. She
+                      stayed until it dimmed, then opened the book where a
+                      folded corner had kept her place.
+                    </p>
+                    <p>There was still a little of the day left.</p>
+                  </article>
+                  <div class="reader-window-footer">
+                    <span id="reader-look-name">Sea glass</span
+                    ><span id="reader-look-detail"
+                      >Literary serif · 1.8 spacing</span
+                    >
+                  </div>
+                </div>
+                <figcaption>
+                  Illustrative customization preview. Reader settings are in
+                  development.
+                </figcaption>
+                <p class="reader-mood-description" id="reader-mood-description">
+                  Soft green light, with room for each line to breathe.
+                </p>
+              </figure>
+            </div>
+          </section>
+        </div>
+      </div>
+      <div class="journal-proof closing-journey" data-closing-scene>
+        <div class="closing-atmosphere" aria-hidden="true">
+          <span class="closing-orbit orbit-near"></span>
+          <span class="closing-orbit orbit-far"></span>
+          <span class="closing-leaf"></span>
+          <div class="closing-flyer flyer-quiet">
+            <div class="closing-volume" style="--jacket: #2d5142">
+              <span class="volume-back"></span
+              ><span class="volume-spine"></span>
+              <span class="volume-pages"></span><span class="volume-top"></span>
+              <img
+                class="volume-cover"
+                src="/covers/quiet-hours.svg"
+                alt=""
+                width="300"
+                height="440"
+                loading="lazy"
+              />
+            </div>
+          </div>
+          <div class="closing-flyer flyer-blue">
+            <div class="closing-volume" style="--jacket: #253f56">
+              <span class="volume-back"></span
+              ><span class="volume-spine"></span>
+              <span class="volume-pages"></span><span class="volume-top"></span>
+              <img
+                class="volume-cover"
+                src="/covers/blue-hour.svg"
+                alt=""
+                width="300"
+                height="440"
+                loading="lazy"
+              />
+            </div>
+          </div>
+        </div>
+        <section
+          class="journal journal-editorial section-wrap"
+          id="your-reading"
+          aria-labelledby="journal-title"
+        >
+          <div class="journal-composition">
+            <div class="journal-copy">
+              <h2 id="journal-title">The last page.<br />The part you keep.</h2>
+              <p>
+                A book can end and still stay with you. Give the thoughts it
+                leaves behind a place beside your reading.
+              </p>
+              <p class="journal-invitation">
+                Your books. Your pace.<br />A few words, just for you.
+              </p>
+            </div>
+            <figure class="journal-keepsake">
+              <div class="keepsake-arrangement">
+                <div class="journal-volume-position">
+                  <div
+                    class="closing-volume journal-volume"
+                    style="--jacket: #2d5142"
+                  >
+                    <span class="volume-back" aria-hidden="true"></span
+                    ><span class="volume-spine" aria-hidden="true"></span>
+                    <span class="volume-pages" aria-hidden="true"></span
+                    ><span class="volume-top" aria-hidden="true"></span>
+                    <img
+                      class="volume-cover"
+                      src="/covers/quiet-hours.svg"
+                      alt="Quiet Hours, an original illustrative book jacket"
+                      width="300"
+                      height="440"
+                      loading="lazy"
+                    />
+                  </div>
+                </div>
+                <article
+                  class="journal-note"
+                  aria-label="Illustrative personal review"
+                >
+                  <span class="note-ribbon" aria-hidden="true"></span>
+                  <div class="note-header">
+                    <span>Quiet Hours</span><span>My review</span>
+                  </div>
+                  <h3>The part I kept.</h3>
+                  <p>
+                    I kept thinking about the space she left beside her on the
+                    bench. Such a small gesture, but it made the whole chapter
+                    feel generous.
+                  </p>
+                  <p>
+                    Some books make me want to turn the page. This one made me
+                    look up.
+                  </p>
+                  <div class="note-signature">
+                    <svg viewBox="0 0 44 20" fill="none" aria-hidden="true">
+                      <path
+                        d="M2 15c7-13 9-14 10-10s-8 13-4 12S23 1 21 7s-8 12-3 9S30 3 28 9s-1 9 4 4 5-3 4 0 3 2 6 0"
+                        stroke="currentColor"
+                        stroke-width="1.1"
+                        stroke-linecap="round"
+                      /></svg
+                    ><span>A thought to return to</span>
+                  </div>
+                </article>
+              </div>
+              <figcaption>
+                Illustrative journal scene with an original book jacket and
+                sample personal review.
+              </figcaption>
+            </figure>
+          </div>
+          <div class="journal-thread">
+            <article>
+              <h3>A shelf that’s yours.</h3>
+              <p>
+                Gather your books in Library. Let Timeline remember the ones you
+                finish.
+              </p>
+            </article>
+            <article>
+              <h3>Small days add up.</h3>
+              <p>
+                Daily pages or minutes. An optional yearly books goal. Room to
+                find your rhythm.
+              </p>
+            </article>
+            <article>
+              <h3>Keep your own words.</h3>
+              <p>
+                Write a personal review, with a rating if you like. Remember
+                what stayed with you.
+              </p>
+            </article>
+          </div>
+          <details class="native-gallery">
+            <summary>
+              <span>Take a look inside Stillleaf</span
+              ><span class="gallery-summary-detail"
+                >Native Mac journal previews</span
+              ><span class="gallery-open-icon" aria-hidden="true">+</span>
+            </summary>
+            <div class="native-gallery-body">
+              <div
+                class="preview-controls"
+                role="group"
+                aria-label="App preview"
+                hidden
+              >
+                <button
+                  class="preview-tab is-active"
+                  type="button"
+                  data-preview="today"
+                  aria-pressed="true"
+                >
+                  Your day
+                </button>
+                <button
+                  class="preview-tab"
+                  type="button"
+                  data-preview="library"
+                  aria-pressed="false"
+                >
+                  Your library
+                </button>
+                <button
+                  class="preview-tab"
+                  type="button"
+                  data-preview="reviews"
+                  aria-pressed="false"
+                >
+                  Your words
+                </button>
+              </div>
+              <figure class="app-preview">
+                <div class="preview-window">
+                  <img
+                    id="app-screenshot"
+                    src="/screenshots/today.webp"
+                    alt="Native Stillleaf Mac journal showing daily reading goals with sample data."
+                    width="2360"
+                    height="1640"
+                    loading="lazy"
+                  />
+                </div>
+                <figcaption id="preview-caption">
+                  The current Mac app, shown with sample reading data.
+                </figcaption>
+              </figure>
+              <p
+                class="preview-description"
+                id="preview-description"
+                aria-live="polite"
+              >
+                A daily goal, at your pace. Choose pages or minutes, and see
+                your reading take shape.
+              </p>
+            </div>
+          </details>
+        </section>
+
+        <section
+          class="downloads closing-downloads"
+          id="downloads"
+          aria-labelledby="downloads-title"
+        >
+          <div class="download-stage section-wrap">
+            <div class="download-heading">
+              <div>
+                <span class="download-leaf" aria-hidden="true"
+                  ><svg viewBox="0 0 40 46" fill="none">
+                    <path
+                      d="M9 35C-1 14 22 6 33 4c2 17-2 35-19 35M8 43c4-14 10-23 20-32M15 28l-3-10m8 5 9-3"
+                      stroke="currentColor"
+                      stroke-width="1.2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    /></svg
+                ></span>
+                <h2 id="downloads-title">A home for your<br />next chapter.</h2>
+              </div>
+              <p>
+                Stillleaf’s next release is taking shape. Downloads will appear
+                here when it’s ready.
+              </p>
+            </div>
+            <div class="release-grid" id="release-grid">
+              <article class="release-card">
+                <h3>Stillleaf for Mac</h3>
+                <p>
+                  The reading journal exists today. The integrated EPUB reader
+                  is in development.
+                </p>
+                <p class="release-state">
+                  In development · Download not yet available
+                </p>
+              </article>
+              <article class="release-card">
+                <h3>Stillleaf for Windows</h3>
+                <p>
+                  The Windows app is in development. A verified Windows release
+                  is not available yet.
+                </p>
+                <p class="release-state">
+                  In development · Download not yet available
+                </p>
+              </article>
+            </div>
+            <p class="release-footnote">
+              This is a local website preview. No public downloads are available
+              here.
+            </p>
+            <div
+              class="mobile-roadmap closing-mobile"
+              aria-label="Mobile roadmap"
+            >
+              <svg viewBox="0 0 24 32" fill="none" aria-hidden="true">
+                <rect
+                  x="4"
+                  y="1"
+                  width="16"
+                  height="29"
+                  rx="3"
+                  stroke="currentColor"
+                  stroke-width="1.3"
+                />
+                <path
+                  d="M9 5h6M10 26h4"
+                  stroke="currentColor"
+                  stroke-width="1.3"
+                  stroke-linecap="round"
+                />
+              </svg>
+              <div>
+                <h3>A little further, in time.</h3>
+                <p>Android and iOS <span>Coming soon</span></p>
+                <small>On the roadmap. No release date announced yet.</small>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <section class="questions section-wrap" aria-labelledby="questions-title">
+        <h2 id="questions-title">A few things<br />you might wonder.</h2>
+        <div class="question-list">
+          <details>
+            <summary>
+              What can Stillleaf do today?<span aria-hidden="true">+</span>
+            </summary>
+            <p>
+              The current native Mac app is a reading tracker and journal. It
+              includes a Library, a completion Timeline, reading history, daily
+              and yearly goals, personal written reviews, optional ratings, and
+              optional Discord presence. The integrated EPUB reader is still in
+              development.
+            </p>
+          </details>
+          <details>
+            <summary>
+              Can I keep using Apple Books?<span aria-hidden="true">+</span>
+            </summary>
+            <p>
+              Yes. The current Mac journal can track supported Apple Books
+              reading windows with Accessibility permission. Tracking pauses
+              when the reader cannot be identified reliably. Manual reading
+              records are also available. These options remain alongside the
+              built-in reader as it develops.
+            </p>
+          </details>
+          <details>
+            <summary>
+              Where does my journal live?<span aria-hidden="true">+</span>
+            </summary>
+            <p>
+              The current Mac journal stores reading history and written reviews
+              locally on your Mac, with export and backup tools. Discord sharing
+              is optional and off by default. These describe the current Mac
+              app; details for future releases will be confirmed before
+              download.
+            </p>
+          </details>
+          <details>
+            <summary>
+              Can I read EPUBs in Stillleaf yet?<span aria-hidden="true"
+                >+</span
+              >
+            </summary>
+            <p>
+              Not yet. The built-in offline EPUB reader is in development for
+              Mac and Windows. It is planned to import local EPUBs and use their
+              embedded covers. There is no release date to announce yet.
+            </p>
+          </details>
+        </div>
+      </section>
+    </main>
+    <footer class="site-footer section-wrap">
+      <a class="wordmark" href="#" aria-label="Stillleaf home"
+        ><img src="/leaf.svg" alt="" width="30" height="32" /><span
+          >Stillleaf</span
+        ></a
+      >
+      <p>A little space for a life with books.</p>
+      <a href="#downloads">Release status</a>
+    </footer>
+    <button
+      class="motion-control"
+      id="motion-toggle"
+      type="button"
+      aria-pressed="false"
+      hidden
+    >
+      <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <path
+          d="M5 4v8M11 4v8"
+          stroke="currentColor"
+          stroke-width="1.5"
+          stroke-linecap="round"
+        /></svg
+      ><span>Pause animation</span>
+    </button>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

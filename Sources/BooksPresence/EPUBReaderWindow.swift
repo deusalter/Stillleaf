@@ -12,10 +12,13 @@ final class EPUBReaderWindows {
     var didFocusReader: (() -> Void)?
     var libraryRequested: (() -> Void)?
     private let stateDirectory: URL
-    var focusedPublicationID: String? {
+    private var focusedReader: EPUBReaderWindow? {
         guard NSApp.isActive else { return nil }
-        return windows.first(where: { $0.value.isReady && $0.value.window?.isKeyWindow == true && $0.value.window?.isMiniaturized == false })?.key
+        return windows.values.first(where: { $0.isReady && $0.window?.isKeyWindow == true && $0.window?.isMiniaturized == false })
     }
+    var focusedPublicationID: String? { focusedReader?.publication.id }
+    /// The focused reader's page counter, sampled by the same page-turn tracker as Apple Books.
+    var focusedPagePosition: ReaderPagePosition? { focusedReader?.pagePosition }
     init(stateDirectory: URL) { self.stateDirectory = stateDirectory }
     func open(_ publication: EPUBPublication, directory: URL, present: Bool = true) async throws {
         guard !isTerminating else { return }
@@ -70,6 +73,14 @@ private final class EPUBReaderWindow: NSObject, NSWindowDelegate, WKNavigationDe
     private var didLoad = false
     private var startupError: String?
     private(set) var isReady = false
+    private var pageCounter = 1
+    private var pageLayout: String?
+    private var pageVisible = 1
+    /// Moves only on deliberate turns the renderer reports. A new layout key gives a new
+    /// signature, so the tracker never compares pages across reflow, resize or mode changes.
+    var pagePosition: ReaderPagePosition? {
+        pageLayout.map { ReaderPagePosition(page: pageCounter, visiblePages: pageVisible, layoutSignature: "stillleaf-reader:" + $0) }
+    }
 
     init(publication: EPUBPublication, directory: URL, stateDirectory: URL) async throws {
         self.publication = publication
@@ -182,6 +193,7 @@ private final class EPUBReaderWindow: NSObject, NSWindowDelegate, WKNavigationDe
         if event["type"] as? String == "close-request" { Task { if await requestClose() { returnToLibrary?() } }; return }
         if event["type"] as? String == "ready" { isReady = true; if window?.isKeyWindow == true { focused?() }; return }
         if event["type"] as? String == "error" { isReady = false; return }
+        if event["type"] as? String == "pageLayout" || event["type"] as? String == "pageTurn" { receivePageEvidence(event); return }
         guard event["type"] as? String == "state",
               let state = event["state"] as? [String: Any], JSONSerialization.isValidJSONObject(state),
               let encoded = try? JSONSerialization.data(withJSONObject: state),
@@ -199,12 +211,33 @@ private final class EPUBReaderWindow: NSObject, NSWindowDelegate, WKNavigationDe
         }
     }
 
+    /// The renderer reports a key per layout and each deliberate turn. The host owns the
+    /// counter, so one message moves it by at most two pages and never below page one.
+    private func receivePageEvidence(_ event: [String: Any]) {
+        guard isReady, let layout = event["layout"] as? String, !layout.isEmpty, layout.utf8.count <= 64,
+              layout.unicodeScalars.allSatisfy({ $0.isASCII && (CharacterSet.alphanumerics.contains($0) || $0 == "-") }),
+              let number = event["pages"] as? NSNumber, number.doubleValue == Double(number.intValue),
+              (1...2).contains(number.intValue) else { return }
+        pageLayout = layout; pageVisible = number.intValue
+        guard event["type"] as? String == "pageTurn" else { return }
+        switch event["direction"] as? String {
+        case "forward": pageCounter = min(pageCounter + number.intValue, 10_000_000)
+        case "backward": pageCounter = max(1, pageCounter - number.intValue)
+        default: return
+        }
+    }
+
     nonisolated private static func prepare(publication: EPUBPublication, directory: URL, stateURL: URL) throws -> (ReaderResourceMap, String) {
         let fm = FileManager.default
         let executableFolder = URL(fileURLWithPath: CommandLine.arguments[0]).deletingLastPathComponent()
         let candidates = [Bundle.main.resourceURL?.appendingPathComponent("Reader"), executableFolder.appendingPathComponent("Reader")].compactMap { $0 }
-        guard let shell = candidates.first(where: { fm.fileExists(atPath: $0.appendingPathComponent("index.html").path) }),
-              let enumerator = fm.enumerator(at: shell, includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey]) else {
+        // Resolve the folder first: SwiftPM's .build/release is a symlink, and the
+        // enumerator reports resolved paths, so an unresolved prefix yields wrong keys.
+        guard let found = candidates.first(where: { fm.fileExists(atPath: $0.appendingPathComponent("index.html").path) }) else {
+            throw EPUBImportError.invalid("Reader files are missing from this local build.")
+        }
+        let shell = found.resolvingSymlinksInPath().standardizedFileURL
+        guard let enumerator = fm.enumerator(at: shell, includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey]) else {
             throw EPUBImportError.invalid("Reader files are missing from this local build.")
         }
         var assets: [String: ReaderResourceMap.Asset] = [:]
@@ -212,7 +245,9 @@ private final class EPUBReaderWindow: NSObject, NSWindowDelegate, WKNavigationDe
             let values = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
             guard values.isSymbolicLink != true else { throw EPUBImportError.invalid("Invalid reader build resource.") }
             guard values.isRegularFile == true else { continue }
-            let path = String(url.path.dropFirst(shell.path.count + 1))
+            let filePath = url.resolvingSymlinksInPath().standardizedFileURL.path
+            guard filePath.hasPrefix(shell.path + "/") else { throw EPUBImportError.invalid("Invalid reader build resource.") }
+            let path = String(filePath.dropFirst(shell.path.count + 1))
             let mime: String
             switch url.pathExtension {
             case "html": mime = "text/html"; case "js": mime = "application/javascript"; case "css": mime = "text/css"
@@ -241,6 +276,7 @@ private final class EPUBReaderWindow: NSObject, NSWindowDelegate, WKNavigationDe
             return ReaderResourceMap.FileAsset(file: file, mimeType: served, byteCount: size)
         }
         let map = try ReaderResourceMap(resources: assets, files: files)
+        guard map.url(for: "index.html") != nil else { throw EPUBImportError.invalid("Reader files are missing from this local build.") }
         let resources: [[String: Any]] = try publication.resources.enumerated().map { index, item -> [String: Any] in
             guard let url = map.fileURL(at: index) else { throw EPUBImportError.invalid("Book resources could not be prepared.") }
             return ["href": item.path, "type": item.mediaType, "url": url.absoluteString, "size": files[index].byteCount]
@@ -315,6 +351,7 @@ func runEPUBReaderSmoke(fixture: URL) async throws {
     guard try await reader.testFixtureAssets() else {
         throw EPUBImportError.invalid("Chapter stylesheet or image did not load through the reader scheme.")
     }
+    try await reader.testPageEvidence()
     if let index = CommandLine.arguments.firstIndex(of: "--reader-artifacts"), index + 1 < CommandLine.arguments.count {
         try await reader.testRenderReviewSnapshots(directory: URL(fileURLWithPath: CommandLine.arguments[index + 1]))
     }
@@ -463,6 +500,19 @@ private extension EPUBReaderWindow {
         if let index = CommandLine.arguments.firstIndex(of: "--reader-artifacts"), index + 1 < CommandLine.arguments.count {
             try Data(metrics.utf8).write(to: URL(fileURLWithPath: CommandLine.arguments[index + 1]).appendingPathComponent("native-experimental-continuous-metrics.json"))
         }
+    }
+    /// A deliberate turn must reach the host counter under the announced layout.
+    func testPageEvidence() async throws {
+        let deadline = Date().addingTimeInterval(5)
+        while pagePosition == nil && Date() < deadline { try await Task.sleep(nanoseconds: 50_000_000) }
+        guard let before = pagePosition else { throw EPUBImportError.invalid("The reader never announced its page layout.") }
+        _ = try await webView.evaluateJavaScript("window.StillleafReader.next(); true")
+        while (pagePosition?.page ?? 0) <= before.page && Date() < deadline { try await Task.sleep(nanoseconds: 50_000_000) }
+        guard let after = pagePosition, after.page == before.page + before.visiblePages,
+              after.layoutSignature == before.layoutSignature else {
+            throw EPUBImportError.invalid("A page turn did not reach the host page counter: \(String(describing: pagePosition))")
+        }
+        _ = try await webView.evaluateJavaScript("window.StillleafReader.previous(); true")
     }
     /// Fixtures with `#fixture-figure` must show the lazily fetched image, styled by a fetched stylesheet.
     func testFixtureAssets() async throws -> Bool {

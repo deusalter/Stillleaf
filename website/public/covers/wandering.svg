@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 440" role="img" aria-labelledby="title">
+  <title id="title">A Place to Wander — an original decorative book jacket</title>
+  <defs>
+    <clipPath id="arch"><path d="M43 377V212a107 107 0 0 1 214 0v165Z"/></clipPath>
+  </defs>
+  <rect width="300" height="440" fill="#e1c77f"/>
+  <rect x="17" y="17" width="266" height="406" fill="none" stroke="#756145" stroke-opacity=".6"/>
+  <rect x="21" y="21" width="258" height="398" fill="none" stroke="#f8e7b7" stroke-opacity=".65"/>
+  <g fill="#584b33" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif">
+    <text x="150" y="65" font-size="29" letter-spacing="1">A PLACE</text>
+    <text x="150" y="100" font-size="29" letter-spacing="1">TO WANDER</text>
+  </g>
+  <g clip-path="url(#arch)">
+    <rect x="43" y="116" width="214" height="262" fill="#f1dc9d"/>
+    <circle cx="174" cy="188" r="45" fill="#c77948"/>
+    <path d="M18 278c37-63 93-59 147-21s92 11 121-21v151H18Z" fill="#a7a47b"/>
+    <path d="M17 313c64-61 117-55 162-16s67 22 104 10v84H17Z" fill="#6c806c"/>
+    <path d="M13 351c66-41 114-16 162-2s72 11 115-11v60H13Z" fill="#3f6053"/>
+    <path d="M145 385c-38-29-47-41-4-56s68-24 26-41c-14-6-22-13-26-22" fill="none" stroke="#edd6a0" stroke-width="8"/>
+  </g>
+  <path d="M43 377V212a107 107 0 0 1 214 0v165Z" fill="none" stroke="#756145" stroke-opacity=".5"/>
+  <path d="M128 399h44" stroke="#756145"/>
+</svg>
