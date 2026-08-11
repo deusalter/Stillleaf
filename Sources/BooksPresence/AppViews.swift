@@ -16,12 +16,14 @@ struct DashboardView: View {
         self.initialSettingsCategory = initialSettingsCategory
     }
     @State private var sheet: DashboardSheet?
+    @ObservedObject private var theme = ThemeStore.shared
     @State private var deleteAllConfirmation = false
     @State private var uninstallConfirmation = false
 
     var body: some View {
         NavigationSplitView {
             DashboardSidebar(selection: $section, model: model, troubleshoot: { sheet = .trackingHelp })
+                .id(theme.revision)
                 .navigationSplitViewColumnWidth(min: 205, ideal: 225, max: 260)
         } detail: {
             VStack(spacing: 0) {
@@ -34,12 +36,16 @@ struct DashboardView: View {
                     case .history: HistoryView(model: model, initialScale: initialCalendarScale)
                     case .library: LibraryView(model: model, present: { sheet = $0 })
                     case .review: PersonalReviewsView(model: model)
-                    case .timeline: ReadingTimelineView(model: model)
+                    case .timeline: ReadingTimelineView(model: model, present: { sheet = $0 })
                     case .health: HealthView(model: model)
                     case .settings: SettingsView(model: model, present: { sheet = $0 }, deleteAll: { deleteAllConfirmation = true }, uninstall: { uninstallConfirmation = true }, initialCategory: model.settingsCategoryRequest ?? initialSettingsCategory)
                         .id(model.settingsCategoryRequest)
                     }
                 }
+                // A theme change re-keys only the rendered content, inside the entrance, so it
+                // swaps instantly instead of replaying the fade. Settings owns unsaved drafts
+                // and re-keys its own content instead.
+                .id(Self.contentKey(for: section, revision: theme.revision))
                 .readingEntrance()
                 .id(section)
             }
@@ -70,6 +76,12 @@ struct DashboardView: View {
         } message: {
             Text("This disables startup and moves the installed app to Trash. Your local reading history remains. Use Delete all reading data to remove managed history, backups, and cached covers.")
         }
+    }
+
+    /// Identity of the rendered screen for a theme revision. Settings keeps one identity
+    /// because it owns unsaved drafts; every other screen re-keys so colours re-resolve.
+    static func contentKey(for section: DashboardSection, revision: Int) -> String {
+        section == .settings ? "settings" : "content-\(revision)"
     }
 
     private func acceptNavigationRequest() {
@@ -105,15 +117,16 @@ struct DashboardView: View {
 struct PopoverView: View {
     @ObservedObject var model: AppModel
     var maximumHeight: CGFloat = 640
+    @ObservedObject private var theme = ThemeStore.shared
     @State private var showingManualStart = false
     @State private var bodyHeight: CGFloat = 390
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Label("Stillleaf", systemImage: "leaf.fill")
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
-                    .foregroundStyle(ReadingPalette.moss)
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 7) {
+                Image(systemName: "leaf.fill").font(.system(size: 12, weight: .medium)).foregroundStyle(ReadingPalette.accent)
+                Text("Stillleaf").font(.system(size: 16, weight: .regular, design: .serif))
+                    .accessibilityLabel("Stillleaf")
                 Spacer()
                 Button { model.showDashboard() } label: {
                     Label("Dashboard", systemImage: "arrow.up.forward.app")
@@ -131,9 +144,10 @@ struct PopoverView: View {
             }
             if bodyHeight > max(160, maximumHeight - 160) {
                 Label("Scroll for more", systemImage: "arrow.down")
-                    .font(.caption2).foregroundStyle(ReadingPalette.fadedInk)
+                    .font(.caption2).foregroundStyle(ReadingPalette.secondaryInk)
                     .frame(maxWidth: .infinity)
             }
+            Hairline()
             HStack {
                 Button(model.manualActive ? "Stop manual reading" : "Read manually") {
                     if model.manualActive { model.stopManual() } else { showingManualStart = true }
@@ -148,10 +162,11 @@ struct PopoverView: View {
                 .accessibilityLabel("More actions")
             }
         }
-        .padding(20).frame(width: 350)
+        .id(theme.revision)
+        .padding(18).frame(width: 350)
         .foregroundStyle(ReadingPalette.ink)
-        .background(ReadingPalette.paper, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .background(ReadingPalette.canvas, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .tint(ReadingPalette.moss).buttonStyle(ReadingButtonStyle())
         .readingMotionAccessibility()
         .sheet(isPresented: $showingManualStart) { ManualStartView(model: model).readingMotionAccessibility() }
@@ -163,7 +178,7 @@ struct PopoverView: View {
                 HStack(alignment: .top, spacing: 12) {
                     BookCoverView(book: book, size: .compact)
                     VStack(alignment: .leading, spacing: 5) {
-                        Text(book.title).font(.system(size: 18, weight: .medium, design: .serif))
+                        Text(book.title).font(ReadingType.bookTitle(19))
                             .lineLimit(2).accessibilityLabel(book.title)
                         if let author = book.author, !author.isEmpty {
                             Text(author).font(.caption).foregroundStyle(ReadingPalette.fadedInk).lineLimit(1)
@@ -179,9 +194,10 @@ struct PopoverView: View {
             } else {
                 HStack(spacing: 12) {
                     Image(systemName: "book.closed").font(.system(size: 20, weight: .light))
-                        .foregroundStyle(ReadingPalette.moss).frame(width: 36, height: 42)
+                        .foregroundStyle(ReadingPalette.accent).frame(width: 36, height: 42)
+                        .background(ReadingPalette.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Open a book to begin").font(.system(size: 16, weight: .semibold, design: .rounded))
+                        Text("Open a book to begin").font(ReadingType.bookTitle(18))
                         ActivityStateLabel(snapshot: model.snapshot, compact: true)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -189,20 +205,21 @@ struct PopoverView: View {
                 }
             }
             MenuReadingGoal(model: model)
+            Hairline()
             HStack(alignment: .top, spacing: 20) {
                 if model.manualActive || model.snapshot.book != nil || model.sessionPages > 0 {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("This session").font(.caption).foregroundStyle(ReadingPalette.fadedInk)
                         Text("\(model.sessionPages) \(model.sessionPages == 1 ? "page" : "pages")")
-                            .font(.system(size: 17, weight: .semibold, design: .rounded)).monospacedDigit()
+                            .font(ReadingType.numeral(20)).monospacedDigit()
                         Text("\(ReadingFormat.duration(model.snapshot.sessionSeconds)) \(model.manualActive ? "manual" : "recorded")")
                             .font(.caption2).foregroundStyle(ReadingPalette.fadedInk)
                     }.frame(maxWidth: .infinity, alignment: .leading)
                 }
                 VStack(alignment: .leading, spacing: 4) {
                     Label("\(model.dailyGoalStreak.current) \(model.dailyGoalStreak.current == 1 ? "day" : "days")", systemImage: "flame")
-                        .font(.system(size: 17, weight: .semibold, design: .rounded)).monospacedDigit()
-                        .foregroundStyle(ReadingPalette.ochre)
+                        .font(ReadingType.numeral(20)).monospacedDigit()
+                        .foregroundStyle(ReadingPalette.accent)
                     Text(model.dailyGoalStreak.todayPending ? "Goal streak · today still open" : "Goal streak")
                         .font(.caption2).foregroundStyle(ReadingPalette.fadedInk)
                 }.frame(maxWidth: .infinity, alignment: .leading)
@@ -244,7 +261,7 @@ private struct PopoverSetupNotice<Accessory: View>: View {
         HStack(alignment: .top, spacing: 9) {
             Image(systemName: icon)
                 .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(ReadingPalette.moss)
+                .foregroundStyle(ReadingPalette.warning)
                 .frame(width: 18)
             VStack(alignment: .leading, spacing: 4) {
                 Text(title).font(.callout.weight(.semibold))
@@ -254,8 +271,8 @@ private struct PopoverSetupNotice<Accessory: View>: View {
             }
             Spacer(minLength: 0)
         }
-        .padding(11)
-        .background(ReadingPalette.moss.opacity(0.13), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .padding(.vertical, 10).padding(.horizontal, 12)
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(ReadingPalette.border, lineWidth: 1))
     }
 }
 
@@ -312,33 +329,31 @@ private struct DashboardSidebar: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 10) {
+            HStack(spacing: 9) {
                 Image(systemName: "leaf.fill")
-                    .font(.system(size: 17, weight: .medium))
-                    .foregroundStyle(ReadingPalette.moss)
-                    .frame(width: 36, height: 36)
-                    .background(ReadingPalette.moss.opacity(0.10), in: RoundedRectangle(cornerRadius: 12))
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Stillleaf").font(.system(size: 17, weight: .semibold, design: .rounded))
-                    Text("A little more, every day").font(.system(size: 11)).foregroundStyle(ReadingPalette.fadedInk)
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(ReadingPalette.accent)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Stillleaf").font(.system(size: 21, weight: .regular, design: .serif)).tracking(-0.3)
+                    Text("A little more, every day").font(.system(size: 11)).foregroundStyle(ReadingPalette.secondaryInk)
                 }
             }
-            .padding(.horizontal, 18).padding(.top, 24).padding(.bottom, 30)
-            VStack(spacing: 5) {
+            .padding(.horizontal, 20).padding(.top, 26).padding(.bottom, 26)
+            VStack(spacing: 2) {
                 ForEach(destinations) { item in
                     Button { selection = item } label: {
-                        HStack(spacing: 11) {
-                            Image(systemName: item.symbol).font(.system(size: 16, weight: .medium)).frame(width: 22)
+                        HStack(spacing: 10) {
+                            Image(systemName: item.symbol).font(.system(size: 14, weight: .regular)).frame(width: 20)
+                                .foregroundStyle(selection == item ? ReadingPalette.accent : ReadingPalette.secondaryInk)
                             Text(item.title).font(.system(size: 13, weight: selection == item ? .semibold : .regular))
                             Spacer(minLength: 0)
-
                         }
-                        .foregroundStyle(selection == item ? ReadingPalette.ink : ReadingPalette.fadedInk)
-                        .padding(.horizontal, 12).padding(.vertical, 11)
+                        .foregroundStyle(selection == item ? ReadingPalette.ink : ReadingPalette.secondaryInk)
+                        .padding(.horizontal, 10).padding(.vertical, 8)
                         .background {
                             if selection == item {
-                                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                    .fill(ReadingPalette.moss.opacity(0.14))
+                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    .fill(ReadingPalette.accent.opacity(0.12))
                                     .transition(.opacity)
                             }
                         }
@@ -348,7 +363,7 @@ private struct DashboardSidebar: View {
                     .buttonStyle(.plain)
                     .focusable()
                     .focused($focusedSection, equals: item)
-                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(focusedSection == item ? ReadingPalette.moss : .clear, lineWidth: 2))
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(focusedSection == item ? ReadingPalette.accent : .clear, lineWidth: 2))
                     .accessibilityLabel(item.title)
                     .accessibilityAddTraits(selection == item ? .isSelected : [])
                     .accessibilityIdentifier("navigation-\(item.rawValue)")
@@ -363,29 +378,27 @@ private struct DashboardSidebar: View {
                 focusedSection = selection
             }
             Spacer(minLength: 28)
-            VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 6) {
                 if model.automaticTrackingNeedsAccess || model.snapshot.pauseReason == .captureFailure {
                     Button(action: troubleshoot) {
                         Label(trackingStatus, systemImage: "exclamationmark.circle")
-                            .font(.system(size: 11, weight: .medium)).foregroundStyle(ReadingPalette.ochre)
+                            .font(.system(size: 11, weight: .medium)).foregroundStyle(ReadingPalette.warning)
                     }.buttonStyle(.plain).help("Open tracking help")
                 } else {
                     HStack(spacing: 6) {
-                        Circle().fill(model.snapshot.phase == .reading ? ReadingPalette.moss : ReadingPalette.fadedInk).frame(width: 6, height: 6)
-                        Text(trackingStatus).font(.system(size: 11, weight: .medium)).foregroundStyle(ReadingPalette.fadedInk)
+                        Circle().fill(model.snapshot.phase == .reading ? ReadingPalette.accent : ReadingPalette.secondaryInk).frame(width: 6, height: 6)
+                        Text(trackingStatus).font(.system(size: 11, weight: .medium)).foregroundStyle(ReadingPalette.secondaryInk)
                     }
                 }
+                Text("History stored on this Mac")
+                    .font(.system(size: 10)).foregroundStyle(ReadingPalette.secondaryInk)
             }
-            .font(.system(size: 12)).toggleStyle(.switch).controlSize(.small)
-            .padding(14)
-            .background(ReadingPalette.surface, in: RoundedRectangle(cornerRadius: 12))
-            .padding(12)
-            Text("History stored on this Mac")
-                .font(.system(size: 10)).foregroundStyle(ReadingPalette.fadedInk)
-                .frame(maxWidth: .infinity).padding(.bottom, 16)
+            .padding(.horizontal, 20).padding(.bottom, 18)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(ReadingPalette.sidebar)
+        .foregroundStyle(ReadingPalette.ink)
+        .background(ReadingPalette.canvas)
+        .overlay(alignment: .trailing) { Hairline(axis: .vertical) }
     }
 
     private var trackingStatus: String {
@@ -427,36 +440,12 @@ struct ReadingEmptyState: View {
     var body: some View {
         VStack(spacing: 12) {
             Image(systemName: symbol).font(.system(size: 30)).foregroundStyle(ReadingPalette.fadedInk)
-            Text(title).font(.system(size: 18, weight: .semibold, design: .rounded))
-            Text(message).font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
+            Text(title).font(ReadingType.bookTitle(20))
+            Text(message).font(.callout).foregroundStyle(ReadingPalette.secondaryInk).multilineTextAlignment(.center)
         }
         .padding(30)
         .frame(maxWidth: .infinity)
     }
-}
-
-enum ReadingPalette {
-    private static func adaptive(_ light: UInt32, _ dark: UInt32) -> Color {
-        Color(NSColor(name: nil) { appearance in
-            let hex = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light
-            return NSColor(srgbRed: Double((hex >> 16) & 0xff) / 255,
-                           green: Double((hex >> 8) & 0xff) / 255,
-                           blue: Double(hex & 0xff) / 255, alpha: 1)
-        })
-    }
-    static let paper = adaptive(0xDFECE7, 0x132422)
-    static let surface = adaptive(0xF0F7F3, 0x1C302D)
-    static let elevated = adaptive(0xD1E6DD, 0x28423B)
-    static let sidebar = adaptive(0xE9F2ED, 0x172A27)
-    static let parchment = adaptive(0xB9D8CA, 0x355A4D)
-    static let ink = adaptive(0x183D33, 0xE7F3EA)
-    static let moss = adaptive(0x087D65, 0x70DAB2)
-    static let ochre = adaptive(0x885A27, 0xE4B779)
-    static let fadedInk = adaptive(0x526F64, 0xADC5B8)
-    static let border = adaptive(0xB5CFC2, 0x39544A)
-    static let progressTrack = adaptive(0xC7DED3, 0x304B40)
-    static let accentEnd = adaptive(0x18998A, 0x92DEC8)
-    static let onAccent = adaptive(0xFFFFFF, 0x10392B)
 }
 
 enum ReadingFormat {

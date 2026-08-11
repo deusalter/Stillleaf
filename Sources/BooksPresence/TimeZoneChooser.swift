@@ -70,7 +70,7 @@ private struct TimeZoneSearch: View {
                         .buttonStyle(.plain)
                         .accessibilityAddTraits(selection == zone.id ? .isSelected : [])
                     }
-                    if matches.isEmpty { Text("No matching time zones").foregroundStyle(.secondary).padding(8) }
+                    if matches.isEmpty { Text("No matching time zones").foregroundStyle(ReadingPalette.secondaryInk).padding(8) }
                 }
             }
         }

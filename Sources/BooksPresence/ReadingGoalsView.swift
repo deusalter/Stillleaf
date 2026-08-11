@@ -24,22 +24,26 @@ struct AnnualReadingGoalView: View {
     @ObservedObject var model: AppModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
-        HStack(spacing: 20) {
-            Image(systemName: "books.vertical").font(.system(size: 24)).foregroundStyle(ReadingPalette.moss)
-            VStack(alignment: .leading, spacing: 7) {
-                Text("Your \(String(model.goalYear)) reading year").font(.system(size: 17, weight: .semibold, design: .rounded))
-                Text(model.annualBookGoal.map { "\(model.annualBooksFinished) of \($0) books finished" } ?? "\(model.annualBooksFinished) books finished · no yearly goal")
-                    .font(.callout).foregroundStyle(ReadingPalette.fadedInk)
+        HStack(alignment: .center, spacing: 20) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Text("\(model.annualBooksFinished)").font(ReadingType.numeral(34)).monospacedDigit()
+                    Text(model.annualBookGoal.map { "of \($0) books finished in \(String(model.goalYear))" } ?? "\(model.annualBooksFinished == 1 ? "book" : "books") finished in \(String(model.goalYear)) · no yearly goal")
+                        .font(.callout).foregroundStyle(ReadingPalette.secondaryInk)
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Your \(String(model.goalYear)) reading year")
+                .accessibilityValue(model.annualBookGoal.map { "\(model.annualBooksFinished) of \($0) books finished" } ?? "\(model.annualBooksFinished) books finished, no yearly goal")
                 if let target = model.annualBookGoal {
                     SegmentedReadingBar(progress: min(1, Double(model.annualBooksFinished) / Double(target)))
-                        .frame(height: 7)
+                        .frame(height: 6)
                         .animation(reduceMotion ? nil : ReadingMotion.entrance, value: model.annualBooksFinished)
                 }
             }.frame(maxWidth: .infinity, alignment: .leading)
             Button(model.annualBookGoal == nil ? "Set goal" : "Edit goal") {
                 model.showDashboard(section: .settings, settingsCategory: .reading)
             }.controlSize(.small)
-        }.padding(20).background(ReadingPalette.surface, in: RoundedRectangle(cornerRadius: 22))
+        }
         .help("Books with a confirmed finish date in this calendar year. Undated books are not counted.")
     }
 }
