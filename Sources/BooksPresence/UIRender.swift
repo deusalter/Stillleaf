@@ -12,7 +12,10 @@ func renderUIPreviews(to destination: URL) throws {
     defer {
         defaults.removePersistentDomain(forName: suite)
         try? FileManager.default.removeItem(at: support)
+        ThemeStore.shared.reload(from: .standard)
     }
+    // Previews always start from the default theme and never write the user's choice.
+    ThemeStore.shared.reload(from: defaults)
     try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
     try seedPreviewHistory(at: support)
     let model = try AppModel(support: support, defaults: defaults, startTracking: false)
@@ -120,6 +123,9 @@ func renderUIPreviews(to destination: URL) throws {
         try renderNativeView(AnyView(compactToday), size: NSSize(width: 920, height: 660), appearance: appearance,
                              to: destination.appendingPathComponent("today-compact-\(dark ? "dark" : "light").png"))
     }
+    if CommandLine.arguments.contains("--all-themes") {
+        try renderThemePreviews(model: model, to: destination.appendingPathComponent("themes", isDirectory: true))
+    }
     try renderProgressMotion(model: exceededModel, to: destination)
     try renderRatingMotion(to: destination)
     try renderCompletionMotion(to: destination)
@@ -127,7 +133,7 @@ func renderUIPreviews(to destination: URL) throws {
 }
 
 @MainActor
-private func renderNativeView(_ view: AnyView, size: NSSize, appearance: NSAppearance?, to output: URL) throws {
+private func renderNativeView(_ view: AnyView, size: NSSize, appearance: NSAppearance?, settle: TimeInterval = 0.45, to output: URL) throws {
     let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless], backing: .buffered, defer: false)
     window.isReleasedWhenClosed = false
     window.appearance = appearance
@@ -136,9 +142,11 @@ private func renderNativeView(_ view: AnyView, size: NSSize, appearance: NSAppea
     window.contentView = hosting
     window.orderBack(nil)
     hosting.layoutSubtreeIfNeeded()
-    RunLoop.current.run(until: Date().addingTimeInterval(0.45))
+    RunLoop.current.run(until: Date().addingTimeInterval(settle))
+    hosting.layoutSubtreeIfNeeded()
     hosting.displayIfNeeded()
-    defer { window.close() }
+    // Detach the SwiftUI tree so closed previews stop observing the model and theme store.
+    defer { window.contentView = nil; window.close() }
     guard let bitmap = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) else {
         throw UIPreviewError.renderFailed
     }
@@ -215,6 +223,70 @@ private func seedPreviewHistory(at support: URL) throws {
 }
 
 private enum UIPreviewError: Error { case renderFailed }
+
+/// Every dashboard screen and the popover in every theme, light and dark:
+/// `<dir>/themes/<theme>/<screen>-<light|dark>.png`.
+@MainActor
+private func renderThemePreviews(model: AppModel, to destination: URL) throws {
+    let store = ThemeStore.shared
+    defer { store.select(theme: ReadingTheme.all[0].id) }
+    try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+    // Live switch: the same window stays open while the theme changes, as when a person uses the picker.
+    for (section, category) in [(DashboardSection.settings, SettingsCategory.appearance), (.today, .reading)] {
+        store.select(theme: ReadingTheme.all[0].id)
+        NSApp.appearance = NSAppearance(named: .aqua)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1180, height: 820), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let hosting = NSHostingView(rootView: DashboardView(model: model, initialSection: section, initialSettingsCategory: category)
+            .environment(\.colorScheme, .light))
+        window.contentView = hosting
+        window.orderBack(nil)
+        hosting.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.6))
+        store.select(theme: "plum")
+        RunLoop.current.run(until: Date().addingTimeInterval(0.8))
+        hosting.layoutSubtreeIfNeeded(); hosting.displayIfNeeded()
+        guard let bitmap = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) else { throw UIPreviewError.renderFailed }
+        hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
+        try bitmap.representation(using: .png, properties: [:])?.write(to: destination.appendingPathComponent("live-switch-\(section.rawValue).png"))
+        window.contentView = nil
+        window.close()
+    }
+    for theme in ReadingTheme.all {
+        store.select(theme: theme.id)
+        let folder = destination.appendingPathComponent(theme.id, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        for dark in [false, true] {
+            let appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+            NSApp.appearance = appearance
+            var screens: [(String, AnyView, NSSize)] = [
+                ("today", AnyView(DashboardView(model: model)), NSSize(width: 1180, height: 820)),
+                ("library", AnyView(DashboardView(model: model, initialSection: .library)), NSSize(width: 1180, height: 820)),
+                ("timeline", AnyView(DashboardView(model: model, initialSection: .timeline)), NSSize(width: 1180, height: 820)),
+                ("history-month", AnyView(DashboardView(model: model, initialSection: .history, initialCalendarScale: .month)), NSSize(width: 1180, height: 820)),
+                ("history-day", AnyView(DashboardView(model: model, initialSection: .history, initialCalendarScale: .day)), NSSize(width: 1180, height: 820)),
+                ("review", AnyView(DashboardView(model: model, initialSection: .review)), NSSize(width: 1180, height: 820)),
+                ("settings-reading", AnyView(DashboardView(model: model, initialSection: .settings, initialSettingsCategory: .reading)), NSSize(width: 1180, height: 820)),
+                ("settings-appearance", AnyView(DashboardView(model: model, initialSection: .settings, initialSettingsCategory: .appearance)), NSSize(width: 1180, height: 820)),
+                ("health", AnyView(DashboardView(model: model, initialSection: .health)), NSSize(width: 1180, height: 820)),
+                ("popover", AnyView(PopoverView(model: model)), NSSize(width: 350, height: 580))
+            ]
+            // The first fresh window after a theme switch can be captured mid-entrance offscreen;
+            // a discarded warm-up render absorbs it so every saved preview is fully settled.
+            try renderNativeView(AnyView(DashboardView(model: model).environment(\.colorScheme, dark ? .dark : .light)),
+                                 size: NSSize(width: 1180, height: 820), appearance: appearance, settle: 1.2,
+                                 to: FileManager.default.temporaryDirectory.appendingPathComponent("stillleaf-theme-warmup.png"))
+            if let book = model.books.first {
+                screens.append(("book-detail", AnyView(BookDetailView(model: model, book: book)), NSSize(width: 760, height: 720)))
+            }
+            for (name, view, size) in screens {
+                // A theme switch re-keys the dashboard; let its entrance and first split-view layout finish.
+                try renderNativeView(AnyView(view.environment(\.colorScheme, dark ? .dark : .light)), size: size, appearance: appearance,
+                                     settle: 1.2, to: folder.appendingPathComponent("\(name)-\(dark ? "dark" : "light").png"))
+            }
+        }
+    }
+}
 
 /// Samples the actual animated overview at three points in its entrance. These
 /// app-owned frames help inspect motion without screen recording or live history.

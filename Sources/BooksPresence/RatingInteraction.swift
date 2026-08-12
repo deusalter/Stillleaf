@@ -30,8 +30,7 @@ struct QuarterStarRating: View {
                 }
             }
             .contentShape(Rectangle())
-            .background(ReadingPalette.ochre.opacity(0.055), in: RoundedRectangle(cornerRadius: 12))
-            .overlay(RoundedRectangle(cornerRadius: 12).stroke(focused ? ReadingPalette.moss : .clear, lineWidth: 1.5))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(focused ? ReadingPalette.accent : .clear, lineWidth: 1.5))
             .onContinuousHover { phase in
                 guard !dragging else { return }
                 switch phase {
@@ -73,10 +72,13 @@ struct QuarterStarRating: View {
             .onChange(of: focused) { _ in hovered = nil }
             .onDisappear { hovered = nil }
             HStack(spacing: 8) {
-                Text(displayed.map { $0.formatted(.number.precision(.fractionLength(0...2))) } ?? "Not rated")
-                    .font(.system(size: 21, weight: .semibold, design: .rounded)).monospacedDigit()
-                    .foregroundStyle(displayed == nil ? ReadingPalette.fadedInk : ReadingPalette.ochre)
-                if displayed != nil { Text("/ 5").font(.caption).foregroundStyle(ReadingPalette.fadedInk) }
+                // Only a real rating shows a number, so zero stays distinct from no rating.
+                if let displayed {
+                    Text(displayed.formatted(.number.precision(.fractionLength(0...2))))
+                        .font(ReadingType.numeral(20)).monospacedDigit()
+                        .foregroundStyle(ReadingPalette.ink)
+                        .accessibilityHidden(true)
+                }
                 Spacer(minLength: 0)
                 Button("0") { hovered = nil; rating = 0 }
                     .accessibilityLabel("Rate zero stars")
@@ -85,9 +87,8 @@ struct QuarterStarRating: View {
                 Button { hovered = nil; rating = min(5, value + 0.25) } label: { Image(systemName: "plus") }
                     .disabled(value >= 5).accessibilityLabel("Increase rating by a quarter star")
             }.controlSize(.small).buttonStyle(ReadingButtonStyle())
-            Text("Click or drag the stars. Fine-tune by a quarter.")
-                .font(.system(size: 10)).foregroundStyle(ReadingPalette.fadedInk)
         }
+        .help("Click or drag the stars. Fine-tune by a quarter.")
         .frame(width: 234)
         .readingMotionAccessibility()
     }
@@ -106,19 +107,20 @@ enum RatingSelection {
     }
 }
 
+/// Read-only stars. The stars carry the value; VoiceOver still hears it spelled out.
 struct RatingStars: View {
     let rating: Double?
+    var size: CGFloat = 15
 
     var body: some View {
-        HStack(spacing: 2) {
+        HStack(spacing: size * 0.18) {
             ForEach(0..<5, id: \.self) { index in
-                FractionalStar(fill: min(1, max(0, (rating ?? 0) - Double(index))))
+                FractionalStar(fill: min(1, max(0, (rating ?? 0) - Double(index))), size: size)
             }
-            Text(Self.description(for: rating))
-                .font(.caption).foregroundStyle(.secondary).monospacedDigit()
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Rating: \(Self.description(for: rating))")
+        .help(Self.description(for: rating))
     }
 
     static func description(for rating: Double?) -> String {
@@ -135,20 +137,46 @@ private struct FractionalStar: View, Animatable {
     var animatableData: Double { get { fill } set { fill = newValue } }
 
     var body: some View {
-        Image(systemName: "star.fill")
-            .foregroundStyle(ReadingPalette.fadedInk.opacity(0.3))
-            .overlay(alignment: .leading) {
-                Image(systemName: "star.fill")
-                    .foregroundStyle(ReadingPalette.ochre)
-                    .mask(alignment: .leading) {
-                        GeometryReader { proxy in
-                            // Spring interpolation may briefly pass an endpoint.
-                            Rectangle().frame(width: proxy.size.width * min(1, max(0, fill)))
-                        }
-                    }
+        let round = StrokeStyle(lineWidth: size * 0.1, lineJoin: .round)
+        ZStack {
+            // Empty star: a soft, rounded track.
+            StarShape().fill(ReadingPalette.track)
+            StarShape().stroke(ReadingPalette.track, style: round)
+            // Filled portion: gold with a gentle top highlight and a crisp edge.
+            ZStack {
+                StarShape().fill(ReadingPalette.star)
+                StarShape().stroke(ReadingPalette.star, style: round)
+                StarShape().fill(LinearGradient(colors: [.white.opacity(0.28), .clear], startPoint: .top, endPoint: .center))
+                StarShape().stroke(ReadingPalette.starEdge, style: StrokeStyle(lineWidth: max(0.75, size * 0.045), lineJoin: .round))
             }
-            .font(.system(size: size, weight: .regular))
-            .frame(width: size, height: size)
-            .accessibilityHidden(true)
+            .mask(alignment: .leading) {
+                GeometryReader { proxy in
+                    // Spring interpolation may briefly pass an endpoint.
+                    Rectangle().frame(width: proxy.size.width * min(1, max(0, fill)))
+                }
+            }
+        }
+        .padding(size * 0.05)
+        .frame(width: size, height: size)
+        .accessibilityHidden(true)
+    }
+}
+
+/// A five-point star with a slightly fuller body than the SF symbol; rounded
+/// strokes soften its tips.
+private struct StarShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        let center = CGPoint(x: rect.midX, y: rect.midY + rect.height * 0.04)
+        let outer = min(rect.width, rect.height) / 2
+        let inner = outer * 0.47
+        var path = Path()
+        for index in 0..<10 {
+            let radius = index.isMultiple(of: 2) ? outer : inner
+            let angle = (Double(index) * 36 - 90) * .pi / 180
+            let point = CGPoint(x: center.x + CGFloat(cos(angle)) * radius, y: center.y + CGFloat(sin(angle)) * radius)
+            if index == 0 { path.move(to: point) } else { path.addLine(to: point) }
+        }
+        path.closeSubpath()
+        return path
     }
 }

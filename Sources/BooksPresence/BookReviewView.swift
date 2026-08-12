@@ -42,7 +42,7 @@ struct BookReviewEditor: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             ReadingSheetHeader(title: "Your review", subtitle: bookTitle, close: requestClose)
-            Text("What stayed with you?").font(.system(size: 20, weight: .semibold, design: .rounded))
+            Text("What stayed with you?").font(ReadingType.bookTitle(22))
             Text("Private to your journal. Included in your backups and exports; never posted online.")
                 .font(.caption).foregroundStyle(ReadingPalette.fadedInk)
             TextEditor(text: $draft)

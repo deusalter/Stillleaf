@@ -18,7 +18,7 @@ struct ReviewView: View {
                         .readingPanel()
                 } else {
                     LazyVStack(alignment: .leading, spacing: 10) {
-                        Text("Unconfirmed time").font(.system(size: 20, weight: .semibold, design: .rounded))
+                        Text("Unconfirmed time").font(ReadingType.bookTitle(21))
                         ForEach(model.uncertainIntervals.sorted { $0.start > $1.start }.prefix(visibleUncertainCount)) { interval in
                             UncertainIntervalRow(model: model, interval: interval, edit: { present(.review(interval)) })
                             Divider()
@@ -31,11 +31,11 @@ struct ReviewView: View {
                 }
 
                 LazyVStack(alignment: .leading, spacing: 10) {
-                    Text("Reading history").font(.system(size: 20, weight: .semibold, design: .rounded))
+                    Text("Reading history").font(ReadingType.bookTitle(21))
                     Text("Adjust the book, time, or status of a saved session.")
-                        .font(.callout).foregroundStyle(.secondary)
+                        .font(.callout).foregroundStyle(ReadingPalette.secondaryInk)
                     if model.displayIntervals.isEmpty {
-                        Text("Your saved reading will appear here.").foregroundStyle(.secondary)
+                        Text("Your saved reading will appear here.").foregroundStyle(ReadingPalette.secondaryInk)
                     } else {
                         ForEach(model.displayIntervals.prefix(visibleCount)) { interval in
                             ReviewIntervalRow(model: model, interval: interval, edit: { present(.review(interval)) })
@@ -115,9 +115,9 @@ struct IntervalSummary: View {
             Text("\(pageTurns) pages")
                 .font(.callout).monospacedDigit()
             Text("\(ReadingFormat.date(interval.start)) · \(ReadingFormat.duration(interval.duration))")
-                .font(.caption).monospacedDigit().foregroundStyle(.secondary)
+                .font(.caption).monospacedDigit().foregroundStyle(ReadingPalette.secondaryInk)
             Text("\(interval.mode.rawValue.capitalized) · \(interval.disposition.rawValue.capitalized)")
-                .font(.caption).foregroundStyle(.secondary)
+                .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
         }
     }
 }

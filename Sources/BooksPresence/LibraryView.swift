@@ -42,48 +42,31 @@ struct LibraryView: View {
             let order = lhs.title.localizedStandardCompare(rhs.title)
             return order == .orderedSame ? lhs.id < rhs.id : order == .orderedAscending
         }
-        return VStack(alignment: .leading, spacing: 18) {
-            HStack(alignment: .top) {
-                PageHeading(title: "Library", subtitle: "\(books.count) \(books.count == 1 ? "book" : "books") in your reading journal")
-                Spacer()
-                Button { model.epubLibrary.chooseFiles() } label: { Label("Import EPUBs", systemImage: "square.and.arrow.down") }
-                    .controlSize(.small)
-                Button { present(.manualAdd) } label: { Label("Add reading", systemImage: "plus") }
-                    .controlSize(.small)
-            }
-            EPUBImportStatusView(controller: model.epubLibrary)
-            ReadingSegmentedControl(label: "Bookshelf", options: [LibraryShelf.reading, .finished, .all], selection: $shelf) { item in
-                switch item {
-                case .reading: return "Reading · \(books.filter { !finishedIDs.contains($0.id) }.count)"
-                case .finished: return "Finished · \(finishedIDs.count)"
-                case .all: return "All · \(books.count)"
-                }
-            }
-            HStack(spacing: 14) {
-                TextField("Find a title or author", text: $search)
-                    .textFieldStyle(ReadingTextFieldStyle()).frame(maxWidth: 330)
-                Spacer(minLength: 0)
-                Menu {
-                    Picker("Sort books", selection: $sort) {
-                        ForEach(LibrarySort.allCases, id: \.self) { value in Text(value.rawValue).tag(value) }
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 26) {
+                PageHeader("Library", subtitle: "\(books.count) \(books.count == 1 ? "book" : "books") in your reading journal") {
+                    HStack(spacing: 8) {
+                        Button { model.epubLibrary.chooseFiles() } label: { Label("Import EPUBs", systemImage: "square.and.arrow.down") }
+                            .controlSize(.small)
+                        Button { present(.manualAdd) } label: { Label("Add reading", systemImage: "plus") }
+                            .controlSize(.small)
                     }
-                } label: { Label(sort.rawValue, systemImage: "arrow.up.arrow.down") }
-                .menuStyle(.borderlessButton).fixedSize()
-                .padding(.horizontal, 12).padding(.vertical, 8)
-                .background(ReadingPalette.surface, in: RoundedRectangle(cornerRadius: 12))
-                .accessibilityLabel("Sort books")
-            }
-            ScrollView {
+                }
+                EPUBImportStatusView(controller: model.epubLibrary)
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 14) { shelfPicker(books: books, finishedIDs: finishedIDs).frame(width: 380); Spacer(minLength: 12); searchAndSort }
+                    VStack(alignment: .leading, spacing: 14) { shelfPicker(books: books, finishedIDs: finishedIDs); searchAndSort }
+                }
                 if visible.isEmpty {
                     ReadingEmptyState(title: search.isEmpty ? (shelf == .finished ? "Stories to look back on" : "Your next chapter awaits") : "No matching books",
                         symbol: "books.vertical",
                         message: search.isEmpty ? (shelf == .finished ? "Books you mark finished will appear here." : "Import an EPUB, open a book in Apple Books, or add a reading session to start your shelf.") : "Try another title or author.")
                         .padding(.vertical, 35)
                 } else {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 150, maximum: 220), spacing: 18, alignment: .topLeading)],
-                              alignment: .leading, spacing: 22) {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 168, maximum: 210), spacing: 28, alignment: .topLeading)],
+                              alignment: .leading, spacing: 36) {
                         ForEach(visible) { book in
-                            VStack(spacing: 0) {
+                            VStack(alignment: .leading, spacing: 2) {
                                 BookLibraryCard(book: book, pages: model.pages(forBookID: book.id),
                                     finished: finishedIDs.contains(book.id), date: finishedIDs.contains(book.id) ? finishes[book.id] : recent[book.id],
                                     rating: model.rating(for: book.id)) { present(.book(book)) }
@@ -109,18 +92,18 @@ struct LibraryView: View {
                                         } else {
                                             Button("Delete journal entry…", role: .destructive) { removingBook = book }
                                         }
-                                    } label: { Image(systemName: "ellipsis").frame(width: 28, height: 24) }
-                                    .menuStyle(.borderlessButton).fixedSize()
+                                    } label: { Image(systemName: "ellipsis").frame(width: 32, height: 28).contentShape(Rectangle()) }
+                                    .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+                                    .foregroundStyle(ReadingPalette.secondaryInk)
                                     .accessibilityLabel("Actions for \(book.title)")
-                                }.padding(.horizontal, 12)
+                                }.padding(.horizontal, 6)
                             }
                         }
-                    }.padding(.vertical, 4)
+                    }
                 }
             }
+            .readingPage()
         }
-        .frame(maxWidth: 1060, maxHeight: .infinity, alignment: .topLeading)
-        .padding(30).frame(maxWidth: .infinity, alignment: .top)
         .buttonStyle(ReadingButtonStyle())
         .onDrop(of: [UTType.fileURL.identifier], isTargeted: nil) { model.epubLibrary.acceptDrop($0) }
         .alert("Remove the managed EPUB?", isPresented: Binding(get: { removingEPUB != nil }, set: { if !$0 { removingEPUB = nil } })) {
@@ -146,6 +129,33 @@ struct LibraryView: View {
     }
 }
 
+extension LibraryView {
+    fileprivate func shelfPicker(books: [BookRecord], finishedIDs: Set<String>) -> some View {
+        ReadingSegmentedControl(label: "Bookshelf", options: [LibraryShelf.reading, .finished, .all], selection: $shelf) { item in
+            switch item {
+            case .reading: return "Reading · \(books.filter { !finishedIDs.contains($0.id) }.count)"
+            case .finished: return "Finished · \(finishedIDs.count)"
+            case .all: return "All · \(books.count)"
+            }
+        }
+    }
+
+    fileprivate var searchAndSort: some View {
+        HStack(spacing: 10) {
+            TextField("Find a title or author", text: $search)
+                .textFieldStyle(ReadingTextFieldStyle()).frame(minWidth: 180, maxWidth: 260)
+            Menu {
+                Picker("Sort books", selection: $sort) {
+                    ForEach(LibrarySort.allCases, id: \.self) { value in Text(value.rawValue).tag(value) }
+                }
+            } label: { Label(sort.rawValue, systemImage: "arrow.up.arrow.down") }
+            .menuStyle(.borderlessButton).fixedSize()
+            .foregroundStyle(ReadingPalette.ink)
+            .accessibilityLabel("Sort books")
+        }
+    }
+}
+
 private enum LibraryShelf: Hashable { case reading, finished, all }
 private enum LibrarySort: String, CaseIterable { case recent = "Recent", title = "Title", author = "Author" }
 
@@ -161,37 +171,36 @@ struct BookLibraryCard: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         Button(action: open) {
-            VStack(alignment: .leading, spacing: 10) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 16).fill(ReadingPalette.elevated.opacity(0.5))
-                    BookCoverView(book: book, size: .shelf)
-                        .shadow(color: .black.opacity(0.13), radius: 7, x: 0, y: 4)
-                }.frame(height: 182)
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(book.title).font(.system(size: 15, weight: .medium, design: .serif))
-                        .lineLimit(2).frame(height: 38, alignment: .topLeading)
+            VStack(alignment: .leading, spacing: 12) {
+                BookCoverView(book: book, size: .shelfLarge)
+                    .shadow(color: ReadingPalette.ink.opacity(hovering ? 0.24 : 0.16), radius: hovering ? 14 : 9, x: 0, y: hovering ? 9 : 6)
+                    .scaleEffect(hovering && !reduceMotion ? 1.02 : 1, anchor: .bottom)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(book.title).font(ReadingType.bookTitle(16))
+                        .lineLimit(2).fixedSize(horizontal: false, vertical: true)
                     Text(book.author?.isEmpty == false ? book.author! : "Author unavailable")
-                        .font(.caption).foregroundStyle(ReadingPalette.fadedInk).lineLimit(1)
-                    HStack {
+                        .font(.caption).foregroundStyle(ReadingPalette.secondaryInk).lineLimit(1)
+                    HStack(spacing: 6) {
                         Text(finished ? "Finished" : "\(pages) \(pages == 1 ? "page" : "pages")")
-                            .font(.caption.weight(.medium)).foregroundStyle(ReadingPalette.moss)
-                        Spacer(minLength: 4)
+                            .font(.caption.weight(.medium)).foregroundStyle(ReadingPalette.accent)
                         if let rating {
                             Label(rating.formatted(.number.precision(.fractionLength(0...2))), systemImage: "star.fill")
-                                .font(.caption.weight(.medium)).foregroundStyle(ReadingPalette.ochre)
+                                .font(.caption.weight(.medium)).foregroundStyle(ReadingPalette.warning)
                         }
-                    }.padding(.top, 3)
+                    }.padding(.top, 2)
                     Text(date.map { "\(finished ? "Finished" : "Last read") \($0.formatted(date: .abbreviated, time: .omitted))" } ?? (finished ? "Date unavailable" : "No reading recorded yet"))
-                        .font(.system(size: 10)).foregroundStyle(ReadingPalette.fadedInk).lineLimit(1)
-                }.padding(.horizontal, 3)
+                        .font(.caption2).foregroundStyle(ReadingPalette.secondaryInk).lineLimit(1)
+                }
+                .padding(.horizontal, 2)
             }
-            .foregroundStyle(ReadingPalette.ink).padding(10)
+            .foregroundStyle(ReadingPalette.ink).padding(8)
             .frame(maxWidth: .infinity, alignment: .topLeading)
-            .background(hovering ? ReadingPalette.surface : .clear, in: RoundedRectangle(cornerRadius: 20))
-            .contentShape(RoundedRectangle(cornerRadius: 20))
+            .background(hovering ? ReadingPalette.surface : .clear, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
         .buttonStyle(.plain).focused($focused)
-        .overlay(RoundedRectangle(cornerRadius: 20).stroke(focused ? ReadingPalette.moss : .clear, lineWidth: 2))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(focused ? ReadingPalette.accent : .clear, lineWidth: 2))
         .onHover { hovering = $0 }
         .animation(reduceMotion ? nil : ReadingMotion.hover, value: hovering)
         .accessibilityLabel("\(book.title), \(book.author ?? "author unavailable"), \(finished ? "finished" : "\(pages) pages recorded")")
@@ -211,6 +220,7 @@ struct BookDetailView: View {
     @State private var mergePresented = false
     @State private var showAllSessions = false
     @State private var publicCoverURLDraft = ""
+    @State private var editingDates = false
 
     private var resolver: BookMergeResolver { BookMergeResolver(merges: model.merges) }
     private var currentBook: BookRecord { model.books.first(where: { $0.id == book.id }) ?? book }
@@ -264,6 +274,13 @@ struct BookDetailView: View {
         .sheet(item: $completionEntry) { CompletionReviewSheet(model: model, entry: $0).readingMotionAccessibility() }
         .sheet(item: $reviewInterval) { IntervalReviewEditor(model: model, interval: $0) }
         .sheet(isPresented: $mergePresented) { MergeBooksView(model: model, source: currentBook) }
+        .sheet(isPresented: $editingDates) {
+            if let entry = finishedEntry {
+                ReadingDatesEditor(title: entry.title,
+                    dates: ReadingCompletionDates(startedAt: entry.startedAt, finishedAt: entry.finishedAt),
+                    timezoneID: model.timezoneID) { dates in model.saveReadingDates(dates, for: entry.id) }
+            }
+        }
         .onAppear { publicCoverURLDraft = model.publicCoverURL(for: currentBook) }
         .alert("Delete \(currentBook.title)?", isPresented: $deleteBookConfirmation) {
             Button("Delete book", role: .destructive) { model.deleteBook(currentBook); dismiss() }
@@ -285,7 +302,7 @@ struct BookDetailView: View {
     private var toolbar: some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("Book details").font(.headline)
+                Text("Book details").font(ReadingType.bookTitle(19))
                 Text("Your local reading journal").font(.caption).foregroundStyle(ReadingPalette.fadedInk)
             }
             Spacer()
@@ -298,20 +315,26 @@ struct BookDetailView: View {
     }
 
     private var hero: some View {
-        HStack(alignment: .top, spacing: 18) {
-            BookCoverView(book: currentBook, size: .large)
-            VStack(alignment: .leading, spacing: 6) {
+        HStack(alignment: .top, spacing: 24) {
+            BookCoverView(book: currentBook, size: .hero)
+                .shadow(color: ReadingPalette.ink.opacity(0.16), radius: 12, x: 0, y: 7)
+            VStack(alignment: .leading, spacing: 7) {
                 Text(currentBook.title)
-                    .font(.system(size: 29, weight: .medium, design: .serif))
+                    .font(ReadingType.bookTitle(30))
                     .foregroundStyle(ReadingPalette.ink)
                     .fixedSize(horizontal: false, vertical: true)
                 Text(currentBook.author?.isEmpty == false ? currentBook.author! : "Author unavailable")
                     .font(.callout)
                     .foregroundStyle(ReadingPalette.fadedInk)
                 if let finishedEntry {
-                    Label(finishedEntry.finishedAt.map { "Finished \($0.formatted(date: .abbreviated, time: .omitted))" } ?? "Marked finished", systemImage: "checkmark.seal.fill")
-                        .font(.caption)
-                        .foregroundStyle(ReadingPalette.moss)
+                    HStack(spacing: 10) {
+                        Label(finishedEntry.finishedAt.map { "Finished \($0.formatted(date: .abbreviated, time: .omitted))" } ?? "Marked finished", systemImage: "checkmark.seal.fill")
+                            .font(.caption)
+                            .foregroundStyle(ReadingPalette.accent)
+                        Button("Edit reading dates") { editingDates = true }
+                            .controlSize(.small)
+                            .accessibilityHint("Change when you started and finished this book")
+                    }.padding(.top, 4)
                 }
                 if finishedEntry == nil {
                     Button { completionEntry = model.markFinished(currentBook) } label: { Label("Mark as finished", systemImage: "checkmark.circle") }
@@ -325,32 +348,34 @@ struct BookDetailView: View {
             }
             Spacer(minLength: 0)
         }
-        .padding(18)
-        .background(ReadingPalette.surface, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .padding(.vertical, 8)
     }
 
     private var readingSummary: some View {
-        VStack(alignment: .leading, spacing: 11) {
-            Text("Reading at a glance").font(.system(size: 17, weight: .semibold, design: .rounded)).foregroundStyle(ReadingPalette.ink)
-            HStack(spacing: 10) {
-                BookDetailStat(label: "Pages", value: "\(observedPages)", symbol: "book.pages")
-                BookDetailStat(label: "Reading time", value: ReadingFormat.duration(credited), symbol: "clock")
-                BookDetailStat(label: "Pace", value: ReadingFormat.pagesPerMinute(pagesPerMinute) ?? "Building pace", symbol: "gauge.with.dots.needle.50percent")
-            }
-            let corrected = model.manualPages(forBookID: currentBook.id)
-            if corrected > 0 {
-                Text("Includes \(corrected) manually added pages. Pace uses automatic observations only.")
-                    .font(.caption).foregroundStyle(ReadingPalette.fadedInk)
+        ReadingSection("Reading at a glance") {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .top, spacing: 0) {
+                    StatLine(value: "\(observedPages)", label: "Pages")
+                    Hairline(axis: .vertical).frame(height: 44).padding(.horizontal, 18)
+                    StatLine(value: ReadingFormat.duration(credited), label: "Reading time")
+                    Hairline(axis: .vertical).frame(height: 44).padding(.horizontal, 18)
+                    StatLine(value: ReadingFormat.pagesPerMinute(pagesPerMinute) ?? "Building pace", label: "Pace")
+                }
+                let corrected = model.manualPages(forBookID: currentBook.id)
+                if corrected > 0 {
+                    Text("Includes \(corrected) manually added pages. Pace uses automatic observations only.")
+                        .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
+                }
             }
         }
-        .readingPanel()
+        .padding(.vertical, 6)
     }
 
     private var sessionHistory: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Session history").font(.system(size: 17, weight: .semibold, design: .rounded)).foregroundStyle(ReadingPalette.ink)
+                    Text("Session history").font(ReadingType.bookTitle(19)).foregroundStyle(ReadingPalette.ink)
                     Text("Review or remove a saved session.").font(.caption).foregroundStyle(ReadingPalette.fadedInk)
                 }
                 Spacer()
@@ -382,7 +407,7 @@ struct BookDetailView: View {
 
     private var privacyControls: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("This book").font(.system(size: 17, weight: .semibold, design: .rounded)).foregroundStyle(ReadingPalette.ink)
+            Text("This book").font(ReadingType.bookTitle(19)).foregroundStyle(ReadingPalette.ink)
             BookDetailToggleRow(title: "Track reading", message: "Include new reading evidence in your journal.", isOn: trackingBinding)
             Divider()
             BookDetailToggleRow(title: "Share with Discord", message: "Allow this title on your Discord card when sharing is on.", isOn: sharingBinding)
@@ -396,7 +421,7 @@ struct BookDetailView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Discord artwork").font(.system(size: 17, weight: .semibold, design: .rounded)).foregroundStyle(ReadingPalette.ink)
+                    Text("Discord artwork").font(ReadingType.bookTitle(19)).foregroundStyle(ReadingPalette.ink)
                     Text(artworkStatus).font(.caption).foregroundStyle(ReadingPalette.fadedInk)
                 }
                 Spacer()
@@ -526,22 +551,6 @@ struct BookDetailView: View {
     }
 }
 
-private struct BookDetailStat: View {
-    let label: String
-    let value: String
-    let symbol: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Label(label, systemImage: symbol).font(.caption).foregroundStyle(ReadingPalette.fadedInk)
-            Text(value).font(.system(size: 22, weight: .semibold, design: .rounded)).monospacedDigit().foregroundStyle(ReadingPalette.moss)
-                .lineLimit(2)
-        }
-        .frame(maxWidth: .infinity, minHeight: 58, alignment: .leading)
-        .padding(10)
-        .background(ReadingPalette.paper.opacity(0.62), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-    }
-}
 
 private struct BookDetailToggleRow: View {
     let title: String
@@ -664,7 +673,7 @@ struct ProgressDescription: View {
             }
         }
         .font(.callout)
-        .foregroundStyle(observation.reliable ? ReadingPalette.moss : .secondary)
+        .foregroundStyle(observation.reliable ? ReadingPalette.accent : ReadingPalette.secondaryInk)
     }
 }
 
@@ -678,12 +687,12 @@ struct SessionRow: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(ReadingFormat.date(interval.start)).font(.headline)
                 Text("\(interval.mode.rawValue.capitalized) · \(interval.disposition.rawValue)")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
             }
             Spacer()
             VStack(alignment: .trailing, spacing: 2) {
                 Text(ReadingFormat.observedPages(pageTurns)).monospacedDigit()
-                Text(ReadingFormat.duration(interval.duration)).font(.caption).monospacedDigit().foregroundStyle(.secondary)
+                Text(ReadingFormat.duration(interval.duration)).font(.caption).monospacedDigit().foregroundStyle(ReadingPalette.secondaryInk)
             }
             Button("Review", action: review).controlSize(.small)
             Button(role: .destructive, action: delete) { Image(systemName: "trash") }
