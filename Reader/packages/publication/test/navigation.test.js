@@ -128,9 +128,28 @@ test("unmanifested archive resource cannot be a navigation target", async (t) =>
   );
   await assert.rejects(inspectEPUB(source), { code: "NAVIGATION" });
 });
+test("plain DOCTYPE declarations in nav and NCX are accepted", async (t) => {
+  const { source } = await fixture(t, withNav("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE html>\n" + toc()));
+  assert.equal((await inspectEPUB(source)).toc[0].title, "Opening");
+  const ncx =
+    '<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE ncx PUBLIC "-//NISO//DTD ncx 2005-1//EN" "http://www.daisy.org/z3986/2005/ncx-2005-1.dtd"><ncx xmlns="http://www.daisy.org/z3986/2005/ncx/"><navMap><navPoint><navLabel><text>First</text></navLabel><content src="chapter.xhtml#one"/></navPoint></navMap></ncx>';
+  const legacy = await fixture(
+    t,
+    epub({
+      legacy: true,
+      extra: [{ name: "EPUB/toc.ncx", data: ncx }],
+      opfTransform: (x) =>
+        x
+          .replace("</manifest>", '<item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/></manifest>')
+          .replace("<spine>", '<spine toc="ncx">'),
+    }),
+  );
+  assert.equal((await inspectEPUB(legacy.source)).toc[0].title, "First");
+});
 test("navigation DTD and structural budgets reuse XML safety", async (t) => {
   for (const data of [
-    "<!DOCTYPE html>" + toc(),
+    '<!DOCTYPE html [<!ATTLIST html x CDATA "y">]>' + toc(),
+    "<!DOCTYPE html><!DOCTYPE html>" + toc(),
     nav(
       '<nav epub:type="toc">' +
         "<ol><li>".repeat(34) +

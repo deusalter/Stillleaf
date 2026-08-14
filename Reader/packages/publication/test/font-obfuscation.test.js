@@ -62,7 +62,42 @@ for (const [name, options] of Object.entries(invalid)) test(`font obfuscation re
 test("font transform keeps XOR position across stream chunk boundaries", async () => {
   const raw = Buffer.alloc(2000, 0x64), encoded = Buffer.from(raw);
   for (let i = 0; i < 1040; i++) encoded[i] ^= key[i % 20];
-  const stream = Readable.from([encoded.subarray(0, 7), encoded.subarray(7, 1038), encoded.subarray(1038, 1045), encoded.subarray(1045)]).pipe(decodeFont(key));
+  const stream = Readable.from([encoded.subarray(0, 7), encoded.subarray(7, 1038), encoded.subarray(1038, 1045), encoded.subarray(1045)]).pipe(decodeFont({ key }));
+  const chunks = []; for await (const chunk of stream) chunks.push(chunk);
+  assert.deepEqual(Buffer.concat(chunks), raw);
+});
+
+// Adobe: XOR the first 1024 bytes with the 16 bytes of a urn:uuid identifier.
+const uuid = "0f2e7c3a-9b1d-4e5f-8a6b-1c2d3e4f5a6b", adobeKey = Buffer.from(uuid.replaceAll("-", ""), "hex");
+function adobeFixture({ raw, keyBytes = adobeKey, mime = "application/x-font-otf", secondary = `urn:uuid:${uuid}` }) {
+  const encoded = Buffer.from(raw);
+  for (let i = 0; i < Math.min(1024, encoded.length); i++) encoded[i] ^= keyBytes[i % 16];
+  return zip(epub({ extra: [{ name: "EPUB/font.otf", data: encoded }, { name: "META-INF/encryption.xml", data: encryption("EPUB/font.otf", "http://ns.adobe.com/pdf/enc#RC") }],
+    opfTransform: opf => opf.replace("synthetic</dc:identifier>", "9780000000000</dc:identifier>" + (secondary ? `<dc:identifier>${secondary}</dc:identifier>` : ""))
+      .replace("</manifest>", `<item id="font" href="font.otf" media-type="${mime}"/></manifest>`) }));
+}
+const otto = length => { const raw = Buffer.alloc(length); raw.write("OTTO"); for (let i = 4; i < length; i++) raw[i] = i % 251; return raw; };
+test("Adobe obfuscated font with a secondary urn:uuid identifier decodes", async t => {
+  const raw = otto(3000), { source, root } = await setup(t, adobeFixture({ raw }));
+  const result = await importEPUB(source, path.join(root, "library"));
+  assert.deepEqual(await fs.readFile(path.join(result.directory, "resources/EPUB/font.otf")), raw);
+});
+test("Adobe font that does not decode to a font keeps its stored bytes", async t => {
+  const raw = otto(3000), stored = Buffer.from(raw);
+  const wrong = Buffer.alloc(16, 0x5a);
+  for (let i = 0; i < 1024; i++) stored[i] ^= wrong[i % 16];
+  const { source, root } = await setup(t, adobeFixture({ raw, keyBytes: wrong }));
+  const result = await importEPUB(source, path.join(root, "library"));
+  assert.deepEqual(await fs.readFile(path.join(result.directory, "resources/EPUB/font.otf")), stored);
+});
+test("Adobe obfuscation without a uuid identifier is refused", async t => {
+  const { source } = await setup(t, adobeFixture({ raw: otto(100), secondary: null }));
+  await assert.rejects(inspectEPUB(source));
+});
+test("Adobe verification survives tiny stream chunks", async () => {
+  const raw = otto(1500), encoded = Buffer.from(raw);
+  for (let i = 0; i < 1024; i++) encoded[i] ^= adobeKey[i % 16];
+  const stream = Readable.from([encoded.subarray(0, 1), encoded.subarray(1, 3), encoded.subarray(3, 1030), encoded.subarray(1030)]).pipe(decodeFont({ key: adobeKey, length: 1024, verify: true }));
   const chunks = []; for await (const chunk of stream) chunks.push(chunk);
   assert.deepEqual(Buffer.concat(chunks), raw);
 });

@@ -2,7 +2,24 @@ import DOMPurify from 'dompurify';
 import * as css from 'css-tree';
 import {Resource} from '@readium/shared';
 const htmlTypes=new Set(['application/xhtml+xml','text/html']);
-const assetTypes=new Set(['image/png','image/jpeg','image/gif','image/webp','font/woff','font/woff2','font/ttf','font/otf','application/font-woff','application/vnd.ms-opentype','application/font-sfnt','application/x-font-ttf']);
+const assetTypes=new Set(['image/png','image/jpeg','image/gif','image/webp','font/woff','font/woff2','font/ttf','font/otf','font/sfnt','font/opentype','font/truetype','application/font-woff','application/vnd.ms-opentype','application/font-sfnt','application/x-font-ttf','application/x-font-otf','application/x-font-opentype','application/x-font-truetype','application/x-font-woff','application/font-ttf','application/font-otf']);
+const XLINK='http://www.w3.org/1999/xlink';
+/** Calibre-style covers wrap a single raster in `<svg><image/></svg>`. The HTML-only sanitizer
+ *  drops SVG, which left a blank first page, so turn that wrapper into a plain `<img>`. */
+export function unwrapSvgImages(source){
+ if(!/<svg[\s>]/iu.test(source)||!/<image[\s>]/iu.test(source))return source;
+ const doc=new DOMParser().parseFromString(source,'text/html');let changed=false;
+ for(const svg of [...doc.querySelectorAll('svg')]){
+  const images=svg.querySelectorAll('image');
+  if(images.length!==1||svg.querySelector('text,path,rect,circle,ellipse,line,polyline,polygon,use,foreignObject'))continue;
+  const image=images[0],src=image.getAttribute('href')||image.getAttributeNS(XLINK,'href')||image.getAttribute('xlink:href');if(!src)continue;
+  const img=doc.createElement('img');img.setAttribute('src',src);
+  img.setAttribute('alt',svg.getAttribute('aria-label')||image.getAttribute('alt')||'');
+  img.setAttribute('style','display:block;max-width:100%;max-height:100vh;height:auto;margin:0 auto;object-fit:contain');
+  svg.replaceWith(img);changed=true;
+ }
+ return changed?'<!DOCTYPE html>'+doc.documentElement.outerHTML:source;
+}
 const MAX_RESOURCE_BYTES=32*1024*1024,MAX_PUBLICATION_BYTES=256*1024*1024,CHAPTER_CACHE=12,MAX_PRELOAD_ROUNDS=8;
 export class PublicationResources {
  /** Resources are either eager (`dataBase64`) or host-served (`url` plus declared `size`).
@@ -53,7 +70,7 @@ export class PublicationResources {
   const {href,fragment}=this.resolve(base,ref);
   if(this.urls.has(href))return this.urls.get(href)+fragment;
   const item=this.map.get(href);
-  if(item.type!=='text/css'&&!assetTypes.has(item.type))throw Error('Unsupported asset: '+item.type);
+  if(item.type!=='text/css'&&!assetTypes.has(item.type.toLowerCase()))throw Error('Unsupported asset: '+item.type);
   if(!item.bytes){
    // First pass of chapter(): record what to fetch, keep rewriting.
    if(this.pending){this.pending.add(href);return 'about:blank'}
@@ -89,7 +106,7 @@ export class PublicationResources {
  async chapter(href){
   const item=this.map.get(href);if(!item||!htmlTypes.has(item.type))throw Error('Only HTML EPUB chapters are supported in this build');
   if(this.chapters.has(href)){const html=this.chapters.get(href);this.chapters.delete(href);this.chapters.set(href,html);return html}
-  const source=new TextDecoder().decode(await this.read(href));
+  const source=unwrapSvgImages(new TextDecoder().decode(await this.read(href)));
   let html=null;
   for(let round=0;round<MAX_PRELOAD_ROUNDS&&html===null;round++){
    let needed,result;this.pending=new Set();
