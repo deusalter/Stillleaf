@@ -172,3 +172,33 @@ test('bounded continuous adapter: co-visible chapters, annotation and navigation
  await page.addInitScript(()=>{if(globalThis.CSS)Object.defineProperty(CSS,'highlights',{value:undefined,configurable:true})});await page.evaluate(input=>window.StillleafReader.open(input),{...book,state:final});assert.equal(await page.locator('#reader.continuous-reader').count(),0);assert.equal(await page.evaluate(()=>window.StillleafReader.exportState().preferences.scroll),false);assert.match(await page.locator('#notice').innerText(),/highlight support unavailable/);assert.deepEqual(await page.evaluate(()=>window.StillleafReader.exportState().annotations),final.annotations);await page.evaluate(()=>window.StillleafReader.setPreferences({scroll:true}));assert.equal(await page.evaluate(()=>window.StillleafReader.exportState().preferences.scroll),false);assert.equal(await page.locator('#reader.continuous-reader').count(),0);assert.deepEqual(await page.evaluate(()=>window.StillleafReader.exportState().annotations),final.annotations);
  assert.deepEqual(errors,[]);assert.deepEqual(external,[]);console.log('Continuous parity PASS: bounded frames, co-visibility, wheel/touch, isolated CSS, note activation/eviction/reflow/reopen, mode handoff, links; '+JSON.stringify({boundary,typography}));
 });
+
+test('continuous view keeps a scroll made while chapters are still mounting',{timeout:60000},async t=>{
+ // Chapters past the second are held back, so the adapter is mid-mount (reports suppressed) when the reader scrolls.
+ const text='The rain moved beyond the garden. She returned to the line she had marked, then let her eyes follow the light across the room.';
+ const chapters=Array.from({length:6},(_,i)=>Buffer.from(`<html lang="en"><body><h1>Chapter ${i+1}</h1>${Array.from({length:16},(_,j)=>`<p id="c${i}p${j}">${i}.${j} ${text}</p>`).join('')}</body></html>`));
+ const server=createServer(async(req,res)=>{
+  const url=new URL(req.url,'http://localhost'),match=/^\/book\/(\d+)$/.exec(url.pathname);
+  if(match){const index=Number(match[1]);if(index>=2)await new Promise(resolve=>setTimeout(resolve,1500));res.setHeader('Content-Type','text/html');return res.end(chapters[index])}
+  try{const file=path.resolve(root,'.'+url.pathname);if(!file.startsWith(root+path.sep))throw Error();res.setHeader('Content-Type',{'.html':'text/html','.js':'text/javascript','.css':'text/css'}[path.extname(file)]??'application/octet-stream');res.end(await readFile(file))}catch{res.writeHead(404).end()}
+ });
+ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));const origin=`http://127.0.0.1:${server.address().port}`;
+ const browser=await chromium.launch({executablePath:process.env.CHROME_PATH||'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',headless:true});t.after(async()=>{await browser.close();await new Promise(resolve=>server.close(resolve))});
+ const page=await browser.newPage({viewport:{width:1000,height:800},reducedMotion:'reduce'}),errors=[];page.on('pageerror',e=>errors.push(e.message));
+ await page.goto(origin+'/index.html');await page.waitForFunction(()=>window.StillleafReader);
+ const book={editionId:'continuous-mounting',title:'Held chapters',language:'en',experimentalContinuous:true,
+  readingOrder:chapters.map((_,i)=>({href:`part${i}.html`,type:'text/html',title:`Chapter ${i+1}`})),
+  resources:chapters.map((bytes,i)=>({href:`part${i}.html`,type:'text/html',url:`/book/${i}`,size:bytes.length})),
+  state:{schemaVersion:1,editionId:'continuous-mounting',revision:0,position:null,preferences:{theme:'paper',fontFamily:'publisher',fontSize:1,lineHeight:1.6,measure:65,scroll:true},bookmarks:[],annotations:[]}};
+ await page.evaluate(input=>{void window.StillleafReader.open(input)},book);
+ const top=id=>page.evaluate(id=>{const flow=document.querySelector('#reader'),frame=[...flow.querySelectorAll('iframe')].find(f=>f.contentDocument?.getElementById(id));return frame?frame.getBoundingClientRect().top+frame.contentDocument.getElementById(id).getBoundingClientRect().top-flow.getBoundingClientRect().top:null},id);
+ await page.waitForFunction(()=>[...document.querySelectorAll('#reader iframe')].some(f=>f.contentDocument?.getElementById('c1p8')));
+ assert.equal(await page.evaluate(()=>document.querySelectorAll('#reader iframe').length),2,'later chapters are still held back');
+ await page.evaluate(()=>{const flow=document.querySelector('#reader'),frame=[...flow.querySelectorAll('iframe')].find(f=>f.contentDocument?.getElementById('c1p8'));flow.scrollTop+=frame.getBoundingClientRect().top+frame.contentDocument.getElementById('c1p8').getBoundingClientRect().top-flow.getBoundingClientRect().top-40});
+ const chosen=await top('c1p8');assert.ok(Math.abs(chosen-40)<2,String(chosen));
+ await page.waitForFunction(()=>{const frames=[...document.querySelectorAll('#reader iframe')];return frames.length>=4&&frames.every(f=>f.contentDocument?.querySelector('h1'))},null,{timeout:15000});await page.waitForTimeout(800);
+ const after=await top('c1p8');
+ assert.ok(Math.abs(after-chosen)<24,`scroll made during mounting was undone: paragraph moved from ${chosen}px to ${after}px`);
+ assert.equal(await page.evaluate(()=>window.StillleafReader.bookmark()?.href),'part1.html');
+ assert.deepEqual(errors,[]);
+});

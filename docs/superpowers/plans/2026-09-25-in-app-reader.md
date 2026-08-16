@@ -1,6 +1,6 @@
 # In-App EPUB Reader Implementation Plan
 
-> **Status:** planned against `main` at 0e23ba6. No reader code exists on GitHub; any local work-in-progress must be pushed to a branch and reconciled against this plan before implementation starts.
+> **Status:** historical. Written against `main` at 0e23ba6, before the Codex work-in-progress surfaced. The reader that shipped differs: it renders with the Readium navigator in a shared web renderer (`Reader/desktop/reader`) rather than a hand-written CSS-column paginator, and continuous scroll stays experimental. Kept for the protection gate, appearance and tracking rationale.
 
 **Goal:** Read unprotected EPUBs inside Stillleaf in three layouts (continuous scroll, single-page paginated, two-page spread) with Apple Books–style appearance controls: themes including night, font family, text size, line spacing, margins and justification. Reading in the built-in reader feeds the same history, goals, streaks and Discord presence as Apple Books tracking, with first-party evidence instead of Accessibility inference.
 
