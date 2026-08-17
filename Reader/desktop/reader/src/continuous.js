@@ -32,8 +32,8 @@ export function locatorRange(doc,value){
 export class ContinuousNavigator {
  kind='continuous';
  constructor(container,input,pool,listeners,initial,settings){
-  this.container=container;this.input=input;this.pool=pool;this.listeners=listeners;this.initial=serial(initial);this.settings=settings;this.entries=[];this.destroyed=false;this.epoch=0;this.queue=Promise.resolve();this.suppress=0;this.decorations=[];this.decorationObserver=null;this.current=null;this.lastAnchor=null;this.lastInput=0;this.currentIndex=0;
-  this.onScroll=()=>{if(this.destroyed||this.suppress)return;this.lastInput=performance.now();cancelAnimationFrame(this.scrollFrame);this.scrollFrame=requestAnimationFrame(()=>{this.report();void this.updateWindow()})};
+  this.container=container;this.input=input;this.pool=pool;this.listeners=listeners;this.initial=serial(initial);this.settings=settings;this.entries=[];this.destroyed=false;this.epoch=0;this.queue=Promise.resolve();this.suppress=0;this.decorations=[];this.decorationObserver=null;this.current=null;this.lastAnchor=null;this.lastInput=0;this.currentIndex=0;this.ownTop=0;this.readerAnchor=null;
+  this.onScroll=()=>{if(this.destroyed)return;if(this.suppress){if(this.moved())this.noteReaderScroll();return}this.lastInput=performance.now();cancelAnimationFrame(this.scrollFrame);this.scrollFrame=requestAnimationFrame(()=>{this.report();void this.updateWindow()})};
   this.onResize=()=>{if(this.destroyed)return;clearTimeout(this.resizeTimer);this.resizeTimer=setTimeout(()=>void this.remeasure(),60)};
  }
  async load(){
@@ -44,7 +44,8 @@ export class ContinuousNavigator {
   }
   this.container.addEventListener('scroll',this.onScroll,{passive:true});this.resizeObserver=new ResizeObserver(this.onResize);this.resizeObserver.observe(this.container);
   const index=Math.max(0,this.entries.findIndex(e=>e.link.href===this.initial?.href));await this.ensureWindow(index);
-  if(this.initial)await this.navigate(this.initial);else{this.container.scrollTop=0;this.report()}
+  // A reader who already scrolled while chapters mounted keeps that place over the opening position.
+  if(this.lastInput)this.report();else if(this.initial)await this.navigate(this.initial);else{this.setTop(0);this.report()}
  }
  baseCSS(){return 'html{overflow:hidden!important;min-height:0!important;height:auto!important;font-size:16px}body{margin:0!important;min-height:0!important;height:auto!important;box-sizing:border-box;font-family:Georgia,"Times New Roman",serif;font-size:1rem;line-height:1.6}img,video{max-width:100%;height:auto}:where(h1,h2,h3,h4,h5,h6){break-after:avoid}:where(pre){white-space:pre-wrap}';}
  preferenceCSS(){
@@ -104,7 +105,7 @@ export class ContinuousNavigator {
    // Keep a measured placeholder when releasing a document; never concatenate chapters.
    for(const entry of this.entries)if(!wanted.has(entry.index))this.unmount(entry);
    const anchor=this.captureAnchor();this.suppress++;
-   try{for(const i of [...wanted].sort((a,b)=>Math.abs(a-requested)-Math.abs(b-requested))){if(this.destroyed)return;try{await this.mount(this.entries[i])}catch(error){const entry=this.entries[i];this.unmount(entry);entry.failed=error;entry.section.textContent=error.message;if(i===requested)throw error}}if(anchor)this.restoreAnchorNow(anchor)}finally{this.suppress--}
+   try{for(const i of [...wanted].sort((a,b)=>Math.abs(a-requested)-Math.abs(b-requested))){if(this.destroyed)return;try{await this.mount(this.entries[i])}catch(error){const entry=this.entries[i];this.unmount(entry);entry.failed=error;entry.section.textContent=error.message;if(i===requested)throw error}}this.settle(anchor)}finally{this.suppress--}
   });return this.queue;
  }
  async updateWindow(){const index=this.indexAt(this.container.scrollTop+this.container.clientHeight*.25);try{await this.ensureWindow(index)}catch(error){this.listeners.error?.(error)}}
@@ -133,18 +134,29 @@ export class ContinuousNavigator {
   }return null;
  }
  captureLocator(){return this.captureAnchor()?.locator??this.current;}
- restoreAnchorNow(anchor){const entry=this.entries.find(e=>e.link.href===anchor.locator.href);if(!entry?.frame)return false;const range=locatorRange(entry.frame.contentDocument,anchor.locator);if(!range)return false;this.container.scrollTop+=entry.frame.getBoundingClientRect().top+range.getBoundingClientRect().top-this.container.getBoundingClientRect().top-anchor.offset;return true;}
- async remeasure(){
-  if(this.destroyed)return;const anchor=this.lastAnchor??this.captureAnchor();this.suppress++;
-  try{for(const entry of this.entries)if(entry.frame)this.measure(entry);if(anchor&&performance.now()-this.lastInput>140)this.restoreAnchorNow(anchor)}catch(error){this.listeners.error?.(error)}finally{this.suppress--}this.report();
+ restoreAnchorNow(anchor){const entry=this.entries.find(e=>e.link.href===anchor.locator.href);if(!entry?.frame)return false;const range=locatorRange(entry.frame.contentDocument,anchor.locator);if(!range)return false;this.setTop(this.container.scrollTop+entry.frame.getBoundingClientRect().top+range.getBoundingClientRect().top-this.container.getBoundingClientRect().top-anchor.offset);return true;}
+ /** Every scroll the adapter makes goes through here, so any other movement is the reader's. */
+ setTop(top){this.container.scrollTop=top;this.ownTop=this.container.scrollTop;}
+ moved(){
+  const flow=this.container,top=flow.scrollTop;if(Math.abs(top-this.ownTop)<=1)return false;
+  // Content shrinking under the viewport clamps scrollTop: that is layout, not the reader.
+  return !(top<this.ownTop&&top>=flow.scrollHeight-flow.clientHeight-1);
  }
- report(){if(this.destroyed||this.suppress)return;const anchor=this.captureAnchor();if(!anchor)return;this.lastAnchor=anchor;this.current=anchor.locator;this.currentIndex=this.entries.findIndex(e=>e.link.href===this.current.href);this.listeners.positionChanged?.(Locator.deserialize(this.current));}
+ /** Layout work suppresses reporting; remember where the reader scrolled to meanwhile, against the layout they saw. */
+ noteReaderScroll(){this.lastInput=performance.now();this.readerAnchor=this.captureAnchor()??this.readerAnchor;this.ownTop=this.container.scrollTop;}
+ /** After layout work, restore the reader's newer choice over the anchor captured before the work began. */
+ settle(anchor,fallback=true){if(this.moved())this.noteReaderScroll();const chosen=this.readerAnchor??(fallback?anchor:null);this.readerAnchor=null;if(chosen)this.restoreAnchorNow(chosen);}
+ async remeasure(){
+  if(this.destroyed)return;if(this.moved())this.noteReaderScroll();const anchor=this.lastAnchor??this.captureAnchor();this.suppress++;
+  try{for(const entry of this.entries)if(entry.frame)this.measure(entry);this.settle(anchor,performance.now()-this.lastInput>140)}catch(error){this.listeners.error?.(error)}finally{this.suppress--}this.report();
+ }
+ report(){if(this.destroyed||this.suppress)return;this.ownTop=this.container.scrollTop;const anchor=this.captureAnchor();if(!anchor)return;this.lastAnchor=anchor;this.current=anchor.locator;this.currentIndex=this.entries.findIndex(e=>e.link.href===this.current.href);this.listeners.positionChanged?.(Locator.deserialize(this.current));}
  async navigate(value){
   const locator=serial(value),index=this.entries.findIndex(e=>e.link.href===locator?.href);if(index<0)return false;
   this.suppress++;
   try{await this.ensureWindow(index);if(this.destroyed)return false;const entry=this.entries[index];if(!entry.frame)return false;
    const range=locatorRange(entry.frame.contentDocument,locator);const viewport=this.container.getBoundingClientRect();const delta=range?range.getBoundingClientRect().top:Math.max(0,Math.min(1,locator.locations?.progression??0))*Math.max(0,entry.height-this.container.clientHeight);
-   this.container.scrollTop+=entry.frame.getBoundingClientRect().top-viewport.top+delta;this.currentIndex=index;
+   this.setTop(this.container.scrollTop+entry.frame.getBoundingClientRect().top-viewport.top+delta);this.currentIndex=index;this.readerAnchor=null;
    // A jump is where the reader now is, even if report() is suppressed by other window work;
    // otherwise the next resize restores the chapter the reader just left. Record it before
    // yielding: a remeasure due from the frames just mounted can fire during nextPaint(), and
@@ -158,7 +170,7 @@ export class ContinuousNavigator {
  goBackward(_animated,callback){const entry=this.entries[Math.max(0,this.currentIndex-1)];this.go({href:entry.link.href,type:'text/html',locations:{progression:0}},false,callback)}
  async submitPreferences(settings){
   const anchor=this.captureAnchor();this.suppress++;this.settings=settings;
-  try{for(const entry of this.entries)if(entry.frame)entry.appearance.textContent=this.preferenceCSS();await nextPaint();for(const entry of this.entries)if(entry.frame)this.measure(entry);if(anchor)this.restoreAnchorNow(anchor)}finally{this.suppress--}this.report();
+  try{for(const entry of this.entries)if(entry.frame)entry.appearance.textContent=this.preferenceCSS();await nextPaint();for(const entry of this.entries)if(entry.frame)this.measure(entry);this.settle(anchor)}finally{this.suppress--}this.report();
  }
  bindFrame(entry){
   const wnd=entry.frame.contentWindow,doc=wnd.document;
