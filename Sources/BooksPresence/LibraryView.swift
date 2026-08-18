@@ -71,12 +71,15 @@ struct LibraryView: View {
                                     finished: finishedIDs.contains(book.id), date: finishedIDs.contains(book.id) ? finishes[book.id] : recent[book.id],
                                     rating: model.rating(for: book.id)) { present(.book(book)) }
                                 HStack {
-                                    if model.hasImportedEPUB(book) {
-                                        if model.hasEPUB(book) {
-                                            Button("Read") { model.readEPUB(book) }.controlSize(.small)
-                                        } else {
-                                            Button("Import to read") { model.epubLibrary.chooseFiles() }.controlSize(.small)
-                                        }
+                                    if model.hasImportedEPUB(book) && model.hasEPUB(book) {
+                                        Button("Read") { model.readEPUB(book) }.controlSize(.small)
+                                    } else if model.appleBooksAssetID(for: book) != nil {
+                                        // Books added to Apple Books by the reader open here; store purchases explain why not.
+                                        Button(model.preparingAppleBooksIDs.contains(book.id) ? "Opening…" : "Read here") { model.readFromAppleBooks(book) }
+                                            .controlSize(.small).disabled(model.preparingAppleBooksIDs.contains(book.id))
+                                            .help("Open the copy Apple Books keeps of this book. Apple Books is not changed.")
+                                    } else if model.hasImportedEPUB(book) {
+                                        Button("Import to read") { model.epubLibrary.chooseFiles() }.controlSize(.small)
                                     }
                                     Spacer()
                                     Menu {
