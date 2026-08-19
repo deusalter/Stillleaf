@@ -37,8 +37,10 @@ test('themes, typefaces and margins apply to the page and persist',{timeout:1200
 
  // System follows the Mac appearance.
  assert.equal((await frame()).theme,'paper');
- await page.emulateMedia({colorScheme:'dark'});await settle();assert.equal((await frame()).theme,'dark');
- await page.emulateMedia({colorScheme:'light'});await settle();
+ // Wait for the switch itself: a fixed pause lost the race on a slow runner.
+ const themed=theme=>page.waitForFunction(theme=>document.documentElement.dataset.theme===theme,theme,{timeout:5000});
+ await page.emulateMedia({colorScheme:'dark'});await themed('dark');assert.equal((await frame()).theme,'dark');
+ await page.emulateMedia({colorScheme:'light'});await themed('paper');
 
  await page.getByRole('button',{name:'Appearance',exact:true}).click();
  assert.equal(await page.locator('#theme-options button').count(),9,'System plus eight page themes');
