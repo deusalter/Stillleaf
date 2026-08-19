@@ -25,6 +25,8 @@ test('only deliberate page movement is reported as page evidence',{timeout:12000
  await page.evaluate(()=>{window.events=[];window.addEventListener('stillleaf-reader-event',e=>{if(['pageTurn','pageLayout'].includes(e.detail.type))window.events.push(e.detail)})});
  const take=async()=>page.evaluate(()=>window.events.splice(0));
  const settle=()=>page.waitForTimeout(900);
+ // Scroll events arrive on the next frame; wait for the turn itself rather than a fixed pause.
+ const turned=()=>page.waitForFunction(()=>window.events.some(e=>e.type==='pageTurn'),null,{timeout:5000});
  const frameWith=selector=>page.waitForFunction(selector=>[...document.querySelectorAll('#reader iframe')].some(f=>f.contentDocument?.querySelector(selector)),selector);
 
  await page.evaluate(input=>window.StillleafReader.open(input),book);await frameWith('#c1p0');await settle();
@@ -66,9 +68,9 @@ test('only deliberate page movement is reported as page evidence',{timeout:12000
  await page.evaluate(()=>window.StillleafReader.go({href:'c2.html',type:'text/html',locations:{progression:.5}}));await settle();
  await take();await scrollFrame(.05,1);assert.deepEqual(await take(),[],'a small scroll is not a page');
  await scrollFrame(.25,5);
- events=await take();assert.deepEqual(events.map(e=>[e.type,e.direction,e.pages,e.layout]),[['pageTurn','forward',1,scroll.layout]],'1.25 screens scrolled is one page');
+ await turned();events=await take();assert.deepEqual(events.map(e=>[e.type,e.direction,e.pages,e.layout]),[['pageTurn','forward',1,scroll.layout]],'1.25 screens scrolled is one page');
  await scrollFrame(-.25,6); // net movement: the 0.25 screen left over from above must be undone too
- events=await take();assert.deepEqual(events.map(e=>[e.type,e.direction]),[['pageTurn','backward']]);
+ await turned();events=await take();assert.deepEqual(events.map(e=>[e.type,e.direction]),[['pageTurn','backward']]);
  await scrollFrame(3,1);
  assert.deepEqual(await take(),[],'a three-screen jump is scrubbing, not reading');
  assert.deepEqual(errors,[]);
