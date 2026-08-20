@@ -119,6 +119,23 @@ public final class BooksCatalog {
         return match
     }
 
+    /// Where Apple Books keeps one asset on disk. Read-only; the file itself is never changed.
+    public func assetURL(forAssetID assetID: String) throws -> URL? {
+        guard !assetID.isEmpty else { return nil }
+        let fields = try columns()
+        guard Set(["ZASSETID", "ZPATH"]).isSubset(of: fields) else { throw BooksAccessError.unavailable("This Books catalog does not expose book locations.") }
+        return try withDatabase { db in
+            var s: OpaquePointer?
+            guard sqlite3_prepare_v2(db, "SELECT ZPATH FROM ZBKLIBRARYASSET WHERE ZASSETID = ? LIMIT 2", -1, &s, nil) == SQLITE_OK else { throw BooksAccessError.unavailable("Books metadata query failed.") }
+            defer { sqlite3_finalize(s) }
+            sqlite3_bind_text(s, 1, assetID, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            guard sqlite3_step(s) == SQLITE_ROW, let text = sqlite3_column_text(s, 0) else { return nil }
+            let path = String(cString: text)
+            guard sqlite3_step(s) == SQLITE_DONE, !path.isEmpty else { return nil }
+            return path.hasPrefix("file:") ? URL(string: path) : path.hasPrefix("/") ? URL(fileURLWithPath: path) : nil
+        }
+    }
+
     public func lookup(documentURL: URL) throws -> (book: BookRecord, assetURL: URL, progress: ProgressObservation?)? {
         guard documentURL.isFileURL else { return nil }
         let fields = try columns()

@@ -16,6 +16,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var events: [AuditEvent] = []
     @Published private(set) var progress: [ProgressObservation] = []
     @Published private(set) var merges: [BookMerge] = []
+    @Published private(set) var preparingAppleBooksIDs = Set<String>()
+    private var pendingLinkOffers: [String] = []
     @Published private(set) var days: [DailyTotal] = []
     @Published private(set) var today = DailyTotal(day: "", creditedSeconds: 0, uncertainSeconds: 0, manualSeconds: 0, goalMinutes: 20)
     @Published private(set) var streak = StreakSummary(current: 0, longest: 0, todayPending: true, provisional: false)
@@ -235,6 +237,16 @@ final class AppModel: ObservableObject {
         epubLibrary.register = { [weak self] publication, directory in
             try self?.registerPublication(publication, directory: directory)
         }
+        epubLibrary.didImport = { [weak self] publication in self?.pendingLinkOffers.append("epub:" + publication.id) }
+        epubLibrary.didFinishQueue = { [weak self] in
+            guard let self else { return }
+            let ids = self.pendingLinkOffers; self.pendingLinkOffers = []
+            self.offerLinks(for: ids)
+        }
+        epubLibrary.didRecover = { [weak self] in
+            guard let self else { return }
+            self.offerLinks(for: self.books.filter { $0.source == "stillleaf-epub" }.map(\.id))
+        }
         epubLibrary.presentLibrary = { [weak self] in
             self?.dashboardSectionRequest = .library
             self?.dashboardAction?()
@@ -256,6 +268,58 @@ final class AppModel: ObservableObject {
         refresh()
     }
 
+    /// The Apple Books asset behind this journal book, directly or through a link.
+    func appleBooksAssetID(for book: BookRecord) -> String? {
+        let canonical = resolverID(book.id), prefix = "apple-books:"
+        return books.first { $0.id.hasPrefix(prefix) && resolverID($0.id) == canonical }.map { String($0.id.dropFirst(prefix.count)) }
+    }
+    /// Books the reader added to Apple Books are kept there as readable EPUBs. Import that copy,
+    /// link it to this journal book so history counts once, and open it. Store purchases are
+    /// refused by the importer's protection check and stay in Apple Books.
+    func readFromAppleBooks(_ book: BookRecord) {
+        guard let assetID = appleBooksAssetID(for: book), preparingAppleBooksIDs.insert(book.id).inserted else { return }
+        let canonical = resolverID(book.id)
+        epubLibrary.importFromAppleBooks(assetID: assetID) { [weak self] result in
+            guard let self else { return }
+            self.preparingAppleBooksIDs.remove(book.id)
+            switch result {
+            case .failure(let error): self.errorMessage = error.localizedDescription
+            case .success(let publication):
+                let editionID = "epub:" + publication.id
+                if self.resolverID(editionID) != canonical, let edition = self.books.first(where: { $0.id == editionID }),
+                   let target = self.books.first(where: { $0.id == canonical }) {
+                    self.mergeBooks(source: edition, target: target)
+                }
+                if let target = self.books.first(where: { $0.id == canonical }), self.hasEPUB(target) { self.readEPUB(target) }
+            }
+        }
+    }
+    /// Offers to link fresh EPUB editions to a journal book with the same title and a compatible
+    /// author, so reading time, goals and ratings count once. Never automatic, because a title
+    /// alone is not proof of identity; a declined offer is not repeated.
+    private func offerLinks(for ids: [String]) {
+        guard ready, !ids.isEmpty, !epubReaders.isTerminating else { return }
+        let declined = Set(defaults.stringArray(forKey: Self.declinedLinkOffersKey) ?? [])
+        let resolver = BookMergeResolver(merges: merges)
+        var pairs: [(edition: BookRecord, book: BookRecord)] = []
+        for id in Set(ids).sorted() where !declined.contains(id) && resolver.resolvedID(for: id) == id {
+            guard let edition = books.first(where: { $0.id == id }) else { continue }
+            let matches = books.filter { $0.id != id && $0.source != "stillleaf-epub" && resolver.resolvedID(for: $0.id) == $0.id && BookIdentity.sameWork(edition, $0) }
+            if matches.count == 1 { pairs.append((edition, matches[0])) }
+        }
+        guard !pairs.isEmpty else { return }
+        let alert = NSAlert()
+        alert.messageText = pairs.count == 1 ? "Link this EPUB with “\(pairs[0].book.title)”?" : "Link \(pairs.count) EPUBs with books already in your journal?"
+        let list = pairs.count == 1 ? "" : pairs.prefix(8).map { "• \($0.book.title)" }.joined(separator: "\n") + (pairs.count > 8 ? "\n…" : "") + "\n\n"
+        alert.informativeText = list + "Linked books share one card, so reading time, goals and ratings from Apple Books and Stillleaf count together. Reading positions stay separate and Apple Books is never changed. You can unlink from the book’s details."
+        alert.addButton(withTitle: "Link"); alert.addButton(withTitle: "Keep Separate")
+        if alert.runModal() == .alertFirstButtonReturn {
+            perform { try stopForMutation(); for pair in pairs { try store.merge(BookMerge(sourceID: pair.edition.id, targetID: pair.book.id)) } }
+        } else {
+            defaults.set(Array(declined.union(pairs.map { $0.edition.id })).sorted(), forKey: Self.declinedLinkOffersKey)
+        }
+    }
+    private static let declinedLinkOffersKey = "declinedEPUBLinkOffers"
     func epubEditions(for book: BookRecord) -> [EPUBPublication] {
         let resolver = BookMergeResolver(merges: merges), canonicalID = resolverID(book.id)
         return epubLibrary.publications.values.filter { resolver.resolvedID(for: "epub:" + $0.id) == canonicalID }.sorted { $0.id < $1.id }

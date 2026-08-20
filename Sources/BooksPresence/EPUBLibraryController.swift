@@ -14,6 +14,12 @@ final class EPUBLibraryController: ObservableObject {
     let directory: URL
     var register: ((EPUBPublication, URL) throws -> Void)?
     var presentLibrary: (() -> Void)?
+    /// A fresh import from a file the reader chose; the journal may offer to link it.
+    var didImport: ((EPUBPublication) -> Void)?
+    /// Every queued import has finished.
+    var didFinishQueue: (() -> Void)?
+    /// Startup recovery has registered the imported library.
+    var didRecover: (() -> Void)?
     private let importer: EPUBPublicationImporter
     private let worker = DispatchQueue(label: "Stillleaf.epub-import", qos: .userInitiated)
 
@@ -43,6 +49,7 @@ final class EPUBLibraryController: ObservableObject {
                     }
                     self.recoveryError = failures == 0 ? nil : "\(failures) imported books could not be restored. Healthy books remain available. " + warnings.joined(separator: "\n")
                 } catch { self.recoveryError = "Imported books could not be inspected: \(error.localizedDescription)" }
+                self.didRecover?()
             }
         }
     }
@@ -62,6 +69,35 @@ final class EPUBLibraryController: ObservableObject {
         queue.enqueue(urls)
         if queue.consumeLibraryPresentation() { presentLibrary?() }
         drain()
+    }
+
+    /// Imports the copy Apple Books keeps of a book the reader added there themselves.
+    /// Store purchases are refused by the importer's protection check.
+    func importFromAppleBooks(assetID: String, completion: @escaping (Result<EPUBPublication, Error>) -> Void) {
+        let importer = self.importer
+        worker.async { [weak self] in
+            let outcome = Result { () throws -> EPUBPublicationImportResult in
+                guard let location = try BooksCatalog().assetURL(forAssetID: assetID) else {
+                    throw EPUBImportError.invalid("Apple Books does not list a file for this book.")
+                }
+                guard FileManager.default.fileExists(atPath: location.path) else {
+                    throw EPUBImportError.invalid("This book is not downloaded on this Mac. Open it once in Apple Books, then try again.")
+                }
+                guard ["epub"].contains(location.pathExtension.lowercased()) else {
+                    throw EPUBImportError.invalid("Only EPUB books can be read in Stillleaf. Keep reading this one in Apple Books.")
+                }
+                return try importer.importPublication(from: location)
+            }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                do {
+                    let result = try outcome.get()
+                    try self.register?(result.publication, result.directory)
+                    self.publications[result.publication.id] = result.publication
+                    completion(.success(result.publication))
+                } catch { completion(.failure(error)) }
+            }
+        }
     }
 
     func cancelPending() { queue.cancelPending() }
@@ -107,7 +143,7 @@ final class EPUBLibraryController: ObservableObject {
     }
 
     private func drain() {
-        guard let item = queue.takeNext() else { return }
+        guard let item = queue.takeNext() else { if !queue.isBusy { didFinishQueue?() }; return }
         let importer = self.importer
         worker.async { [weak self] in
             let outcome = Result { try importer.importPublication(from: item.url) }
@@ -120,6 +156,7 @@ final class EPUBLibraryController: ObservableObject {
                     self.queue.finish(id: item.id, result: result.alreadyImported
                         ? .alreadyImported(publicationID: result.publication.id)
                         : .imported(publicationID: result.publication.id))
+                    self.didImport?(result.publication)
                 } catch {
                     // The receipt remains available for recovery if journal
                     // registration failed after the file transaction committed.

@@ -37,17 +37,27 @@ public final class EPUBPublicationImporter {
     public func importPublication(from source: URL) throws -> EPUBPublicationImportResult {
         lock.lock(); defer { lock.unlock() }
         let fm = FileManager.default
-        let values = try source.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey])
-        guard source.isFileURL, values.isRegularFile == true, values.isSymbolicLink != true,
-              let size = values.fileSize, size > 0, size <= limits.compressedBytes else { throw EPUBImportError.invalid("Choose a regular EPUB within the import size limit.") }
-        // Stream to a bounded private copy, preventing source mutations from changing the validated archive.
+        let kind = try source.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+        guard source.isFileURL, kind.isSymbolicLink != true else { throw EPUBImportError.invalid("Choose a regular EPUB within the import size limit.") }
         try fm.createDirectory(at: root, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         let stage = root.appendingPathComponent(".import-" + UUID().uuidString, isDirectory: true)
         try fm.createDirectory(at: stage, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
         defer { try? fm.removeItem(at: stage) }
+        // Apple Books keeps EPUBs added by the reader as unpacked folders; pack one into a ZIP
+        // so every archive check below applies unchanged.
+        var archive = source
+        if kind.isDirectory == true {
+            archive = stage.appendingPathComponent("bundle.zip")
+            try packBundle(source, into: archive)
+        }
+        defer { if archive != source { try? fm.removeItem(at: archive) } }
+        let values = try archive.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey])
+        guard values.isRegularFile == true, values.isSymbolicLink != true,
+              let size = values.fileSize, size > 0, size <= limits.compressedBytes else { throw EPUBImportError.invalid("Choose a regular EPUB within the import size limit.") }
+        // Stream to a bounded private copy, preventing source mutations from changing the validated archive.
         let original = stage.appendingPathComponent("original.epub")
         fm.createFile(atPath: original.path, contents: nil, attributes: [.posixPermissions: 0o600])
-        let input = try FileHandle(forReadingFrom: source), output = try FileHandle(forWritingTo: original)
+        let input = try FileHandle(forReadingFrom: archive), output = try FileHandle(forWritingTo: original)
         defer { try? input.close(); try? output.close() }
         var hash = SHA256(); var copied = 0
         while let data = try input.read(upToCount: 65536), !data.isEmpty {
@@ -56,6 +66,7 @@ public final class EPUBPublicationImporter {
             hash.update(data: data); try output.write(contentsOf: data)
         }
         try output.synchronize(); try output.close()
+        if archive != source { try? fm.removeItem(at: archive) }
         let id = hash.finalize().map { String(format: "%02x", $0) }.joined()
         let destination = root.appendingPathComponent(id, isDirectory: true)
         if fm.fileExists(atPath: destination.path) {
@@ -67,6 +78,10 @@ public final class EPUBPublicationImporter {
         try fm.createDirectory(at: content, withIntermediateDirectories: false)
         try preflightZIP(original)
         let paths = try extract(original, to: content)
+        // Apple Books Store purchases carry FairPlay rights files. They are never decrypted or imported.
+        guard !paths.contains("META-INF/sinf.xml"), !paths.contains("META-INF/rights.xml") else {
+            throw EPUBImportError.invalid("This book is protected by Apple Books, so it can only be read in Apple Books.")
+        }
         guard paths.contains("mimetype"), try String(contentsOf: content.appendingPathComponent("mimetype"), encoding: .utf8) == "application/epub+zip" else { throw EPUBImportError.invalid("Missing EPUB mimetype.") }
         let container = try parse(content.appendingPathComponent("META-INF/container.xml"))
         guard container.rootName == "container", container.rootNamespace == "urn:oasis:names:tc:opendocument:xmlns:container", let package = container.package else { throw EPUBImportError.invalid("EPUB container has no package.") }
@@ -107,6 +122,39 @@ public final class EPUBPublicationImporter {
         try JSONEncoder().encode(publication).write(to: stage.appendingPathComponent("publication.json"), options: .atomic)
         try fm.moveItem(at: stage, to: destination)
         return EPUBPublicationImportResult(publication: publication, directory: destination, alreadyImported: false)
+    }
+    /// Packs an unpacked EPUB folder: a stored `mimetype` first, then regular files in sorted
+    /// order without extra attributes, so the same folder packs to the same edition. Hidden
+    /// files are skipped; links are refused rather than followed.
+    private func packBundle(_ folder: URL, into archive: URL) throws {
+        guard let walker = FileManager.default.enumerator(atPath: folder.path) else { throw EPUBImportError.invalid("This book folder could not be read.") }
+        var names: [String] = [], total = 0
+        while let name = walker.nextObject() as? String {
+            let attributes = walker.fileAttributes ?? [:], type = attributes[.type] as? FileAttributeType
+            if name.split(separator: "/").contains(where: { $0.hasPrefix(".") }) { if type == .typeDirectory { walker.skipDescendants() }; continue }
+            guard type != .typeSymbolicLink else { throw EPUBImportError.invalid("This book folder contains links, which are not imported.") }
+            guard type == .typeRegular else { continue }
+            guard !name.contains("\n"), !name.contains("\r") else { throw EPUBImportError.invalid("This book folder has unsupported file names.") }
+            total += (attributes[.size] as? NSNumber)?.intValue ?? 0; names.append(name)
+            guard names.count <= limits.entries, total <= limits.expandedBytes else { throw EPUBImportError.invalid("EPUB exceeds expanded size or entry limits.") }
+        }
+        guard names.contains("mimetype") else { throw EPUBImportError.invalid("Missing EPUB mimetype.") }
+        try Self.zip(["-X", "-0", "-q", archive.path, "mimetype"], in: folder)
+        let rest = names.filter { $0 != "mimetype" }.sorted()
+        if !rest.isEmpty { try Self.zip(["-X", "-D", "-q", "-@", archive.path], in: folder, names: rest) }
+    }
+    private static func zip(_ arguments: [String], in folder: URL, names: [String]? = nil) throws {
+        let process = Process(), input = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/zip"); process.arguments = arguments; process.currentDirectoryURL = folder
+        process.standardInput = names == nil ? FileHandle.nullDevice : input
+        process.standardOutput = FileHandle.nullDevice; process.standardError = FileHandle.nullDevice
+        try process.run()
+        if let names {
+            input.fileHandleForWriting.write(Data(names.joined(separator: "\n").appending("\n").utf8))
+            try input.fileHandleForWriting.close()
+        }
+        process.waitUntilExit()
+        guard process.terminationReason == .exit, process.terminationStatus == 0 else { throw EPUBImportError.invalid("This book folder could not be packed for reading.") }
     }
     /// Loads committed receipts only. Hidden staging directories are never library entries.
     public func loadLibrary() throws -> [EPUBPublicationImportResult] {
