@@ -12,6 +12,7 @@ const {
 const path = require("node:path");
 const fs = require("node:fs/promises");
 const { pathToFileURL } = require("node:url");
+const { randomUUID } = require("node:crypto");
 const {
   ImportCoordinator,
   epubArguments,
@@ -425,13 +426,30 @@ else {
         }
       }
       await collect(dist);
-      protocol.handle("stillleaf-app", (request) => {
-        const asset = bundledAssets.get(request.url);
-        if (!asset || request.method !== "GET")
+      // Publication files are named per reader window (`book/<uuid>/<index>`)
+      // and read from disk on request, so a URL is only valid while the window
+      // it was issued to is the active reader.
+      const readerFile = (url) => activeReader?.stillleafFiles?.get(url);
+      protocol.handle("stillleaf-app", async (request) => {
+        if (request.method !== "GET")
           return new Response("Not found", { status: 404 });
-        return new Response(asset.bytes, {
-          headers: { "Content-Type": asset.mime },
-        });
+        const asset = bundledAssets.get(request.url);
+        if (asset)
+          return new Response(asset.bytes, {
+            headers: { "Content-Type": asset.mime },
+          });
+        const file = readerFile(request.url);
+        try {
+          const stat = file && (await fs.lstat(file.file));
+          // The reader compares the declared size, so a changed file is still served.
+          if (!stat?.isFile() || stat.size > 32 * 1024 * 1024)
+            return new Response("Not found", { status: 404 });
+          return new Response(await fs.readFile(file.file), {
+            headers: { "Content-Type": file.type },
+          });
+        } catch {
+          return new Response("Not found", { status: 404 });
+        }
       });
       const network = session.defaultSession;
       network.setPermissionRequestHandler((_wc, _permission, callback) =>
@@ -448,6 +466,7 @@ else {
           const url = new URL(details.url);
           allowed =
             bundledAssets.has(url.href) ||
+            Boolean(readerFile(url.href)) ||
             ["blob:", "data:", "devtools:"].includes(url.protocol) ||
             (url.protocol === "file:" &&
               !url.search &&
@@ -673,7 +692,26 @@ else {
           if (action === "read") {
             const { publication } = await readEdition(root, input);
             if (!(await closeReader(activeReader))) return { cancelled: true };
-            const data = await readerInput(root, input);
+            const files = new Map(),
+              token = randomUUID();
+            const data = await readerInput(root, input, {
+              serve: ({ file, type }, index) => {
+                const url = `stillleaf-app://reader/book/${token}/${index}`;
+                if (bundledAssets.has(url))
+                  throw Error("Reader asset collides with a book resource");
+                // Header-safe type; the reader decides from the manifest type.
+                files.set(url, {
+                  file,
+                  type:
+                    typeof type === "string" &&
+                    type.length < 128 &&
+                    /^[!-~]+\/[!-~]+$/.test(type)
+                      ? type
+                      : "application/octet-stream",
+                });
+                return url;
+              },
+            });
             const window = new BrowserWindow({
               width: 1080,
               height: 820,
@@ -688,6 +726,7 @@ else {
                 backgroundThrottling: false,
               },
             });
+            window.stillleafFiles = files;
             activeReader = window;
             activeEdition = input;
             window.stillleafBookId = journal

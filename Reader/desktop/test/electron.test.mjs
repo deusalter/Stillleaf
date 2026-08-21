@@ -278,6 +278,21 @@ test("isolated desktop import, explicit reader, offline resources and persistent
     }),
   );
   assert.ok(indents.includes("13px"), `Publisher CSS retained: ${indents}`);
+  const bookURL = await app.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows()
+      .flatMap((window) => [...(window.stillleafFiles?.keys() ?? [])])
+      .find((url) => url.startsWith("stillleaf-app://reader/book/")),
+  );
+  const bookStatus = () =>
+    app.evaluate(
+      ({ net }, url) =>
+        net.fetch(url).then(
+          (response) => response.status,
+          () => "blocked",
+        ),
+      bookURL,
+    );
+  assert.equal(await bookStatus(), 200, "Book files are served by URL");
   await reader.getByRole("button", { name: "Next", exact: true }).click();
   assert.equal(
     await reader.evaluate(() => Boolean(window.StillleafReader.bookmark())),
@@ -401,6 +416,10 @@ test("isolated desktop import, explicit reader, offline resources and persistent
     await new Promise((resolve) => witness.close(resolve));
   }
   await reader.close();
+  assert.ok(
+    ["blocked", 404].includes(await bookStatus()),
+    "Book URLs stop resolving once their reader closes",
+  );
   const stateFile = path.join(
     temp,
     "data",

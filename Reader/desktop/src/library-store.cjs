@@ -24,7 +24,8 @@ async function readEdition(root, id) {
     throw Error("Invalid publication receipt");
   return receipt;
 }
-async function resourceBytes(root, id, href) {
+/** Validated on-disk location and size of one publication resource. */
+async function resourceFile(root, id, href) {
   if (
     typeof href !== "string" ||
     href.split("/").some((p) => !p || p === "." || p === "..") ||
@@ -41,7 +42,10 @@ async function resourceBytes(root, id, href) {
   const stat = await fs.stat(current);
   if (!stat.isFile() || stat.size > 32 * 1024 * 1024)
     throw Error("Oversized resource");
-  return fs.readFile(current);
+  return { file: current, size: stat.size };
+}
+async function resourceBytes(root, id, href) {
+  return fs.readFile((await resourceFile(root, id, href)).file);
 }
 async function listLibrary(root) {
   const editions = await fs.readdir(path.join(root, "editions")).catch((e) => {
@@ -78,20 +82,33 @@ async function listLibrary(root) {
   }
   return { books, warnings };
 }
-async function readerInput(root, id) {
+/** With `serve`, resources are host-served: each entry carries the URL `serve`
+ *  returns plus its size, and the reader fetches bytes only when a chapter needs
+ *  them. Without it every resource is inlined as base64, which copies the whole
+ *  book into the renderer; that form is kept for callers outside the app host. */
+async function readerInput(root, id, { serve } = {}) {
   const { publication: p } = await readEdition(root, id);
   let total = 0;
   const resources = [];
-  for (const item of p.manifest) {
-    const bytes = await resourceBytes(root, id, item.path);
-    total += bytes.length;
+  for (const [index, item] of p.manifest.entries()) {
+    const { file, size } = await resourceFile(root, id, item.path);
+    total += size;
     if (total > 256 * 1024 * 1024)
       throw Error("Book exceeds reader memory budget");
-    resources.push({
-      href: item.path,
-      type: item.mediaType,
-      dataBase64: bytes.toString("base64"),
-    });
+    resources.push(
+      serve
+        ? {
+            href: item.path,
+            type: item.mediaType,
+            url: serve({ file, size, type: item.mediaType }, index),
+            size,
+          }
+        : {
+            href: item.path,
+            type: item.mediaType,
+            dataBase64: (await fs.readFile(file)).toString("base64"),
+          },
+    );
   }
   const saved = await loadReaderState(root, id, p);
   return {
@@ -113,4 +130,10 @@ async function readerInput(root, id) {
     resources,
   };
 }
-module.exports = { listLibrary, readerInput, readEdition, resourceBytes };
+module.exports = {
+  listLibrary,
+  readerInput,
+  readEdition,
+  resourceBytes,
+  resourceFile,
+};
