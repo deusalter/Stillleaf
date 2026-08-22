@@ -47,15 +47,37 @@ async function resourceFile(root, id, href) {
 async function resourceBytes(root, id, href) {
   return fs.readFile((await resourceFile(root, id, href)).file);
 }
+// Editions are content-addressed and never rewritten in place, so a book's
+// Library entry (including its encoded cover) is reused until the edition
+// directory or its receipt changes on disk. The host lists the Library on every
+// journal change, including reading checkpoints every few seconds.
+const listings = new Map();
 async function listLibrary(root) {
-  const editions = await fs.readdir(path.join(root, "editions")).catch((e) => {
+  const base = path.join(root, "editions");
+  const editions = await fs.readdir(base).catch((e) => {
     if (e.code === "ENOENT") return [];
     throw e;
   });
   const books = [],
-    warnings = [];
+    warnings = [],
+    seen = new Set();
   for (const id of editions.filter((x) => editionPattern.test(x)).sort()) {
+    const dir = path.join(base, id);
+    seen.add(dir);
     try {
+      const [folder, receipt] = await Promise.all([
+        fs.lstat(dir),
+        fs.lstat(path.join(dir, "publication.json")),
+      ]);
+      const signature = [folder, receipt]
+        .map((s) => `${s.dev}:${s.ino}:${s.size}:${s.mtimeMs}:${s.ctimeMs}`)
+        .join("/");
+      const cached = listings.get(dir);
+      if (cached?.signature === signature) {
+        books.push({ ...cached.book });
+        continue;
+      }
+      listings.delete(dir);
       const { publication: p } = await readEdition(root, id);
       let cover = null;
       if (
@@ -69,17 +91,22 @@ async function listLibrary(root) {
           p.cover.mediaType +
           ";base64," +
           (await resourceBytes(root, id, p.cover.path)).toString("base64");
-      books.push({
+      const book = {
         editionId: id,
         title: p.title || "Untitled",
         creators: p.creators || [],
         cover,
         coverProvenance: cover ? "epub-metadata" : "local-placeholder",
-      });
+      };
+      listings.set(dir, { signature, book });
+      books.push({ ...book });
     } catch (error) {
+      listings.delete(dir);
       warnings.push({ editionId: id, message: error.message });
     }
   }
+  for (const dir of listings.keys())
+    if (path.dirname(dir) === base && !seen.has(dir)) listings.delete(dir);
   return { books, warnings };
 }
 /** With `serve`, resources are host-served: each entry carries the URL `serve`
