@@ -3,6 +3,7 @@ import fsp from "node:fs/promises";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { Transform } from "node:stream";
+import zlib from "node:zlib";
 import { pipeline } from "node:stream/promises";
 import yauzl from "yauzl";
 import { fail, PublicationError } from "./errors.js";
@@ -39,10 +40,15 @@ const crcTable = Array.from({ length: 256 }, (_, n) => {
   for (let k = 0; k < 8; k++) n = n & 1 ? 0xedb88320 ^ (n >>> 1) : n >>> 1;
   return n >>> 0;
 });
-function crcUpdate(crc, chunk) {
-  for (const byte of chunk) crc = crcTable[(crc ^ byte) & 255] ^ (crc >>> 8);
-  return crc;
-}
+/** Running CRC-32 of the bytes seen so far; start from 0. Native since Node 22.2. */
+const crcUpdate =
+  zlib.crc32 ??
+  ((chunk, crc) => {
+    crc = ~crc;
+    for (let i = 0; i < chunk.length; i++)
+      crc = crcTable[(crc ^ chunk[i]) & 255] ^ (crc >>> 8);
+    return ~crc >>> 0;
+  });
 const openZip = (file) =>
   new Promise((resolve, reject) =>
     yauzl.open(
@@ -184,7 +190,7 @@ async function entryStream(zip, entry, cap, signal) {
     fail("ENTRY_SIZE", "Resource exceeds read budget");
   const stream = await zip.openReadStreamPromise(entry);
   let count = 0,
-    crc = 0xffffffff;
+    crc = 0;
   const guard = new Transform({
     transform(chunk, encoding, callback) {
       try {
@@ -192,17 +198,14 @@ async function entryStream(zip, entry, cap, signal) {
         count += chunk.length;
         if (count > cap || count > entry.uncompressedSize)
           fail("ENTRY_SIZE", "Inflated entry exceeds declared or allowed size");
-        crc = crcUpdate(crc, chunk);
+        crc = crcUpdate(chunk, crc);
         callback(null, chunk);
       } catch (error) {
         callback(error);
       }
     },
     flush(callback) {
-      if (
-        count !== entry.uncompressedSize ||
-        (crc ^ 0xffffffff) >>> 0 !== entry.crc32
-      )
+      if (count !== entry.uncompressedSize || crc !== entry.crc32)
         callback(
           new PublicationError("CHECKSUM", "ZIP data length or CRC mismatch"),
         );
