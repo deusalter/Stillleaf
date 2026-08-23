@@ -56,6 +56,46 @@ test("receipt-backed Library preserves corrupt records and rejects resource trav
   );
   await assert.rejects(readerInput(root, id), /Invalid publication resource/);
 });
+test("Library listing reuses unchanged editions and notices changed receipts", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "stillleaf-listing-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const id = "c".repeat(64),
+    dir = path.join(root, "editions", id),
+    receipt = path.join(dir, "publication.json");
+  await fs.mkdir(path.join(dir, "resources"), { recursive: true });
+  const publication = {
+    title: "Cached book",
+    creators: [],
+    spine: [],
+    manifest: [{ path: "cover.png", mediaType: "image/png" }],
+    cover: { path: "cover.png", mediaType: "image/png" },
+  };
+  await fs.writeFile(
+    receipt,
+    JSON.stringify({ schemaVersion: 1, editionId: id, publication }),
+  );
+  await fs.writeFile(path.join(dir, "resources", "cover.png"), "first");
+  const first = await listLibrary(root);
+  assert.match(first.books[0].cover, /base64,Zmlyc3Q=$/);
+  // Returned entries are copies, so a caller cannot alter the next listing.
+  first.books[0].title = "Changed by caller";
+  assert.equal((await listLibrary(root)).books[0].title, "Cached book");
+  await fs.writeFile(receipt, "bad JSON");
+  const damaged = await listLibrary(root);
+  assert.equal(damaged.books.length, 0);
+  assert.equal(damaged.warnings.length, 1);
+  await fs.writeFile(
+    receipt,
+    JSON.stringify({
+      schemaVersion: 1,
+      editionId: id,
+      publication: { ...publication, title: "Renamed" },
+    }),
+  );
+  assert.equal((await listLibrary(root)).books[0].title, "Renamed");
+  await fs.rm(dir, { recursive: true });
+  assert.deepEqual(await listLibrary(root), { books: [], warnings: [] });
+});
 const {
   emptyState,
   loadReaderState,
