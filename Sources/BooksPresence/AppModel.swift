@@ -17,6 +17,10 @@ final class AppModel: ObservableObject {
     @Published private(set) var progress: [ProgressObservation] = []
     @Published private(set) var merges: [BookMerge] = []
     @Published private(set) var preparingAppleBooksIDs = Set<String>()
+    /// Apple Books asset IDs of store purchases, which only Apple Books can open.
+    @Published private(set) var appleBooksStorePurchaseIDs = Set<String>()
+    private var storePurchaseCheckInFlight = false
+    private var lastStorePurchaseCheck = Date.distantPast
     private var pendingLinkOffers: [String] = []
     @Published private(set) var days: [DailyTotal] = []
     @Published private(set) var today = DailyTotal(day: "", creditedSeconds: 0, uncertainSeconds: 0, manualSeconds: 0, goalMinutes: 20)
@@ -273,6 +277,28 @@ final class AppModel: ObservableObject {
         let canonical = resolverID(book.id), prefix = "apple-books:"
         return books.first { $0.id.hasPrefix(prefix) && resolverID($0.id) == canonical }.map { String($0.id.dropFirst(prefix.count)) }
     }
+    /// Whether this book's Apple Books copy can be opened here. Store purchases can't, so they
+    /// get no read button; a book not yet checked is offered and explains itself if refused.
+    func canReadAppleBooksCopy(_ book: BookRecord) -> Bool {
+        guard let assetID = appleBooksAssetID(for: book) else { return false }
+        return !appleBooksStorePurchaseIDs.contains(assetID)
+    }
+    /// Checks the journal's Apple Books books for store purchases off the main thread.
+    private func refreshStorePurchases() {
+        guard !storePurchaseCheckInFlight else { return }
+        let prefix = "apple-books:"
+        let assetIDs = Set(books.filter { $0.id.hasPrefix(prefix) }.map { String($0.id.dropFirst(prefix.count)) })
+        guard !assetIDs.isEmpty else { return }
+        storePurchaseCheckInFlight = true; lastStorePurchaseCheck = Date()
+        historyQueue.async { [weak self] in
+            let purchases = try? BooksCatalog().storePurchases(among: assetIDs)
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.storePurchaseCheckInFlight = false
+                if let purchases, purchases != self.appleBooksStorePurchaseIDs { self.appleBooksStorePurchaseIDs = purchases }
+            }
+        }
+    }
     /// Books the reader added to Apple Books are kept there as readable EPUBs. Import that copy,
     /// link it to this journal book so history counts once, and open it. Store purchases are
     /// refused by the importer's protection check and stay in Apple Books.
@@ -283,7 +309,10 @@ final class AppModel: ObservableObject {
             guard let self else { return }
             self.preparingAppleBooksIDs.remove(book.id)
             switch result {
-            case .failure(let error): self.errorMessage = error.localizedDescription
+            case .failure(let error):
+                self.errorMessage = error.localizedDescription
+                // A refused store purchase loses its read button now rather than on the next check.
+                self.refreshStorePurchases()
             case .success(let publication):
                 let editionID = "epub:" + publication.id
                 if self.resolverID(editionID) != canonical, let edition = self.books.first(where: { $0.id == editionID }),
@@ -475,6 +504,7 @@ final class AppModel: ObservableObject {
     private func tick() {
         guard ready else { return }
         if Date().timeIntervalSince(lastHistorySync) > 30 { syncAppleBooksHistory() }
+        if Date().timeIntervalSince(lastStorePurchaseCheck) > 60 { refreshStorePurchases() }
         let trusted = BooksCapture.isTrusted
         if accessibilityGranted != trusted { accessibilityGranted = trusted }
         windowObserver?.refresh()

@@ -114,23 +114,28 @@ struct TodayView: View {
     private func readingActions(for book: BookRecord) -> some View {
         let preparing = model.preparingAppleBooksIDs.contains(book.id)
         let inAppleBooks = model.appleBooksAssetID(for: book) != nil
+        let readsHere = model.hasEPUB(book) || model.canReadAppleBooksCopy(book) || model.hasImportedEPUB(book)
         HStack(spacing: 10) {
             if model.hasEPUB(book) {
                 Button { model.readEPUB(book) } label: { Label("Continue reading", systemImage: "book") }
                     .buttonStyle(ReadingButtonStyle(emphasis: .primary))
-            } else if inAppleBooks {
-                // Books added to Apple Books open here; store purchases explain why they can't.
+            } else if model.canReadAppleBooksCopy(book) {
+                // Books added to Apple Books open here; store purchases stay in Apple Books.
                 Button { model.readFromAppleBooks(book) } label: { Label(preparing ? "Opening…" : "Read in Stillleaf", systemImage: "book") }
                     .buttonStyle(ReadingButtonStyle(emphasis: .primary)).disabled(preparing)
                     .help("Open the copy Apple Books keeps of this book. Apple Books is not changed.")
             } else if model.hasImportedEPUB(book) {
                 Button { model.epubLibrary.chooseFiles() } label: { Label("Import to read", systemImage: "square.and.arrow.down") }
                     .buttonStyle(ReadingButtonStyle(emphasis: .primary))
-            } else {
+            } else if !inAppleBooks {
                 Button { model.showDashboard(section: .library) } label: { Label("Browse library", systemImage: "books.vertical") }
                     .buttonStyle(ReadingButtonStyle(emphasis: .primary))
             }
-            if inAppleBooks { Button("Open in Apple Books") { openBooks() } }
+            // A store purchase reads only in Apple Books, so that becomes the main action.
+            if inAppleBooks {
+                Button { openBooks() } label: { Label("Open in Apple Books", systemImage: "book") }
+                    .buttonStyle(ReadingButtonStyle(emphasis: readsHere ? .secondary : .primary))
+            }
         }
     }
 

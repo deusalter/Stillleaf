@@ -82,4 +82,24 @@ final class EPUBBundleImportTests: XCTestCase {
         XCTAssertNil(try catalog.assetURL(forAssetID: "e"))
         XCTAssertNil(try catalog.assetURL(forAssetID: "missing"))
     }
+
+    func testCatalogTellsStorePurchasesFromBooksAddedByTheReader() throws {
+        let added = try bundle("Added"), store = try bundle("Store", extra: ["META-INF/sinf.xml": "<fairplay/>"])
+        let unprotected = try bundle("Free store")
+        let folder = root.appendingPathComponent("BKLibrary")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        var db: OpaquePointer?
+        XCTAssertEqual(sqlite3_open(folder.appendingPathComponent("BKLibrary-test.sqlite").path, &db), SQLITE_OK)
+        defer { sqlite3_close(db) }
+        XCTAssertEqual(sqlite3_exec(db, "CREATE TABLE ZBKLIBRARYASSET (ZASSETID TEXT,ZTITLE TEXT,ZAUTHOR TEXT,ZPATH TEXT,ZSTOREID TEXT)", nil, nil, nil), SQLITE_OK)
+        let rows = [("added", added.path, "NULL"), ("store", store.absoluteString, "'111'"), ("free", unprotected.path, "'222'"),
+                    ("cloud", "/tmp/not-downloaded-\(UUID().uuidString).epub", "'333'"), ("local", "/tmp/not-downloaded.epub", "''")]
+        for (id, path, storeID) in rows {
+            XCTAssertEqual(sqlite3_exec(db, "INSERT INTO ZBKLIBRARYASSET VALUES ('\(id)','Book','Author','\(path)',\(storeID))", nil, nil, nil), SQLITE_OK)
+        }
+        let catalog = BooksCatalog(documents: root)
+        XCTAssertEqual(try catalog.storePurchases(among: ["added", "store", "free", "cloud", "local", "missing"]), ["store", "cloud"],
+                       "rights files decide for a downloaded book; the store ID only for one not on this Mac")
+        XCTAssertEqual(try catalog.storePurchases(among: []), [])
+    }
 }

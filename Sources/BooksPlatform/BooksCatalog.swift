@@ -136,6 +136,42 @@ public final class BooksCatalog {
         }
     }
 
+    /// Which of `assetIDs` are Apple Books Store purchases, which only Apple Books can open. A copy
+    /// on this Mac is judged by the rights files the importer refuses; one that isn't downloaded
+    /// falls back to the catalog's store identifier.
+    public func storePurchases(among assetIDs: Set<String>) throws -> Set<String> {
+        guard !assetIDs.isEmpty else { return [] }
+        let fields = try columns()
+        guard Set(["ZASSETID", "ZPATH"]).isSubset(of: fields) else { throw BooksAccessError.unavailable("This Books catalog does not expose book locations.") }
+        let storeColumn = fields.contains("ZSTOREID") ? "ZSTOREID" : "NULL"
+        let rows: [(id: String, path: String?, storeID: String?)] = try withDatabase { db in
+            var s: OpaquePointer?
+            guard sqlite3_prepare_v2(db, "SELECT ZPATH,\(storeColumn) FROM ZBKLIBRARYASSET WHERE ZASSETID = ?", -1, &s, nil) == SQLITE_OK else { throw BooksAccessError.unavailable("Books metadata query failed.") }
+            defer { sqlite3_finalize(s) }
+            let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+            var rows: [(id: String, path: String?, storeID: String?)] = []
+            for id in assetIDs.sorted() {
+                sqlite3_reset(s); sqlite3_clear_bindings(s)
+                sqlite3_bind_text(s, 1, id, -1, transient)
+                while sqlite3_step(s) == SQLITE_ROW {
+                    func string(_ i: Int32) -> String? { sqlite3_column_text(s, i).map { String(cString: $0) } }
+                    rows.append((id: id, path: string(0), storeID: string(1)))
+                }
+            }
+            return rows
+        }
+        var purchases = Set<String>()
+        for row in rows {
+            let location = row.path.flatMap { $0.hasPrefix("file:") ? URL(string: $0) : $0.hasPrefix("/") ? URL(fileURLWithPath: $0) : nil }
+            if let protected = location.flatMap(EPUBPublicationImporter.isProtectedBundle) {
+                if protected { purchases.insert(row.id) }
+            } else if let store = row.storeID?.trimmingCharacters(in: .whitespaces), !store.isEmpty, store != "0" {
+                purchases.insert(row.id)
+            }
+        }
+        return purchases
+    }
+
     public func lookup(documentURL: URL) throws -> (book: BookRecord, assetURL: URL, progress: ProgressObservation?)? {
         guard documentURL.isFileURL else { return nil }
         let fields = try columns()
