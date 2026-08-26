@@ -34,7 +34,7 @@ struct TodayView: View {
                 }
                 ReadingSection("Your reading journal") {
                     HStack(spacing: 10) {
-                        Text("Log reading that happened away from Apple Books.")
+                        Text("Log reading from print, audiobooks or anywhere Stillleaf can’t follow.")
                             .font(.callout).foregroundStyle(ReadingPalette.secondaryInk)
                         Spacer(minLength: 8)
                         if model.manualActive {
@@ -85,8 +85,7 @@ struct TodayView: View {
                                 Text("\(model.pages(forBookID: book.id)) pages in your journal")
                             }.font(.callout).foregroundStyle(ReadingPalette.secondaryInk).padding(.top, 2)
                         }
-                        Button { openBooks() } label: { Label("Open Apple Books", systemImage: "book") }
-                            .buttonStyle(ReadingButtonStyle(emphasis: .primary)).padding(.top, 10)
+                        readingActions(for: book).padding(.top, 10)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 } else {
@@ -96,13 +95,42 @@ struct TodayView: View {
                         .background(ReadingPalette.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                     VStack(alignment: .leading, spacing: 9) {
                         Text("Make room for a good book.").font(ReadingType.bookTitle(26))
-                        Text("Open a book to start your reading day.")
+                        Text("Import an EPUB to read here, or pick up a book from your library.")
                             .font(.callout).foregroundStyle(ReadingPalette.secondaryInk)
-                        Button { openBooks() } label: { Label("Open Apple Books", systemImage: "book") }
-                            .buttonStyle(ReadingButtonStyle(emphasis: .primary)).padding(.top, 5)
+                        HStack(spacing: 10) {
+                            Button { model.epubLibrary.chooseFiles() } label: { Label("Import EPUBs", systemImage: "square.and.arrow.down") }
+                                .buttonStyle(ReadingButtonStyle(emphasis: .primary))
+                            Button { model.showDashboard(section: .library) } label: { Label("Browse library", systemImage: "books.vertical") }
+                            Button("Open Apple Books") { openBooks() }
+                        }.padding(.top, 5)
                     }.frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
+        }
+    }
+
+    /// Mirrors the Library's read buttons: the in-app reader comes first, Apple Books second.
+    @ViewBuilder
+    private func readingActions(for book: BookRecord) -> some View {
+        let preparing = model.preparingAppleBooksIDs.contains(book.id)
+        let inAppleBooks = model.appleBooksAssetID(for: book) != nil
+        HStack(spacing: 10) {
+            if model.hasEPUB(book) {
+                Button { model.readEPUB(book) } label: { Label("Continue reading", systemImage: "book") }
+                    .buttonStyle(ReadingButtonStyle(emphasis: .primary))
+            } else if inAppleBooks {
+                // Books added to Apple Books open here; store purchases explain why they can't.
+                Button { model.readFromAppleBooks(book) } label: { Label(preparing ? "Opening…" : "Read in Stillleaf", systemImage: "book") }
+                    .buttonStyle(ReadingButtonStyle(emphasis: .primary)).disabled(preparing)
+                    .help("Open the copy Apple Books keeps of this book. Apple Books is not changed.")
+            } else if model.hasImportedEPUB(book) {
+                Button { model.epubLibrary.chooseFiles() } label: { Label("Import to read", systemImage: "square.and.arrow.down") }
+                    .buttonStyle(ReadingButtonStyle(emphasis: .primary))
+            } else {
+                Button { model.showDashboard(section: .library) } label: { Label("Browse library", systemImage: "books.vertical") }
+                    .buttonStyle(ReadingButtonStyle(emphasis: .primary))
+            }
+            if inAppleBooks { Button("Open in Apple Books") { openBooks() } }
         }
     }
 
@@ -110,7 +138,7 @@ struct TodayView: View {
         if !model.trackingEnabled { return "Tracking off" }
         if model.automaticTrackingNeedsAccess { return "Access needed" }
         if model.snapshot.phase == .reading { return "Reading now" }
-        return "Ready for Books"
+        return "Ready to read"
     }
 
     private func openBooks() {
@@ -234,7 +262,7 @@ struct ActivityStateLabel: View {
 private func activityPauseSummary(_ reason: PauseReason?) -> String {
     switch reason {
     case .disabled: return "Tracking turned off"
-    case .background: return "Books in background"
+    case .background: return "Reader in background"
     case .noReadingWindow: return "No active reading window"
     case .locked: return "Mac locked"
     case .displayAsleep: return "Display asleep"
@@ -291,7 +319,7 @@ struct LabeledValue: View {
 func pauseDescription(_ reason: PauseReason) -> String {
     switch reason {
     case .disabled: return "tracking is disabled"
-    case .background: return "Books is in the background"
+    case .background: return "the reader is in the background"
     case .noReadingWindow: return "there is no verified reading window"
     case .locked: return "your Mac is locked"
     case .displayAsleep: return "the display is asleep"
