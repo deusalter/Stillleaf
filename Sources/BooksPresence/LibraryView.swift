@@ -73,8 +73,8 @@ struct LibraryView: View {
                                 HStack {
                                     if model.hasImportedEPUB(book) && model.hasEPUB(book) {
                                         Button("Read") { model.readEPUB(book) }.controlSize(.small)
-                                    } else if model.appleBooksAssetID(for: book) != nil {
-                                        // Books added to Apple Books by the reader open here; store purchases explain why not.
+                                    } else if model.canReadAppleBooksCopy(book) {
+                                        // Books added to Apple Books by the reader open here; store purchases stay in Apple Books.
                                         Button(model.preparingAppleBooksIDs.contains(book.id) ? "Opening…" : "Read here") { model.readFromAppleBooks(book) }
                                             .controlSize(.small).disabled(model.preparingAppleBooksIDs.contains(book.id))
                                             .help("Open the copy Apple Books keeps of this book. Apple Books is not changed.")

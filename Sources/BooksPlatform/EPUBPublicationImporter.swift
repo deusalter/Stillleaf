@@ -34,6 +34,15 @@ public final class EPUBPublicationImporter {
     private let limits: Limits
     private let lock = NSLock()
     public init(directory: URL, limits: Limits = Limits()) { root = directory; self.limits = limits }
+    /// FairPlay rights files that mark an Apple Books Store purchase. Such books are never imported.
+    static let rightsFiles = ["META-INF/sinf.xml", "META-INF/rights.xml"]
+    /// Whether an unpacked Apple Books folder is a protected store purchase. Nil when the book is not
+    /// on this Mac or is a packed file, since that can't be told without opening the archive.
+    public static func isProtectedBundle(at url: URL) -> Bool? {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue else { return nil }
+        return rightsFiles.contains { FileManager.default.fileExists(atPath: url.appendingPathComponent($0).path) }
+    }
     public func importPublication(from source: URL) throws -> EPUBPublicationImportResult {
         lock.lock(); defer { lock.unlock() }
         let fm = FileManager.default
@@ -79,7 +88,7 @@ public final class EPUBPublicationImporter {
         try preflightZIP(original)
         let paths = try extract(original, to: content)
         // Apple Books Store purchases carry FairPlay rights files. They are never decrypted or imported.
-        guard !paths.contains("META-INF/sinf.xml"), !paths.contains("META-INF/rights.xml") else {
+        guard Self.rightsFiles.allSatisfy({ !paths.contains($0) }) else {
             throw EPUBImportError.invalid("This book is protected by Apple Books, so it can only be read in Apple Books.")
         }
         guard paths.contains("mimetype"), try String(contentsOf: content.appendingPathComponent("mimetype"), encoding: .utf8) == "application/epub+zip" else { throw EPUBImportError.invalid("Missing EPUB mimetype.") }
