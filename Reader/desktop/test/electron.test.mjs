@@ -66,12 +66,12 @@ test("isolated desktop import, explicit reader, offline resources and persistent
   await page.locator(".book").waitFor();
   assert.equal(await page.locator(".book").count(), 1);
   assert.equal((await app.windows()).length, 1, "Import never opens a reader");
-  assert.equal(
-    await page
-      .locator(".book img")
-      .evaluate((img) => img.src.startsWith("data:image/png;base64,")),
-    true,
-  );
+  const cover = await page.locator(".book img").evaluate(async (img) => {
+    await img.decode();
+    return { src: img.src, width: img.naturalWidth };
+  });
+  assert.match(cover.src, /^stillleaf-app:\/\/library\/cover\/[0-9a-f-]{36}\//);
+  assert.equal(cover.width, 1, "Cover is served by URL and decodes");
   assert.equal(await page.evaluate(() => typeof require), "undefined");
   await app.evaluate(
     ({ app }, file) => app.emit("open-file", { preventDefault() {} }, file),
