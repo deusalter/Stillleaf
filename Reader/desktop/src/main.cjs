@@ -49,6 +49,10 @@ protocol.registerSchemesAsPrivileged([
   },
 ]);
 const readerURL = "stillleaf-app://reader/index.html";
+// Library covers are served by URL rather than inlined in every snapshot. The
+// per-launch token keeps these URLs unknown to reader windows.
+const coverRoot = `stillleaf-app://library/cover/${randomUUID()}/`;
+let covers = new Map();
 let library, coordinator, importer, journal;
 const pending = [];
 let activeReader, activeEdition, readingSessions;
@@ -128,6 +132,11 @@ function createLibrary() {
 }
 async function snapshot() {
   const assets = await listLibrary(root);
+  covers = new Map(
+    assets.books
+      .filter((asset) => asset.cover)
+      .map((asset) => [coverRoot + asset.editionId, asset.cover]),
+  );
   const now = new Date().toISOString();
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   for (const asset of assets.books)
@@ -143,7 +152,7 @@ async function snapshot() {
       creators: book.creators,
       editionId: asset?.editionId ?? book.editionIds[0] ?? null,
       available: Boolean(asset),
-      cover: asset?.cover ?? null,
+      cover: asset?.cover ? coverRoot + asset.editionId : null,
       rating: journal.rating(book.book_id),
       review: journal.review(book.book_id),
       completion: journal.completion(book.book_id),
@@ -428,8 +437,10 @@ else {
       await collect(dist);
       // Publication files are named per reader window (`book/<uuid>/<index>`)
       // and read from disk on request, so a URL is only valid while the window
-      // it was issued to is the active reader.
-      const readerFile = (url) => activeReader?.stillleafFiles?.get(url);
+      // it was issued to is the active reader. Library covers resolve through
+      // the latest snapshot's map.
+      const servedFile = (url) =>
+        activeReader?.stillleafFiles?.get(url) ?? covers.get(url);
       protocol.handle("stillleaf-app", async (request) => {
         if (request.method !== "GET")
           return new Response("Not found", { status: 404 });
@@ -438,14 +449,20 @@ else {
           return new Response(asset.bytes, {
             headers: { "Content-Type": asset.mime },
           });
-        const file = readerFile(request.url);
+        const file = servedFile(request.url);
         try {
           const stat = file && (await fs.lstat(file.file));
           // The reader compares the declared size, so a changed file is still served.
           if (!stat?.isFile() || stat.size > 32 * 1024 * 1024)
             return new Response("Not found", { status: 404 });
           return new Response(await fs.readFile(file.file), {
-            headers: { "Content-Type": file.type },
+            headers: {
+              "Content-Type": file.type,
+              // Editions are content-addressed, so a cover URL never changes bytes.
+              ...(covers.has(request.url) && {
+                "Cache-Control": "max-age=31536000, immutable",
+              }),
+            },
           });
         } catch {
           return new Response("Not found", { status: 404 });
@@ -466,7 +483,7 @@ else {
           const url = new URL(details.url);
           allowed =
             bundledAssets.has(url.href) ||
-            Boolean(readerFile(url.href)) ||
+            Boolean(servedFile(url.href)) ||
             ["blob:", "data:", "devtools:"].includes(url.protocol) ||
             (url.protocol === "file:" &&
               !url.search &&

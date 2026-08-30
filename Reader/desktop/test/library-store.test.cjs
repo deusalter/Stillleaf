@@ -76,7 +76,10 @@ test("Library listing reuses unchanged editions and notices changed receipts", a
   );
   await fs.writeFile(path.join(dir, "resources", "cover.png"), "first");
   const first = await listLibrary(root);
-  assert.match(first.books[0].cover, /base64,Zmlyc3Q=$/);
+  assert.deepEqual(first.books[0].cover, {
+    file: path.join(dir, "resources", "cover.png"),
+    type: "image/png",
+  });
   // Returned entries are copies, so a caller cannot alter the next listing.
   first.books[0].title = "Changed by caller";
   assert.equal((await listLibrary(root)).books[0].title, "Cached book");

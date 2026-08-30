@@ -48,10 +48,15 @@ async function resourceBytes(root, id, href) {
   return fs.readFile((await resourceFile(root, id, href)).file);
 }
 // Editions are content-addressed and never rewritten in place, so a book's
-// Library entry (including its encoded cover) is reused until the edition
-// directory or its receipt changes on disk. The host lists the Library on every
-// journal change, including reading checkpoints every few seconds.
+// Library entry is reused until the edition directory or its receipt changes on
+// disk. The host lists the Library on every journal change, including reading
+// checkpoints every few seconds. Covers are located, not read: the host serves
+// their bytes by URL so each snapshot stays small.
 const listings = new Map();
+const copy = (book) => ({
+  ...book,
+  cover: book.cover && { ...book.cover },
+});
 async function listLibrary(root) {
   const base = path.join(root, "editions");
   const editions = await fs.readdir(base).catch((e) => {
@@ -74,7 +79,7 @@ async function listLibrary(root) {
         .join("/");
       const cached = listings.get(dir);
       if (cached?.signature === signature) {
-        books.push({ ...cached.book });
+        books.push(copy(cached.book));
         continue;
       }
       listings.delete(dir);
@@ -86,11 +91,10 @@ async function listLibrary(root) {
           p.cover.mediaType,
         )
       )
-        cover =
-          "data:" +
-          p.cover.mediaType +
-          ";base64," +
-          (await resourceBytes(root, id, p.cover.path)).toString("base64");
+        cover = {
+          file: (await resourceFile(root, id, p.cover.path)).file,
+          type: p.cover.mediaType,
+        };
       const book = {
         editionId: id,
         title: p.title || "Untitled",
@@ -99,7 +103,7 @@ async function listLibrary(root) {
         coverProvenance: cover ? "epub-metadata" : "local-placeholder",
       };
       listings.set(dir, { signature, book });
-      books.push({ ...book });
+      books.push(copy(book));
     } catch (error) {
       listings.delete(dir);
       warnings.push({ editionId: id, message: error.message });
