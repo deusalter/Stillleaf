@@ -297,13 +297,16 @@ function trackScroll(wnd){
 // One turn at a time: overlapping goForward/goBackward calls across a chapter edge left every frame hidden.
 let turning=false,turnWatchdog=0;
 function turn(direction){dismissSelection();if(!navigator||turning)return;turning=true;clearTimeout(turnWatchdog);turnWatchdog=setTimeout(()=>turning=false,2000);(direction==='next'?navigator.goForward.bind(navigator):navigator.goBackward.bind(navigator))(false,moved=>{turning=false;clearTimeout(turnWatchdog);if(moved===true&&!state?.preferences.scroll)pageTurned(direction==='next'?'forward':'backward');stableAnchor=visibleAnchor();if(!state?.preferences.scroll&&!matchMedia('(prefers-reduced-motion: reduce)').matches)$('reader').animate([{opacity:.84,transform:`perspective(1600px) rotateY(${direction==='next'?'-':'+'}1.5deg)`},{opacity:1,transform:'none'}],{duration:140,easing:'ease-out'})})}
+// A crossing stays busy until the next chapter lands plus a short settle, so a momentum wheel
+// stream turns one chapter, not several; #reader is aria-busy for exactly that span.
 let boundaryBusy=false;
+function setBoundaryBusy(busy){boundaryBusy=busy;if(busy)$('reader').setAttribute('aria-busy','true');else $('reader').removeAttribute('aria-busy')}
 async function crossScrollBoundary(wnd,delta,event){
  if(navigator?.kind==='continuous'||!state?.preferences.scroll||boundaryBusy||!delta||document.querySelector('dialog[open]'))return;
  const scroller=wnd.document.scrollingElement;const atEdge=delta>0?scroller.scrollTop+wnd.innerHeight>=scroller.scrollHeight-2:scroller.scrollTop<=2;if(!atEdge)return;
  const index=input.readingOrder.findIndex(link=>link.href===lastLocator?.href),next=index+(delta>0?1:-1);if(next<0||next>=input.readingOrder.length)return;
- event.preventDefault();boundaryBusy=true;
- try{await go({href:input.readingOrder[next].href,type:'text/html',locations:{progression:delta>0?0:1}},false)}finally{setTimeout(()=>boundaryBusy=false,200)}
+ event.preventDefault();setBoundaryBusy(true);
+ try{await go({href:input.readingOrder[next].href,type:'text/html',locations:{progression:delta>0?0:1}},false)}finally{setTimeout(()=>setBoundaryBusy(false),200)}
 }
 function keyboard(event){
  if(event.defaultPrevented||event.altKey||event.metaKey||event.ctrlKey)return;
