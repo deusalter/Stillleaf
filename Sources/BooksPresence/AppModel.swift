@@ -1079,6 +1079,25 @@ final class AppModel: ObservableObject {
         try store.importJSON(from: url)
     }
     func requestAccessibility() { BooksCapture.requestAccess(); accessibilityGranted = BooksCapture.isTrusted; openAccessibilitySettings() }
+    /// Access is granted in System Settings, outside the app; views that wait on it poll here.
+    func refreshAccessibilityStatus() {
+        let trusted = BooksCapture.isTrusted
+        if accessibilityGranted != trusted { accessibilityGranted = trusted }
+    }
+
+    static let onboardingCompletedKey = "onboardingCompleted"
+    var onboardingAction: (() -> Void)?
+    var needsOnboarding: Bool { !defaults.bool(forKey: Self.onboardingCompletedKey) }
+    func markOnboardingComplete() { defaults.set(true, forKey: Self.onboardingCompletedKey) }
+    func showOnboarding() { onboardingAction?() }
+    /// Saves the welcome tour's goal choice through the same validated path as Settings.
+    func applyOnboardingGoals(unit: DailyGoalUnit, pages: Int, minutes: Int, annualBooks: Int?) {
+        dailyGoalUnit = unit
+        pageGoal = Double(pages)
+        goalMinutes = Double(minutes)
+        annualBookGoal = annualBooks
+        saveSettings()
+    }
     func openAccessibilitySettings() { NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!) }
     func saveSettings() {
         guard annualBookGoal.map({ (1...10_000).contains($0) }) ?? true,

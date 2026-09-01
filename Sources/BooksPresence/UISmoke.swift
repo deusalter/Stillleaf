@@ -28,6 +28,7 @@ func runUISmoke() throws {
     }
     model.dashboardSectionRequest = nil; model.settingsCategoryRequest = nil
     try checkLivePagination(model)
+    try checkOnboarding(root: root.appendingPathComponent("onboarding"))
     model.discordEnabled = true
     model.discordApplicationID = ""
     model.saveSettings()
@@ -362,6 +363,65 @@ func runUISmoke() throws {
     }
     model.shutdown()
     print("ui-smoke: model correction/deletion and native view layout checks passed (synthetic data; no screenshots)")
+}
+
+/// Uses its own history and defaults so saving the tour's goal cannot disturb the main fixture.
+@MainActor
+private func checkOnboarding(root: URL) throws {
+    let suite = "BooksPresence.OnboardingValidation.\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suite)!
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let model = try AppModel(support: root, defaults: defaults, startTracking: false)
+    defer { model.shutdown() }
+    guard model.needsOnboarding else { throw BooksAccessErrorForUI.failed("A fresh install skipped the welcome tour") }
+    var replays = 0
+    model.onboardingAction = { replays += 1 }
+    model.showOnboarding()
+    guard replays == 1 else { throw BooksAccessErrorForUI.failed("Settings could not replay the welcome tour") }
+
+    let flow = OnboardingFlow(model: model)
+    guard flow.step == .welcome, flow.animateReveal else { throw BooksAccessErrorForUI.failed("The tour did not start at its animated welcome") }
+    flow.moveTo(.goal)
+    flow.unit = .pages
+    flow.setGoal(0)
+    guard flow.pages == OnboardingGoalLimits.pageRange.lowerBound else { throw BooksAccessErrorForUI.failed("A page goal below one was accepted") }
+    flow.setGoal(99_999)
+    guard flow.pages == OnboardingGoalLimits.pageRange.upperBound else { throw BooksAccessErrorForUI.failed("An oversized page goal was accepted") }
+    flow.moveTo(.tour)
+    flow.moveTo(.goal)
+    guard !flow.animateReveal else { throw BooksAccessErrorForUI.failed("Returning to a step replayed its entrance") }
+    flow.moveTo(.appearance)
+    guard flow.animateReveal else { throw BooksAccessErrorForUI.failed("A new step skipped its entrance") }
+    flow.holdReveal()
+    guard !flow.animateReveal else { throw BooksAccessErrorForUI.failed("A theme change would replay the step entrance") }
+    guard OnboardingView.contentKey(step: .goal, revision: 1) != OnboardingView.contentKey(step: .goal, revision: 2),
+          OnboardingView.contentKey(step: .goal, revision: 1) != OnboardingView.contentKey(step: .access, revision: 1) else {
+        throw BooksAccessErrorForUI.failed("Onboarding content would not re-key for a step or theme change")
+    }
+
+    model.applyOnboardingGoals(unit: .minutes, pages: 25, minutes: 45, annualBooks: 18)
+    guard model.errorMessage == nil, model.dailyGoalUnit == .minutes, model.goalMinutes == 45, model.pageGoal == 25,
+          model.annualBookGoal == 18, model.todayGoal.unit == .minutes, model.todayGoal.target == 45 else {
+        throw BooksAccessErrorForUI.failed("The tour's goal choice was not saved like a Settings change")
+    }
+    model.applyOnboardingGoals(unit: .pages, pages: 30, minutes: 45, annualBooks: nil)
+    guard model.annualBookGoal == nil, model.todayGoal.unit == .pages, model.todayGoal.target == 30 else {
+        throw BooksAccessErrorForUI.failed("Turning off the yearly goal in the tour did not clear it")
+    }
+    model.markOnboardingComplete()
+    guard !model.needsOnboarding else { throw BooksAccessErrorForUI.failed("A finished tour would show again") }
+
+    for dark in [false, true] {
+        NSApp.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+        for step in OnboardingStep.allCases {
+            let view = OnboardingView(model: model, flow: OnboardingFlow(model: model, step: step), finish: { _ in })
+            let hosting = NSHostingView(rootView: view.environment(\.colorScheme, dark ? .dark : .light))
+            hosting.frame = NSRect(origin: .zero, size: OnboardingView.size)
+            hosting.layoutSubtreeIfNeeded()
+            guard hosting.fittingSize.width.isFinite else { throw BooksAccessErrorForUI.failed("Invalid onboarding \(step.title) layout") }
+        }
+    }
+    print("ui-smoke: welcome tour routed, clamped goals, saved them like Settings and laid out \(OnboardingStep.allCases.count) steps")
 }
 
 @MainActor

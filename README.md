@@ -36,7 +36,11 @@ Move the app to `~/Applications` or `/Applications` before configuring permissio
 
 ## First use
 
-1. Click the book icon in the menu bar. No dashboard or Dock icon opens automatically.
+On a first launch (no existing history), a short welcome tour opens: what Stillleaf does, a daily goal in pages or minutes with an optional yearly books goal, Accessibility access for automatic tracking (the step updates live when access is granted), Open at login, and a theme. Every step can be skipped; closing the window counts as finished. Upgrades with existing history skip it. Replay it from Settings → Data & privacy → Help → Welcome tour. Motion follows the macOS Reduce Motion setting.
+
+After the tour, or to set things up by hand:
+
+1. Click the book icon in the menu bar. No Dock icon opens.
 2. Open Dashboard → Settings. The daily goal starts at 20 reading pages, using this Mac's initial timezone.
 3. Use Request Accessibility / Open Accessibility Settings and enable **Stillleaf**. macOS may require reopening the app. Granting access to Codex or Terminal does not necessarily grant the packaged tracker access.
 4. Open a real reading window in Books. If its focused document cannot be matched exactly to one catalog asset, the Health screen explains why automatic tracking is paused. Use **Start manual reading** for an unsupported reader, paper book, or deliberate side-by-side reading.

@@ -73,6 +73,10 @@ func renderUIPreviews(to destination: URL) throws {
         previews.append(("popover-manual", AnyView(PopoverView(model: manualModel))))
         previews.append(("popover-setup", AnyView(PopoverView(model: emptyModel, maximumHeight: 500))))
         previews.append(("today-empty", AnyView(DashboardView(model: emptyModel))))
+        for step in OnboardingStep.allCases {
+            previews.append(("onboarding-\(step.rawValue + 1)", AnyView(OnboardingView(model: emptyModel,
+                flow: OnboardingFlow(model: emptyModel, step: step), finish: { _ in }))))
+        }
         previews.append(("today-exceeded", AnyView(DashboardView(model: exceededModel))))
         if let entry = model.finishedBooks.first {
             previews.append(("finished-prompt", AnyView(FinishedBookPrompt(model: model, entry: entry))))
@@ -110,7 +114,7 @@ func renderUIPreviews(to destination: URL) throws {
                 "written-review": NSSize(width: 590, height: 540), "popover-minutes": NSSize(width: 350, height: 580),
                 "popover": NSSize(width: 350, height: 580), "popover-manual": NSSize(width: 350, height: 580),
                 "popover-setup": NSSize(width: 350, height: 500)]
-            try renderNativeView(AnyView(view), size: sizes[name] ?? NSSize(width: 1180, height: 820), appearance: appearance,
+            try renderNativeView(AnyView(view), size: name.hasPrefix("onboarding-") ? OnboardingView.size : sizes[name] ?? NSSize(width: 1180, height: 820), appearance: appearance,
                                  to: destination.appendingPathComponent("\(name)-\(dark ? "dark" : "light").png"))
         }
         let compact = DashboardView(model: model, initialSection: .history).environment(\.colorScheme, scheme)

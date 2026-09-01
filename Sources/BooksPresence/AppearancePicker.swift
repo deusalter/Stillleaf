@@ -39,7 +39,7 @@ struct AppearancePicker: View {
     }
 }
 
-private struct ThemeSwatch: View {
+struct ThemeSwatch: View {
     let theme: ReadingTheme
     let dark: Bool
     let selected: Bool
@@ -98,7 +98,7 @@ private struct ThemeSwatch: View {
     }
 }
 
-private struct AccentDot: View {
+struct AccentDot: View {
     let name: String
     let color: Color
     let selected: Bool

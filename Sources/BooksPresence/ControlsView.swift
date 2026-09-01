@@ -545,14 +545,26 @@ struct SettingsView: View {
                 }
             }
             ReadingSection("Help") {
-                HStack(spacing: 14) {
-                    Image(systemName: "questionmark.circle").font(.title3).foregroundStyle(ReadingPalette.accent)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Trouble with tracking?").font(.headline)
-                        Text("Check permissions and recent tracking issues.").font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack(spacing: 14) {
+                        Image(systemName: "questionmark.circle").font(.title3).foregroundStyle(ReadingPalette.accent)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Trouble with tracking?").font(.headline)
+                            Text("Check permissions and recent tracking issues.").font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
+                        }
+                        Spacer()
+                        Button("Troubleshooting") { present(.trackingHelp) }.controlSize(.small)
                     }
-                    Spacer()
-                    Button("Troubleshooting") { present(.trackingHelp) }.controlSize(.small)
+                    Hairline()
+                    HStack(spacing: 14) {
+                        Image(systemName: "sparkles").font(.title3).foregroundStyle(ReadingPalette.accent)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Welcome tour").font(.headline)
+                            Text("Revisit your goal, tracking access and theme in a few steps.").font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
+                        }
+                        Spacer()
+                        Button("Show tour") { model.showOnboarding() }.controlSize(.small)
+                    }
                 }
             }
             DisclosureGroup("Reset or uninstall", isExpanded: $showRemoval) {

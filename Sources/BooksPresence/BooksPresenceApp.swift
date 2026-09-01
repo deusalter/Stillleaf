@@ -13,6 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var outsideClickMonitor: Any?
     private var escapeKeyMonitor: Any?
     private var dashboard: NSWindow?
+    private var onboarding: NSWindow?
     private var shutdownSignal: DispatchSourceSignal?
     private var diagnosticTimer: Timer?
     private var pendingEPUBURLs: [URL] = []
@@ -28,15 +29,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
             try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: support.path)
             instance = try SingleInstance(lockURL: support.appendingPathComponent("tracker.lock"))
+            // Read before the model creates its database: an existing history means an upgrade, not a first launch.
+            let returning = FileManager.default.fileExists(atPath: support.appendingPathComponent("history.sqlite").path)
             let state = try AppModel(support: support)
             model = state
             state.dashboardAction = { [weak self] in self?.showDashboard() }
+            state.onboardingAction = { [weak self] in self?.showOnboarding() }
             let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
             item.button?.image = NSImage(systemSymbolName: "book.closed", accessibilityDescription: "Stillleaf reading tracker")
             item.button?.toolTip = "Stillleaf — reading activity"
             item.button?.target = self; item.button?.action = #selector(togglePopover)
             statusItem = item
             menuPanel = makeMenuPanel(model: state)
+            if state.needsOnboarding {
+                if returning { state.markOnboardingComplete() } else { showOnboarding() }
+            }
             if !pendingEPUBURLs.isEmpty {
                 let urls = pendingEPUBURLs; pendingEPUBURLs.removeAll()
                 state.epubLibrary.enqueue(urls)
@@ -84,6 +91,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             dashboard = window
         }
         dashboard?.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
+    }
+    /// The welcome tour. Closing it early counts as done; Settings can replay it.
+    func showOnboarding() {
+        guard let model else { return }
+        dismissMenuPanel()
+        if onboarding == nil {
+            let size = OnboardingView.size
+            let window = NSWindow(contentRect: NSRect(origin: .zero, size: size),
+                                  styleMask: [.titled, .closable, .fullSizeContentView], backing: .buffered, defer: false)
+            window.title = "Welcome to Stillleaf"
+            window.titleVisibility = .hidden
+            window.titlebarAppearsTransparent = true
+            window.isMovableByWindowBackground = true
+            window.standardWindowButton(.miniaturizeButton)?.isHidden = true
+            window.standardWindowButton(.zoomButton)?.isHidden = true
+            let view = OnboardingView(model: model, flow: OnboardingFlow(model: model)) { [weak self] destination in
+                self?.finishOnboarding(destination)
+            }
+            window.contentViewController = NSHostingController(rootView: view)
+            window.setContentSize(size)
+            window.isReleasedWhenClosed = false; window.delegate = self; window.center()
+            onboarding = window
+        }
+        onboarding?.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
+    }
+    private func finishOnboarding(_ destination: OnboardingDestination) {
+        guard let model else { return }
+        model.markOnboardingComplete()
+        onboarding?.close()
+        switch destination {
+        case .menuBar: showMenuPanel()
+        case .dashboard: showDashboard()
+        case .importBooks: model.epubLibrary.chooseFiles()
+        }
+    }
+    func windowWillClose(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow, window === onboarding else { return }
+        model?.markOnboardingComplete()
+        // Release after the close finishes; a replay starts a fresh tour.
+        Task { @MainActor [weak self] in self?.onboarding = nil }
     }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         showDashboard()
