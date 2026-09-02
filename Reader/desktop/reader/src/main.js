@@ -45,10 +45,15 @@ function linkLocator(link){
  try{const resolved=pool.resolve('',link.href);const fragment=resolved.fragment?decodeURIComponent(resolved.fragment.slice(1)):undefined;return validLocator({href:resolved.href,type:'text/html',title:link.title,locations:fragment?{fragments:[fragment]}:{progression:0}})}catch{return null}
 }
 function updateHistory(){$('return-jump').hidden=!jumpHistory.length;}
-async function returnFromJump(){
+// Readium drops a go() that arrives while another is in flight, so jumps run one at a time.
+// Return reads the history only once the jump ahead of it has recorded its origin.
+let navigation=Promise.resolve();
+function queueNavigation(task){const generation=lifecycle;const run=navigation.then(()=>generation===lifecycle?task():false);navigation=run.catch(()=>{});return run}
+function go(value,recordHistory=true){return queueNavigation(()=>jumpNow(value,recordHistory))}
+function returnFromJump(){return queueNavigation(async()=>{
  const target=jumpHistory.at(-1);if(!target)return false;
- if(await go(target,false)){jumpHistory.pop();updateHistory();return true}return false;
-}
+ if(await jumpNow(target,false)){jumpHistory.pop();updateHistory();return true}return false;
+})}
 function followPublicationLink(event){
  const anchor=event.target?.closest?.('a[href]');if(!anchor)return;
  event.preventDefault();event.stopImmediatePropagation();
@@ -271,7 +276,7 @@ function editNote(item=selection){
  document.querySelector(`input[name="note-color"][value="${colors[item.color]?item.color:'gold'}"]`).checked=true;
  showDialog('note-panel','note-text');
 }
-async function go(value,recordHistory=true){
+async function jumpNow(value,recordHistory){
  const locator=validLocator(value);if(!navigator||!locator)return false;quietUntil=performance.now()+800;
  if(!input.readingOrder.some(link=>link.href===locator.href)){notice('This saved passage is outside the supported reading sequence.');return false;}
  const before=lastLocator?clone(lastLocator):null;dismissSelection();
