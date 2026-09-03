@@ -45,10 +45,15 @@ function linkLocator(link){
  try{const resolved=pool.resolve('',link.href);const fragment=resolved.fragment?decodeURIComponent(resolved.fragment.slice(1)):undefined;return validLocator({href:resolved.href,type:'text/html',title:link.title,locations:fragment?{fragments:[fragment]}:{progression:0}})}catch{return null}
 }
 function updateHistory(){$('return-jump').hidden=!jumpHistory.length;}
-async function returnFromJump(){
+// Readium drops a go() that arrives while another is in flight, so jumps run one at a time.
+// Return reads the history only once the jump ahead of it has recorded its origin.
+let navigation=Promise.resolve();
+function queueNavigation(task){const generation=lifecycle;const run=navigation.then(()=>generation===lifecycle?task():false);navigation=run.catch(()=>{});return run}
+function go(value,recordHistory=true){return queueNavigation(()=>jumpNow(value,recordHistory))}
+function returnFromJump(){return queueNavigation(async()=>{
  const target=jumpHistory.at(-1);if(!target)return false;
- if(await go(target,false)){jumpHistory.pop();updateHistory();return true}return false;
-}
+ if(await jumpNow(target,false)){jumpHistory.pop();updateHistory();return true}return false;
+})}
 function followPublicationLink(event){
  const anchor=event.target?.closest?.('a[href]');if(!anchor)return;
  event.preventDefault();event.stopImmediatePropagation();
@@ -148,13 +153,19 @@ function visibleAnchor(){
  }
  return clone(lastLocator);
 }
+// Readium's destroy() waits for each frame to ack "unfocus", but a resize-driven CSS commit
+// halts hidden frames' comms and drops that ack, leaving destroy() (and open/close) unsettled.
+function destroyNavigator(current){
+ if(current&&current.kind!=='continuous'){current.resizeObserver?.disconnect();current.resizeHandler=async()=>{}}
+ return current?.destroy();
+}
 async function setPreferences(value,retained){
  if(!state)return;
  const location=retained??(navigator?.kind==='continuous'?visibleAnchor():stableAnchor??visibleAnchor());if(location)stableAnchor=clone(location);reflowCount++;
  const restore=Object.keys(value).some(key=>!['theme'].includes(key))||Object.keys(value).length===0;
  state.preferences=preferences({...state.preferences,...value});syncAppearance();changed();relayout();
  const settings=readiumPreferences(),generation=lifecycle;
- preferenceQueue=preferenceQueue.catch(()=>{}).then(async()=>{if(generation!==lifecycle||!navigator)return;const current=navigator,continuous=Boolean(input.experimentalContinuous&&settings.scroll);if((current.kind==='continuous')!==continuous){await current.destroy();if(generation===lifecycle)await installNavigator(location,settings)}else{await current.submitPreferences(new EpubPreferences(settings));if(restore&&location&&current===navigator&&generation===lifecycle){await new Promise(resolve=>setTimeout(resolve,120));if(generation===lifecycle)await go(location,false)}}});
+ preferenceQueue=preferenceQueue.catch(()=>{}).then(async()=>{if(generation!==lifecycle||!navigator)return;const current=navigator,continuous=Boolean(input.experimentalContinuous&&settings.scroll);if((current.kind==='continuous')!==continuous){await destroyNavigator(current);if(generation===lifecycle)await installNavigator(location,settings)}else{await current.submitPreferences(new EpubPreferences(settings));if(restore&&location&&current===navigator&&generation===lifecycle){await new Promise(resolve=>setTimeout(resolve,120));if(generation===lifecycle)await go(location,false)}}});
  try{await preferenceQueue}finally{reflowCount=Math.max(0,reflowCount-1)}
 }
 function dismissSelection(){selection=null;$('selection-tools').hidden=true;for(const f of document.querySelectorAll('#reader iframe'))f.contentWindow?.getSelection()?.removeAllRanges()}
@@ -265,7 +276,7 @@ function editNote(item=selection){
  document.querySelector(`input[name="note-color"][value="${colors[item.color]?item.color:'gold'}"]`).checked=true;
  showDialog('note-panel','note-text');
 }
-async function go(value,recordHistory=true){
+async function jumpNow(value,recordHistory){
  const locator=validLocator(value);if(!navigator||!locator)return false;quietUntil=performance.now()+800;
  if(!input.readingOrder.some(link=>link.href===locator.href)){notice('This saved passage is outside the supported reading sequence.');return false;}
  const before=lastLocator?clone(lastLocator):null;dismissSelection();
@@ -378,7 +389,7 @@ async function close(){
  lifecycle++;searchGeneration++;clearTimeout(resizeTimer);clearTimeout(searchTimer);clearTimeout(stateTimer);clearTimeout(noticeTimer);
  if(state)emit('state',{state:snapshot()});
  for(const dialog of document.querySelectorAll('dialog[open]'))dialog.close();
- await navigator?.destroy();navigator=undefined;pool?.close();pool=undefined;state=undefined;lastLocator=undefined;selection=undefined;$('selection-tools').hidden=true;$('notice').hidden=true;editingNote=undefined;return true;
+ const current=navigator;navigator=undefined;await preferenceQueue.catch(()=>{});await destroyNavigator(current);pool?.close();pool=undefined;state=undefined;lastLocator=undefined;selection=undefined;$('selection-tools').hidden=true;$('notice').hidden=true;editingNote=undefined;return true;
 }
 const api={open,close,prepareClose,hasPendingDraft,returnFromJump,next:()=>turn('next'),previous:()=>turn('previous'),go,setPreferences,bookmark:()=>lastLocator?clone(lastLocator):null,restore:go,exportState:snapshot,addBookmark,annotate};
 window.StillleafReader=Object.freeze(api);
