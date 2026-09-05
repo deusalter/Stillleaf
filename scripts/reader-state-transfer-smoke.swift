@@ -12,7 +12,7 @@ let publication = EPUBPublication(id: id, title: "Synthetic transfer", authors: 
 let locator: [String: Any] = ["href": "chapter.xhtml", "locations": ["progression": 0.25], "privateHostPath": "/synthetic/private"]
 func state(_ revision: Int, note: String) throws -> Data {
     try JSONSerialization.data(withJSONObject: ["schemaVersion": 1, "editionId": id, "revision": revision,
-        "position": locator, "preferences": ["theme": "system", "fontFamily": "publisher", "fontSize": 1.2, "lineHeight": 1.6, "measure": 65, "scroll": true, "fontWeight": NSNull(), "textAlign": "start", "hyphens": NSNull(), "letterSpacing": 0.125, "wordSpacing": 0.75, "columns": "two"] as [String: Any],
+        "position": locator, "preferences": ["theme": "custom", "fontFamily": "literata", "fontSize": 1.2, "lineHeight": 1.6, "measure": 65, "scroll": true, "fontWeight": NSNull(), "textAlign": "start", "hyphens": NSNull(), "letterSpacing": 0.125, "wordSpacing": 0.75, "columns": "two", "contentWidth": 97.5, "sideMargin": 14.25, "immersive": true, "backgroundColor": "#aBcD12", "textColor": NSNull()] as [String: Any],
         "bookmarks": [["id": "bookmark", "locator": locator, "label": "Remember", "createdAt": "2026-09-24T12:00:00Z"] as [String: Any]],
         "annotations": [["id": "annotation", "locator": locator, "quote": "Synthetic quote", "note": note, "color": "gold", "createdAt": "2026-09-24T12:00:00Z", "updatedAt": "2026-09-24T12:00:00Z"] as [String: Any]], "privateToken": "synthetic-secret"] as [String: Any])
 }
@@ -44,6 +44,9 @@ let restoredPrefs = restoredObject["preferences"] as! [String: Any]
 precondition(restoredPrefs["scroll"] as? Bool == true && restoredPrefs["fontWeight"] is NSNull && restoredPrefs["hyphens"] is NSNull)
 precondition(restoredPrefs["textAlign"] as? String == "start" && restoredPrefs["columns"] as? String == "two")
 precondition(restoredPrefs["letterSpacing"] as? Double == 0.125 && restoredPrefs["wordSpacing"] as? Double == 0.75)
+precondition(restoredPrefs["theme"] as? String == "custom" && restoredPrefs["fontFamily"] as? String == "literata")
+precondition(restoredPrefs["contentWidth"] as? Double == 97.5 && restoredPrefs["sideMargin"] as? Double == 14.25 && restoredPrefs["immersive"] as? Bool == true)
+precondition(restoredPrefs["backgroundColor"] as? String == "#aBcD12" && restoredPrefs["textColor"] is NSNull)
 let newerFile = temporary.appendingPathComponent("newer.json")
 try state(3, note: "Incoming changes").write(to: newerFile)
 let newer = try importer.previewImport(from: newerFile, publication: publication)
@@ -76,11 +79,15 @@ let symbolicFile = temporary.appendingPathComponent("symbolic.json")
 try fm.createSymbolicLink(at: symbolicFile, withDestinationURL: file)
 rejects("symlink input") { _ = try importer.previewImport(from: symbolicFile, publication: publication) }
 let afterInvalid = try destinationStore.load(publication: publication)!; precondition(afterInvalid == beforeInvalid)
-// Verify the exported raw schema with the Windows host validator when that host is checked out.
-let windowsValidator = URL(fileURLWithPath: fm.currentDirectoryPath).appendingPathComponent("Reader/desktop/src/reader-state.cjs")
-if fm.fileExists(atPath: windowsValidator.path) {
-    let node = Process(); node.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-    node.arguments = ["node", "-e", "const fs=require('node:fs'); const {validateState}=require(process.argv[1]); const value=JSON.parse(fs.readFileSync(process.argv[2],'utf8')); const validated=validateState(value,value.editionId,{manifest:[{path:'chapter.xhtml'}]}); require('node:assert/strict').deepEqual(validated.preferences,value.preferences); console.log('reader-state-transfer-smoke: Windows validator accepted native export');", windowsValidator.path, file.path]
-    try node.run(); node.waitUntilExit(); precondition(node.terminationStatus == 0)
-} else { print("reader-state-transfer-smoke: Windows validator not checked out; parity check skipped") }
-print("reader-state-transfer-smoke: checksummed portable JSON, no-overwrite export, private-field filtering, idempotence, explicit conflicts, stale/invalid protection passed")
+// Verify the exported raw schema with the actual Windows host validator.
+let node = Process(); node.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+node.arguments = ["node", "-e", "const fs=require('node:fs'); const {validateState}=require(process.argv[1]); const value=JSON.parse(fs.readFileSync(process.argv[2],'utf8')); const validated=validateState(value,value.editionId,{manifest:[{path:'chapter.xhtml'}]}); require('node:assert/strict').deepEqual(validated.preferences,value.preferences); fs.writeFileSync(process.argv[3],JSON.stringify(validated)); console.log('Windows validator accepted native export');", URL(fileURLWithPath: fm.currentDirectoryPath).appendingPathComponent("Reader/desktop/src/reader-state.cjs").path, file.path, temporary.appendingPathComponent("node-export.json").path]
+try node.run(); node.waitUntilExit(); precondition(node.terminationStatus == 0)
+let nodeExport = temporary.appendingPathComponent("node-export.json")
+let crossHostStore = ReaderStateStore(directory: temporary.appendingPathComponent("cross-host"))
+let crossHostTransfer = ReaderStateTransfer(store: crossHostStore)
+let crossHostPreview = try crossHostTransfer.previewImport(from: nodeExport, publication: publication)
+let crossHostApplied = try crossHostTransfer.apply(crossHostPreview); precondition(crossHostApplied)
+let crossHostState = try JSONSerialization.jsonObject(with: crossHostStore.load(publication: publication)!) as! [String: Any]
+precondition(NSDictionary(dictionary: crossHostState["preferences"] as! [String: Any]).isEqual(to: restoredPrefs))
+print("reader-state-transfer-smoke: checksummed portable JSON, no-overwrite export, private-field filtering, idempotence, explicit conflicts, stale/invalid protection, Windows parity passed")

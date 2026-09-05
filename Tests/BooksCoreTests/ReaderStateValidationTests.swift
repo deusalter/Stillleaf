@@ -42,7 +42,7 @@ final class ReaderStateValidationTests: XCTestCase {
             let lower = try XCTUnwrap(text.range(of: start))
             let upper = try XCTUnwrap(text.range(of: end, range: lower.upperBound..<text.endIndex))
             let section = String(text[lower.upperBound..<upper.lowerBound])
-            let pattern = try NSRegularExpression(pattern: "\\{id:'([a-z]+)'")
+            let pattern = try NSRegularExpression(pattern: "\\{id:'([a-z-]+)'")
             return Set(pattern.matches(in: section, range: NSRange(section.startIndex..., in: section)).compactMap {
                 Range($0.range(at: 1), in: section).map { String(section[$0]) }
             })
@@ -54,6 +54,25 @@ final class ReaderStateValidationTests: XCTestCase {
         let marginSection = String(text[margins.upperBound..<marginsEnd.lowerBound])
         XCTAssertEqual(Set(ReaderStateValidation.marginChoices.filter { marginSection.contains(" \($0):{") }), ReaderStateValidation.marginChoices)
         XCTAssertEqual(marginSection.components(separatedBy: ":{label:").count - 1, ReaderStateValidation.marginChoices.count)
+    }
+    func testOptionalAppearancePreservesLegacyAndValidBounds() throws {
+        XCTAssertNoThrow(try validate(state))
+        for theme in ["white", "stone", "mist", "forest", "dusk", "midnight", "custom"] {
+            for family in ["literata", "source-serif", "lora", "libre-baskerville", "atkinson", "inter", "nunito", "source-sans", "georgia", "palatino", "monospace"] {
+                var value = state; var preferences = state["preferences"] as! [String: Any]
+                preferences.merge(["theme": theme, "fontFamily": family, "contentWidth": 40, "sideMargin": 96, "immersive": true, "backgroundColor": "#aBcD12", "textColor": NSNull()]) { _, new in new }
+                value["preferences"] = preferences
+                XCTAssertNoThrow(try validate(value))
+            }
+        }
+    }
+    func testAppearanceRejectsCoercionOutOfBoundsAndCSSColors() {
+        let invalid: [(String, Any)] = [("contentWidth", true), ("contentWidth", 39.99), ("contentWidth", 100.01), ("sideMargin", false), ("sideMargin", -0.01), ("sideMargin", 96.01), ("immersive", 1), ("immersive", NSNull()), ("backgroundColor", "#112233\n"), ("textColor", "#fff"), ("textColor", "rgb(1,2,3)"), ("backgroundColor", "url(https://example.invalid)")]
+        for (key, candidate) in invalid {
+            var value = state; var preferences = state["preferences"] as! [String: Any]
+            preferences[key] = candidate; value["preferences"] = preferences
+            XCTAssertThrowsError(try validate(value), key)
+        }
     }
     func testBooleansAreNotNumericVersionsOrRevisions() {
         for key in ["schemaVersion", "revision"] {

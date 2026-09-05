@@ -100,8 +100,8 @@ function validateLocator(value, paths) {
 }
 // Appearance ids shared with Reader/desktop/reader/src/appearance.js and the Mac
 // validator (ReaderStateValidation). Ids are never renamed once saved.
-const THEMES = ["system", "original", "paper", "sepia", "calm", "focus", "quiet", "dark", "night"];
-const FONT_FAMILIES = ["publisher", "newyork", "sans", "athelas", "charter", "serif", "iowan", "palatino", "seravek", "times"];
+const THEMES = ["system", "original", "paper", "sepia", "calm", "focus", "quiet", "dark", "night", "white", "stone", "mist", "forest", "dusk", "midnight", "custom"];
+const FONT_FAMILIES = ["publisher", "newyork", "sans", "athelas", "charter", "serif", "iowan", "palatino", "seravek", "times", "literata", "source-serif", "lora", "libre-baskerville", "atkinson", "inter", "nunito", "source-sans", "georgia", "monospace"];
 const MARGINS = ["narrow", "normal", "wide"];
 function emptyState(id) {
   return {
@@ -152,7 +152,7 @@ function validateState(value, id, publication) {
       throw Error("Invalid " + key);
     result.preferences[key] = p[key];
   }
-  for (const key of ["scroll", "hyphens"]) {
+  for (const key of ["scroll", "hyphens", "immersive"]) {
     if (p[key] !== undefined) {
       if (!(key === "hyphens" && p[key] === null) && typeof p[key] !== "boolean")
         throw Error("Invalid " + key);
@@ -167,6 +167,19 @@ function validateState(value, id, publication) {
   for (const key of ["letterSpacing", "wordSpacing"]) {
     if (p[key] !== undefined) {
       if (!Number.isFinite(p[key]) || p[key] < 0 || p[key] > 1) throw Error("Invalid " + key);
+      result.preferences[key] = p[key];
+    }
+  }
+  for (const [key, min, max] of [["contentWidth", 40, 100], ["sideMargin", 0, 96]]) {
+    if (p[key] !== undefined) {
+      if (key === "sideMargin" && p[key] === null) { result.preferences[key] = null; continue; }
+      if (!Number.isFinite(p[key]) || p[key] < min || p[key] > max) throw Error("Invalid " + key);
+      result.preferences[key] = p[key];
+    }
+  }
+  for (const key of ["backgroundColor", "textColor"]) {
+    if (p[key] !== undefined) {
+      if (p[key] !== null && (typeof p[key] !== "string" || p[key].length !== 7 || !/^#[0-9a-fA-F]{6}$/.test(p[key]))) throw Error("Invalid " + key);
       result.preferences[key] = p[key];
     }
   }

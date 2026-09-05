@@ -4,6 +4,7 @@ import {createServer} from 'node:http';
 import {readFile,mkdir} from 'node:fs/promises';
 import path from 'node:path';
 import {chromium} from 'playwright';
+import {THEMES} from '../src/appearance.js';
 
 // Page themes, typefaces and margins, measured inside the rendered book frame.
 const root=path.resolve(import.meta.dirname,'../dist');
@@ -43,7 +44,7 @@ test('themes, typefaces and margins apply to the page and persist',{timeout:1200
  await page.emulateMedia({colorScheme:'light'});await themed('paper');
 
  await page.getByRole('button',{name:'Appearance',exact:true}).click();
- assert.equal(await page.locator('#theme-options button').count(),9,'System plus eight page themes');
+ assert.equal(await page.locator('#theme-options button').count(),THEMES.length+1,'Every page theme plus System');
  for(const [id,background]of Object.entries(themes)){
   await page.getByRole('button',{name:labels[id],exact:true}).click();await settle();
   const state=await frame();
@@ -94,5 +95,21 @@ test('themes, typefaces and margins apply to the page and persist',{timeout:1200
  await page.evaluate(input=>window.StillleafReader.open(input),{...book,state:{...saved,preferences:{...saved.preferences,theme:'aurora',fontFamily:'comic',margins:'huge'}}});
  const fallback=await page.evaluate(()=>window.StillleafReader.exportState().preferences);
  assert.deepEqual({theme:fallback.theme,fontFamily:fallback.fontFamily,margins:fallback.margins},{theme:'system',fontFamily:'publisher',margins:'normal'});
+ // Bundled font bytes must render inside the publication, survive navigation/reopen,
+ // and coexist with the older saved theme/margin IDs.
+ await page.evaluate(()=>window.StillleafReader.setPreferences({fontFamily:'literata',theme:'custom',backgroundColor:'#162530',textColor:'#F2E6CB',contentWidth:80,sideMargin:18}));
+ await page.waitForFunction(()=>[...document.querySelectorAll('#reader iframe')].some(f=>f.contentDocument&&[...f.contentDocument.fonts].some(face=>face.family.includes('Stillleaf Literata')&&face.status==='loaded')));
+ await page.waitForFunction(()=>[...document.querySelectorAll('#reader iframe')].some(f=>f.contentDocument?.getElementById('first')&&f.contentWindow.getComputedStyle(f.contentDocument.documentElement).backgroundColor==='rgb(22, 37, 48)'),null,{timeout:5000});
+ const custom=await frame();assert.equal(custom.background,'rgb(22, 37, 48)');assert.match(custom.font,/Stillleaf Literata/);
+ const customState=await page.evaluate(()=>window.StillleafReader.exportState());
+ await page.evaluate(input=>window.StillleafReader.open(input),{...book,state:customState});
+ assert.deepEqual(await page.evaluate(()=>window.StillleafReader.exportState().preferences),customState.preferences);
+ await page.getByRole('button',{name:'Focus reading',exact:true}).click();
+ await page.waitForFunction(()=>document.documentElement.classList.contains('immersive'));
+ assert.equal(await page.locator('.reader-bar').isVisible(),false);
+ await page.getByRole('button',{name:'Show reading controls',exact:true}).click();
+ await page.waitForFunction(()=>!document.documentElement.classList.contains('immersive'));
+ await page.getByRole('button',{name:'Appearance',exact:true}).click();
+ await page.screenshot({path:path.join(artifacts,'appearance-integrated.png')});
  assert.deepEqual(errors,[]);
 });

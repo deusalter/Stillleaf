@@ -105,12 +105,14 @@ private final class EPUBReaderWindow: NSObject, NSWindowDelegate, WKNavigationDe
         let window = NSWindow(contentRect: webView.frame, styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         window.title = publication.title; window.titlebarAppearsTransparent = true
         window.minSize = NSSize(width: 520, height: 440)
+        // Menu-bar (accessory) apps get no full-screen behavior unless a window opts in.
+        window.collectionBehavior.insert(.fullScreenPrimary)
         window.contentView = webView; window.isReleasedWhenClosed = false
         window.delegate = self; window.center(); self.window = window
         webView.load(URLRequest(url: map.url(for: "index.html")!))
     }
 
-    func show() { window?.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true) }
+    func show() { AppPresence.willPresentWindow(); window?.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true) }
     func windowDidBecomeKey(_ notification: Notification) { focused?() }
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         Task { await requestClose() }
@@ -283,6 +285,8 @@ private final class EPUBReaderWindow: NSObject, NSWindowDelegate, WKNavigationDe
         }
         var input: [String: Any] = ["editionId": publication.id, "title": publication.title, "creators": publication.authors,
             "layout": publication.layout ?? "reflowable", "canReturnToLibrary": true,
+            // Continuous reads as one scroll across chapters; without this, scroll mode stops at each chapter end.
+            "experimentalContinuous": true,
             "readingOrder": publication.spine.map { path in ["href": path, "type": publication.resources.first(where: { $0.path == path })?.mediaType ?? "application/xhtml+xml"] }, "resources": resources]
         for (key, links) in [("toc", publication.toc), ("landmarks", publication.landmarks), ("pageList", publication.pageList)] {
             if let links { input[key] = try JSONSerialization.jsonObject(with: JSONEncoder().encode(links)) }
@@ -336,6 +340,9 @@ func runEPUBReaderSmoke(fixture: URL) async throws {
     let state = temporary.appendingPathComponent("ReaderState")
     let reader = try await EPUBReaderWindow(publication: imported.publication, directory: imported.directory, stateDirectory: state)
     defer { reader.window?.close() }
+    guard reader.window?.collectionBehavior.contains(.fullScreenPrimary) == true else {
+        throw EPUBImportError.invalid("Reader window cannot enter full screen.")
+    }
     reader.window?.setFrameOrigin(NSPoint(x: -20_000, y: -20_000))
     reader.window?.orderBack(nil)
     let deadline = Date().addingTimeInterval(20)
@@ -364,7 +371,12 @@ func runEPUBReaderSmoke(fixture: URL) async throws {
         throw EPUBImportError.invalid("Reader location was not persisted through the authenticated bridge.")
     }
     try await reader.testAddDurableNote()
-    let expectedPreferences = try await reader.testReadingModes()
+    var expectedPreferences = try await reader.testReadingModes()
+    if CommandLine.arguments.contains("--reader-appearance-review") {
+        guard let index = CommandLine.arguments.firstIndex(of: "--reader-artifacts"), index + 1 < CommandLine.arguments.count else { throw EPUBImportError.invalid("Appearance proof needs an artifact directory.") }
+        try await reader.testAppearanceReview(directory: URL(fileURLWithPath: CommandLine.arguments[index + 1]))
+        expectedPreferences = try await reader.testPreferences()
+    }
     guard await reader.requestClose() else { throw EPUBImportError.invalid("Reader close did not complete.") }
     let closedState = try JSONSerialization.jsonObject(with: Data(contentsOf: locationURL)) as? [String: Any]
     guard let notes = closedState?["annotations"] as? [[String: Any]],
@@ -471,7 +483,7 @@ private extension EPUBReaderWindow {
         const geometry=frames().map(f=>{const d=f.contentDocument,e=d.scrollingElement,b=d.body,old=e.scrollTop,before=b.getBoundingClientRect().top;e.scrollTop=100;const probe={scrollTop:e.scrollTop,bodyMoved:b.getBoundingClientRect().top-before};e.scrollTop=old;return {height:f.clientHeight,content:e.scrollHeight,clientHeight:e.clientHeight,bodyScrollHeight:b.scrollHeight,bodyHeight:b.getBoundingClientRect().height,rootHeight:d.documentElement.getBoundingClientRect().height,overflow:f.contentWindow.getComputedStyle(e).overflow,renderedBottom:Math.max(b.getBoundingClientRect().bottom,...[...b.querySelectorAll('*')].map(x=>x.getBoundingClientRect().bottom)),renderedRight:Math.max(b.getBoundingClientRect().right,...[...b.querySelectorAll('*')].map(x=>x.getBoundingClientRect().right)),probe,width:f.clientWidth,contentWidth:e.scrollWidth}});
         require(geometry.every(x=>x.probe.scrollTop===0&&Math.abs(x.probe.bodyMoved)<0.1&&x.renderedBottom<=x.height+2&&x.renderedRight<=x.width+2),'internal iframe scrolling or clipped content: '+JSON.stringify(geometry));
         const outerBefore=flow.scrollTop;first.contentDocument.dispatchEvent(new first.contentWindow.KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true,cancelable:true}));await pause(150);
-        require(flow.scrollTop>outerBefore&&frames().every(f=>f.contentDocument.scrollingElement.scrollTop===0),'keyboard did not scroll outer surface exclusively');
+        require(flow.scrollTop>outerBefore&&frames().every(f=>f.contentDocument.scrollingElement.scrollTop===0),'keyboard did not scroll outer surface exclusively'+JSON.stringify({outerBefore,after:flow.scrollTop,max:flow.scrollHeight-flow.clientHeight,inner:frames().map(f=>f.contentDocument.scrollingElement.scrollTop)}));
         const href=input.readingOrder[1].href;
         await api.go({href,type:'text/html',locations:{progression:0}});await pause(150);
         const frame=frames().find(f=>f.parentElement.dataset.href===href),node=frame.contentDocument.querySelector('p').firstChild;
@@ -530,6 +542,86 @@ private extension EPUBReaderWindow {
         } while Date() < deadline
         return false
     }
+    func testAppearanceReview(directory: URL) async throws {
+        // Fixture-only narrow stress size; production keeps its 520-point minimum.
+        window?.minSize = NSSize(width: 390, height: 440)
+        let prepare = """
+        const api=window.StillleafReader,book=JSON.parse(payload);book.state=api.exportState();book.experimentalContinuous=true;
+        await api.open(book);
+        window.appearanceBaseline={notes:JSON.stringify(api.exportState().annotations),bookmarks:JSON.stringify(api.exportState().bookmarks)};
+        window.appearanceTarget={href:book.readingOrder[0].href,type:'text/html',locations:{cssSelector:'body > p:nth-of-type(2)'},text:{highlight:'She had meant to read only a few pages.'}};
+        await api.go(window.appearanceTarget);return true;
+        """
+        let _: Any = try await withCheckedThrowingContinuation { continuation in
+            webView.callAsyncJavaScript(prepare, arguments: ["payload": payload], in: nil, in: .page) { result in continuation.resume(with: result) }
+        }
+        var records: [[String: Any]] = []
+        let scenarios: [(String, Int, Int, String, String, Bool, String, Double, Bool, Bool)] = [
+            ("appearance-literata", 1280, 900, "literata", "paper", false, "one", 1.2, false, false),
+            ("appearance-lora-wide", 1400, 900, "lora", "sepia", false, "one", 1.2, false, true),
+            ("appearance-atkinson-facing", 1400, 900, "atkinson", "white", false, "two", 1.2, false, true),
+            ("appearance-night", 1400, 900, "literata", "midnight", false, "two", 1.2, false, true),
+            ("appearance-custom-continuous", 1400, 900, "lora", "custom", true, "one", 1.2, false, true),
+            ("appearance-narrow520-large", 520, 800, "atkinson", "midnight", false, "one", 3.0, false, true),
+            ("appearance-narrow390-large", 390, 800, "atkinson", "paper", true, "one", 3.0, false, true),
+            ("appearance-focus", 1400, 900, "literata", "midnight", false, "one", 1.5, true, true)
+        ]
+        for (name, width, height, font, theme, scroll, columns, scale, immersive, wide) in scenarios {
+            window?.setContentSize(NSSize(width: width, height: height))
+            try await Task.sleep(nanoseconds: 400_000_000)
+            let script = """
+            const api=window.StillleafReader;
+            await api.setPreferences({fontFamily:font,theme,scroll,columns,fontSize:scale,immersive,contentWidth:wide?100:90,measure:wide?110:65,sideMargin:wide?8:32,lineHeight:1.6,fontWeight:null,textAlign:'publisher',letterSpacing:0,wordSpacing:0,backgroundColor:'#162530',textColor:'#F2E6CB'});
+            await new Promise(r=>setTimeout(r,400));
+            const frames=[...document.querySelectorAll('#reader iframe')].filter(f=>getComputedStyle(f).visibility!=='hidden'&&f.contentDocument?.body);
+            const family={literata:'Stillleaf Literata',lora:'Stillleaf Lora',atkinson:'Stillleaf Atkinson Hyperlegible'}[font];
+            const metrics=[];
+            for(const f of frames){
+              const d=f.contentDocument,w=f.contentWindow,b=d.body,p=d.querySelector('p'),e=d.scrollingElement;
+              const loaded=await d.fonts.load('400 18px "'+family+'"');await d.fonts.ready;
+              const faces=[...d.fonts].filter(face=>face.family.replace(/['"]/g,'')===family).map(face=>({family:face.family,status:face.status,weight:face.weight,style:face.style}));
+              const rect=f.getBoundingClientRect(),style=w.getComputedStyle(p),before=b.getBoundingClientRect().top;
+              const sample=d.createElement('span');sample.textContent='Hamburgefontsiv 0123456789 Wide margins and little leaves';sample.style.cssText='position:absolute;white-space:nowrap;font-size:20px;font-weight:400;font-style:normal;letter-spacing:0;word-spacing:0';p.append(sample);
+              sample.style.setProperty('font-family',style.fontFamily,'important');const actualWidth=sample.getBoundingClientRect().width;sample.style.setProperty('font-family','"'+family+'"','important');const desiredWidth=sample.getBoundingClientRect().width;sample.style.setProperty('font-family','serif','important');const fallbackWidth=sample.getBoundingClientRect().width;sample.remove();
+              const renderedFont={actualWidth,desiredWidth,fallbackWidth,matches:Math.abs(actualWidth-desiredWidth)<.5&&Math.abs(desiredWidth-fallbackWidth)>1};
+              let probe=null;if(scroll){e.scrollTop=100;probe={top:e.scrollTop,movement:b.getBoundingClientRect().top-before};e.scrollTop=0}
+              const target=d.querySelector('body > p:nth-of-type(2)'),range=d.createRange();range.setStart(target.firstChild,0);range.setEnd(target.firstChild,Math.min(12,target.firstChild.length));
+              const targetRects=[...range.getClientRects()].map(r=>({top:r.top,bottom:r.bottom,left:r.left,right:r.right}));
+              metrics.push({family:style.fontFamily,faces,renderedFont,loaded:loaded.length,color:style.color,background:w.getComputedStyle(b).backgroundColor,fontSize:style.fontSize,zoom:w.getComputedStyle(b).zoom,width:f.clientWidth,height:f.clientHeight,left:rect.left,right:rect.right,rootWidth:e.scrollWidth,rootHeight:e.scrollHeight,probe,renderedBottom:Math.max(b.getBoundingClientRect().bottom,...[...b.querySelectorAll('*')].map(x=>x.getBoundingClientRect().bottom)),renderedRight:Math.max(b.getBoundingClientRect().right,...[...b.querySelectorAll('*')].map(x=>x.getBoundingClientRect().right)),targetRects});
+            }
+            const saved=api.exportState(),flow=document.querySelector('#reader'),bounds=flow.getBoundingClientRect();
+            const retained=saved.position?.href===window.appearanceTarget.href&&JSON.stringify(saved.annotations)===window.appearanceBaseline.notes&&JSON.stringify(saved.bookmarks)===window.appearanceBaseline.bookmarks;
+            const targetVisible=frames.some((f,i)=>metrics[i].targetRects.some(r=>{const v=f.getBoundingClientRect();return r.bottom+v.top>bounds.top&&r.top+v.top<bounds.bottom&&r.right>0&&r.left<f.clientWidth}));
+            return JSON.stringify({name,width:innerWidth,height:innerHeight,preferences:saved.preferences,retained,targetVisible,fontsLoaded:metrics.length>0&&metrics.every(m=>m.loaded>0&&m.renderedFont.matches&&m.family.includes(family)&&m.faces.some(f=>f.status==='loaded')),outerOverflow:document.documentElement.scrollWidth>innerWidth+1,immersiveActive:document.documentElement.classList.contains('immersive'),returnControlVisible:!document.querySelector('#leave-focus').hidden,readerWidth:bounds.width,frames:metrics});
+            """
+            let output: Any = try await withCheckedThrowingContinuation { continuation in
+                webView.callAsyncJavaScript(script, arguments: ["name": name, "font": font, "theme": theme, "scroll": scroll, "columns": columns, "scale": scale, "immersive": immersive, "wide": wide], in: nil, in: .page) { result in continuation.resume(with: result) }
+            }
+            let text = output as? String ?? "{}"
+            let record = try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any] ?? [:]
+            try Data(text.utf8).write(to: directory.appendingPathComponent(name + "-metrics.json"))
+            let picture: NSImage = try await withCheckedThrowingContinuation { continuation in
+                webView.takeSnapshot(with: nil) { image, error in
+                    if let image { continuation.resume(returning: image) }
+                    else { continuation.resume(throwing: error ?? EPUBImportError.invalid("Appearance snapshot failed.")) }
+                }
+            }
+            guard let tiff = picture.tiffRepresentation, let bitmap = NSBitmapImageRep(data: tiff), let png = bitmap.representation(using: .png, properties: [:]) else { throw EPUBImportError.invalid("Appearance image encoding failed.") }
+            try png.write(to: directory.appendingPathComponent(name + ".png"))
+            guard record["fontsLoaded"] as? Bool == true, record["retained"] as? Bool == true, record["targetVisible"] as? Bool == true, record["outerOverflow"] as? Bool == false else { throw EPUBImportError.invalid("Appearance validation failed for \(name): \(text)") }
+            if scroll {
+                let frames = record["frames"] as? [[String: Any]] ?? []
+                guard frames.allSatisfy({ f in
+                    let probe = f["probe"] as? [String: Any] ?? [:]
+                    return (probe["top"] as? Double ?? -1) == 0 && abs(probe["movement"] as? Double ?? -1) < 0.1 && (f["renderedBottom"] as? Double ?? .infinity) <= (f["height"] as? Double ?? 0) + 2 && (f["renderedRight"] as? Double ?? .infinity) <= (f["width"] as? Double ?? 0) + 2
+                }) else { throw EPUBImportError.invalid("Appearance continuous geometry failed: \(text)") }
+            }
+            records.append(record)
+        }
+        let data = try JSONSerialization.data(withJSONObject: records, options: [.prettyPrinted, .sortedKeys])
+        try data.write(to: directory.appendingPathComponent("appearance-summary.json"))
+        print("epub-reader-appearance: bundled fonts, palette, width, narrow stress, immersive, semantic target and personal-data checks passed")
+    }
     func testPreferences() async throws -> String {
         try await webView.evaluateJavaScript("JSON.stringify(window.StillleafReader.exportState().preferences)") as? String ?? ""
     }
@@ -554,16 +646,17 @@ private extension EPUBReaderWindow {
             var metrics: [String: Any] = [:]
             repeat {
                 try await Task.sleep(nanoseconds: 150_000_000)
-                let value = try await webView.evaluateJavaScript("JSON.stringify((()=>{const f=[...document.querySelectorAll('#reader iframe')].find(f=>getComputedStyle(f).visibility!=='hidden'&&f.contentDocument?.body);if(!f)return {};const d=f.contentDocument,s=f.contentWindow.getComputedStyle(d.documentElement);return {width:f.clientWidth,columns:s.columnCount,view:s.getPropertyValue('--USER__view').trim(),height:d.scrollingElement.scrollHeight,viewport:f.contentWindow.innerHeight,preferences:window.StillleafReader.exportState().preferences}})())") as? String ?? "{}"
+                let value = try await webView.evaluateJavaScript("JSON.stringify((()=>{const f=[...document.querySelectorAll('#reader iframe')].find(f=>getComputedStyle(f).visibility!=='hidden'&&f.contentDocument?.body);if(!f)return {};const d=f.contentDocument,s=f.contentWindow.getComputedStyle(d.documentElement);return {continuous:document.querySelector('#reader').classList.contains('continuous-reader'),width:f.clientWidth,columns:s.columnCount,view:s.getPropertyValue('--USER__view').trim(),height:d.scrollingElement.scrollHeight,viewport:f.contentWindow.innerHeight,preferences:window.StillleafReader.exportState().preferences}})())") as? String ?? "{}"
                 metrics = try JSONSerialization.jsonObject(with: Data(value.utf8)) as? [String: Any] ?? [:]
-                if scrolling ? (metrics["view"] as? String == "readium-scroll-on" && metrics["columns"] as? String == "auto") : metrics["columns"] as? String == expectedColumns { break }
+                if scrolling ? metrics["continuous"] as? Bool == true : metrics["columns"] as? String == expectedColumns { break }
             } while Date() < deadline
             let preferences = metrics["preferences"] as? [String: Any]
-            guard (scrolling ? (metrics["view"] as? String == "readium-scroll-on" && metrics["columns"] as? String == "auto") : metrics["columns"] as? String == expectedColumns),
+            guard (scrolling ? metrics["continuous"] as? Bool == true : metrics["columns"] as? String == expectedColumns),
                   preferences?["columns"] as? String == columns, preferences?["scroll"] as? Bool == scrolling,
                   try await testHref() == originalHref, try await testNoteLength() == 65_536,
                   try await testBookmarkCount() == 1 else {
-                throw EPUBImportError.invalid("Native reading mode \(name) failed geometry or state retention: \(metrics)")
+                let href = try await testHref(), note = try await testNoteLength(), bookmarks = try await testBookmarkCount()
+                throw EPUBImportError.invalid("Native reading mode \(name) failed geometry or state retention: href \(href) (was \(originalHref)), note \(note), bookmarks \(bookmarks), \(metrics)")
             }
             metrics["mode"] = name; captures.append(metrics)
         }

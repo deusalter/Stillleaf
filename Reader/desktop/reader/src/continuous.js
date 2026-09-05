@@ -33,7 +33,9 @@ export class ContinuousNavigator {
  kind='continuous';
  constructor(container,input,pool,listeners,initial,settings){
   this.container=container;this.input=input;this.pool=pool;this.listeners=listeners;this.initial=serial(initial);this.settings=settings;this.entries=[];this.destroyed=false;this.epoch=0;this.queue=Promise.resolve();this.suppress=0;this.decorations=[];this.decorationObserver=null;this.current=null;this.lastAnchor=null;this.lastInput=0;this.currentIndex=0;this.ownTop=0;this.readerAnchor=null;
-  this.onScroll=()=>{if(this.destroyed)return;if(this.suppress){if(this.moved())this.noteReaderScroll();return}this.lastInput=performance.now();cancelAnimationFrame(this.scrollFrame);this.scrollFrame=requestAnimationFrame(()=>{this.report();void this.updateWindow()})};
+  this.evidenceTop=0;
+  // Every programmatic scroll goes through setTop, which moves evidenceTop too, so the delta seen here is the reader's.
+  this.onScroll=()=>{if(this.destroyed)return;const top=this.container.scrollTop,delta=top-this.evidenceTop;this.evidenceTop=top;if(this.suppress){if(this.moved()){this.noteReaderScroll();this.listeners.readerScrolled?.(delta,this.container.clientHeight)}return}this.listeners.readerScrolled?.(delta,this.container.clientHeight);this.lastInput=performance.now();cancelAnimationFrame(this.scrollFrame);this.scrollFrame=requestAnimationFrame(()=>{this.report();void this.updateWindow()})};
   this.onResize=()=>{if(this.destroyed)return;clearTimeout(this.resizeTimer);this.resizeTimer=setTimeout(()=>void this.remeasure(),60)};
  }
  async load(){
@@ -49,7 +51,7 @@ export class ContinuousNavigator {
  }
  baseCSS(){return 'html{overflow:hidden!important;min-height:0!important;height:auto!important;font-size:16px}body{margin:0!important;min-height:0!important;height:auto!important;box-sizing:border-box;font-family:Georgia,"Times New Roman",serif;font-size:1rem;line-height:1.6}img,video{max-width:100%;height:auto}:where(h1,h2,h3,h4,h5,h6){break-after:avoid}:where(pre){white-space:pre-wrap}';}
  preferenceCSS(){
-  const p=this.settings,gutter=p.scrollPaddingLeft??44,weight=p.fontWeight==null?'':`font-weight:${p.fontWeight}!important;`,family=p.fontFamily?`font-family:${p.fontFamily}!important;`:'';
+  const p=this.settings,gutter=(p.scrollPaddingLeft??44)/p.fontSize,weight=p.fontWeight==null?'':`font-weight:${p.fontWeight}!important;`,family=p.fontFamily?`font-family:${p.fontFamily}!important;`:'';
   const align=p.textAlign?`text-align:${p.textAlign}!important;`:'';const hyphens=typeof p.hyphens==='boolean'?`hyphens:${p.hyphens?'auto':'none'}!important;-webkit-hyphens:${p.hyphens?'auto':'none'}!important;`:'';
   return `html{background:${p.backgroundColor};color:${p.textColor}}body{padding:24px ${gutter}px 32px!important;zoom:${p.fontSize};color:${p.textColor}!important;background:${p.backgroundColor}!important;line-height:${p.lineHeight}!important;${weight}${family}}:where(p,li,dd,dt,blockquote){${weight?'font-weight:inherit!important;':''}${family?'font-family:inherit!important;':''}${align}${hyphens}letter-spacing:${p.letterSpacing??0}rem!important;word-spacing:${p.wordSpacing??0}rem!important}a{color:${p.linkColor}!important}::selection{background:${p.selectionBackgroundColor}}${p.darkenFilter?'img,svg,video{filter:brightness(.8)}':''}`;
  }
@@ -64,7 +66,10 @@ export class ContinuousNavigator {
   const base=doc.createElement('style');base.textContent=this.baseCSS();doc.head.prepend(base);
   const policy=doc.createElement('meta');policy.httpEquiv='Content-Security-Policy';policy.content="default-src 'none'; script-src 'none'; style-src 'unsafe-inline' blob:; img-src blob: data:; font-src blob: data:; connect-src 'none'; object-src 'none'; frame-src 'none'; form-action 'none'";doc.head.prepend(policy);
   const appearance=doc.createElement('style');entry.appearance=appearance;appearance.textContent=this.preferenceCSS();doc.head.append(appearance);
-  const frame=document.createElement('iframe');frame.title=entry.link.title||`Section ${entry.index+1}`;frame.sandbox='allow-same-origin';frame.style.height='1px';frame.className='continuous-chapter-frame';entry.frame=frame;
+  const frame=document.createElement('iframe');frame.title=entry.link.title||`Section ${entry.index+1}`;// WebKit runs no event listener, not even the reader's own, in a frame sandboxed without scripts, so
+  // selection, notes, links and keys would be dead. Book scripts stay blocked: the sanitizer strips them and
+  // the chapter's CSP above is script-src 'none'.
+  frame.sandbox='allow-same-origin allow-scripts';frame.style.height='1px';frame.className='continuous-chapter-frame';entry.frame=frame;
   entry.url=URL.createObjectURL(new Blob(['<!doctype html>'+doc.documentElement.outerHTML],{type:'text/html'}));entry.section.replaceChildren(frame);
   await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('The section took too long to load.')),8000);frame.onload=()=>{clearTimeout(timer);resolve()};frame.onerror=()=>{clearTimeout(timer);reject(Error('The section could not be displayed.'))};frame.src=entry.url});
   if(this.destroyed||generation!==this.epoch)return;
@@ -78,9 +83,11 @@ export class ContinuousNavigator {
  }
  measure(entry){
   const doc=entry.frame?.contentDocument;if(!doc?.body)return;
-  // getBoundingClientRect is already in rendered CSS pixels in both WK and Chromium.
-  // WK also returns a zoomed scrollHeight; multiplying that by zoom double-counts it.
-  let bottom=doc.body.getBoundingClientRect().bottom;
+  // WebKit reports a zoomed body's rectangles unzoomed, so a frame sized from them alone clips the
+  // end of every chapter (by a sixth at the default 1.2 text size). The root's scroll height is the
+  // rendered extent in both engines, but never reads below the frame's own height: collapse it first.
+  entry.frame.style.height='1px';
+  let bottom=Math.max(doc.body.getBoundingClientRect().bottom,doc.documentElement.scrollHeight);
   const walk=doc.createTreeWalker(doc.body,NodeFilter.SHOW_ELEMENT);let element,count=0;
   while((element=walk.nextNode())){if(++count>20000)throw Error('This section is too complex for continuous view. Use a paginated mode.');bottom=Math.max(bottom,element.getBoundingClientRect().bottom)}
   const height=Math.ceil(Math.max(120,bottom));
@@ -131,12 +138,14 @@ export class ContinuousNavigator {
      return {locator:{href:entry.link.href,type:'text/html',title:entry.link.title,locations:{position:entry.index+1,progression:Math.max(0,Math.min(1,(viewport.top-bounds.top)/entry.height)),cssSelector:selectorFor(node.parentElement),domRange:{start,end}},text:{highlight:text}},offset:y-viewport.top};
     }}
    }
+   // A cover or full-page illustration at the top is still the reader's place; record how far into it they are.
+   if(Math.min(bounds.bottom,viewport.bottom)-Math.max(bounds.top,viewport.top)>=48)return {locator:{href:entry.link.href,type:'text/html',title:entry.link.title,locations:{position:entry.index+1,progression:Math.max(0,Math.min(1,(viewport.top-bounds.top)/entry.height))}},offset:0};
   }return null;
  }
  captureLocator(){return this.captureAnchor()?.locator??this.current;}
- restoreAnchorNow(anchor){const entry=this.entries.find(e=>e.link.href===anchor.locator.href);if(!entry?.frame)return false;const range=locatorRange(entry.frame.contentDocument,anchor.locator);if(!range)return false;this.setTop(this.container.scrollTop+entry.frame.getBoundingClientRect().top+range.getBoundingClientRect().top-this.container.getBoundingClientRect().top-anchor.offset);return true;}
+ restoreAnchorNow(anchor){const entry=this.entries.find(e=>e.link.href===anchor.locator.href);if(!entry?.frame)return false;const range=locatorRange(entry.frame.contentDocument,anchor.locator),progression=anchor.locator.locations?.progression;if(!range&&typeof progression!=='number')return false;const into=range?range.getBoundingClientRect().top-anchor.offset:progression*entry.height;this.setTop(this.container.scrollTop+entry.frame.getBoundingClientRect().top+into-this.container.getBoundingClientRect().top);return true;}
  /** Every scroll the adapter makes goes through here, so any other movement is the reader's. */
- setTop(top){this.container.scrollTop=top;this.ownTop=this.container.scrollTop;}
+ setTop(top){this.container.scrollTop=top;this.ownTop=this.evidenceTop=this.container.scrollTop;}
  moved(){
   const flow=this.container,top=flow.scrollTop;if(Math.abs(top-this.ownTop)<=1)return false;
   // Content shrinking under the viewport clamps scrollTop: that is layout, not the reader.
@@ -166,8 +175,11 @@ export class ContinuousNavigator {
   }finally{this.suppress--}await this.ensureWindow(index);this.report();return true;
  }
  go(locator,_animated,callback){this.navigate(locator).then(callback,error=>{this.listeners.error?.(error);callback(false)})}
- goForward(_animated,callback){const entry=this.entries[Math.min(this.entries.length-1,this.currentIndex+1)];this.go({href:entry.link.href,type:'text/html',locations:{progression:0}},false,callback)}
- goBackward(_animated,callback){const entry=this.entries[Math.max(0,this.currentIndex-1)];this.go({href:entry.link.href,type:'text/html',locations:{progression:0}},false,callback)}
+ // Next and Previous move one screen, like Page Down, so the book never jumps to a chapter start.
+ // The reader asked for it, so it arrives in onScroll as reading, not through setTop.
+ goForward(_animated,callback){this.step(1,callback)}
+ goBackward(_animated,callback){this.step(-1,callback)}
+ step(direction,callback){const flow=this.container,before=flow.scrollTop;flow.scrollBy({top:direction*flow.clientHeight*.9,behavior:'auto'});requestAnimationFrame(()=>callback(Math.abs(flow.scrollTop-before)>1))}
  async submitPreferences(settings){
   const anchor=this.captureAnchor();this.suppress++;this.settings=settings;
   try{for(const entry of this.entries)if(entry.frame)entry.appearance.textContent=this.preferenceCSS();await nextPaint();for(const entry of this.entries)if(entry.frame)this.measure(entry);this.settle(anchor)}finally{this.suppress--}this.report();

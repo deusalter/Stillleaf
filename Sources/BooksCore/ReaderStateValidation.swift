@@ -30,8 +30,8 @@ public enum ReaderStateValidation {
         return result
     }
     /// Appearance ids shared with the renderer's `appearance.js`. Ids are never renamed once saved.
-    public static let themes: Set<String> = ["system", "original", "paper", "sepia", "calm", "focus", "quiet", "dark", "night"]
-    public static let fontFamilies: Set<String> = ["publisher", "newyork", "sans", "athelas", "charter", "serif", "iowan", "palatino", "seravek", "times"]
+    public static let themes: Set<String> = ["system", "original", "paper", "sepia", "calm", "focus", "quiet", "dark", "night", "white", "stone", "mist", "forest", "dusk", "midnight", "custom"]
+    public static let fontFamilies: Set<String> = ["publisher", "newyork", "sans", "athelas", "charter", "serif", "iowan", "palatino", "seravek", "times", "literata", "source-serif", "lora", "libre-baskerville", "atkinson", "inter", "nunito", "source-sans", "georgia", "monospace"]
     public static let marginChoices: Set<String> = ["narrow", "normal", "wide"]
     public static func validate(_ data: Data, publication: EPUBPublication) throws {
         guard data.count <= maximumBytes, publication.id.count == 64, publication.id.allSatisfy({ "0123456789abcdef".contains($0) }),
@@ -45,7 +45,7 @@ public enum ReaderStateValidation {
         for (key, lower, upper) in [("fontSize", 0.5, 3.0), ("lineHeight", 1.0, 3.0), ("measure", 20.0, 120.0)] {
             guard let n = number(preferences[key]), n >= lower, n <= upper else { throw Failure.invalidState }
         }
-        for key in ["scroll", "hyphens"] {
+        for key in ["scroll", "hyphens", "immersive"] {
             if let value = preferences[key] {
                 if key == "hyphens", value is NSNull { continue }
                 guard let value = value as? NSNumber, CFGetTypeID(value) == CFBooleanGetTypeID() else { throw Failure.invalidState }
@@ -56,6 +56,18 @@ public enum ReaderStateValidation {
         }
         for key in ["letterSpacing", "wordSpacing"] {
             if let value = preferences[key] { guard let n = number(value), n >= 0, n <= 1 else { throw Failure.invalidState } }
+        }
+        for (key, lower, upper) in [("contentWidth", 40.0, 100.0), ("sideMargin", 0.0, 96.0)] {
+            if let value = preferences[key] {
+                if key == "sideMargin", value is NSNull { continue }
+                guard let n = number(value), n >= lower, n <= upper else { throw Failure.invalidState }
+            }
+        }
+        for key in ["backgroundColor", "textColor"] {
+            if let value = preferences[key], !(value is NSNull) {
+                guard let color = value as? String, color.utf8.count == 7, color.first == "#",
+                      color.dropFirst().allSatisfy({ "0123456789abcdefABCDEF".contains($0) }) else { throw Failure.invalidState }
+            }
         }
         if let alignment = preferences["textAlign"] { guard let alignment = alignment as? String, ["publisher", "start", "justify"].contains(alignment) else { throw Failure.invalidState } }
         if let columns = preferences["columns"] { guard let columns = columns as? String, ["one", "two"].contains(columns) else { throw Failure.invalidState } }

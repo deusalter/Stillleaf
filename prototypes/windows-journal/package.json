@@ -1,0 +1,19 @@
+{
+  "name": "stillleaf-windows-prototype",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Standalone local reading journal prototype",
+  "author": "Stillleaf",
+  "main": "src/main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/core.test.cjs",
+    "test:desktop": "node --test test/desktop.test.cjs",
+    "package:windows": "electron-packager . StillleafJournal --platform=win32 --arch=x64 --out=dist --overwrite --asar --ignore=^/test --ignore=^/dist"
+  },
+  "devDependencies": {
+    "electron": "44.4.5",
+    "@electron/packager": "20.3.0",
+    "playwright": "1.63.0"
+  }
+}

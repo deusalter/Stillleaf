@@ -2,6 +2,7 @@ import {EpubNavigator,EpubPreferences,DecorationStyleType} from '@readium/naviga
 import {Manifest,Publication,Locator} from '@readium/shared';
 import {PublicationResources,PublicationFetcher} from './resources';
 import {ContinuousNavigator} from './continuous';
+import {fontCSS,installFont,contrast} from './bundled-fonts';
 import {DEFAULT_PREFERENCES,preferences,restoreState,selectorFor,rangePoint} from './state';
 import {THEMES,FONTS,MARGINS,resolveTheme,fontStack,fontAvailable,marginMetrics,averageCharacterWidth} from './appearance';
 
@@ -82,19 +83,28 @@ function updatePosition(){
  $('save-bookmark').setAttribute('aria-pressed',String(saved));$('save-bookmark').setAttribute('aria-label',saved?'Remove bookmark':'Add bookmark');$('save-bookmark').title=saved?'Remove bookmark':'Add bookmark';
 }
 function samePlace(a,b){return a.href===b.href&&Math.abs((a.locations?.progression??0)-(b.locations?.progression??0))<.002}
-function currentTheme(){return resolveTheme(state?.preferences.theme??'system',media.matches)}
+function currentTheme(){
+ const p=state?.preferences,t=resolveTheme(p?.theme??'system',media.matches);
+ if(p?.theme!=='custom')return t;
+ const background=p.backgroundColor??t.background,text=p.textColor??t.text;
+ return {...t,background,text,link:text,chrome:background,panel:background,muted:text};
+}
 function theme(){return currentTheme().id}
 const compactWindow=()=>innerWidth<640;
+function readingMargins(){
+ const p=state.preferences,m=marginMetrics(p.margins,compactWindow());
+ return {...m,gutter:p.sideMargin==null?m.gutter:Math.min(p.sideMargin,Math.max(0,(innerWidth/effectiveColumns()-240)/2))};
+}
 function readiumPreferences(){
- const p=state.preferences,t=currentTheme(),{gutter}=marginMetrics(p.margins,compactWindow());
- return {fontSize:p.fontSize,fontFamily:fontStack(p.fontFamily),fontWeight:p.fontWeight,textAlign:p.textAlign==='publisher'?null:p.textAlign,hyphens:p.hyphens,letterSpacing:p.letterSpacing,wordSpacing:p.wordSpacing,scroll:p.scroll,scrollPaddingTop:0,scrollPaddingBottom:0,scrollPaddingLeft:gutter,scrollPaddingRight:gutter,lineHeight:p.lineHeight,optimalLineLength:p.measure,maximalLineLength:Math.min(75,p.measure+5),minimalLineLength:effectiveColumns()===2?Math.min(20,p.measure):Math.min(p.measure,Math.max(20,p.measure-15)),pageGutter:gutter,columnCount:effectiveColumns(),backgroundColor:t.background,textColor:t.text,linkColor:t.link,selectionBackgroundColor:t.selection,darkenFilter:t.dimImages===true};
+ const p=state.preferences,t=currentTheme(),{gutter}=readingMargins();
+ return {fontSize:p.fontSize,fontFamily:fontStack(p.fontFamily),fontWeight:p.fontWeight,textAlign:p.textAlign==='publisher'?null:p.textAlign,hyphens:p.hyphens,letterSpacing:p.letterSpacing,wordSpacing:p.wordSpacing,scroll:p.scroll,scrollPaddingTop:0,scrollPaddingBottom:0,scrollPaddingLeft:gutter,scrollPaddingRight:gutter,lineHeight:p.lineHeight,optimalLineLength:p.measure,maximalLineLength:p.measure+5,minimalLineLength:Math.min(effectiveColumns()===2?Math.min(20,p.measure):Math.min(p.measure,Math.max(20,p.measure-15)),Math.max(1,Math.floor((readingWidth()/effectiveColumns()-2*gutter)/(16*p.fontSize*.55)))),pageGutter:gutter,columnCount:effectiveColumns(),backgroundColor:t.background,textColor:t.text,linkColor:t.link,selectionBackgroundColor:t.selection,darkenFilter:t.dimImages===true};
 }
 /** Page width for the chosen measure: the chosen typeface's measured advance, or an
  *  average serif estimate when the publisher's own font is in use. */
 function readingWidth(){
- const p=state.preferences,{gutter}=marginMetrics(p.margins,compactWindow()),size=16*p.fontSize,stack=fontStack(p.fontFamily);
+ const p=state.preferences,{gutter}=readingMargins(),size=16*p.fontSize,stack=fontStack(p.fontFamily);
  const perCharacter=(stack&&averageCharacterWidth(stack,size))||size*.48;
- return (p.measure*perCharacter+2*gutter)*effectiveColumns();
+ return Math.min(innerWidth*p.contentWidth/100,(p.measure*perCharacter+2*gutter)*effectiveColumns());
 }
 function applyChromeTheme(t){
  const root=document.documentElement.style;root.colorScheme=t.scheme;
@@ -122,8 +132,8 @@ function renderAppearanceControls(){
  }
  if(focused)fonts.querySelector(`[data-font="${focused}"]`)?.focus();
  const margins=$('margins');
- if(!margins.childElementCount)for(const [id,m]of Object.entries(MARGINS)){const b=document.createElement('button');b.dataset.margins=id;b.setAttribute('role','radio');b.textContent=m.label;b.onclick=()=>void setPreferences({margins:id});margins.append(b)}
- for(const b of margins.children){const on=b.dataset.margins===(state?.preferences.margins??'normal');b.setAttribute('aria-checked',String(on));b.tabIndex=on?0:-1}
+ if(!margins.childElementCount)for(const [id,m]of Object.entries(MARGINS)){const b=document.createElement('button');b.dataset.margins=id;b.setAttribute('role','radio');b.textContent=m.label;b.onclick=()=>void setPreferences({margins:id,sideMargin:null});margins.append(b)}
+ for(const b of margins.children){const on=state?.preferences.sideMargin==null&&b.dataset.margins===(state?.preferences.margins??'normal');b.setAttribute('aria-checked',String(on));b.tabIndex=on?0:-1}
 }
 function syncAppearance(){
  if(!state)return;
@@ -132,13 +142,25 @@ function syncAppearance(){
  document.documentElement.style.setProperty('--reading-width',readingWidth()+'px');
  document.documentElement.style.setProperty('--page-inset',marginMetrics(state.preferences.margins,compactWindow()).inset+'px');
  renderAppearanceControls();
+ const p=state.preferences,root=document.documentElement;
+ root.classList.toggle('immersive',p.immersive);$('immersive').checked=p.immersive;
+ $('leave-focus').hidden=!p.immersive;$('focus-reading').setAttribute('aria-pressed',String(p.immersive));
+ $('background-color').value=p.backgroundColor??t.background;$('text-color').value=p.textColor??t.text;
+ $('contrast-note').textContent='Text contrast: '+contrast(t.background,t.text).toFixed(1)+':1'+(contrast(t.background,t.text)<4.5?' · Low contrast':'');
+ $('content-width').value=p.contentWidth;$('content-width-value').textContent=p.contentWidth+'%';
+ $('side-margin').value=readingMargins().gutter;$('side-margin-value').textContent=Math.round(readingMargins().gutter)+' px';
  for(const button of document.querySelectorAll('[data-theme]'))button.setAttribute('aria-pressed',String(button.dataset.theme===state.preferences.theme));
- $('reading-mode').value=state.preferences.scroll?'continuous':state.preferences.columns==='two'?'facing':'single';$('font-weight').querySelector('[data-custom]')?.remove();if(state.preferences.fontWeight!==null&&![400,700].includes(state.preferences.fontWeight)){const option=document.createElement('option');option.dataset.custom='true';option.value=String(state.preferences.fontWeight);option.textContent='Custom ('+state.preferences.fontWeight+')';$('font-weight').append(option)}$('font-weight').value=state.preferences.fontWeight==null?'publisher':String(state.preferences.fontWeight);$('text-align').value=state.preferences.textAlign;$('hyphens').value=state.preferences.hyphens==null?'publisher':String(state.preferences.hyphens);
+ {const mode=state.preferences.scroll?'continuous':state.preferences.columns==='two'?'facing':'single';for(const b of $('reading-mode').querySelectorAll('[role=radio]')){const on=b.dataset.mode===mode;b.setAttribute('aria-checked',String(on));b.tabIndex=on?0:-1}}$('font-weight').querySelector('[data-custom]')?.remove();if(state.preferences.fontWeight!==null&&![400,700].includes(state.preferences.fontWeight)){const option=document.createElement('option');option.dataset.custom='true';option.value=String(state.preferences.fontWeight);option.textContent='Custom ('+state.preferences.fontWeight+')';$('font-weight').append(option)}$('font-weight').value=state.preferences.fontWeight==null?'publisher':String(state.preferences.fontWeight);$('text-align').value=state.preferences.textAlign;$('hyphens').value=state.preferences.hyphens==null?'publisher':String(state.preferences.hyphens);
  $('previous').title=state.preferences.scroll?'Previous section':'Previous page';$('next').title=state.preferences.scroll?'Next section':'Next page';
- $('columns-note').textContent=state.preferences.scroll?'Columns apply when reading in pages.':state.preferences.columns==='two'&&!widePage.matches?'Two columns return when the window is wider.':'Two columns use one column in narrow windows.';
+ $('columns-note').textContent=state.preferences.scroll||state.preferences.columns!=='two'?'':widePage.matches?'A narrow window shows one page at a time.':'Widen the window to see both pages.';
  for(const [id,key]of [['letter-spacing','letterSpacing'],['word-spacing','wordSpacing']]){$(id).value=state.preferences[key];$(id+'-value').textContent=Math.round(state.preferences[key]*100)+'%';}
  for(const [id,key]of [['font-size','fontSize'],['line-height','lineHeight'],['measure','measure']])$(id).value=state.preferences[key];
  $('font-size-value').textContent=Math.round(state.preferences.fontSize*100)+'%';$('line-height-value').textContent=state.preferences.lineHeight.toFixed(2).replace(/0$/,'');$('measure-value').textContent='About '+Math.round(state.preferences.measure)+' characters';
+}
+async function prepareFont(id,generation){
+ const css=await fontCSS(id);if(generation!==lifecycle||!pool)return;
+ if(pool.trustedFontCSS!==css){pool.trustedFontCSS=css;pool.chapters.clear()}
+ await Promise.all([installFont(document,id,css),...[...document.querySelectorAll('#reader iframe')].map(frame=>frame.contentDocument?installFont(frame.contentDocument,id,css):Promise.resolve())]);
 }
 function visibleAnchor(){
  if(navigator?.kind==='continuous')return navigator.captureLocator();
@@ -161,11 +183,11 @@ function destroyNavigator(current){
 }
 async function setPreferences(value,retained){
  if(!state)return;
- const location=retained??(navigator?.kind==='continuous'?visibleAnchor():stableAnchor??visibleAnchor());if(location)stableAnchor=clone(location);reflowCount++;
+ const location=retained??stableAnchor??visibleAnchor();if(location)stableAnchor=clone(location);reflowCount++;
  const restore=Object.keys(value).some(key=>!['theme'].includes(key))||Object.keys(value).length===0;
  state.preferences=preferences({...state.preferences,...value});syncAppearance();changed();relayout();
- const settings=readiumPreferences(),generation=lifecycle;
- preferenceQueue=preferenceQueue.catch(()=>{}).then(async()=>{if(generation!==lifecycle||!navigator)return;const current=navigator,continuous=Boolean(input.experimentalContinuous&&settings.scroll);if((current.kind==='continuous')!==continuous){await destroyNavigator(current);if(generation===lifecycle)await installNavigator(location,settings)}else{await current.submitPreferences(new EpubPreferences(settings));if(restore&&location&&current===navigator&&generation===lifecycle){await new Promise(resolve=>setTimeout(resolve,120));if(generation===lifecycle)await go(location,false)}}});
+ const settings=readiumPreferences(),generation=lifecycle,fontId=state.preferences.fontFamily;
+ preferenceQueue=preferenceQueue.catch(()=>{}).then(async()=>{if(generation!==lifecycle||!navigator)return;await prepareFont(fontId,generation);if(generation!==lifecycle||!navigator)return;const current=navigator,continuous=Boolean(input.experimentalContinuous&&settings.scroll);if((current.kind==='continuous')!==continuous){await destroyNavigator(current);if(generation===lifecycle)await installNavigator(location,settings)}else{await current.submitPreferences(new EpubPreferences(settings));if(restore&&location&&current===navigator&&generation===lifecycle){await new Promise(resolve=>setTimeout(resolve,120));if(generation===lifecycle)await go(location,false)}}});
  try{await preferenceQueue}finally{reflowCount=Math.max(0,reflowCount-1)}
 }
 function dismissSelection(){selection=null;$('selection-tools').hidden=true;for(const f of document.querySelectorAll('#reader iframe'))f.contentWindow?.getSelection()?.removeAllRanges()}
@@ -286,12 +308,12 @@ async function jumpNow(value,recordHistory){
 // page turns in paginated modes and full screens scrolled by the reader. Jumps
 // (contents, search, links, bookmarks), restores, reflow and resizes never are. Each
 // layout gets its own key, so the host starts a fresh baseline after any change.
-let layoutGeneration=0,announcedLayout=null,quietUntil=0,scrollState=new WeakMap();
+let layoutGeneration=0,announcedLayout=null,quietUntil=0,scrollState=new WeakMap(),continuousNet=0;
 const pagesPerTurn=()=>state?.preferences.scroll?1:effectiveColumns();
 const layoutKey=()=>(state?.preferences.scroll?'s':'p')+pagesPerTurn()+'-'+layoutGeneration;
-function announceLayout(){if(!state||opening||navigator?.kind==='continuous')return;const layout=layoutKey();if(layout===announcedLayout)return;announcedLayout=layout;emit('pageLayout',{layout,pages:pagesPerTurn()})}
-function relayout(){layoutGeneration++;quietUntil=performance.now()+800;scrollState=new WeakMap();announceLayout()}
-function pageTurned(direction){if(!state||navigator?.kind==='continuous')return;announceLayout();emit('pageTurn',{direction,pages:pagesPerTurn(),layout:layoutKey()})}
+function announceLayout(){if(!state||opening)return;const layout=layoutKey();if(layout===announcedLayout)return;announcedLayout=layout;emit('pageLayout',{layout,pages:pagesPerTurn()})}
+function relayout(){layoutGeneration++;quietUntil=performance.now()+800;scrollState=new WeakMap();continuousNet=0;announceLayout()}
+function pageTurned(direction){if(!state)return;announceLayout();emit('pageTurn',{direction,pages:pagesPerTurn(),layout:layoutKey()})}
 /** Scroll mode: one page-equivalent per full screen of net movement by the reader. */
 function trackScroll(wnd){
  if(!state?.preferences.scroll||navigator?.kind==='continuous')return;
@@ -304,6 +326,15 @@ function trackScroll(wnd){
  while(net>=height){net-=height;pageTurned('forward')}
  while(net<=-height){net+=height;pageTurned('backward')}
  scrollState.set(wnd,{y,net});
+}
+/** Continuous view: the adapter reports only the reader's own movement; its layout corrections never arrive here. */
+function trackContinuousScroll(delta,height){
+ if(!state?.preferences.scroll||navigator?.kind!=='continuous')return;
+ if(performance.now()>=quietUntil&&!reflowCount&&!resizing)stableAnchor=visibleAnchor();
+ if(performance.now()<quietUntil||reflowCount||resizing||!(height>0)||Math.abs(delta)>height*1.5){continuousNet=0;return}
+ continuousNet+=delta;
+ while(continuousNet>=height){continuousNet-=height;pageTurned('forward')}
+ while(continuousNet<=-height){continuousNet+=height;pageTurned('backward')}
 }
 // One turn at a time: overlapping goForward/goBackward calls across a chapter edge left every frame hidden.
 let turning=false,turnWatchdog=0;
@@ -322,7 +353,7 @@ async function crossScrollBoundary(wnd,delta,event){
 function keyboard(event){
  if(event.defaultPrevented||event.altKey||event.metaKey||event.ctrlKey)return;
  const tag=event.target?.tagName;if(['INPUT','TEXTAREA','SELECT'].includes(tag)||event.target?.isContentEditable)return;
- if(event.key==='Escape'){$('selection-tools').hidden=true;return}
+ if(event.key==='Escape'){$('selection-tools').hidden=true;if(state?.preferences.immersive&&!document.querySelector('dialog[open]')){event.preventDefault();void setPreferences({immersive:false})}return}
  if(document.querySelector('dialog[open]'))return;
  if(event.key==='ArrowRight'||event.key==='ArrowLeft'){
   const rtl=input?.readingProgression==='rtl'||navigator?.readingProgression==='rtl';
@@ -356,6 +387,7 @@ async function installNavigator(location,settings=readiumPreferences()){
   const listeners={
    positionChanged:locator=>{if(generation!==lifecycle||!state)return;lastLocator=locator.serialize();if(opening&&state.position){updatePosition();return;}state.position=clone(lastLocator);updatePosition();changed(false);emit('relocated',{locator:lastLocator,cause:'unknown',eligibleForProgress:false})},
    frameUnloaded:wnd=>frames.delete(wnd),
+   readerScrolled:(delta,height)=>{if(generation===lifecycle)trackContinuousScroll(delta,height)},
    textSelected:value=>{if(generation===lifecycle)selected(value)},
    frameLoaded:wnd=>{if(!wnd.CSS?.highlights&&navigator)navigator.decorationsAvailable=false;if(!frames.has(wnd)){frames.add(wnd);wnd.document.addEventListener('keydown',keyboard);wnd.addEventListener('wheel',event=>{void crossScrollBoundary(wnd,event.deltaY,event);if(!boundaryBusy)setTimeout(()=>{if(!reflowCount&&!resizing)stableAnchor=visibleAnchor()},100)},{passive:false});wnd.document.addEventListener('keydown',event=>{if(['ArrowDown','PageDown','ArrowUp','PageUp'].includes(event.key)&&!['INPUT','TEXTAREA','SELECT'].includes(event.target?.tagName)){void crossScrollBoundary(wnd,['ArrowDown','PageDown'].includes(event.key)?1:-1,event);setTimeout(()=>{if(!boundaryBusy&&!reflowCount&&!resizing)stableAnchor=visibleAnchor()},100)}});wnd.document.addEventListener('pointerup',followPublicationLink,true);wnd.addEventListener('scroll',()=>trackScroll(wnd),{passive:true});wnd.document.addEventListener('click',followPublicationLink,true);wnd.document.addEventListener('keyup',()=>{const text=wnd.getSelection()?.toString();if(text&&lastLocator&&navigator?.kind!=='continuous')selected({text,locator:Locator.deserialize({...lastLocator,text:{highlight:text}})});});}},
    error:error=>{notice(error.message);emit('error',{message:error.message})}
@@ -379,7 +411,7 @@ async function open(value){
   pool=new PublicationResources(value.resources);state=restoreState(value.state,value.editionId,validLocator);
   const override=validLocator(value.locator);if(override)state.position=override;
   $('reader').replaceChildren();$('book-title').textContent=value.title??'Untitled';$('book-author').textContent=value.creators?.join(', ')??'';document.title=(value.title??'Book')+' · Stillleaf';$('back').hidden=!value.canReturnToLibrary;
-  syncAppearance();
+  syncAppearance();await prepareFont(state.preferences.fontFamily,lifecycle);
   await installNavigator(state.position);opening=false;emit('ready',{warnings:[...pool.warnings]});announcedLayout=null;relayout();changed();
   if(pool.warnings.size&&$('notice').hidden)notice('Some original styling or illustrations could not be displayed.');
  }catch(error){opening=false;$('error').textContent=error.message;$('error').hidden=false;emit('error',{message:error.message});throw error}
@@ -401,13 +433,13 @@ $('search').onclick=()=>{if(state)showDialog('search-panel','search-query')};
 for(const tab of ['contents','bookmarks','notes'])$('tab-'+tab).onclick=()=>renderPanel(tab);
 document.querySelector('.panel-tabs').addEventListener('keydown',event=>{if(['ArrowRight','ArrowLeft'].includes(event.key)){event.preventDefault();const tabs=['contents','bookmarks','notes'];const next=tabs[(tabs.indexOf(activeTab)+(event.key==='ArrowRight'?1:2))%3];renderPanel(next);$('tab-'+next).focus()}});
 // Radio groups: arrow keys move the choice, as in native segmented controls.
-for(const group of [$('font-options'),$('margins')])group.addEventListener('keydown',event=>{
+for(const group of [$('font-options'),$('margins'),$('reading-mode')])group.addEventListener('keydown',event=>{
  const step={ArrowRight:1,ArrowDown:1,ArrowLeft:-1,ArrowUp:-1}[event.key];if(!step)return;event.preventDefault();
  const items=[...group.querySelectorAll('[role=radio]')],next=items[(items.indexOf(document.activeElement)+step+items.length)%items.length];next?.focus();next?.click();
 });
 document.fonts?.ready.then(()=>{if(state)renderAppearanceControls()});
 for(const [id,key]of [['font-size','fontSize'],['line-height','lineHeight'],['measure','measure']])$(id).oninput=()=>void setPreferences({[key]:Number($(id).value)});
-$('reading-mode').onchange=()=>{const mode=$('reading-mode').value;void setPreferences({scroll:mode==='continuous',...(mode!=='continuous'?{columns:mode==='facing'?'two':'one'}:{})})};
+for(const b of $('reading-mode').querySelectorAll('[role=radio]'))b.onclick=()=>{const mode=b.dataset.mode;if(b.getAttribute('aria-checked')==='true')return;void setPreferences({scroll:mode==='continuous',...(mode!=='continuous'?{columns:mode==='facing'?'two':'one'}:{})})};
 $('font-weight').onchange=()=>void setPreferences({fontWeight:$('font-weight').value==='publisher'?null:Number($('font-weight').value)});
 $('text-align').onchange=()=>void setPreferences({textAlign:$('text-align').value});
 $('hyphens').onchange=()=>void setPreferences({hyphens:$('hyphens').value==='publisher'?null:$('hyphens').value==='true'});
@@ -422,3 +454,11 @@ $('keep-draft').onclick=()=>decideDraft('keep');$('discard-draft').onclick=()=>d
 $('delete-note').onclick=()=>{if(!editingNote?.id)return;state.annotations=state.annotations.filter(x=>x.id!==editingNote.id);applyAnnotations();changed();editingNote=undefined;closeDialog($('note-panel'));dismissSelection();notice('Highlight and note removed.');};
 media.addEventListener('change',()=>{if(state?.preferences.theme==='system')void setPreferences({})});
 emit('available');
+
+for(const id of ['background-color','text-color'])$(id).oninput=()=>void setPreferences({theme:'custom',backgroundColor:$('background-color').value,textColor:$('text-color').value});
+for(const [id,key]of [['content-width','contentWidth'],['side-margin','sideMargin']])$(id).oninput=()=>void setPreferences({[key]:Number($(id).value)});
+$('smaller-type').onclick=()=>void setPreferences({fontSize:Math.round((state.preferences.fontSize-.01)*100)/100});
+$('larger-type').onclick=()=>void setPreferences({fontSize:Math.round((state.preferences.fontSize+.01)*100)/100});
+$('immersive').onchange=()=>void setPreferences({immersive:$('immersive').checked});
+$('focus-reading').onclick=()=>void setPreferences({immersive:true});
+$('leave-focus').onclick=()=>void setPreferences({immersive:false});

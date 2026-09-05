@@ -140,6 +140,7 @@ export class PublicationResources {
    if(el.tagName==='STYLE')el.textContent=this.styles(el.textContent,href);
    if(el.tagName==='LINK'&&el.getAttribute('rel')!=='stylesheet')el.remove();
   }
+  if(this.trustedFontCSS){const font=doc.createElement('style');font.textContent=this.trustedFontCSS;doc.head.append(font)}
   const flow=doc.createElement('style');flow.textContent=':where(h1,h2,h3,h4,h5,h6){break-after:avoid;page-break-after:avoid;}';doc.head.insertBefore(flow,doc.head.firstChild);
   return {html:'<!doctype html>'+doc.documentElement.outerHTML,warnings};
  }

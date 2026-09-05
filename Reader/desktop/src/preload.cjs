@@ -2,6 +2,7 @@ const { contextBridge, ipcRenderer, webUtils } = require("electron");
 contextBridge.exposeInMainWorld(
   "stillleafLibrary",
   Object.freeze({
+    archive: (action, id) => ipcRenderer.invoke("library", "archive", { action, id }),
     journal: (action, input) =>
       ipcRenderer.invoke("library", "journal", { action, input }),
     snapshot: () => ipcRenderer.invoke("library", "snapshot"),

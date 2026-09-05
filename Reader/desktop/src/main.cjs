@@ -27,6 +27,7 @@ const { ReaderSessionHost } = require("./journal/reader-session-host.cjs");
 const { removeAssets } = require("./removal.cjs");
 const readerStateTransfer = require("./reader-state-transfer.cjs");
 const { JournalStore } = require("./journal/store.cjs");
+const { LibraryArchive } = require("./library-archive.cjs");
 const journalValidation = require("./journal/validation.cjs");
 const { resolveCompletionDays } = require("./completion-dates.cjs");
 const root = path.join(
@@ -53,12 +54,14 @@ const readerURL = "stillleaf-app://reader/index.html";
 // per-launch token keeps these URLs unknown to reader windows.
 const coverRoot = `stillleaf-app://library/cover/${randomUUID()}/`;
 let covers = new Map();
-let library, coordinator, importer, journal;
+let library, coordinator, importer, journal, libraryArchive;
+let archiveBusy = false;
 const pending = [];
 let activeReader, activeEdition, readingSessions;
 let trackingError = null;
 let quitting = false;
-app.on("before-quit", () => {
+app.on("before-quit", (event) => {
+  if (archiveBusy) { event.preventDefault(); return; }
   quitting = true;
 });
 let readerActions = Promise.resolve();
@@ -113,6 +116,7 @@ function createLibrary() {
   library.loadURL(libraryURL);
   let closingLibrary = false;
   library.on("close", (event) => {
+    if (archiveBusy) { event.preventDefault(); return; }
     if (closingLibrary) return;
     event.preventDefault();
     library.webContents
@@ -277,6 +281,55 @@ async function closeReader(window) {
   if (window.stillleafClosePromise) return window.stillleafClosePromise;
   return await window.stillleafSaveAndClose();
 }
+// Caller already owns readerActions, also used by imports/removals and journal writes.
+// The reader remains open. Only saved state is exported, after its ordinary draft guard.
+async function withArchiveSnapshot(work) {
+  const window = activeReader, id = activeEdition;
+  let originalInert, originalReady;
+  archiveBusy = true;
+  try {
+    if (window && !window.isDestroyed()) {
+      const okay = await window.webContents.executeJavaScript("window.StillleafReader?.prepareClose ? window.StillleafReader.prepareClose() : true");
+      if (!okay) return { cancelled: true };
+      originalInert = await window.webContents.executeJavaScript("(()=>{const before=document.documentElement.inert;document.documentElement.inert=true;return before;})()");
+      originalReady = window.stillleafReady;
+      window.stillleafReady = false;
+      readingSessions?.sample();
+      if (trackingError) throw Error("Resolve the reading-time save error before exporting an archive.");
+      const {publication} = await readEdition(root,id);
+      await flushReader(window,id,publication,true);
+    }
+    return await work();
+  } finally {
+    if (window && !window.isDestroyed() && originalInert !== undefined) {
+      await window.webContents.executeJavaScript("document.documentElement.inert="+JSON.stringify(originalInert)).catch(()=>{});
+      window.stillleafReady = originalReady;
+      readingSessions?.sample();
+    }
+    archiveBusy = false;
+  }
+}
+async function archiveAction(input) {
+  if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).some(key=>!["action","id"].includes(key))) throw Error("Invalid archive request.");
+  if (input.action === "list") return libraryArchive.listPreserved();
+  if (input.action === "export" || input.action === "export-preserved") {
+    if(input.action === "export-preserved" && (typeof input.id !== "string" || !/^[a-f0-9]{64}$/.test(input.id))) throw Error("Invalid recovery archive identity.");
+    const target = await dialog.showSaveDialog(library,{title:input.action === "export"?"Export complete Library archive":"Export recovery archive",defaultPath:path.join(app.getPath("documents"),"Stillleaf-library-"+new Date().toISOString().slice(0,10)+".zip"),filters:[{name:"Stillleaf Library archive",extensions:["zip"]}]});
+    if(target.canceled||!target.filePath)return{cancelled:true};
+    if(input.action === "export-preserved")return{exported:true,...await libraryArchive.exportPreserved(input.id,target.filePath)};
+    return withArchiveSnapshot(async()=>({exported:true,...await libraryArchive.exportTo(target.filePath)}));
+  }
+  if(input.action === "preserve") {
+    const source=await dialog.showOpenDialog(library,{title:"Preserve a Library archive for recovery",properties:["openFile"],filters:[{name:"Stillleaf Library archive",extensions:["zip"]}]});
+    if(source.canceled||source.filePaths.length!==1)return{cancelled:true};
+    const {token,summary}=await libraryArchive.preview(source.filePaths[0]);
+    const choice=await dialog.showMessageBox(library,{type:"question",title:"Preserve recovery archive",message:"Keep this archive for recovery?",detail:`This archive contains ${summary.journals} source journals, ${summary.readerStates} reader snapshots, ${summary.epubs} EPUBs and ${summary.covers} covers. ${summary.missingEPUBs} reader snapshots have no EPUB included.\n\nThis preserves an unchanged recovery copy. It does not restore books into your Library, replace notes, or add reading time. History from another host is retained without conversion. You can export the recovery copy later.`,buttons:["Preserve for recovery","Cancel"],defaultId:1,cancelId:1,noLink:true});
+    if(choice.response!==0)return{cancelled:true};
+    archiveBusy=true;
+    try{return await libraryArchive.preserve(token);}finally{archiveBusy=false;}
+  }
+  throw Error("Unknown archive action.");
+}
 async function connectReader(window, id, publication) {
   await window.webContents.executeJavaScript(
     `(()=>{let pending=null,close=false;window.addEventListener('stillleaf-reader-event',event=>{if(event.target!==window||event.detail?.editionId!==${JSON.stringify(id)})return;if(event.detail.type==='state'){const text=JSON.stringify(event.detail.state);if(text.length<=2097152)pending=text;}if(event.detail.type==='close-request')close=true;});Object.defineProperty(window,'__stillleafHostTakeState',{value:()=>{const value=pending;pending=null;return value;}});Object.defineProperty(window,'__stillleafHostCloseRequested',{value:()=>{const value=close;close=false;return value;}});})()`,
@@ -337,6 +390,7 @@ async function connectReader(window, id, publication) {
     return window.stillleafClosePromise;
   };
   window.on("close", (event) => {
+    if (archiveBusy) { event.preventDefault(); return; }
     if (!closing) {
       event.preventDefault();
       void window.stillleafSaveAndClose().catch(() => {});
@@ -373,6 +427,7 @@ else {
       journal = new JournalStore(
         path.join(path.dirname(root), "journal.sqlite"),
       );
+      libraryArchive = new LibraryArchive({ root, journal });
       if (!test) {
         readingSessions = new ReaderSessionHost({
           journal,
@@ -530,7 +585,7 @@ else {
           throw Error("Untrusted library sender");
         let release;
         if (
-          ["read", "remove", "exportReaderState", "importReaderState"].includes(
+          ["read", "remove", "exportReaderState", "importReaderState", "journal", "archive"].includes(
             action,
           )
         ) {
@@ -541,6 +596,7 @@ else {
         try {
           if (quitting && action !== "snapshot") return { cancelled: true };
           if (action === "snapshot") return snapshot();
+          if (action === "archive") return await archiveAction(input);
           if (action === "journal") {
             if (
               !input ||

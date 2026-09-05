@@ -75,3 +75,41 @@ test('only deliberate page movement is reported as page evidence',{timeout:12000
  assert.deepEqual(await take(),[],'a three-screen jump is scrubbing, not reading');
  assert.deepEqual(errors,[]);
 });
+
+test('continuous view reports full screens the reader scrolls, across chapter boundaries',{timeout:120000},async t=>{
+ const server=createServer(async(req,res)=>{try{const file=path.resolve(root,'.'+new URL(req.url,'http://localhost').pathname);if(!file.startsWith(root+path.sep))throw Error();res.setHeader('Content-Type',{'.html':'text/html','.js':'text/javascript','.css':'text/css'}[path.extname(file)]??'application/octet-stream');res.end(await readFile(file))}catch{res.writeHead(404).end()}});
+ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));const origin=`http://127.0.0.1:${server.address().port}`;
+ const browser=await chromium.launch({executablePath:process.env.CHROME_PATH||(process.platform==='darwin'?'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome':undefined),headless:true});
+ t.after(async()=>{await browser.close();await new Promise(resolve=>server.close(resolve))});
+ const page=await browser.newPage({viewport:{width:1000,height:800},reducedMotion:'reduce'});
+ const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ await page.goto(origin+'/index.html');await page.waitForFunction(()=>Boolean(window.StillleafReader));
+ await page.evaluate(()=>{window.events=[];window.addEventListener('stillleaf-reader-event',e=>{if(['pageTurn','pageLayout'].includes(e.detail.type))window.events.push(e.detail)})});
+ const take=async()=>page.evaluate(()=>window.events.splice(0));
+ const settle=()=>page.waitForTimeout(900);
+ const turned=()=>page.waitForFunction(()=>window.events.some(e=>e.type==='pageTurn'),null,{timeout:5000});
+ const input={...book,experimentalContinuous:true,state:{schemaVersion:1,editionId:'page-evidence',revision:0,position:null,preferences:{theme:'paper',fontFamily:'publisher',fontSize:1.2,lineHeight:1.6,measure:65,scroll:true},bookmarks:[],annotations:[]}};
+ await page.evaluate(input=>window.StillleafReader.open(input),input);
+ await page.waitForFunction(()=>document.querySelector('#reader.continuous-reader iframe')?.contentDocument?.querySelector('#c1p0'));await settle();
+ let events=await take();
+ assert.deepEqual(events.map(e=>e.type),['pageLayout'],'opening announces the layout and turns nothing');
+ const layout=events[0].layout;assert.match(layout,/^s1-/);
+ const scroll=async(dy,steps)=>{for(let i=0;i<steps;i++){await page.evaluate(dy=>{const flow=document.querySelector('#reader');flow.scrollBy(0,dy*flow.clientHeight)},dy);await page.waitForTimeout(60)}};
+ await scroll(.05,1);assert.deepEqual(await take(),[],'a small scroll is not a page');
+ await scroll(.25,5);
+ await turned();events=await take();assert.deepEqual(events.map(e=>[e.type,e.direction,e.pages,e.layout]),[['pageTurn','forward',1,layout]],'1.25 screens scrolled is one page');
+ await scroll(-.25,6);
+ await turned();events=await take();assert.deepEqual(events.map(e=>[e.type,e.direction]),[['pageTurn','backward']]);
+ // Reading straight through a chapter boundary keeps counting; there is no hand-off.
+ const boundary=await page.evaluate(()=>{const flow=document.querySelector('#reader'),second=flow.querySelectorAll('.continuous-chapter')[1];return second.offsetTop-flow.clientHeight*.5});
+ await page.evaluate(top=>{document.querySelector('#reader').scrollTop=top},boundary);await settle();await take();
+ await scroll(.25,5);await turned();
+ events=await take();assert.deepEqual(events.map(e=>[e.type,e.direction]),[['pageTurn','forward']],'scrolling across a chapter boundary is reading');
+ assert.ok(await page.evaluate(()=>{const flow=document.querySelector('#reader'),view=flow.getBoundingClientRect();return [...flow.querySelectorAll('.continuous-chapter')].filter(s=>{const r=s.getBoundingClientRect();return r.bottom>view.top&&r.top<view.bottom}).length>=1}));
+ // Jumps and scrubbing are not reading.
+ await page.evaluate(()=>window.StillleafReader.go({href:'c3.html',type:'text/html',locations:{progression:.5}}));await settle();
+ assert.deepEqual(await take(),[],'jumps report no page movement');
+ await scroll(3,1);await page.waitForTimeout(300);
+ assert.deepEqual(await take(),[],'a three-screen jump is scrubbing, not reading');
+ assert.deepEqual(errors,[]);
+});

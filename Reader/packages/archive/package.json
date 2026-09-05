@@ -1,0 +1,19 @@
+{
+  "name": "@stillleaf/archive",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.js",
+    "./node-journal": "./node-journal.js"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "yauzl": "3.4.0"
+  }
+}

@@ -47,6 +47,29 @@ try ReaderStateValidation.validate(data(extended), publication: publication)
 for (key, value) in [("scroll", 1), ("scroll", NSNull()), ("fontWeight", true), ("fontWeight", 99), ("fontWeight", 1001), ("textAlign", "center"), ("hyphens", 0), ("letterSpacing", true), ("wordSpacing", 1.1), ("columns", "three")] as [(String, Any)] {
     try reject("invalid optional preference " + key) { var p = $0["preferences"] as! [String: Any]; p[key] = value; $0["preferences"] = p }
 }
+// Appearance additions remain optional: the original state above is a valid legacy payload.
+for family in ["publisher", "serif", "sans", "literata", "source-serif", "lora", "libre-baskerville", "atkinson", "inter", "nunito", "source-sans", "georgia", "palatino", "monospace"] {
+    for theme in ["system", "paper", "sepia", "dark", "white", "stone", "mist", "forest", "dusk", "midnight", "custom"] {
+        var value = extended; var preferences = extendedPrefs
+        preferences["fontFamily"] = family; preferences["theme"] = theme
+        preferences["contentWidth"] = 100; preferences["sideMargin"] = 0; preferences["immersive"] = true
+        preferences["backgroundColor"] = "#aBcD12"; preferences["textColor"] = "#001122"
+        value["preferences"] = preferences
+        try ReaderStateValidation.validate(data(value), publication: publication)
+    }
+}
+for (key, value) in [("contentWidth", 40), ("contentWidth", 90.25), ("sideMargin", 96), ("sideMargin", 32.5), ("immersive", false), ("backgroundColor", NSNull()), ("textColor", NSNull())] as [(String, Any)] {
+    var valueState = state; var preferences = state["preferences"] as! [String: Any]; preferences[key] = value; valueState["preferences"] = preferences
+    try ReaderStateValidation.validate(data(valueState), publication: publication)
+}
+for (key, value) in [("fontFamily", "unknown-font"), ("theme", "unknown-theme"), ("contentWidth", true), ("contentWidth", 39.99), ("contentWidth", 100.01), ("contentWidth", NSNull()), ("sideMargin", false), ("sideMargin", -0.01), ("sideMargin", 96.01), ("sideMargin", "32"), ("immersive", 1), ("immersive", NSNull())] as [(String, Any)] {
+    try reject("invalid appearance preference " + key) { var p = $0["preferences"] as! [String: Any]; p[key] = value; $0["preferences"] = p }
+}
+for key in ["backgroundColor", "textColor"] {
+    for value in ["red", "#fff", "#11223344", "#12345g", " #112233", "#112233\n", "rgb(1,2,3)", "url(https://example.invalid)", true, 123] as [Any] {
+        try reject("invalid custom color " + key) { var p = $0["preferences"] as! [String: Any]; p[key] = value; $0["preferences"] = p }
+    }
+}
 var enlarged = state; var prefs = state["preferences"] as! [String: Any]; prefs["fontSize"] = 2.5; enlarged["preferences"] = prefs
 do { try ReaderStateValidation.validate(data(enlarged), publication: publication) } catch { failures.append("valid shared font size 2.5 rejected") }
 let directory = temp.appendingPathComponent("reader-state"), store = ReaderStateStore(directory: directory)

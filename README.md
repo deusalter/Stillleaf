@@ -1,6 +1,8 @@
 # Stillleaf
 
-A native macOS menu-bar reading journal for Apple Books, with optional Discord Rich Presence. Reading history stays on this Mac. Automatic time is **inferred reading activity**, not proof of attention.
+A native macOS menu-bar reading journal with a built-in offline EPUB reader, optional Apple Books tracking, and optional Discord Rich Presence. Reading history stays on this Mac. Automatic time is **inferred reading activity**, not proof of attention.
+
+The native app, shared reader, separate Electron development host, and website live in this repository. See [consolidation status](docs/CONSOLIDATION.md) for the verified baseline, remaining work, and test commands. The Electron host is not a validated Windows release.
 
 **Integration status:** the diagnostic has matched a live local EPUB in Books 8.0 and rejected its Library window. This reader omits `AXDocument`, so a version-scoped structural inference supplements exact document-path matching. Automatic tracking still requires Accessibility access for the packaged app itself and pauses for unsupported or ambiguous windows. Manual reading works independently. See [capabilities](docs/CAPABILITIES.md) and [verification](docs/VERIFICATION.md).
 
@@ -10,7 +12,7 @@ Daily page and minute targets are remembered independently; changing the unit ap
 
 ## Build and run
 
-Requires macOS 13 or later and Swift 5.8 or later. No third-party package dependencies.
+Requires macOS 13 or later, Swift 5.8 or later, and Node.js 22.12 or later with npm. The Swift package has no external package dependencies; the built-in reader uses locked JavaScript dependencies installed by `scripts/build-reader-assets.sh`.
 
 With full Xcode selected:
 
@@ -40,13 +42,15 @@ On a first launch (no existing history), a short welcome tour opens: what Stilll
 
 After the tour, or to set things up by hand:
 
-1. Click the book icon in the menu bar. No Dock icon opens.
+1. Click the book icon in the menu bar. A Dock icon and standard Mac menu bar appear while the dashboard or reader is open.
 2. Open Dashboard → Settings. The daily goal starts at 20 reading pages, using this Mac's initial timezone.
-3. Use Request Accessibility / Open Accessibility Settings and enable **Stillleaf**. macOS may require reopening the app. Granting access to Codex or Terminal does not necessarily grant the packaged tracker access.
+3. For Apple Books tracking, use Request Accessibility / Open Accessibility Settings and enable **Stillleaf**. macOS may require reopening the app. Granting access to Codex or Terminal does not necessarily grant the packaged tracker access.
 4. Open a real reading window in Books. If its focused document cannot be matched exactly to one catalog asset, the Health screen explains why automatic tracking is paused. Use **Start manual reading** for an unsupported reader, paper book, or deliberate side-by-side reading.
 5. Check **Launch at login**. The app attempts main-app login registration once on first packaged launch, subject to macOS approval. You can disable it in Settings or System Settings → General → Login Items.
 
-Closing the dashboard leaves tracking running. Quit stops the tracker. A per-user file lock prevents duplicate instances. Pause tracking and Share with Discord are independent controls; each book also has separate tracking and sharing exclusions.
+Closing all dashboard/reader windows returns Stillleaf to the menu bar and leaves tracking running. Quit stops the tracker. A per-user file lock prevents duplicate instances. Pause tracking and Share with Discord are independent controls; each book also has separate tracking and sharing exclusions.
+
+Import a DRM-free EPUB from Library to read directly in Stillleaf without Apple Books Accessibility access. The reader supports fullscreen, single/facing pages and continuous scrolling. Appearance includes local bundled fonts, custom colours, page spacing and focus mode.
 
 ## What counts
 

@@ -66,6 +66,10 @@ test("isolated desktop import, explicit reader, offline resources and persistent
   await page.locator(".book").waitFor();
   assert.equal(await page.locator(".book").count(), 1);
   assert.equal((await app.windows()).length, 1, "Import never opens a reader");
+  await page.getByRole("button", { name: "Library archive", exact: true }).click();
+  await page.getByRole("dialog", { name: "Library archive", exact: true }).waitFor();
+  await page.getByText("No recovery archives saved here yet.", {exact:true}).waitFor();
+  await page.getByRole("dialog", { name: "Library archive", exact: true }).getByRole("button", {name:"Close",exact:true}).click();
   const cover = await page.locator(".book img").evaluate(async (img) => {
     await img.decode();
     return { src: img.src, width: img.naturalWidth };

@@ -12,7 +12,14 @@ export const THEMES=Object.freeze([
  {id:'quiet',label:'Quiet',scheme:'dark',background:'#4A4A4E',text:'#D6D6D9',link:'#B7CDEB',selection:'#6B6B72',chrome:'#3E3E42',muted:'#A7A7AD',panel:'#535358'},
  {id:'dark',label:'Dark',scheme:'dark',background:'#1C302D',text:'#E7F3EA',link:'#70DAB2',selection:'#466858',chrome:'#132422',muted:'#A1BDB2',panel:'#223833'},
  // Night keeps contrast low and dims illustrations for reading in a dark room.
- {id:'night',label:'Night',scheme:'dark',background:'#0D0D0E',text:'#ABABAF',link:'#8FB0D6',selection:'#34343A',chrome:'#050505',muted:'#7C7C82',panel:'#18181A',dimImages:true}
+ {id:'night',label:'Night',scheme:'dark',background:'#0D0D0E',text:'#ABABAF',link:'#8FB0D6',selection:'#34343A',chrome:'#050505',muted:'#7C7C82',panel:'#18181A',dimImages:true},
+ {id:'white',label:'White',scheme:'light',background:'#FFFFFF',text:'#242729',link:'#225EAD',selection:'#B9DCCE',chrome:'#FFFFFF',muted:'#242729',panel:'#FFFFFF'},
+ {id:'stone',label:'Stone',scheme:'light',background:'#E9E8E4',text:'#343534',link:'#4B615A',selection:'#B9DCCE',chrome:'#E9E8E4',muted:'#343534',panel:'#E9E8E4'},
+ {id:'mist',label:'Mist',scheme:'light',background:'#EAF1F7',text:'#263C50',link:'#386B92',selection:'#B9DCCE',chrome:'#EAF1F7',muted:'#263C50',panel:'#EAF1F7'},
+ {id:'forest',label:'Forest',scheme:'light',background:'#E4EFE6',text:'#234A35',link:'#286343',selection:'#B9DCCE',chrome:'#E4EFE6',muted:'#234A35',panel:'#E4EFE6'},
+ {id:'dusk',label:'Dusk',scheme:'dark',background:'#302C3A',text:'#EDE4F1',link:'#D6B6EB',selection:'#466858',chrome:'#302C3A',muted:'#EDE4F1',panel:'#302C3A'},
+ {id:'midnight',label:'Midnight',scheme:'dark',background:'#0D121A',text:'#D4DAE5',link:'#9CBFF2',selection:'#466858',chrome:'#0D121A',muted:'#D4DAE5',panel:'#0D121A'},
+ {id:'custom',label:'Custom',scheme:'light',background:'#F0F7F3',text:'#183D33',link:'#087D65',selection:'#B9DCCE',chrome:'#F0F7F3',muted:'#183D33',panel:'#F0F7F3'}
 ]);
 export const THEME_IDS=Object.freeze(['system',...THEMES.map(t=>t.id)]);
 /** `system` follows the Mac: Stillleaf by day, Dark at night. */
@@ -32,7 +39,17 @@ export const FONTS=Object.freeze([
  {id:'iowan',label:'Iowan',stack:'"Iowan Old Style", Palatino, serif',probe:'Iowan Old Style'},
  {id:'palatino',label:'Palatino',stack:'Palatino, "Palatino Linotype", "Book Antiqua", serif',probe:'Palatino'},
  {id:'seravek',label:'Seravek',stack:'Seravek, "Gill Sans", system-ui, sans-serif',probe:'Seravek'},
- {id:'times',label:'Times New Roman',stack:'"Times New Roman", Times, serif',probe:'Times New Roman'}
+ {id:'times',label:'Times New Roman',stack:'"Times New Roman", Times, serif',probe:'Times New Roman'},
+ {id:'literata',label:'Literata',stack:'"Stillleaf Literata", serif'},
+ {id:'source-serif',label:'Source Serif 4',stack:'"Stillleaf Source Serif 4", serif'},
+ {id:'lora',label:'Lora',stack:'"Stillleaf Lora", serif'},
+ {id:'libre-baskerville',label:'Libre Baskerville',stack:'"Stillleaf Libre Baskerville", serif'},
+ {id:'atkinson',label:'Atkinson Hyperlegible',stack:'"Stillleaf Atkinson Hyperlegible", sans-serif'},
+ {id:'inter',label:'Inter',stack:'"Stillleaf Inter", sans-serif'},
+ {id:'nunito',label:'Nunito Sans',stack:'"Stillleaf Nunito Sans", sans-serif'},
+ {id:'source-sans',label:'Source Sans 3',stack:'"Stillleaf Source Sans 3", sans-serif'},
+ {id:'georgia',label:'Georgia (alternate)',stack:'"Georgia", serif'},
+ {id:'monospace',label:'Monospace',stack:'"monospace", serif'}
 ]);
 export const FONT_IDS=Object.freeze(FONTS.map(f=>f.id));
 export function fontStack(id){return FONTS.find(f=>f.id===id)?.stack??null}

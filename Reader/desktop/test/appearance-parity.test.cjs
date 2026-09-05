@@ -8,14 +8,14 @@ const { THEMES, FONT_FAMILIES, MARGINS, validateState, emptyState } = require(".
 const source = fs.readFileSync(path.join(__dirname, "../reader/src/appearance.js"), "utf8");
 const ids = (start, end) => {
   const section = source.slice(source.indexOf(start), source.indexOf(end));
-  return [...section.matchAll(/\{id:'([a-z]+)'/g)].map((m) => m[1]).sort();
+  return [...section.matchAll(/\{id:'([a-z-]+)'/g)].map((m) => m[1]).sort();
 };
 
 test("host appearance ids match the shared renderer", () => {
   assert.deepEqual([...THEMES].sort(), [...ids("export const THEMES", "export const THEME_IDS"), "system"].sort());
   assert.deepEqual([...FONT_FAMILIES].sort(), ids("export const FONTS", "export const FONT_IDS"));
   const margins = source.slice(source.indexOf("export const MARGINS"), source.indexOf("export const MARGIN_IDS"));
-  assert.deepEqual([...MARGINS].sort(), [...margins.matchAll(/ ([a-z]+):\{label:/g)].map((m) => m[1]).sort());
+  assert.deepEqual([...MARGINS].sort(), [...margins.matchAll(/ ([a-z-]+):\{label:/g)].map((m) => m[1]).sort());
 });
 
 test("every appearance choice is saved and unknown ones are rejected", () => {

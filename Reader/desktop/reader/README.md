@@ -20,7 +20,7 @@ Listen on the top-level window for `stillleaf-reader-event`. Each detail include
 
 Revisions increase for mutations/relocations; position events debounce120ms. Closing also emits the current snapshot without changing revision. Hosts must validate identity, sizes, paths and revision before atomic persistence. Hosts should flush current state before reopening the same edition. `exportState` is a close fallback. There is no persistence bridge inside publication frames.
 
-Themes: system/paper/sepia/dark; fonts: publisher/serif/sans. Font size is a multiplier, line height a ratio, measure a preferred character count. Hydration preserves host ranges (.5–3,1–3,20–120); UI sliders intentionally offer a narrower comfortable range. Hydration preserves up to2000 records per collection,4096-character labels,32768-character quotes,65536-character notes, and exact locators for every supplied resource. Unsupported non-linear saved passages remain in state; jumping to one shows an explanation. Unknown stored highlight colors are retained and displayed using the default tint. Oversized collections/text reject visibly, rather than truncate and overwrite. Host validation is still required.
+Appearance IDs are defined in `src/appearance.js` and accepted by both host validators. Font size is a multiplier, line height a ratio, measure a preferred character count. Hydration preserves host ranges (.5–3,1–3,20–120); UI sliders expose those supported ranges. Hydration preserves up to2000 records per collection,4096-character labels,32768-character quotes,65536-character notes, and exact locators for every supplied resource. Unsupported non-linear saved passages remain in state; jumping to one shows an explanation. Unknown stored highlight colors are retained and displayed using the default tint. Oversized collections/text reject visibly, rather than truncate and overwrite. Host validation is still required.
 
 Other events: available, ready (sanitizer warnings), relocated (`cause:'unknown',eligibleForProgress:false`), selection, error, close-request. `canReturnToLibrary:true` enables Back and emits close-request; the host owns closing. Relocation is not evidence of deliberate reading or session progress.
 
@@ -82,6 +82,10 @@ Review hardening: frame bookkeeping is a WeakSet, with explicit unload deletion;
 
 An initial continuous mount failure restores a working paginated mode and retains personal state, with an explicit notice. Missing CSS Custom Highlight support triggers that fallback; on such older engines saved notes remain available in the Notes list/state, but visual decorations are unavailable in either navigator. The host minimum-version/fidelity review must account for that limitation. Regression covers missing API, oversized initial layout, preserved annotation payloads and no unhandled page errors.
 
+### Enabled on the Mac (September 26)
+
+The Mac host now passes `experimentalContinuous:true`, so Continuous is one scroll through the whole book there; other hosts keep the per-chapter Readium scroll. Enabling it on native WebKit exposed three engine differences, now handled: WebKit reports a zoomed body's rectangles unzoomed, so chapter frames are sized from the collapsed root's scroll height (rectangles alone clipped a sixth of every chapter at the default text size); WebKit runs no event listener in a frame sandboxed without scripts, so chapter frames allow scripts while their CSP stays `script-src 'none'` and the sanitizer still strips book scripts; and Readium's `destroy()` can wait forever for a frame's unfocus reply, so mode switches and close bound it at 1.5 s. The adapter reports page evidence from the reader's own scrolling (one page per full screen, jumps and scrubbing excluded), and Next/Previous move one screen instead of jumping to a chapter start. The native `--reader-experimental-continuous` smoke (with `scripts/reader-review-fixture.py --chapters 12`) passes.
+
 ## Appearance
 
 `src/appearance.js` is the single table of page themes, typefaces and margins. Its ids are saved in reader state and whitelisted by the native validator (`ReaderStateValidation`), which has an XCTest that fails if the two lists drift; ids are never renamed once shipped.
@@ -95,3 +99,9 @@ An initial continuous mount failure restores a working paginated mode and retain
 ## Page evidence
 
 The renderer reports `pageLayout` (a key per layout, and pages per turn: 1, or 2 for facing pages) and `pageTurn` (direction, pages, layout). Only deliberate sequential movement is a turn: paginated next/previous that actually moved, or one full screen of net scrolling in scroll mode. Contents, search, links, bookmarks, restores, reflow, resizes and multi-screen scrubbing never are. The Mac host keeps its own counter and samples it with the same bounded page-turn tracker used for Apple Books, so goals and streaks treat both sources alike. `test/page-evidence.test.mjs` covers these cases.
+
+## Integrated appearance controls
+
+The existing theme/typeface/margin choices remain compatible with saved books. Additional palettes, custom hex background/text colours, page-width and side-margin sliders, one-percent size controls, and Focus reading are integrated. Focus hides chrome and retains an explicit Show controls button and Escape route. Selecting a margin preset clears the custom side-margin override.
+
+Eight pinned Fontsource families ship locally with OFL notices in `public/font-licenses`: Literata, Source Serif 4, Lora, Libre Baskerville, Atkinson Hyperlegible, Inter, Nunito Sans and Source Sans 3. Latin WOFF2 faces load on demand from the application bundle; they require no online font request. Other scripts fall back to publication/system fonts. Publisher remains the default.

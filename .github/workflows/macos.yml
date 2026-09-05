@@ -34,7 +34,8 @@ jobs:
         if: ${{ !cancelled() && steps.reader-assets.outcome == 'success' }}
         run: |
           python3 scripts/reader-review-fixture.py "$RUNNER_TEMP/reader-fixture.epub" --chapters 3
-          .build/release/BooksPresence --self-test-epub "$RUNNER_TEMP/reader-fixture.epub"
+          mkdir -p "$RUNNER_TEMP/reader-appearance"
+          .build/release/BooksPresence --self-test-epub "$RUNNER_TEMP/reader-fixture.epub" --reader-appearance-review --reader-artifacts "$RUNNER_TEMP/reader-appearance"
       - name: Native EPUB reader crash diagnostics
         if: ${{ failure() && steps.epub-smoke.outcome == 'failure' }}
         run: |

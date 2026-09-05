@@ -1,0 +1,35 @@
+name: Project checks
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  publication-and-journal:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: Reader/packages/publication/package-lock.json
+      # These tests use Node and synthetic fixtures; Electron is not required.
+      - run: npm --prefix Reader/packages/publication ci --ignore-scripts
+      - run: npm --prefix Reader/packages/archive ci --ignore-scripts
+      - run: npm --prefix Reader/packages/publication test
+      - run: npm --prefix Reader/packages/archive test
+      - run: npm --prefix Reader/desktop test
+      - run: npm --prefix prototypes/windows-journal test
+  website:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+      - run: npm --prefix website ci --ignore-scripts
+      - run: npm --prefix website test
+      - run: npm --prefix website run build

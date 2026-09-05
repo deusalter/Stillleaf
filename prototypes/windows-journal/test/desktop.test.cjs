@@ -1,0 +1,17 @@
+const {test}=require('node:test');const assert=require('node:assert/strict');const fs=require('node:fs');const os=require('node:os');const path=require('node:path');const {_electron:electron}=require('playwright');
+test('desktop UI saves, validates, exports, reopens, and corrects real local history',async t=>{
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'stillleaf-desktop-'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));let app;
+ async function launch(){app=await electron.launch({args:[path.resolve(__dirname,'..')],env:{...process.env,STILLLEAF_TEST_DATA:dir}});const page=await app.firstWindow();await page.locator('#empty-add').waitFor({state:'attached'});return page;}
+ t.after(async()=>{if(app)await app.close();});let page=await launch();const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ await page.locator('#empty-add').click();await page.locator('[name=title]').fill('The Waves');await page.locator('[name=author]').fill('Virginia Woolf');await page.locator('[name=totalPages]').fill('240');await page.getByRole('button',{name:'Add book',exact:true}).click();
+ await page.locator('[name=position]').fill('84');await page.locator('[name=note]').fill('The light on the water.');await page.getByRole('button',{name:'Save entry',exact:true}).click();await page.getByText('Entry saved on this computer.',{exact:true}).waitFor();
+ assert.equal(await page.locator('#position').textContent(),'Page 84 of 240');assert.equal(await page.locator('#pages').textContent(),'0');assert.equal(await page.locator('#minutes').textContent(),'—');
+ await page.locator('[name=pagesRead]').fill('20');await page.locator('[name=minutes]').fill('15');await page.getByRole('button',{name:'Save entry',exact:true}).click();await page.waitForFunction(()=>document.querySelector('#pages').textContent==='20');
+ const invalid=await page.evaluate(()=>window.journal.addEntry({bookId:'unknown',date:'2025-01-01',note:'bad',position:null,pagesRead:null,minutes:null}));assert.match(invalid.error,/existing book/);
+ await page.locator('#status').selectOption('Finished');await page.getByText('Shelf updated.',{exact:true}).waitFor();
+ const exportPath=path.join(dir,'export.json');await app.evaluate(({dialog},file)=>{dialog.showSaveDialog=async()=>({canceled:false,filePath:file});},exportPath);await page.locator('#export').click();await page.getByText('Journal exported.',{exact:true}).waitFor();assert.equal(JSON.parse(fs.readFileSync(exportPath)).entries.length,2);
+ fs.mkdirSync(path.resolve(__dirname,'../test-output'),{recursive:true});await page.evaluate(()=>scrollTo(0,0));await page.screenshot({path:path.resolve(__dirname,'../test-output/journal.png'),fullPage:true});
+ await app.close();app=null;page=await launch();await page.waitForFunction(()=>document.querySelector('#position').textContent==='Page 84 of 240');assert.equal(await page.locator('#status').inputValue(),'Finished');assert.equal(await page.locator('#pages').textContent(),'20');assert.equal(await page.locator('#history article').count(),2);
+ await page.locator('.remove').first().click();await page.locator('#confirm-delete').click();await page.waitForFunction(()=>document.querySelector('#pages').textContent==='0');assert.equal(await page.locator('#history article').count(),1);
+ await page.setViewportSize({width:800,height:680});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);assert.deepEqual(errors,[]);
+});

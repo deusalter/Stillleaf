@@ -70,3 +70,7 @@ OS events are exercised through actual host listeners; no OS file-association in
 ## Remaining work before release
 
 Windows hardware/accessibility/performance verification; installer/signing/file associations; packaged importer/runtime delivery; native menu/keyboard acceptance; seamless cross-chapter scrolling; full journal correction/merge/archive parity and migration UI; complete supported-EPUB fidelity and malicious-resource corpus; local cover overrides; mobile work. Library, completion-only Timeline, written personal Reviews, goals, manual records, automatic timing, durable reader state and per-edition state transfer are integrated locally. Independent screenshot review accepted the current reader/journal layouts; actual platform acceptance remains open. The prior journal is intentionally untouched. This slice must not be advertised as the finished reader.
+
+## Library archive
+
+The Library archive dialog exports journal records, saved reader state and managed original EPUBs together. Preserving an imported archive stores a recovery copy and allows unchanged re-export; it does not activate foreign records or replace the active Library. All host operations are serialized with reader writes, and export observes the draft-save guard. See `../packages/archive/README.md` for the preservation format and limits.

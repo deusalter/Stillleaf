@@ -41,6 +41,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             item.button?.target = self; item.button?.action = #selector(togglePopover)
             statusItem = item
             menuPanel = makeMenuPanel(model: state)
+            NSApp.mainMenu = AppPresence.makeMainMenu(dashboardTarget: self, dashboardAction: #selector(openDashboard))
+            let center = NotificationCenter.default
+            center.addObserver(forName: NSWindow.willCloseNotification, object: nil, queue: .main) { note in
+                let closing = note.object as? NSWindow
+                Task { @MainActor in AppPresence.refresh(closing: closing) }
+            }
+            for name in [NSWindow.didBecomeKeyNotification, NSWindow.didDeminiaturizeNotification] {
+                center.addObserver(forName: name, object: nil, queue: .main) { _ in Task { @MainActor in AppPresence.refresh() } }
+            }
             if state.needsOnboarding {
                 if returning { state.markOnboardingComplete() } else { showOnboarding() }
             }
@@ -86,12 +95,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if dashboard == nil {
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1060, height: 760), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
             window.title = "Stillleaf"; window.titlebarAppearsTransparent = true
+            // Menu-bar (accessory) apps get no full-screen behavior unless a window opts in.
+            window.collectionBehavior.insert(.fullScreenPrimary)
             window.contentViewController = NSHostingController(rootView: DashboardView(model: model))
             window.isReleasedWhenClosed = false; window.delegate = self; window.center()
             dashboard = window
         }
+        AppPresence.willPresentWindow()
         dashboard?.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
     }
+    @objc private func openDashboard() { showDashboard() }
     /// The welcome tour. Closing it early counts as done; Settings can replay it.
     func showOnboarding() {
         guard let model else { return }

@@ -1,5 +1,10 @@
 # Integrated reader implementation checkpoint
 
+> Historical implementation log. For the current main baseline, verification,
+> surviving worktrees and recovery decisions, start with
+> [Consolidation status](CONSOLIDATION.md). The ownership, local-only stage and
+> pending milestones below describe earlier sessions, not current checkout status.
+
 Authority: user authorized full implementation of `STILLLEAF_FULL_READER_PLAN_2026-09-24_01a0d6c6.md`, after the prior queue completed. Main explicitly released the gate at `0e23ba631891e47a6e44da93ea888e548d184bfa`; CI 36097054289 passed 119 XCTest, release/native/package checks. Existing installed 1.5.0 build 17 is preserved.
 
 ## Release constraint
