@@ -25,13 +25,11 @@ struct TodayView: View {
                         .fixedSize()
                 }
                 DailyReadingOverview(model: model)
+                AnnualReadingGoalView(model: model, openBook: { present(.book($0)) })
                 if let entry = model.pendingCompletion, model.snapshot.phase != .reading, !model.manualActive {
                     FinishedBookPrompt(model: model, entry: entry)
                 }
                 featuredReading
-                ReadingSection("This year") {
-                    AnnualReadingGoalView(model: model)
-                }
                 ReadingSection("Your reading journal") {
                     HStack(spacing: 10) {
                         Text("Log reading from print, audiobooks or anywhere Stillleaf can’t follow.")
@@ -65,7 +63,6 @@ struct TodayView: View {
             HStack(alignment: .center, spacing: 28) {
                 if let book = featuredBook {
                     BookCoverView(book: book, size: .hero)
-                        .shadow(color: ReadingPalette.ink.opacity(0.16), radius: 12, x: 0, y: 7)
                     VStack(alignment: .leading, spacing: 8) {
                         Text(book.title).font(ReadingType.bookTitle(30)).lineLimit(2)
                             .fixedSize(horizontal: false, vertical: true)
@@ -188,7 +185,7 @@ struct GoalProgressView: View {
 }
 
 struct BookCoverView: View {
-    enum Size { case compact, menu, large, library, shelf, shelfLarge, hero, timeline }
+    enum Size { case compact, menu, large, library, shelf, shelfLarge, hero, timeline, annual }
     let book: BookRecord?
     let size: Size
     @State private var thumbnail: NSImage?
@@ -203,6 +200,7 @@ struct BookCoverView: View {
         case .shelfLarge: return CGSize(width: 150, height: 225)
         case .hero: return CGSize(width: 132, height: 198)
         case .timeline: return CGSize(width: 64, height: 96)
+        case .annual: return CGSize(width: 92, height: 138)
         }
     }
 

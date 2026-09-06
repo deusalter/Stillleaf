@@ -23,10 +23,9 @@ struct ReadingSegmentedControl<Value: Hashable>: View {
                         .foregroundStyle(selection == option ? ReadingPalette.ink : ReadingPalette.secondaryInk)
                         .background {
                             if selection == option {
-                                // A raised pill: canvas with a soft shadow in light, the elevated tone in dark.
+                                // Flat selection surface; keyboard focus has its own outline.
                                 RoundedRectangle(cornerRadius: 9, style: .continuous)
                                     .fill(colorScheme == .dark ? ReadingPalette.elevated : ReadingPalette.canvas)
-                                    .shadow(color: ReadingPalette.ink.opacity(colorScheme == .dark ? 0 : 0.12), radius: 2, x: 0, y: 1)
                                     .matchedGeometryEffect(id: "selection", in: highlight)
                             }
                         }

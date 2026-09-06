@@ -51,7 +51,7 @@ struct PageHeading: View {
     var body: some View { PageHeader(title, subtitle: subtitle) }
 }
 
-/// A labelled, open section: small uppercase label, a hairline, then content. No card.
+/// A labelled section with a plain sentence-case heading.
 struct ReadingSection<Content: View, Accessory: View>: View {
     let title: String
     let accessory: Accessory
@@ -67,7 +67,7 @@ struct ReadingSection<Content: View, Accessory: View>: View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(alignment: .firstTextBaseline) {
-                    Text(title.uppercased()).font(ReadingType.sectionLabel).tracking(0.8)
+                    Text(title).font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(ReadingPalette.secondaryInk)
                         .accessibilityLabel(title).accessibilityAddTraits(.isHeader)
                     Spacer(minLength: 8)

@@ -246,7 +246,6 @@ private struct FinishedBookTimelineRow: View {
             HStack(alignment: .center, spacing: 20) {
                 dateColumn.frame(width: 56, alignment: .leading)
                 BookCoverView(book: book, size: .timeline)
-                    .shadow(color: ReadingPalette.ink.opacity(0.14), radius: 6, x: 0, y: 3)
                 VStack(alignment: .leading, spacing: 5) {
                     Text(entry.title)
                         .font(ReadingType.bookTitle(20))

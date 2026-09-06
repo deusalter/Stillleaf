@@ -31,7 +31,6 @@ struct PersonalReviewsView: View {
                         ForEach(entries, id: \.book.id) { entry in
                             HStack(alignment: .top, spacing: 22) {
                                 BookCoverView(book: entry.book, size: .timeline)
-                                    .shadow(color: ReadingPalette.ink.opacity(0.14), radius: 6, x: 0, y: 3)
                                 VStack(alignment: .leading, spacing: 10) {
                                     HStack(alignment: .top) {
                                         VStack(alignment: .leading, spacing: 4) {

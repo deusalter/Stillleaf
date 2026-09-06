@@ -290,7 +290,7 @@ func runUISmoke() throws {
         ("troubleshooting", AnyView(TrackingHelpView(model: model))),
         ("rating", AnyView(QuarterStarRating(rating: .constant(4.25)))),
         ("written-review", AnyView(BookReviewEditor(model: model, bookID: manualBook.id))),
-        ("annual-goal", AnyView(AnnualReadingGoalView(model: model))),
+        ("annual-goal", AnyView(AnnualReadingGoalView(model: model, openBook: { _ in }))),
         ("manual-start", AnyView(ManualStartView(model: model))),
         ("manual-add", AnyView(ManualAdditionView(model: model))),
         ("review-editor", AnyView(IntervalReviewEditor(model: model, interval: interval))),

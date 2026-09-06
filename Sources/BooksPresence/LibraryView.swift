@@ -176,8 +176,6 @@ struct BookLibraryCard: View {
         Button(action: open) {
             VStack(alignment: .leading, spacing: 12) {
                 BookCoverView(book: book, size: .shelfLarge)
-                    .shadow(color: ReadingPalette.ink.opacity(hovering ? 0.24 : 0.16), radius: hovering ? 14 : 9, x: 0, y: hovering ? 9 : 6)
-                    .scaleEffect(hovering && !reduceMotion ? 1.02 : 1, anchor: .bottom)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(book.title).font(ReadingType.bookTitle(16))
@@ -320,7 +318,6 @@ struct BookDetailView: View {
     private var hero: some View {
         HStack(alignment: .top, spacing: 24) {
             BookCoverView(book: currentBook, size: .hero)
-                .shadow(color: ReadingPalette.ink.opacity(0.16), radius: 12, x: 0, y: 7)
             VStack(alignment: .leading, spacing: 7) {
                 Text(currentBook.title)
                     .font(ReadingType.bookTitle(30))

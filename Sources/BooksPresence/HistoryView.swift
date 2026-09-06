@@ -28,17 +28,15 @@ struct HistoryView: View {
         return ScrollView {
             VStack(alignment: .leading, spacing: 28) {
                 PageHeader("History", subtitle: "See how your reading adds up.")
-                HStack(alignment: .top, spacing: 0) {
-                    HistoryMetric(title: "Pages read", value: "\(pageTurns)")
-                    Hairline(axis: .vertical).frame(height: 44).padding(.horizontal, 20)
-                    HistoryMetric(title: "Goals reached", value: "\(pageGoalDays)")
-                    Hairline(axis: .vertical).frame(height: 44).padding(.horizontal, 20)
-                    HistoryMetric(title: navigation.scale == .day ? "Books" : "Reading days", value: navigation.scale == .day ? "\(dayBookCount)" : "\(activeDays)")
-                    Hairline(axis: .vertical).frame(height: 44).padding(.horizontal, 20)
-                    HistoryMetric(title: "Reading time", value: ReadingFormat.duration(creditedSeconds))
-                }
                 VStack(alignment: .leading, spacing: 16) {
                     HistoryCalendarToolbar(navigation: navigation, isNextEnabled: canMoveForward, setScale: { setScale($0) }, previous: { move(-1) }, next: { move(1) }, today: { goToToday() })
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), alignment: .leading), count: 4), alignment: .leading, spacing: 18) {
+                        HistoryMetric(title: "Pages read", value: pageTurns.formatted())
+                        HistoryMetric(title: "Goals reached", value: "\(pageGoalDays)")
+                        HistoryMetric(title: navigation.scale == .day ? "Books" : "Reading days", value: navigation.scale == .day ? "\(dayBookCount)" : "\(activeDays)")
+                        HistoryMetric(title: "Reading time", value: ReadingFormat.duration(creditedSeconds))
+                    }.padding(.vertical, 10)
+                    Hairline()
                     Group {
                         switch navigation.scale {
                         case .month:
@@ -54,8 +52,7 @@ struct HistoryView: View {
                     .readingEntrance()
                     .id("\(navigation.scale.rawValue)-\(navigation.dayKey(for: navigation.periodStart))")
                 }
-                .padding(24)
-                .background(ReadingPalette.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                .padding(.vertical, 4)
                 Text("Calendar timezone: \(model.timezoneID)")
                     .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
                 if pageTurns == 0 && creditedSeconds > 0 {
@@ -106,15 +103,15 @@ private struct HistoryCalendarToolbar: View {
     let today: () -> Void
     var body: some View {
         ViewThatFits(in: .horizontal) {
-            HStack(spacing: 10) { titleRow; Spacer(minLength: 16); scalePicker.frame(width: 330); todayButton }
-            VStack(alignment: .leading, spacing: 12) { HStack(spacing: 10) { titleRow; Spacer(); todayButton }; scalePicker }
+            HStack(spacing: 10) { titleRow; Spacer(minLength: 16); scalePicker.frame(width: 320); todayButton }
+            VStack(alignment: .leading, spacing: 14) { HStack(spacing: 10) { titleRow; Spacer(); todayButton }; scalePicker.frame(maxWidth: 330) }
         }
     }
     private var titleRow: some View {
         HStack(spacing: 8) {
+            Text(navigation.title).font(ReadingType.bookTitle(25)).lineLimit(1).fixedSize().padding(.trailing, 8)
             Button(action: previous) { Image(systemName: "chevron.left") }.buttonStyle(ReadingButtonStyle(iconOnly: true)).accessibilityLabel("Previous \(navigation.scale.title.lowercased())")
             Button(action: next) { Image(systemName: "chevron.right") }.buttonStyle(ReadingButtonStyle(iconOnly: true)).disabled(!isNextEnabled).accessibilityLabel("Next \(navigation.scale.title.lowercased())")
-            Text(navigation.title).font(ReadingType.bookTitle(22)).lineLimit(1).fixedSize().padding(.leading, 4)
         }
     }
     private var scalePicker: some View {
@@ -132,7 +129,7 @@ private struct HistoryMonthCalendar: View {
     let days: [String: DailyTotal]
     let today: Date
     let select: (Date) -> Void
-    private let columns = Array(repeating: GridItem(.flexible(minimum: 74), spacing: 7), count: 7)
+    private let columns = Array(repeating: GridItem(.flexible(minimum: 42), spacing: 7), count: 7)
     var body: some View {
         VStack(spacing: 7) {
             LazyVGrid(columns: columns, spacing: 7) {
@@ -189,8 +186,8 @@ private struct HistoryMonthDayCell: View {
                 Capsule().fill(accent ?? .clear).frame(height: 3)
             }
             .foregroundStyle(cell.isInMonth ? ReadingPalette.ink : ReadingPalette.secondaryInk)
-            .frame(maxWidth: .infinity, minHeight: 60, alignment: .topLeading).padding(8)
-            .background(hovering && !isFuture ? ReadingPalette.accent.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .frame(maxWidth: .infinity, alignment: .topLeading).frame(height: 58).padding(8)
+            .background(hovering && !isFuture ? ReadingPalette.accent.opacity(0.16) : (accent?.opacity(0.09) ?? ReadingPalette.surface), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(isToday ? ReadingPalette.accent : .clear, lineWidth: isToday ? 1.5 : 0))
             .contentShape(Rectangle())
             .opacity(isFuture ? 0.45 : (cell.isInMonth ? 1 : 0.6))
