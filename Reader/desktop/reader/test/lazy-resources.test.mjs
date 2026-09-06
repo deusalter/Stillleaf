@@ -71,7 +71,7 @@ test('host-served resources load on demand and render',{timeout:90000},async t=>
  // Calibre-style SVG cover wrapper becomes a plain image instead of being stripped to a blank page.
  const cover=await page.evaluate(()=>{const d=[...document.querySelectorAll('#reader iframe')].map(f=>f.contentDocument).find(d=>d?.getElementById('cover-page'));const box=d.getElementById('cover-page');return {svg:Boolean(box.querySelector('svg')),src:box.querySelector('img')?.getAttribute('src')??''}});
  assert.equal(cover.svg,false);assert.match(cover.src,/^blob:/,'SVG-wrapped cover rendered as an image');
- assert.equal(await page.evaluate(()=>document.getElementById('chapter-label').textContent),'Chapter 6','untitled chapter falls back while its heading is empty');
+ assert.equal(await page.evaluate(()=>document.getElementById('chapter-label').title),'Chapter 6','untitled chapter falls back while its heading is empty');
 
  await page.getByRole('button',{name:'Search book',exact:true}).click();
  await page.getByRole('searchbox',{name:'Words or phrase'}).fill('heron');await page.locator('.result-link').waitFor();

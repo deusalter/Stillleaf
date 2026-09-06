@@ -35,7 +35,7 @@ export class ContinuousNavigator {
   this.container=container;this.input=input;this.pool=pool;this.listeners=listeners;this.initial=serial(initial);this.settings=settings;this.entries=[];this.destroyed=false;this.epoch=0;this.queue=Promise.resolve();this.suppress=0;this.decorations=[];this.decorationObserver=null;this.current=null;this.lastAnchor=null;this.lastInput=0;this.currentIndex=0;this.ownTop=0;this.readerAnchor=null;
   this.evidenceTop=0;
   // Every programmatic scroll goes through setTop, which moves evidenceTop too, so the delta seen here is the reader's.
-  this.onScroll=()=>{if(this.destroyed)return;const top=this.container.scrollTop,delta=top-this.evidenceTop;this.evidenceTop=top;if(this.suppress){if(this.moved()){this.noteReaderScroll();this.listeners.readerScrolled?.(delta,this.container.clientHeight)}return}this.listeners.readerScrolled?.(delta,this.container.clientHeight);this.lastInput=performance.now();cancelAnimationFrame(this.scrollFrame);this.scrollFrame=requestAnimationFrame(()=>{this.report();void this.updateWindow()})};
+  this.onScroll=()=>{if(this.destroyed)return;const top=this.container.scrollTop,delta=top-this.evidenceTop;this.evidenceTop=top;if(!delta)return;if(this.suppress){if(this.moved()){this.noteReaderScroll();this.listeners.readerScrolled?.(delta,this.container.clientHeight)}return}this.listeners.readerScrolled?.(delta,this.container.clientHeight);this.lastInput=performance.now();cancelAnimationFrame(this.scrollFrame);this.scrollFrame=requestAnimationFrame(()=>{const locator=this.report();if(locator)this.listeners.readerAnchorChanged?.(locator);void this.updateWindow()})};
   this.onResize=()=>{if(this.destroyed)return;clearTimeout(this.resizeTimer);this.resizeTimer=setTimeout(()=>void this.remeasure(),60)};
  }
  async load(){
@@ -109,6 +109,9 @@ export class ContinuousNavigator {
    const wanted=new Set([requested]);
    for(const entry of visible.sort((a,b)=>Math.abs(a.index-requested)-Math.abs(b.index-requested)))if(wanted.size<MAX_FRAMES)wanted.add(entry.index);
    for(let distance=1;wanted.size<MAX_FRAMES&&distance<=3;distance++)for(const i of [requested-distance,requested+distance])if(i>=0&&i<this.entries.length&&wanted.size<MAX_FRAMES)wanted.add(i);
+   // Scrolling within the mounted window changes no geometry. Avoid capturing and
+   // restoring a text anchor here: that forces layout and fights native scrolling.
+   if([...wanted].every(i=>this.entries[i].frame||this.entries[i].failed)&&!this.entries.some(entry=>entry.frame&&!wanted.has(entry.index)))return;
    // Keep a measured placeholder when releasing a document; never concatenate chapters.
    for(const entry of this.entries)if(!wanted.has(entry.index))this.unmount(entry);
    const anchor=this.captureAnchor();this.suppress++;
@@ -159,7 +162,7 @@ export class ContinuousNavigator {
   if(this.destroyed)return;if(this.moved())this.noteReaderScroll();const anchor=this.lastAnchor??this.captureAnchor();this.suppress++;
   try{for(const entry of this.entries)if(entry.frame)this.measure(entry);this.settle(anchor,performance.now()-this.lastInput>140)}catch(error){this.listeners.error?.(error)}finally{this.suppress--}this.report();
  }
- report(){if(this.destroyed||this.suppress)return;this.ownTop=this.container.scrollTop;const anchor=this.captureAnchor();if(!anchor)return;this.lastAnchor=anchor;this.current=anchor.locator;this.currentIndex=this.entries.findIndex(e=>e.link.href===this.current.href);this.listeners.positionChanged?.(Locator.deserialize(this.current));}
+ report(){if(this.destroyed||this.suppress)return;this.ownTop=this.container.scrollTop;const anchor=this.captureAnchor();if(!anchor)return;this.lastAnchor=anchor;this.current=anchor.locator;this.currentIndex=this.entries.findIndex(e=>e.link.href===this.current.href);this.listeners.positionChanged?.(Locator.deserialize(this.current));return this.current;}
  async navigate(value){
   const locator=serial(value),index=this.entries.findIndex(e=>e.link.href===locator?.href);if(index<0)return false;
   this.suppress++;
