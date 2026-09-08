@@ -243,10 +243,26 @@ func runUISmoke() throws {
     let store = ThemeStore.shared
     themeSuite.set("bogus", forKey: ThemeStore.themeKey)
     themeSuite.set("bogus", forKey: ThemeStore.accentKey)
+    themeSuite.set("bogus", forKey: ThemeStore.modeKey)
     store.reload(from: themeSuite)
     guard store.themeID == "stillleaf", store.accentID == nil else {
         throw BooksAccessErrorForUI.failed("Unknown theme or accent id did not fall back to the defaults")
     }
+    guard store.appearanceMode == .system, NSApp.appearance == nil else {
+        throw BooksAccessErrorForUI.failed("Unknown display mode did not follow the system")
+    }
+    for mode in [DashboardAppearance.light, .dark] {
+        store.select(appearance: mode)
+        store.reload(from: themeSuite)
+        guard store.appearanceMode == mode,
+              themeSuite.string(forKey: ThemeStore.modeKey) == mode.rawValue,
+              NSApp.appearance?.name == mode.nativeAppearance?.name,
+              store.themeID == "stillleaf", store.accentID == nil else {
+            throw BooksAccessErrorForUI.failed("Display mode did not persist independently of the theme and accent")
+        }
+    }
+    store.select(appearance: .system)
+    guard NSApp.appearance == nil else { throw BooksAccessErrorForUI.failed("System mode retained a forced appearance") }
     let revisionBefore = store.revision
     store.select(theme: "ocean"); store.select(accent: "rose")
     guard store.revision > revisionBefore, themeSuite.string(forKey: ThemeStore.themeKey) == "ocean",

@@ -9,6 +9,20 @@ struct AppearancePicker: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 34) {
+            ReadingSection("Display mode") {
+                VStack(alignment: .leading, spacing: 10) {
+                    Picker("Display mode", selection: Binding(get: { store.appearanceMode }, set: { store.select(appearance: $0) })) {
+                        ForEach(DashboardAppearance.allCases) { mode in
+                            Text(mode.label).tag(mode)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(maxWidth: 340)
+                    .accessibilityIdentifier("dashboard-appearance-mode")
+                    Text("System follows your Mac. Light and Dark keep Stillleaf in that appearance.")
+                        .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
+                }
+            }
             ReadingSection("Theme") {
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(minimum: 140, maximum: 240), spacing: 18, alignment: .top), count: 3),
                           alignment: .leading, spacing: 18) {
