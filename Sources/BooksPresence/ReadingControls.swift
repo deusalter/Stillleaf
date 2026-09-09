@@ -7,6 +7,7 @@ struct ReadingSegmentedControl<Value: Hashable>: View {
     let options: [Value]
     @Binding var selection: Value
     let title: (Value) -> String
+    var systemImage: ((Value) -> String)? = nil
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var colorScheme
     @FocusState private var focused: Value?
@@ -16,7 +17,13 @@ struct ReadingSegmentedControl<Value: Hashable>: View {
         HStack(spacing: 3) {
             ForEach(options, id: \.self) { option in
                 Button { selection = option } label: {
-                    Text(title(option))
+                    HStack(spacing: 7) {
+                        if let systemImage {
+                            Image(systemName: systemImage(option))
+                                .accessibilityHidden(true)
+                        }
+                        Text(title(option))
+                    }
                         .font(.system(size: 12, weight: selection == option ? .semibold : .medium))
                         .lineLimit(1).padding(.horizontal, 12).padding(.vertical, 9)
                         .frame(maxWidth: .infinity)

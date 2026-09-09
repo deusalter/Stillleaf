@@ -11,15 +11,22 @@ struct AppearancePicker: View {
         VStack(alignment: .leading, spacing: 34) {
             ReadingSection("Display mode") {
                 VStack(alignment: .leading, spacing: 10) {
-                    Picker("Display mode", selection: Binding(get: { store.appearanceMode }, set: { store.select(appearance: $0) })) {
-                        ForEach(DashboardAppearance.allCases) { mode in
-                            Text(mode.label).tag(mode)
+                    ReadingSegmentedControl(
+                        label: "Display mode",
+                        options: DashboardAppearance.allCases,
+                        selection: Binding(get: { store.appearanceMode }, set: { store.select(appearance: $0) }),
+                        title: { $0.label },
+                        systemImage: { mode in
+                            switch mode {
+                            case .system: return "desktopcomputer"
+                            case .light: return "sun.max"
+                            case .dark: return "moon"
+                            }
                         }
-                    }
-                    .pickerStyle(.segmented)
-                    .frame(maxWidth: 340)
+                    )
+                    .frame(maxWidth: 380)
                     .accessibilityIdentifier("dashboard-appearance-mode")
-                    Text("System follows your Mac. Light and Dark keep Stillleaf in that appearance.")
+                    Text("System follows your Mac’s appearance.")
                         .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
                 }
             }
@@ -47,8 +54,6 @@ struct AppearancePicker: View {
                         .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
                 }
             }
-            Text("Themes apply to the dashboard and the menu bar. Every combination keeps text readable in light and dark mode.")
-                .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
         }
     }
 }
