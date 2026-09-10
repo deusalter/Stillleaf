@@ -543,7 +543,8 @@ private struct OnboardingGoalStep: View {
             OnboardingTitle(title: "Pick a daily rhythm",
                             subtitle: "Small and steady beats big and abandoned. Choose what a good reading day looks like.")
             ReadingSegmentedControl(label: "Daily goal unit", options: [DailyGoalUnit.pages, .minutes],
-                                    selection: unitBinding, title: { $0 == .pages ? "Pages" : "Minutes" })
+                                    selection: unitBinding, title: { $0 == .pages ? "Pages" : "Minutes" },
+                                    preservesWalkthroughTreatment: true)
                 .frame(width: 260)
                 .onboardingReveal(2)
             dial.onboardingReveal(3)

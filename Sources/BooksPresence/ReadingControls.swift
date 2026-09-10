@@ -8,6 +8,8 @@ struct ReadingSegmentedControl<Value: Hashable>: View {
     @Binding var selection: Value
     let title: (Value) -> String
     var systemImage: ((Value) -> String)? = nil
+    /// Keep the approved first-run tour's existing type and timing intact.
+    var preservesWalkthroughTreatment = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var colorScheme
     @FocusState private var focused: Value?
@@ -24,7 +26,9 @@ struct ReadingSegmentedControl<Value: Hashable>: View {
                         }
                         Text(title(option))
                     }
-                        .font(.system(size: 12, weight: selection == option ? .semibold : .medium))
+                        .font(preservesWalkthroughTreatment
+                              ? .system(size: 12, weight: selection == option ? .semibold : .medium)
+                              : ReadingType.controlLabel)
                         .lineLimit(1).padding(.horizontal, 12).padding(.vertical, 9)
                         .frame(maxWidth: .infinity)
                         .foregroundStyle(selection == option ? ReadingPalette.ink : ReadingPalette.secondaryInk)
@@ -45,7 +49,7 @@ struct ReadingSegmentedControl<Value: Hashable>: View {
         }
         .padding(3)
         .background(ReadingPalette.ink.opacity(0.06), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: selection)
+        .animation(reduceMotion ? nil : (preservesWalkthroughTreatment ? .easeOut(duration: 0.16) : ReadingMotion.selection), value: selection)
         .accessibilityElement(children: .contain).accessibilityLabel(label)
         .onMoveCommand { direction in
             guard direction == .left || direction == .right,

@@ -1,11 +1,14 @@
 import SwiftUI
 
-/// Shared type scale: New York for display text and book titles, SF Pro for the rest.
+/// SF for navigation and measurements; New York for book and editorial titles.
+/// The walkthrough owns its display scale and does not use these page headings.
 enum ReadingType {
-    static let pageTitle = Font.system(size: 34, weight: .regular, design: .serif)
+    static let pageTitle = Font.system(size: 30, weight: .semibold)
     static let sectionLabel = Font.system(size: 11, weight: .semibold)
+    static let sectionTitle = Font.system(size: 14, weight: .semibold)
+    static let controlLabel = Font.system(size: 12, weight: .medium)
     static func bookTitle(_ size: CGFloat) -> Font { .system(size: size, weight: .medium, design: .serif) }
-    static func numeral(_ size: CGFloat) -> Font { .system(size: size, weight: .regular, design: .serif) }
+    static func numeral(_ size: CGFloat) -> Font { .system(size: size, weight: .regular).monospacedDigit() }
 }
 
 /// The page title block. It lives inside each screen's scroll view so it scrolls
@@ -67,7 +70,7 @@ struct ReadingSection<Content: View, Accessory: View>: View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(alignment: .firstTextBaseline) {
-                    Text(title).font(.system(size: 14, weight: .semibold))
+                    Text(title).font(ReadingType.sectionTitle)
                         .foregroundStyle(ReadingPalette.secondaryInk)
                         .accessibilityLabel(title).accessibilityAddTraits(.isHeader)
                     Spacer(minLength: 8)
@@ -99,7 +102,7 @@ struct Hairline: View {
     }
 }
 
-/// A quiet statistic: serif numeral over a small label, no card.
+/// A quiet statistic: stable-width digits over a small label, no card.
 struct StatLine: View {
     let value: String
     let label: String
