@@ -6,9 +6,9 @@ struct HistoryView: View {
     @ObservedObject var model: AppModel
     @State private var navigation: CalendarNavigation
 
-    init(model: AppModel, initialScale: CalendarScale = .month) {
+    init(model: AppModel, initialScale: CalendarScale = .month, anchor: Date = Date()) {
         self.model = model
-        _navigation = State(initialValue: CalendarNavigation(timezoneID: model.timezoneID, scale: initialScale))
+        _navigation = State(initialValue: CalendarNavigation(timezoneID: model.timezoneID, anchor: anchor, scale: initialScale))
     }
 
     private var todayStart: Date { navigation.calendar.startOfDay(for: Date()) }
@@ -27,16 +27,20 @@ struct HistoryView: View {
         // The heading lives inside the scroll view so it scrolls away with the content.
         return ScrollView {
             VStack(alignment: .leading, spacing: 28) {
-                PageHeader("History", subtitle: "See how your reading adds up.")
+                PageHeader("History", subtitle: "")
                 VStack(alignment: .leading, spacing: 16) {
                     HistoryCalendarToolbar(navigation: navigation, isNextEnabled: canMoveForward, setScale: { setScale($0) }, previous: { move(-1) }, next: { move(1) }, today: { goToToday() })
-                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), alignment: .leading), count: 4), alignment: .leading, spacing: 18) {
-                        HistoryMetric(title: "Pages read", value: pageTurns.formatted())
-                        HistoryMetric(title: "Goals reached", value: "\(pageGoalDays)")
-                        HistoryMetric(title: navigation.scale == .day ? "Books" : "Reading days", value: navigation.scale == .day ? "\(dayBookCount)" : "\(activeDays)")
-                        HistoryMetric(title: "Reading time", value: ReadingFormat.duration(creditedSeconds))
-                    }.padding(.vertical, 10)
-                    Hairline()
+                    if navigation.scale != .day {
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Text(pageTurns > 0 ? pageTurns.formatted() : ReadingFormat.duration(creditedSeconds)).font(ReadingType.bookTitle(36))
+                            Text(pageTurns > 0 ? "pages" : "recorded").foregroundStyle(ReadingPalette.secondaryInk)
+                            Spacer()
+                            Text("\(activeDays) reading \(activeDays == 1 ? "day" : "days")  ·  \(ReadingFormat.duration(creditedSeconds))  ·  \(pageGoalDays) \(pageGoalDays == 1 ? "goal" : "goals") reached")
+                                .font(.callout).foregroundStyle(ReadingPalette.secondaryInk)
+                        }
+                        .padding(.vertical, 12)
+                        .help("\(pageGoalDays) daily goals reached in this period")
+                    }
                     Group {
                         switch navigation.scale {
                         case .month:
@@ -53,12 +57,9 @@ struct HistoryView: View {
                     .id("\(navigation.scale.rawValue)-\(navigation.dayKey(for: navigation.periodStart))")
                 }
                 .padding(.vertical, 4)
-                Text("Calendar timezone: \(model.timezoneID)")
-                    .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
-                if pageTurns == 0 && creditedSeconds > 0 {
-                    Text("This period has recorded time but no observed-page data. Older history is not backfilled.")
-                        .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
-                }
+                Text(model.timezoneID.replacingOccurrences(of: "_", with: " "))
+                    .font(.caption2).foregroundStyle(ReadingPalette.secondaryInk)
+                    .help("Dates and sessions use this calendar timezone.")
             }
             .readingPage()
         }
@@ -67,12 +68,6 @@ struct HistoryView: View {
     }
 
     private var daysByKey: [String: DailyTotal] { Dictionary(uniqueKeysWithValues: model.days.map { ($0.day, $0) }) }
-    private var dayBookCount: Int {
-        guard navigation.scale == .day else { return 0 }
-        let resolver = BookMergeResolver(merges: model.merges)
-        let entries = DayContribution.forDay(navigation.dayKey(for: navigation.periodStart), timezoneID: model.timezoneID, intervals: model.displayIntervals)
-        return Set(entries.map { resolver.resolvedID(for: $0.interval.bookID) }).count
-    }
     private var canMoveForward: Bool {
         let current = CalendarNavigation(timezoneID: model.timezoneID, anchor: Date(), scale: navigation.scale)
         return navigation.periodStart < current.periodStart
@@ -84,14 +79,6 @@ struct HistoryView: View {
     private func select(_ date: Date, scale: CalendarScale) { guard date <= todayStart else { return }; mutateNavigation { $0.select(date, scale: scale) } }
     private func move(_ amount: Int) { guard amount < 0 || canMoveForward else { return }; mutateNavigation { $0.move(by: amount) } }
     private func goToToday() { mutateNavigation { $0.goToToday() } }
-}
-
-struct HistoryMetric: View {
-    let title: String
-    let value: String
-    var body: some View {
-        StatLine(value: value, label: title)
-    }
 }
 
 private struct HistoryCalendarToolbar: View {
@@ -109,7 +96,7 @@ private struct HistoryCalendarToolbar: View {
     }
     private var titleRow: some View {
         HStack(spacing: 8) {
-            Text(navigation.title).font(ReadingType.bookTitle(25)).lineLimit(1).fixedSize().padding(.trailing, 8)
+            Text(navigation.title).font(ReadingType.bookTitle(28)).lineLimit(1).fixedSize().padding(.trailing, 8)
             Button(action: previous) { Image(systemName: "chevron.left") }.buttonStyle(ReadingButtonStyle(iconOnly: true)).accessibilityLabel("Previous \(navigation.scale.title.lowercased())")
             Button(action: next) { Image(systemName: "chevron.right") }.buttonStyle(ReadingButtonStyle(iconOnly: true)).disabled(!isNextEnabled).accessibilityLabel("Next \(navigation.scale.title.lowercased())")
         }
@@ -140,7 +127,7 @@ private struct HistoryMonthCalendar: View {
                     HistoryMonthDayCell(model: model, cell: cell, dayNumber: navigation.calendar.component(.day, from: cell.date), timezoneID: navigation.timezoneID, total: days[navigation.dayKey(for: cell.date)], isToday: navigation.isSameDay(cell.date, today), isFuture: cell.date > today, select: { select(cell.date) })
                 }
             }
-            HistoryLegend()
+
         }
     }
     private var weekdayNames: [String] {
@@ -164,9 +151,9 @@ private struct HistoryMonthDayCell: View {
     private var accent: Color? {
         guard let total else { return nil }
         let pages = model.pages(on: navigationDayKey)
-        if model.dailyGoal(on: navigationDayKey).reached { return ReadingPalette.chart(0) }
-        if pages > 0 { return ReadingPalette.chart(1) }
-        if total.creditedSeconds > 0 { return ReadingPalette.chart(2) }
+        if model.dailyGoal(on: navigationDayKey).reached { return ReadingPalette.accent }
+        if pages > 0 { return ReadingPalette.accent.opacity(0.7) }
+        if total.creditedSeconds > 0 { return ReadingPalette.accent.opacity(0.4) }
         if total.uncertainSeconds > 0 { return ReadingPalette.secondaryInk }
         return nil
     }
@@ -183,7 +170,10 @@ private struct HistoryMonthDayCell: View {
                     Image(systemName: "clock.badge.questionmark").font(.caption2)
                 } else { Spacer(minLength: 0) }
                 Spacer(minLength: 0)
-                Capsule().fill(accent ?? .clear).frame(height: 3)
+                if model.dailyGoal(on: navigationDayKey).reached {
+                    Image(systemName: "checkmark").font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(ReadingPalette.accent).accessibilityLabel("Daily goal reached")
+                }
             }
             .foregroundStyle(cell.isInMonth ? ReadingPalette.ink : ReadingPalette.secondaryInk)
             .frame(maxWidth: .infinity, alignment: .topLeading).frame(height: 58).padding(8)
@@ -213,44 +203,49 @@ private struct HistoryWeekCalendar: View {
     let days: [String: DailyTotal]
     let today: Date
     let select: (Date) -> Void
-    private var highestPageTurns: Int { max(1, navigation.weekDates.map { model.pages(on: navigation.dayKey(for: $0)) }.max() ?? 0) }
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .bottom, spacing: 8) {
-                ForEach(navigation.weekDates, id: \.self) { date in
-                    let total = days[navigation.dayKey(for: date)]
-                    Button { select(date) } label: {
-                        VStack(spacing: 7) {
-                            Text(HistoryCalendarFormat.weekday(date, timezoneID: navigation.timezoneID)).font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
-                            Text("\(navigation.calendar.component(.day, from: date))").font(.callout.weight(navigation.isSameDay(date, today) ? .bold : .regular))
-                            Spacer(minLength: 0)
-                            RoundedRectangle(cornerRadius: 4, style: .continuous).fill(readColor(total, date: date)).frame(height: barHeight(date))
-                            Text(ReadingFormat.observedPages(model.pages(on: navigation.dayKey(for: date)))).font(.caption2).monospacedDigit().lineLimit(1)
-                            Text(ReadingFormat.duration(total?.creditedSeconds ?? 0)).font(.caption2).monospacedDigit().foregroundStyle(ReadingPalette.secondaryInk).lineLimit(1)
+        LazyVStack(spacing: 8) {
+            ForEach(navigation.weekDates, id: \.self) { date in
+                let key = navigation.dayKey(for: date)
+                let total = days[key]
+                let pages = model.pages(on: key)
+                let entries = DayContribution.forDay(key, timezoneID: model.timezoneID, intervals: model.displayIntervals)
+                let resolver = BookMergeResolver(merges: model.merges)
+                let ids = Set(entries.map { resolver.resolvedID(for: $0.interval.bookID) })
+                let titles = model.books.filter { ids.contains($0.id) }.map(\.title).sorted()
+                Button { select(date) } label: {
+                    HStack(spacing: 22) {
+                        VStack(spacing: 3) {
+                            Text(HistoryCalendarFormat.weekday(date, timezoneID: navigation.timezoneID))
+                                .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
+                            Text("\(navigation.calendar.component(.day, from: date))").font(ReadingType.bookTitle(26))
+                        }.frame(width: 40)
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text(titles.isEmpty ? (pages > 0 ? "Reading recorded" : "—") : titles.joined(separator: " · "))
+                                .font(titles.isEmpty ? .callout : ReadingType.bookTitle(18)).lineLimit(2)
+                            if let total, total.uncertainSeconds > 0 {
+                                Text("\(ReadingFormat.duration(total.uncertainSeconds)) awaiting review")
+                                    .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
+                            }
                         }
-                        .frame(maxWidth: .infinity, minHeight: 146).padding(8)
-                        .background(navigation.isSameDay(date, today) ? ReadingPalette.accent.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(ReadingPalette.border, lineWidth: 1))
-                        .opacity(date > today ? 0.45 : 1)
+                        Spacer(minLength: 12)
+                        if pages > 0 || (total?.creditedSeconds ?? 0) > 0 {
+                            VStack(alignment: .trailing, spacing: 5) {
+                                Text(pages > 0 ? ReadingFormat.observedPages(pages) : "Time only").font(.callout.weight(.medium))
+                                Text(ReadingFormat.duration(total?.creditedSeconds ?? 0)).font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
+                            }
+                        }
+                        Image(systemName: "chevron.right").font(.caption2).foregroundStyle(ReadingPalette.secondaryInk)
                     }
-                    .buttonStyle(.plain).disabled(date > today).accessibilityLabel("Show \(HistoryCalendarFormat.longDate(date, timezoneID: navigation.timezoneID))")
+                    .foregroundStyle(ReadingPalette.ink).padding(.horizontal, 16).padding(.vertical, 9)
+                    .background(navigation.isSameDay(date, today) ? ReadingPalette.accent.opacity(0.09) : ReadingPalette.surface.opacity(0.65), in: RoundedRectangle(cornerRadius: 16))
+                    .contentShape(RoundedRectangle(cornerRadius: 16))
+                    .opacity(date > today ? 0.4 : 1)
                 }
+                .buttonStyle(.plain).disabled(date > today)
+                .accessibilityLabel("\(HistoryCalendarFormat.longDate(date, timezoneID: navigation.timezoneID)), \(ReadingFormat.observedPages(pages)), \(titles.joined(separator: ", "))")
             }
-            HistoryLegend()
         }
-    }
-    private func barHeight(_ date: Date) -> CGFloat {
-        CGFloat(max(5, min(72, Double(model.pages(on: navigation.dayKey(for: date))) / Double(highestPageTurns) * 72)))
-    }
-    private func readColor(_ total: DailyTotal?, date: Date) -> Color {
-        guard let total else { return ReadingPalette.ink.opacity(0.12) }
-        let dayKey = navigation.dayKey(for: date)
-        let pages = model.pages(on: dayKey)
-        if model.dailyGoal(on: dayKey).reached { return ReadingPalette.chart(0) }
-        if pages > 0 { return ReadingPalette.chart(1) }
-        if total.creditedSeconds > 0 { return ReadingPalette.chart(2) }
-        if total.uncertainSeconds > 0 { return ReadingPalette.secondaryInk }
-        return ReadingPalette.ink.opacity(0.12)
     }
 }
 
@@ -318,9 +313,9 @@ private struct HistoryMiniMonth: View {
         guard let total = days[navigation.dayKey(for: cell.date)] else { return ReadingPalette.track }
         let dayKey = navigation.dayKey(for: cell.date)
         let pages = model.pages(on: dayKey)
-        if model.dailyGoal(on: dayKey).reached { return ReadingPalette.chart(0) }
-        if pages > 0 { return ReadingPalette.chart(1) }
-        if total.creditedSeconds > 0 { return ReadingPalette.chart(2) }
+        if model.dailyGoal(on: dayKey).reached { return ReadingPalette.accent }
+        if pages > 0 { return ReadingPalette.accent.opacity(0.7) }
+        if total.creditedSeconds > 0 { return ReadingPalette.accent.opacity(0.4) }
         if total.uncertainSeconds > 0 { return ReadingPalette.secondaryInk }
         return ReadingPalette.track
     }
@@ -337,23 +332,6 @@ private struct HistoryMiniMonth: View {
     }
 }
 
-private struct HistoryLegend: View {
-    var body: some View {
-        HStack(spacing: 14) {
-            LegendDot(color: ReadingPalette.chart(0), text: "Page goal met")
-            LegendDot(color: ReadingPalette.chart(1), text: "Reading pages")
-            LegendDot(color: ReadingPalette.chart(2), text: "Time-only history")
-            LegendDot(color: ReadingPalette.secondaryInk, text: "Awaiting review")
-        }.frame(maxWidth: .infinity, alignment: .trailing)
-    }
-}
-
-private struct LegendDot: View {
-    let color: Color
-    let text: String
-    var body: some View { HStack(spacing: 4) { Capsule().fill(color).frame(width: 12, height: 4); Text(text).font(.caption).foregroundStyle(ReadingPalette.secondaryInk) } }
-}
-
 @MainActor
 private struct HistoryDayDetail: View {
     @ObservedObject var model: AppModel
@@ -363,71 +341,146 @@ private struct HistoryDayDetail: View {
     @State private var reviewInterval: ReadingInterval?
     private var dayKey: String { navigation.dayKey(for: date) }
     private var pageTurns: Int { model.pages(on: dayKey) }
-    private var pageGoal: Int? { model.pageGoal(on: dayKey) }
     private var total: DailyTotal? { model.days.first { $0.day == dayKey } }
+    private var creditedSeconds: Double { total?.creditedSeconds ?? 0 }
+    private var uncertainSeconds: Double { total?.uncertainSeconds ?? 0 }
+    private var summaryValue: String {
+        if pageTurns > 0 { return pageTurns.formatted() }
+        return ReadingFormat.duration(creditedSeconds > 0 ? creditedSeconds : uncertainSeconds)
+    }
+    private var summaryLabel: String {
+        if pageTurns > 0 { return "pages read" }
+        if creditedSeconds > 0 { return "recorded" }
+        return uncertainSeconds > 0 ? "awaiting review" : "credited"
+    }
     private var contributions: [DayContribution] { DayContribution.forDay(dayKey, timezoneID: model.timezoneID, intervals: model.displayIntervals) }
     private var period: DateInterval { navigation.calendar.dateInterval(of: .day, for: date)! }
     private var sessions: [ReadingSessionGroup] {
-        model.visibleReadingSessions.filter { $0.end > period.start && $0.start < period.end }.sorted { $0.start > $1.start }
+        model.visibleReadingSessions.filter { ($0.end > period.start && $0.start < period.end) || ($0.start == $0.end && $0.start >= period.start && $0.start < period.end) }.sorted { $0.start > $1.start }
     }
     private var bookContributions: [HistoryBookContribution] {
         let resolver = BookMergeResolver(merges: model.merges)
         let grouped = Dictionary(grouping: contributions, by: { resolver.resolvedID(for: $0.interval.bookID) })
-        let summaries: [HistoryBookContribution] = grouped.map { entry in
-            let credited = entry.value
+        let bookIDs = Set(grouped.keys).union(model.books.filter {
+            model.pages(forBookID: $0.id, from: period.start, through: period.end) > 0
+        }.map(\.id))
+        let summaries: [HistoryBookContribution] = bookIDs.map { bookID in
+            let entries = grouped[bookID] ?? []
+            let credited = entries
                 .filter { $0.interval.disposition == .credited }
                 .reduce(0.0) { result, contribution in result + contribution.clippedSeconds }
-            let uncertain = entry.value
+            let uncertain = entries
                 .filter { $0.interval.disposition == .uncertain }
                 .reduce(0.0) { result, contribution in result + contribution.clippedSeconds }
-            let pageTurns = model.pages(forBookID: entry.key, from: period.start, through: period.end)
-            return HistoryBookContribution(bookID: entry.key, pageTurns: pageTurns, creditedSeconds: credited, uncertainSeconds: uncertain)
+            let pageTurns = model.pages(forBookID: bookID, from: period.start, through: period.end)
+            return HistoryBookContribution(bookID: bookID, pageTurns: pageTurns, creditedSeconds: credited, uncertainSeconds: uncertain)
         }
-        return summaries.sorted { $0.pageTurns == $1.pageTurns ? $0.totalSeconds > $1.totalSeconds : $0.pageTurns > $1.pageTurns }
+        return summaries.sorted {
+            if $0.pageTurns != $1.pageTurns { return $0.pageTurns > $1.pageTurns }
+            if $0.totalSeconds != $1.totalSeconds { return $0.totalSeconds > $1.totalSeconds }
+            return $0.bookID < $1.bookID
+        }
     }
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Your reading day").font(ReadingType.bookTitle(22))
-                    Text(model.dailyGoal(on: dayKey).summary + " · Daily goal")
-                        .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
+        VStack(alignment: .leading, spacing: 24) {
+            if bookContributions.isEmpty {
+                VStack(alignment: .leading, spacing: 14) {
+                    Image(systemName: "book.closed").font(.system(size: 30, weight: .ultraLight)).foregroundStyle(ReadingPalette.accent)
+                    Text("Nothing recorded").font(ReadingType.bookTitle(28))
+                    Text("No reading was recorded on this day.").font(.callout).foregroundStyle(ReadingPalette.secondaryInk)
+                    Button("Browse this month", action: back).padding(.top, 8)
                 }
-                Spacer(); Button("Month", action: back).controlSize(.small)
-            }
-            if contributions.isEmpty {
-                ReadingEmptyState(title: "No reading recorded", symbol: "calendar.badge.clock", message: "There are no saved reading spans for this day.")
+                .padding(32).frame(maxWidth: .infinity, minHeight: 260, alignment: .leading)
+                .background(ReadingPalette.surface.opacity(0.7), in: RoundedRectangle(cornerRadius: 22))
             } else {
-                if pageTurns == 0 {
-                    Text("No pages were saved for this day. Older time-only history is not backfilled.")
-                        .font(.callout).foregroundStyle(ReadingPalette.secondaryInk)
-                }
-                ReadingSection("Books") {
-                  VStack(alignment: .leading, spacing: 10) {
-                    ForEach(bookContributions) { contribution in
-                        let book = model.books.first { $0.id == contribution.bookID }
-                        HStack {
-                            Text(book?.title ?? "Unknown book").font(.callout.weight(.medium)).foregroundStyle(ReadingPalette.ink); Spacer()
-                            Text(ReadingFormat.observedPages(contribution.pageTurns))
-                            if contribution.creditedSeconds > 0 { Text("Time \(ReadingFormat.duration(contribution.creditedSeconds))") }
-                            if contribution.uncertainSeconds > 0 { Text("Review \(ReadingFormat.duration(contribution.uncertainSeconds))") }
-                        }.font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
+                HStack(alignment: .center, spacing: 24) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Text(summaryValue)
+                                .font(ReadingType.bookTitle(44))
+                            Text(summaryLabel)
+                                .font(.callout).foregroundStyle(ReadingPalette.secondaryInk)
+                        }
+                        Text(pageTurns > 0 ? "\(ReadingFormat.duration(total?.creditedSeconds ?? 0)) across \(bookContributions.count) \(bookContributions.count == 1 ? "book" : "books")" : "\(bookContributions.count) \(bookContributions.count == 1 ? "book" : "books")")
+                            .font(.callout).foregroundStyle(ReadingPalette.secondaryInk)
                     }
-                  }
-                }
-                ReadingSection("Reading sessions") {
-                  VStack(alignment: .leading, spacing: 8) {
-                    Text("Short breaks stay in the same session. Brief automatic visits without page activity are hidden; recorded time is kept.")
-                        .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
-                    ForEach(sessions) { session in
-                        HistorySessionRow(model: model, session: session, dayKey: dayKey, period: period, review: { reviewInterval = $0 })
-                        if session.id != sessions.last?.id { Hairline() }
+                    Spacer(minLength: 0)
+                    VStack(alignment: .trailing, spacing: 6) {
+                        if model.dailyGoal(on: dayKey).reached {
+                            Label("Daily goal reached", systemImage: "checkmark.circle.fill")
+                                .foregroundStyle(ReadingPalette.accent).font(.callout.weight(.medium))
+                        } else {
+                            Text("Daily goal").font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
+                        }
+                        Text(model.dailyGoal(on: dayKey).summary).font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
                     }
-                  }
                 }
+                .padding(.vertical, 12)
+                ForEach(bookContributions) { contribution in
+                    bookEntry(contribution)
+                }
+                Button("Back to month", action: back).controlSize(.small)
             }
         }
         .sheet(item: $reviewInterval) { interval in IntervalReviewEditor(model: model, interval: interval) }
+    }
+
+    private func bookEntry(_ contribution: HistoryBookContribution) -> some View {
+        let book = model.books.first { $0.id == contribution.bookID }
+        let bookSessions = sessions.filter { $0.bookID == contribution.bookID }
+        let sessionIntervalIDs = Set(bookSessions.flatMap { $0.intervals.map(\.id) })
+        let resolver = BookMergeResolver(merges: model.merges)
+        // Keep hidden short visits and excluded spans reviewable without inflating session counts.
+        let other = contributions.filter {
+            resolver.resolvedID(for: $0.interval.bookID) == contribution.bookID && !sessionIntervalIDs.contains($0.interval.id)
+        }
+        return VStack(alignment: .leading, spacing: 20) {
+            HStack(alignment: .top, spacing: 22) {
+                BookCoverView(book: book, size: .library)
+                VStack(alignment: .leading, spacing: 7) {
+                    Text(book?.title ?? "Unknown book").font(ReadingType.bookTitle(25)).fixedSize(horizontal: false, vertical: true)
+                    if let author = book?.author, !author.isEmpty {
+                        Text(author).font(.callout).foregroundStyle(ReadingPalette.secondaryInk)
+                    }
+                    HStack(spacing: 14) {
+                        if contribution.pageTurns > 0 {
+                            Text(ReadingFormat.observedPages(contribution.pageTurns)).font(.callout.weight(.medium))
+                        }
+                        if contribution.creditedSeconds > 0 {
+                            Text(ReadingFormat.duration(contribution.creditedSeconds)).font(.callout).foregroundStyle(ReadingPalette.secondaryInk)
+                        }
+                    }.padding(.top, 6)
+                    if contribution.uncertainSeconds > 0 {
+                        Text("\(ReadingFormat.duration(contribution.uncertainSeconds)) awaiting review")
+                            .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            if !bookSessions.isEmpty || !other.isEmpty {
+                DisclosureGroup {
+                    VStack(alignment: .leading, spacing: 14) {
+                        ForEach(bookSessions) { session in
+                            HistorySessionRow(model: model, session: session, dayKey: dayKey, period: period, review: { reviewInterval = $0 })
+                        }
+                        ForEach(other) { fragment in
+                            HStack {
+                                Text(HistoryDateFormat.time(max(fragment.interval.start, period.start), timezoneID: model.timezoneID)).font(.caption)
+                                Text(fragment.interval.disposition == .excluded ? "Excluded from totals" : "Additional recorded time").font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
+                                Spacer()
+                                Button("Review") { reviewInterval = fragment.interval }.controlSize(.small)
+                            }
+                        }
+                    }.padding(.top, 14)
+                } label: {
+                    Text(bookSessions.isEmpty ? "Recorded details" : "\(bookSessions.count) \(bookSessions.count == 1 ? "session" : "sessions")")
+                        .font(.caption.weight(.medium)).foregroundStyle(ReadingPalette.secondaryInk)
+                }
+                .help("Short breaks stay in one session. Expand to see times and review recorded spans.")
+            }
+        }
+        .padding(24).frame(maxWidth: .infinity, alignment: .leading)
+        .background(ReadingPalette.surface.opacity(0.75), in: RoundedRectangle(cornerRadius: 20))
     }
 }
 
@@ -438,10 +491,14 @@ private struct HistorySessionRow: View {
     let dayKey: String
     let period: DateInterval
     let review: (ReadingInterval) -> Void
-    private var book: BookRecord? { model.books.first { $0.id == session.bookID } }
     private var fragments: [DayContribution] { DayContribution.forDay(dayKey, timezoneID: model.timezoneID, intervals: session.intervals) }
     private var credited: Double { fragments.filter { $0.interval.disposition == .credited }.reduce(0) { $0 + $1.clippedSeconds } }
     private var uncertain: Double { fragments.filter { $0.interval.disposition == .uncertain }.reduce(0) { $0 + $1.clippedSeconds } }
+    private var sessionSummary: String {
+        let pages = model.pages(in: session, from: period.start, through: period.end)
+        let time = "\(ReadingFormat.duration(credited)) recorded"
+        return pages > 0 ? "\(ReadingFormat.observedPages(pages)) · \(time)" : time
+    }
     var body: some View {
         DisclosureGroup {
             VStack(spacing: 10) {
@@ -451,19 +508,20 @@ private struct HistorySessionRow: View {
                             .font(.caption).monospacedDigit()
                         Spacer()
                         Text(ReadingFormat.duration(fragment.clippedSeconds)).font(.caption).monospacedDigit()
-                        if fragment.interval.disposition == .uncertain { Text("Awaiting review").font(.caption).foregroundStyle(ReadingPalette.secondaryInk) }
+                        if fragment.interval.disposition != .credited {
+                            Text(fragment.interval.disposition == .uncertain ? "Awaiting review" : "Excluded from totals")
+                                .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
+                        }
                         Button("Review") { review(fragment.interval) }.controlSize(.small)
                     }
                 }
             }.padding(.leading, 12).padding(.vertical, 10)
         } label: {
             HStack(spacing: 12) {
-                BookCoverView(book: book, size: .compact)
                 VStack(alignment: .leading, spacing: 5) {
-                    Text(book?.title ?? "Unknown book").font(ReadingType.bookTitle(17))
                     Text("\(HistoryDateFormat.time(max(session.start, period.start), timezoneID: model.timezoneID)) – \(HistoryDateFormat.time(min(session.end, period.end), timezoneID: model.timezoneID))")
                         .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
-                    Text("\(ReadingFormat.observedPages(model.pages(in: session, from: period.start, through: period.end))) · \(ReadingFormat.duration(credited)) reading")
+                    Text(sessionSummary)
                         .font(.callout).monospacedDigit()
                     let corrected = model.manualPages(in: session, from: period.start, through: period.end)
                     if corrected > 0 {
@@ -547,7 +605,7 @@ private enum HistoryDateFormat {
 }
 
 private enum HistoryCalendarFormat {
-    static func weekday(_ date: Date, timezoneID: String) -> String { format(date, timezoneID: timezoneID, pattern: "EEEEE") }
+    static func weekday(_ date: Date, timezoneID: String) -> String { format(date, timezoneID: timezoneID, pattern: "EEE") }
     static func month(_ date: Date, timezoneID: String) -> String { format(date, timezoneID: timezoneID, pattern: "MMMM") }
     static func longDate(_ date: Date, timezoneID: String) -> String { format(date, timezoneID: timezoneID, pattern: "EEEE, MMMM d, yyyy") }
 
