@@ -25,6 +25,11 @@ struct LibraryView: View {
             let id = resolver.resolvedID(for: entry.id)
             result[id] = max(result[id] ?? .distantPast, date)
         }
+        let positions = model.progress.reduce(into: [String: ProgressObservation]()) { result, observation in
+            guard observation.reliable else { return }
+            let id = resolver.resolvedID(for: observation.bookID)
+            if result[id].map({ $0.observedAt < observation.observedAt }) ?? true { result[id] = observation }
+        }
         let visible = books.filter { book in
             (shelf == .all || (shelf == .finished ? finishedIDs.contains(book.id) : !finishedIDs.contains(book.id)))
                 && (search.isEmpty || book.title.localizedCaseInsensitiveContains(search) || (book.author ?? "").localizedCaseInsensitiveContains(search))
@@ -69,7 +74,7 @@ struct LibraryView: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 BookLibraryCard(book: book, pages: model.pages(forBookID: book.id),
                                     finished: finishedIDs.contains(book.id), date: finishedIDs.contains(book.id) ? finishes[book.id] : recent[book.id],
-                                    rating: model.rating(for: book.id)) { present(.book(book)) }
+                                    rating: model.rating(for: book.id), progress: positions[book.id]) { present(.book(book)) }
                                 HStack {
                                     if model.hasImportedEPUB(book) && model.hasEPUB(book) {
                                         Button("Read") { model.readEPUB(book) }.controlSize(.small)
@@ -168,14 +173,23 @@ struct BookLibraryCard: View {
     let finished: Bool
     let date: Date?
     let rating: Double?
+    var progress: ProgressObservation? = nil
     let open: () -> Void
     @State private var hovering = false
     @FocusState private var focused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private var progressLabel: LibraryProgressLabel {
+        LibraryProgressLabel.saved(progress, pagesLogged: pages, finished: finished)
+    }
     var body: some View {
         Button(action: open) {
             VStack(alignment: .leading, spacing: 12) {
                 BookCoverView(book: book, size: .shelfLarge)
+                    // Apply emphasis before the flexible grid frame: its geometry is the
+                    // clipped 150 × 225 cover, not the column or variable-height caption.
+                    .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        .strokeBorder(ReadingPalette.accent.opacity(hovering ? 0.55 : 0), lineWidth: 1))
+                    .shadow(color: Color.black.opacity(hovering ? 0.14 : 0), radius: 3, x: 0, y: 2)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(book.title).font(ReadingType.bookTitle(16))
@@ -183,28 +197,32 @@ struct BookLibraryCard: View {
                     Text(book.author?.isEmpty == false ? book.author! : "Author unavailable")
                         .font(.caption).foregroundStyle(ReadingPalette.secondaryInk).lineLimit(1)
                     HStack(spacing: 6) {
-                        Text(finished ? "Finished" : "\(pages) \(pages == 1 ? "page" : "pages")")
-                            .font(.caption.weight(.medium)).foregroundStyle(ReadingPalette.accent)
+                        Text(progressLabel.primary)
+                            .font(.callout.weight(.semibold)).foregroundStyle(ReadingPalette.accent)
                         if let rating {
                             Label(rating.formatted(.number.precision(.fractionLength(0...2))), systemImage: "star.fill")
                                 .font(.caption.weight(.medium)).foregroundStyle(ReadingPalette.warning)
                         }
                     }.padding(.top, 2)
-                    Text(date.map { "\(finished ? "Finished" : "Last read") \($0.formatted(date: .abbreviated, time: .omitted))" } ?? (finished ? "Date unavailable" : "No reading recorded yet"))
-                        .font(.caption2).foregroundStyle(ReadingPalette.secondaryInk).lineLimit(1)
+                    if let detail = progressLabel.detail {
+                        Text(detail).font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
+                    }
+                    if date != nil || progress == nil || finished {
+                        Text(date.map { "\(finished ? "Finished" : "Last read") \($0.formatted(date: .abbreviated, time: .omitted))" } ?? (finished ? "Date unavailable" : "No reading recorded yet"))
+                            .font(.caption2).foregroundStyle(ReadingPalette.secondaryInk).lineLimit(1)
+                    }
                 }
                 .padding(.horizontal, 2)
             }
             .foregroundStyle(ReadingPalette.ink).padding(8)
             .frame(maxWidth: .infinity, alignment: .topLeading)
-            .background(hovering ? ReadingPalette.surface : .clear, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
         .buttonStyle(.plain).focused($focused)
         .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(focused ? ReadingPalette.accent : .clear, lineWidth: 2))
         .onHover { hovering = $0 }
         .animation(reduceMotion ? nil : ReadingMotion.hover, value: hovering)
-        .accessibilityLabel("\(book.title), \(book.author ?? "author unavailable"), \(finished ? "finished" : "\(pages) pages recorded")")
+        .accessibilityLabel("\(book.title), \(book.author ?? "author unavailable"), \(progressLabel.accessibilityText)")
         .accessibilityHint("Open book details and rating")
     }
 }

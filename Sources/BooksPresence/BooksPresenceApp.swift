@@ -93,7 +93,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         guard let model else { return }
         dismissMenuPanel()
         if dashboard == nil {
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1060, height: 760), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+            let window = DashboardWindow(contentRect: NSRect(x: 0, y: 0, width: 1060, height: 760), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
             window.title = "Stillleaf"; window.titlebarAppearsTransparent = true
             // Menu-bar (accessory) apps get no full-screen behavior unless a window opts in.
             window.collectionBehavior.insert(.fullScreenPrimary)
