@@ -11,6 +11,7 @@ if [[ ! -x "$root_dir/scripts/build-local.sh" ]]; then
   exit 1
 fi
 
+"$root_dir/scripts/generate-pageleaf.sh"
 "$root_dir/scripts/build-local.sh"
 
 if [[ ! -x "$binary_dir/BooksPresence" || ! -x "$binary_dir/books-diagnostic" ]]; then

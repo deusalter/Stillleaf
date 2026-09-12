@@ -124,7 +124,7 @@ struct PopoverView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 7) {
-                Image(systemName: "leaf.fill").font(.system(size: 12, weight: .medium)).foregroundStyle(ReadingPalette.accent)
+                PageleafMark().frame(width: 18, height: 18).foregroundStyle(ReadingPalette.accent)
                 Text("Stillleaf").font(.system(size: 16, weight: .regular, design: .serif))
                     .accessibilityLabel("Stillleaf")
                 Spacer()
@@ -330,8 +330,8 @@ private struct DashboardSidebar: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 9) {
-                Image(systemName: "leaf.fill")
-                    .font(.system(size: 15, weight: .medium))
+                PageleafMark()
+                    .frame(width: 23, height: 23)
                     .foregroundStyle(ReadingPalette.accent)
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Stillleaf").font(.system(size: 21, weight: .regular, design: .serif)).tracking(-0.3)

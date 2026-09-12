@@ -37,6 +37,7 @@ const root = path.join(
 );
 app.setName("Stillleaf Reader Development");
 app.setPath("userData", path.dirname(root));
+const identityIcon = path.join(__dirname, "pageleaf.png");
 const libraryURL = pathToFileURL(path.join(__dirname, "index.html")).href;
 protocol.registerSchemesAsPrivileged([
   {
@@ -97,6 +98,7 @@ function present() {
 }
 function createLibrary() {
   library = new BrowserWindow({
+    icon: identityIcon,
     width: 1180,
     height: 820,
     minWidth: 740,
@@ -424,6 +426,7 @@ else {
   app
     .whenReady()
     .then(async () => {
+      app.dock?.setIcon(identityIcon);
       journal = new JournalStore(
         path.join(path.dirname(root), "journal.sqlite"),
       );
@@ -476,6 +479,7 @@ else {
               ".html": "text/html",
               ".js": "text/javascript",
               ".css": "text/css",
+              ".svg": "image/svg+xml",
             }[path.extname(name)];
             if (mime)
               bundledAssets.set(
@@ -786,6 +790,7 @@ else {
               },
             });
             const window = new BrowserWindow({
+              icon: identityIcon,
               width: 1080,
               height: 820,
               minWidth: 600,

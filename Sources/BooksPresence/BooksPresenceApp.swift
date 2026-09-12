@@ -36,7 +36,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             state.dashboardAction = { [weak self] in self?.showDashboard() }
             state.onboardingAction = { [weak self] in self?.showOnboarding() }
             let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-            item.button?.image = NSImage(systemSymbolName: "book.closed", accessibilityDescription: "Stillleaf reading tracker")
+            item.button?.image = PageleafIdentity.statusImage
             item.button?.toolTip = "Stillleaf — reading activity"
             item.button?.target = self; item.button?.action = #selector(togglePopover)
             statusItem = item
