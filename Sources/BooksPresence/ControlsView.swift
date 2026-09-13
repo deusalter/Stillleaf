@@ -46,7 +46,7 @@ struct ManualAdditionView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
-            ReadingSheetHeader(title: "Add reading time", subtitle: "Keep a reading session in your journal.", close: { dismiss() })
+            ReadingSheetHeader(title: "Add reading time", subtitle: nil, close: { dismiss() })
             VStack(alignment: .leading, spacing: 12) {
                 Text("Book").font(.headline)
                 TextField("Title", text: $title)
@@ -90,7 +90,7 @@ struct MergeBooksView: View {
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            ReadingSheetHeader(title: "Merge books", subtitle: "Bring duplicate records together.", close: { dismiss() })
+            ReadingSheetHeader(title: "Merge books", subtitle: nil, close: { dismiss() })
             Text("Merge \(source.title) into a selected record. Its recorded time will be shown with that record; you can reverse this decision later with Unmerge.")
                 .font(.callout).foregroundStyle(ReadingPalette.secondaryInk)
             if targets.isEmpty {
@@ -136,7 +136,7 @@ struct HealthView: View {
         let events = outages
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
-                if showsHeading { PageHeader("Troubleshooting", subtitle: "Check permissions and recent tracking issues.") }
+                if showsHeading { PageHeader("Troubleshooting", subtitle: nil) }
                 VStack(alignment: .leading, spacing: 18) {
                     HStack(spacing: 14) {
                         Image(systemName: model.accessibilityGranted ? "checkmark.shield" : "lock.shield")
@@ -206,7 +206,7 @@ struct TrackingHelpView: View {
     @Environment(\.dismiss) private var dismiss
     var body: some View {
         VStack(spacing: 0) {
-            ReadingSheetHeader(title: "Troubleshooting", subtitle: "Check permissions and recent tracking issues.", close: { dismiss() })
+            ReadingSheetHeader(title: "Troubleshooting", subtitle: nil, close: { dismiss() })
                 .padding(.horizontal, 30).padding(.top, 24)
             HStack {
                 Text("Reading time can be corrected without changing your personal book reviews.").font(.caption).foregroundStyle(ReadingPalette.fadedInk)
@@ -402,7 +402,7 @@ struct SettingsView: View {
                         Toggle("Track Apple Books", isOn: trackingBinding).labelsHidden().toggleStyle(.switch)
                     }
                     settingDivider
-                    SettingRow(icon: "power", title: "Open at login", description: "Keep Stillleaf ready in your menu bar.") {
+                    SettingRow(icon: "power", title: "Open at login", description: "") {
                         Toggle("Open at login", isOn: launchAtLoginBinding).labelsHidden().toggleStyle(.switch)
                     }
                 }
@@ -561,7 +561,6 @@ struct SettingsView: View {
                         Image(systemName: "sparkles").font(.title3).foregroundStyle(ReadingPalette.accent)
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Welcome tour").font(.headline)
-                            Text("Goals, tracking and appearance.").font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
                         }
                         Spacer()
                         Button("Show tour") { model.showOnboarding() }.controlSize(.small)
@@ -820,8 +819,10 @@ private struct SettingRow<Control: View>: View {
                 .frame(width: 20)
             VStack(alignment: .leading, spacing: 3) {
                 Text(title).font(.body.weight(.medium))
-                Text(description).font(.callout).foregroundStyle(ReadingPalette.secondaryInk)
-                    .fixedSize(horizontal: false, vertical: true)
+                if !description.isEmpty {
+                    Text(description).font(.callout).foregroundStyle(ReadingPalette.secondaryInk)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             Spacer(minLength: 16)
             control()

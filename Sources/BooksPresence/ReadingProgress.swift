@@ -106,9 +106,7 @@ struct DailyReadingOverview: View {
 
             VStack(alignment: .leading, spacing: 22) {
                 VStack(alignment: .leading, spacing: 5) {
-                    Text(goalTitle).font(ReadingType.bookTitle(24))
-                        .fixedSize(horizontal: false, vertical: true)
-                    Text(goalDetail).font(.callout).foregroundStyle(ReadingPalette.fadedInk)
+                    Text(goalDetail).font(ReadingType.bookTitle(24))
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 HStack(alignment: .top, spacing: 24) {

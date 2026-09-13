@@ -30,11 +30,8 @@ struct TodayView: View {
                     FinishedBookPrompt(model: model, entry: entry)
                 }
                 featuredReading
-                ReadingSection("Your reading journal") {
+                ReadingSection("Manual reading") {
                     HStack(spacing: 10) {
-                        Text("Log reading from print, audiobooks or anywhere Stillleaf can’t follow.")
-                            .font(.callout).foregroundStyle(ReadingPalette.secondaryInk)
-                        Spacer(minLength: 8)
                         if model.manualActive {
                             Button("Stop manual reading") { model.stopManual() }
                         } else {
@@ -91,7 +88,7 @@ struct TodayView: View {
                         .frame(width: 96, height: 128)
                         .background(ReadingPalette.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                     VStack(alignment: .leading, spacing: 9) {
-                        Text("Make room for a good book.").font(ReadingType.bookTitle(26))
+                        Text("Start reading").font(ReadingType.bookTitle(26))
                         Text("Import an EPUB to read here, or pick up a book from your library.")
                             .font(.callout).foregroundStyle(ReadingPalette.secondaryInk)
                         HStack(spacing: 10) {

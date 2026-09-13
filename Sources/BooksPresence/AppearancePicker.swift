@@ -50,8 +50,6 @@ struct AppearancePicker: View {
                                       selected: store.accentID == accent.id) { store.select(accent: accent.id) }
                         }
                     }
-                    Text(store.accent.map { "\($0.name) accent over \(store.theme.name)." } ?? "Using \(store.theme.name)'s own accent.")
-                        .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
                 }
             }
         }

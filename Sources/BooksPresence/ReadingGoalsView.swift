@@ -47,8 +47,6 @@ struct AnnualReadingGoalView: View {
             HStack(alignment: .top, spacing: 16) {
                 VStack(alignment: .leading, spacing: 5) {
                     Text("Your \(String(model.goalYear)) in books").font(ReadingType.bookTitle(25))
-                    Text(recentBooks.isEmpty ? "Make room for your next finished book." : "Recently finished")
-                        .font(.callout).foregroundStyle(ReadingPalette.secondaryInk)
                 }
                 Spacer(minLength: 8)
                 VStack(alignment: .trailing, spacing: 3) {

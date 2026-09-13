@@ -146,7 +146,7 @@ struct IntervalReviewEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ReadingSheetHeader(title: "Review reading", subtitle: "Adjust this saved reading span.", close: { dismiss() }).padding(24)
+            ReadingSheetHeader(title: "Review reading", subtitle: nil, close: { dismiss() }).padding(24)
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     VStack(alignment: .leading, spacing: 12) {

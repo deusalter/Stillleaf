@@ -335,7 +335,6 @@ private struct DashboardSidebar: View {
                     .foregroundStyle(ReadingPalette.accent)
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Stillleaf").font(.system(size: 21, weight: .regular, design: .serif)).tracking(-0.3)
-                    Text("A little more, every day").font(.system(size: 11)).foregroundStyle(ReadingPalette.secondaryInk)
                 }
             }
             .padding(.horizontal, 20).padding(.top, 26).padding(.bottom, 26)

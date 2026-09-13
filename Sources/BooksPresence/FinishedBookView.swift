@@ -157,7 +157,7 @@ struct FinishedBookTimeline: View {
     var body: some View {
         LazyVStack(alignment: .leading, spacing: 40) {
             if showsHeading {
-                PageHeader("Finished", subtitle: "Your completed books, ordered by the day you finished them.")
+                PageHeader("Finished", subtitle: nil)
             }
             if entries.isEmpty {
                 Text(search.isEmpty ? "Books marked finished in Apple Books will appear here." : "No finished books match your search.")
@@ -207,7 +207,7 @@ struct ReadingTimelineView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 30) {
-                PageHeader("Timeline", subtitle: "Finished books, ordered by their recorded completion date") {
+                PageHeader("Timeline", subtitle: nil) {
                     TextField("Find a finished title or author", text: $search)
                         .textFieldStyle(ReadingTextFieldStyle())
                         .frame(width: 260)

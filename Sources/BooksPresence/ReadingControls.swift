@@ -108,13 +108,15 @@ struct ReadingMenuPicker<Value: Hashable>: View {
 
 struct ReadingSheetHeader: View {
     let title: String
-    let subtitle: String
+    var subtitle: String? = nil
     let close: () -> Void
     var body: some View {
         HStack(alignment: .top, spacing: 16) {
             VStack(alignment: .leading, spacing: 5) {
                 Text(title).font(ReadingType.bookTitle(24))
-                Text(subtitle).font(.callout).foregroundStyle(ReadingPalette.fadedInk)
+                if let subtitle, !subtitle.isEmpty {
+                    Text(subtitle).font(.callout).foregroundStyle(ReadingPalette.fadedInk)
+                }
             }
             Spacer(minLength: 0)
             Button(action: close) { Image(systemName: "xmark") }

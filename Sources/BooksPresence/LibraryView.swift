@@ -49,7 +49,7 @@ struct LibraryView: View {
         }
         return ScrollView {
             VStack(alignment: .leading, spacing: 26) {
-                PageHeader("Library", subtitle: "\(books.count) \(books.count == 1 ? "book" : "books") in your reading journal") {
+                PageHeader("Library", subtitle: "\(books.count) \(books.count == 1 ? "book" : "books")") {
                     HStack(spacing: 8) {
                         Button { model.epubLibrary.chooseFiles() } label: { Label("Import EPUBs", systemImage: "square.and.arrow.down") }
                             .controlSize(.small)
@@ -322,7 +322,6 @@ struct BookDetailView: View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Book details").font(ReadingType.bookTitle(19))
-                Text("Your local reading journal").font(.caption).foregroundStyle(ReadingPalette.fadedInk)
             }
             Spacer()
             Button("Done") { dismiss() }
@@ -394,7 +393,6 @@ struct BookDetailView: View {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Session history").font(ReadingType.bookTitle(19)).foregroundStyle(ReadingPalette.ink)
-                    Text("Review or remove a saved session.").font(.caption).foregroundStyle(ReadingPalette.fadedInk)
                 }
                 Spacer()
                 Text("\(sessionGroups.count) \(sessionGroups.count == 1 ? "session" : "sessions")")
@@ -524,7 +522,6 @@ struct BookDetailView: View {
 
     private var footerActions: some View {
         HStack {
-            Text("Book details stay on this Mac.").font(.caption).foregroundStyle(ReadingPalette.fadedInk)
             Spacer()
             if activeMerges.isEmpty {
                 Button("Delete book", role: .destructive) { deleteBookConfirmation = true }
