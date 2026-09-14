@@ -18,7 +18,10 @@ struct LibraryProgressLabel: Equatable {
         if let observation, observation.reliable {
             if let page = observation.page,
                let label = position(.pages(current: page, total: observation.totalPages)) { return label }
-            if let fraction = observation.fraction, let label = position(.fraction(fraction)) { return label }
+            if let fraction = observation.fraction, let label = position(.fraction(fraction)) {
+                let location = observation.location?.trimmingCharacters(in: .whitespacesAndNewlines)
+                return Self(primary: label.primary, detail: location?.isEmpty == false ? location : nil)
+            }
         }
         if finished { return Self(primary: "Finished", detail: nil) }
         return Self(primary: pagesLogged > 0 ? "\(pagesLogged.formatted()) \(pagesLogged == 1 ? "page" : "pages") logged" : "Position unavailable",
