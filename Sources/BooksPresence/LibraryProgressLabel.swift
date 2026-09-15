@@ -22,6 +22,9 @@ struct LibraryProgressLabel: Equatable {
                 let location = observation.location?.trimmingCharacters(in: .whitespacesAndNewlines)
                 return Self(primary: label.primary, detail: location?.isEmpty == false ? location : nil)
             }
+            if let location = observation.location?.trimmingCharacters(in: .whitespacesAndNewlines), !location.isEmpty {
+                return Self(primary: location, detail: nil)
+            }
         }
         if finished { return Self(primary: "Finished", detail: nil) }
         return Self(primary: pagesLogged > 0 ? "\(pagesLogged.formatted()) \(pagesLogged == 1 ? "page" : "pages") logged" : "Position unavailable",

@@ -19,6 +19,10 @@ import BooksCore
         precondition(label(native).primary == "42%")
         precondition(label(native).detail == "Chapter 3 of 12 · Page 2 of 8")
         precondition(label(native).detail?.contains("706") == false) // activity never replaces position
+        let pendingTotal = ProgressObservation(bookID: "test", location: "Chapter 3 of 12 · Page 2 of 8",
+            source: "stillleaf-reader", reliable: true)
+        precondition(label(pendingTotal).primary == "Chapter 3 of 12 · Page 2 of 8")
+        precondition(label(pendingTotal).detail == nil)
         precondition(label(observation(page: 706, total: 1000, reliable: false)).primary == "706 pages logged")
         for value in [observation(page: 20, total: 10), observation(page: -1, total: 100), observation(page: 0, total: 0), observation(fraction: .nan), observation(fraction: 1.1)] {
             precondition(label(value).primary == "706 pages logged")
