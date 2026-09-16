@@ -462,7 +462,12 @@ else {
           path.join(__dirname, "../../packages/publication/index.js"),
         ).href
       );
-      const bundledAssets = new Map();
+      const bundledAssets = new Map([
+        ["stillleaf-app://identity/pageleaf.svg", {
+          bytes: await fs.readFile(path.join(__dirname, "pageleaf.svg")),
+          mime: "image/svg+xml",
+        }],
+      ]);
       const dist = path.resolve(
         (test && process.env.STILLLEAF_READER_DIST) ||
           path.join(__dirname, "../reader/dist"),

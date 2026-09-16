@@ -46,4 +46,13 @@ Shared-file overlaps are small: `BooksPresenceApp.swift` changes only the status
 
 Historical screenshots in `website/public/screenshots/` and earlier design/test evidence retain their original recorded UI. Refresh website gallery screenshots after the other UI sessions are integrated, against that combined release; the provenance file calls this out. They are not falsely retouched here.
 
-Electron window/Dock integration is implemented but not exercised by launching Electron. Native template rendering is checked in the preview; live menu selection/highlight and OS icon-cache refresh remain installation-time checks. Windows executable/installer branding awaits a Windows packaging pipeline, which this development project does not yet define.
+Electron Library identity is now exercised by an isolated Electron regression at the real file URL (see below). Live Dock integration remains untested. Native template rendering is checked in the preview; live menu selection/highlight and OS icon-cache refresh remain installation-time checks. Windows executable/installer branding awaits a Windows packaging pipeline, which this development project does not yet define.
+
+
+## Adversarial review fix: Library file-origin rendering
+
+The first adoption commit's external SVG `use` was blocked by Chromium at the Library's `file://` origin, and its file favicon was blocked by `img-src stillleaf-app:`. The fix generates the Library path inline from `PageleafIdentity.svgPath` and exposes the favicon through the existing exact-key resource map at `stillleaf-app://identity/pageleaf.svg`. CSP is unchanged; the handler still serves only registered resources and GET requests.
+
+`Reader/desktop/test/electron-identity.test.mjs` launches an isolated hidden Electron instance with temporary test data and loads the actual Library HTML through the normal application entry point. It checks nonzero SVG bounds, shared exported path parity, no external `use`, successful favicon decoding, and no CSP/identity-resource violations. Confirmed the regression fails on the previous committed HTML's zero painted geometry, then passes with this fix. `library-after.png` is an actual screenshot from that test, not a mockup. No installed user app or database was touched.
+
+Run `node --test Reader/desktop/test/electron-identity.test.mjs` after installing the desktop and publication package dependencies and building the reader. The existing desktop test command now includes this regression. Set `STILLLEAF_IDENTITY_PREVIEW` to an absolute PNG path to capture a screenshot.

@@ -44,6 +44,20 @@ struct GeneratePageleaf {
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             try Data(svg.utf8).write(to: url)
         }
+        // Inline geometry avoids Chromium's external SVG file-origin restriction.
+        // These boundaries keep regeneration independent of the Library layout.
+        let libraryURL = root.appendingPathComponent("Reader/desktop/src/index.html")
+        var libraryHTML = try String(contentsOf: libraryURL, encoding: .utf8)
+        guard let start = libraryHTML.range(of: "<!-- pageleaf:start -->"),
+              let end = libraryHTML.range(of: "<!-- pageleaf:end -->"),
+              start.upperBound <= end.lowerBound else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        let inlineMark = """
+        <svg class="pageleaf-brand" viewBox="0 0 100 100" aria-hidden="true"><path d="\(PageleafIdentity.svgPath)"/></svg>
+        """
+        libraryHTML.replaceSubrange(start.upperBound..<end.lowerBound, with: inlineMark)
+        try libraryHTML.write(to: libraryURL, atomically: true, encoding: .utf8)
         try render(512).write(to: root.appendingPathComponent("Reader/desktop/src/pageleaf.png"))
         print("Generated Pageleaf SVGs, PNGs and iconset")
     }
