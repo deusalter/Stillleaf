@@ -265,6 +265,15 @@ struct BooksPresenceMain {
     static func main() {
         let application = NSApplication.shared
         application.setActivationPolicy(.accessory)
+        if let index = CommandLine.arguments.firstIndex(of: "--self-test-audio"), index + 1 < CommandLine.arguments.count {
+            let destination = URL(fileURLWithPath: CommandLine.arguments[index + 1])
+            Task { @MainActor in
+                do { try await runAudiobookSmoke(previews: destination); exit(0) }
+                catch { fputs("audiobook-native-smoke failed: \(error)\n", stderr); exit(1) }
+            }
+            application.run()
+            return
+        }
         if let index = CommandLine.arguments.firstIndex(of: "--self-test-epub"), index + 1 < CommandLine.arguments.count {
             let fixture = URL(fileURLWithPath: CommandLine.arguments[index + 1])
             Task { @MainActor in

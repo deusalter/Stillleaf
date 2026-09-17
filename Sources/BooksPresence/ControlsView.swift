@@ -39,6 +39,7 @@ struct ManualStartView: View {
 struct ManualAdditionView: View {
     @ObservedObject var model: AppModel
     @Environment(\.dismiss) private var dismiss
+    @State private var loggingAudio = false
     @State private var title = ""
     @State private var author = ""
     @State private var end = Date()
@@ -47,6 +48,7 @@ struct ManualAdditionView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
             ReadingSheetHeader(title: "Add reading time", subtitle: nil, close: { dismiss() })
+            Button("Log an audiobook instead…") { loggingAudio = true }
             VStack(alignment: .leading, spacing: 12) {
                 Text("Book").font(.headline)
                 TextField("Title", text: $title)
@@ -70,6 +72,7 @@ struct ManualAdditionView: View {
                 .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || end <= start)
             }
         }
+        .sheet(isPresented: $loggingAudio) { AudiobookLogView(model: model) }
         .padding(26).frame(width: 500)
         .background(ReadingPalette.paper).foregroundStyle(ReadingPalette.ink)
         .tint(ReadingPalette.moss).textFieldStyle(ReadingTextFieldStyle())

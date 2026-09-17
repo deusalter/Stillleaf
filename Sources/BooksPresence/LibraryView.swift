@@ -11,6 +11,7 @@ struct LibraryView: View {
     @State private var sort = LibrarySort.recent
     @State private var removingBook: BookRecord?
     @State private var removingEPUB: BookRecord?
+    @State private var loggingAudio = false
 
     var body: some View {
         let resolver = BookMergeResolver(merges: model.merges)
@@ -53,11 +54,17 @@ struct LibraryView: View {
                     HStack(spacing: 8) {
                         Button { model.epubLibrary.chooseFiles() } label: { Label("Import EPUBs", systemImage: "square.and.arrow.down") }
                             .controlSize(.small)
+                        Menu {
+                            Button("Import local audio…") { model.chooseAudiobook() }
+                            Button("Log audiobook progress…") { loggingAudio = true }
+                        } label: { Label("Audiobook", systemImage: "headphones") }.disabled(model.importingAudio)
                         Button { present(.manualAdd) } label: { Label("Add reading", systemImage: "plus") }
                             .controlSize(.small)
                     }
                 }
                 EPUBImportStatusView(controller: model.epubLibrary)
+                if model.importingAudio { ProgressView("Importing local audio…") }
+                AudiobookLibraryPlayer(model: model, player: model.audiobookPlayer)
                 ViewThatFits(in: .horizontal) {
                     HStack(spacing: 14) { shelfPicker(books: books, finishedIDs: finishedIDs).frame(width: 380); Spacer(minLength: 12); searchAndSort }
                     VStack(alignment: .leading, spacing: 14) { shelfPicker(books: books, finishedIDs: finishedIDs); searchAndSort }
@@ -113,6 +120,7 @@ struct LibraryView: View {
             .readingPage()
         }
         .buttonStyle(ReadingButtonStyle())
+        .sheet(isPresented: $loggingAudio) { AudiobookLogView(model: model) }
         .onDrop(of: [UTType.fileURL.identifier], isTargeted: nil) { model.epubLibrary.acceptDrop($0) }
         .alert("Remove the managed EPUB?", isPresented: Binding(get: { removingEPUB != nil }, set: { if !$0 { removingEPUB = nil } })) {
             Button("Keep EPUB elsewhere…") {
@@ -256,6 +264,9 @@ struct BookDetailView: View {
         model.progress.filter { relatedBookIDs.contains($0.bookID) }.sorted { $0.observedAt > $1.observedAt }
     }
     private var credited: Double { sessions.filter { $0.disposition == .credited }.reduce(0) { $0 + $1.duration } }
+    private var listeningCredited: Double {
+        sessions.filter { $0.disposition == .credited && model.isListening($0) }.reduce(0) { $0 + $1.duration }
+    }
     private var observedPages: Int { model.pages(forBookID: currentBook.id) }
     private var pagesPerMinute: Double? { model.pagesPerMinute(forBookID: currentBook.id) }
     private var latestReliableProgress: ProgressObservation? { observations.first(where: { $0.reliable }) }
@@ -271,6 +282,7 @@ struct BookDetailView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     hero
+                    AudiobookSection(model: model, book: currentBook, player: model.audiobookPlayer)
                     readingSummary
                     BookRatingSection(model: model, bookID: currentBook.id)
                     BookReviewSection(model: model, bookID: currentBook.id)
@@ -372,11 +384,19 @@ struct BookDetailView: View {
         ReadingSection("Reading at a glance") {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(alignment: .top, spacing: 0) {
-                    StatLine(value: "\(observedPages)", label: "Pages")
-                    Hairline(axis: .vertical).frame(height: 44).padding(.horizontal, 18)
-                    StatLine(value: ReadingFormat.duration(credited), label: "Reading time")
-                    Hairline(axis: .vertical).frame(height: 44).padding(.horizontal, 18)
-                    StatLine(value: ReadingFormat.pagesPerMinute(pagesPerMinute) ?? "Building pace", label: "Pace")
+                    if currentBook.resolvedFormat != .audiobook {
+                        StatLine(value: "\(observedPages)", label: "Pages")
+                        Hairline(axis: .vertical).frame(height: 44).padding(.horizontal, 18)
+                    }
+                    StatLine(value: ReadingFormat.duration(currentBook.resolvedFormat == .audiobook ? listeningCredited : credited), label: currentBook.resolvedFormat == .audiobook ? "Listening time" : "Reading time")
+                    if currentBook.resolvedFormat == .audiobook && credited > listeningCredited {
+                        Hairline(axis: .vertical).frame(height: 44).padding(.horizontal, 18)
+                        StatLine(value: ReadingFormat.duration(credited - listeningCredited), label: "Other reading time")
+                    }
+                    if currentBook.resolvedFormat != .audiobook {
+                        Hairline(axis: .vertical).frame(height: 44).padding(.horizontal, 18)
+                        StatLine(value: ReadingFormat.pagesPerMinute(pagesPerMinute) ?? "Building pace", label: "Pace")
+                    }
                 }
                 let corrected = model.manualPages(forBookID: currentBook.id)
                 if corrected > 0 {
@@ -407,6 +427,8 @@ struct BookDetailView: View {
                         BookDetailSessionGroup(
                             group: group,
                             pages: model.pages(in: group),
+                            audio: model.audiobookProgress(in: group),
+                            isAudiobook: group.intervals.contains { model.isListening($0) },
                             review: { reviewInterval = $0 },
                             delete: { deleteSessionID = $0 }
                         )
@@ -588,6 +610,8 @@ private struct BookDetailToggleRow: View {
 private struct BookDetailSessionGroup: View {
     let group: ReadingSessionGroup
     let pages: Int
+    let audio: AudiobookProgress?
+    let isAudiobook: Bool
     let review: (ReadingInterval) -> Void
     let delete: (String) -> Void
 
@@ -613,7 +637,7 @@ private struct BookDetailSessionGroup: View {
                         .font(.caption).monospacedDigit().foregroundStyle(ReadingPalette.fadedInk)
                 }
                 Spacer()
-                Text(ReadingFormat.observedPages(pages))
+                Text(audio.map { "\($0.fraction.formatted(.percent.precision(.fractionLength(0...1)))) · \($0.description)" } ?? (isAudiobook ? "Listening" : ReadingFormat.observedPages(pages)))
                     .font(.caption.weight(.medium)).monospacedDigit().foregroundStyle(ReadingPalette.moss)
             }
             .padding(.vertical, 7)
@@ -677,7 +701,9 @@ struct ProgressDescription: View {
     let observation: ProgressObservation
     var body: some View {
         Group {
-            if observation.reliable, let fraction = observation.fraction {
+            if let audio = observation.audio {
+                Text("\(audio.fraction.formatted(.percent.precision(.fractionLength(0...1)))) · \(audio.description)")
+            } else if observation.reliable, let fraction = observation.fraction {
                 Text("Progress \(Int((fraction * 100).rounded()))%")
             } else if observation.reliable, let page = observation.page, let total = observation.totalPages {
                 Text("Page \(page) of \(total)")

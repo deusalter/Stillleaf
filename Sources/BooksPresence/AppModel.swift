@@ -7,6 +7,8 @@ import CryptoKit
 
 @MainActor
 final class AppModel: ObservableObject {
+    let audiobookPlayer = AudiobookPlayer()
+    @Published private(set) var importingAudio = false
     let epubLibrary: EPUBLibraryController
     private var transferringReaderState = Set<String>()
     private let epubReaders: EPUBReaderWindows
@@ -49,7 +51,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var accessibilityGranted = BooksCapture.isTrusted
     var automaticTrackingNeedsAccess: Bool { trackingEnabled && !manualActive && epubReaders.focusedPublicationID == nil && !accessibilityGranted }
     var discordNeedsSetup: Bool { discordEnabled && discordApplicationID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-    @Published var trackingEnabled = true { didSet { if ready { defaults.set(trackingEnabled, forKey: "trackingEnabled"); if !trackingEnabled { pause(.disabled) } else { perform { try ensureCurrentPageGoal() } }; tick() } } }
+    @Published var trackingEnabled = true { willSet { if newValue != trackingEnabled { audiobookPlayer.pauseReportingErrors() } } didSet { if ready { defaults.set(trackingEnabled, forKey: "trackingEnabled"); if !trackingEnabled { pause(.disabled) } else { perform { try ensureCurrentPageGoal() } }; tick() } } }
     @Published var discordEnabled = false { didSet { if ready { defaults.set(discordEnabled, forKey: "discordEnabled"); publishPresence() } } }
     @Published var discordApplicationID = ""
     @Published var discordAssetKey = ""
@@ -257,6 +259,24 @@ final class AppModel: ObservableObject {
             self?.dashboardSectionRequest = .library
             self?.dashboardAction?()
         }
+        audiobookPlayer.timezoneID = { [weak self] in self?.timezoneID ?? TimeZone.current.identifier }
+        audiobookPlayer.willPlay = { [weak self] in
+            guard let self else { return }
+            // Stop the reading tracker before the audio clock starts: no double credit.
+            try self.stopForMutation()
+            self.manualBook = nil
+        }
+        audiobookPlayer.shouldCredit = { [weak self] id in
+            guard let self, let book = self.books.first(where: { $0.id == id }) else { return false }
+            return self.trackingEnabled && !book.trackingExcluded
+        }
+        audiobookPlayer.persist = { [weak self] observation, interval in
+            guard let self, let book = self.books.first(where: { $0.id == observation.bookID }) else {
+                throw ReadingStoreError.invalidData("The audiobook is no longer in this library.")
+            }
+            try self.store.saveAudiobook(book, progress: observation, interval: interval)
+            self.refresh()
+        }
         if startTracking { epubLibrary.recover() }
     }
 
@@ -450,7 +470,10 @@ final class AppModel: ObservableObject {
     }
 
     func prepareReaderTermination() async -> Bool {
+        guard !importingAudio else { errorMessage = "Finish the audio import before quitting."; return false }
         guard transferringReaderState.isEmpty else { errorMessage = "Finish the reading-state file operation before quitting."; return false }
+        do { try audiobookPlayer.pause() }
+        catch { errorMessage = "Could not save the last listening checkpoint. Resolve the storage error, then try quitting again: \(error)"; return false }
         return await epubReaders.closeAll()
     }
 
@@ -495,7 +518,7 @@ final class AppModel: ObservableObject {
     }
     private func systemChanged(key: String, stopped: Bool, reason: PauseReason) {
         captureGeneration += 1
-        if stopped { suspended.insert(key); pause(reason) } else { suspended.remove(key); tick() }
+        if stopped { audiobookPlayer.pauseReportingErrors(); suspended.insert(key); pause(reason) } else { suspended.remove(key); tick() }
     }
     private func commonPauseReason() -> PauseReason? {
         if !trackingEnabled { return .disabled }
@@ -510,6 +533,10 @@ final class AppModel: ObservableObject {
         let trusted = BooksCapture.isTrusted
         if accessibilityGranted != trusted { accessibilityGranted = trusted }
         windowObserver?.refresh()
+        if audiobookPlayer.isPlaying {
+            if !suspended.isEmpty || !SystemEligibility.unlocked { audiobookPlayer.pauseReportingErrors() }
+            else { return }
+        }
         if let reason = commonPauseReason() { pause(reason); return }
         if epubReaders.focusedPublicationID != nil { cancelExternalCoverLookups() }
         if let book = manualBook { apply(book: book, progress: nil, mode: .manual, reason: book.trackingExcluded ? .excludedBook : nil, health: "Manual reading is active. Time is inferred until you stop or pause."); return }
@@ -538,12 +565,13 @@ final class AppModel: ObservableObject {
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.captureInFlight = false
-                guard generation == self.captureGeneration, self.manualBook == nil, self.commonPauseReason() == nil, SystemEligibility.booksForeground else { self.pageTurnTracker.reset(); self.readerPagination.reset(); return }
+                guard generation == self.captureGeneration, self.manualBook == nil, !self.audiobookPlayer.isPlaying, self.commonPauseReason() == nil, SystemEligibility.booksForeground else { self.pageTurnTracker.reset(); self.readerPagination.reset(); return }
                 guard Date().timeIntervalSince(result.observedAt) < 3 else { self.pause(.captureFailure); return }
                 var book = result.book
                 if var incoming = book, let existing = self.books.first(where: { $0.id == incoming.id }) {
                     incoming.trackingExcluded = existing.trackingExcluded; incoming.sharingExcluded = existing.sharingExcluded
                     if existing.coverSource == "Manual override" || incoming.coverPath == nil || (existing.coverSource == "Apple Books associated artwork" && incoming.coverSource == "Unprotected EPUB embedded cover") { incoming.coverPath = existing.coverPath; incoming.coverSource = existing.coverSource }
+                    incoming.format = existing.format; incoming.audioFileName = existing.audioFileName
                     book = incoming
                 }
                 self.lastCapture = result.pauseReason == nil ? result.observedAt : self.lastCapture
@@ -1067,10 +1095,12 @@ final class AppModel: ObservableObject {
         catch { errorMessage = String(describing: error) }
     }
     private func resetEngineAfterMutation() throws {
+        try audiobookPlayer.close()
         engine = try TrackingEngine(store: store, timezoneID: timezoneID, uncertaintyThreshold: uncertaintyMinutes * 60)
         snapshot = engine.snapshot
     }
     private func stopForMutation() throws {
+        try audiobookPlayer.pause()
         captureGeneration += 1
         historyGeneration += 1
         try engine.stop(); snapshot = engine.snapshot; pageTurnTracker.reset(); readerPagination.reset(); currentPagePosition = nil; readingActivityEvidence = ReadingActivityEvidence(); presencePolicy.reset(); presenceState = .hidden; discord.clear()
@@ -1085,6 +1115,133 @@ final class AppModel: ObservableObject {
         tick()
     }
     func stopManual() { perform { try stopForMutation(); manualBook = nil }; tick() }
+    func audiobookProgress(for bookID: String) -> AudiobookProgress? {
+        // Content positions belong to a particular edition, even when reading histories are linked.
+        progress.enumerated().filter { $0.element.bookID == bookID && $0.element.audio != nil }
+            .max { lhs, rhs in
+                lhs.element.observedAt == rhs.element.observedAt ? lhs.offset < rhs.offset : lhs.element.observedAt < rhs.element.observedAt
+            }?.element.audio
+    }
+
+    func isListening(_ interval: ReadingInterval) -> Bool {
+        interval.mode == .listening || interval.audioSessionID != nil || progress.contains {
+            $0.audio != nil && $0.bookID == interval.bookID && $0.sessionID == interval.sessionID
+        }
+    }
+
+    func audiobookProgress(in group: ReadingSessionGroup) -> AudiobookProgress? {
+        return progress.filter { observation in
+            guard observation.audio != nil else { return false }
+            return group.intervals.contains { interval in
+                observation.bookID == interval.bookID &&
+                observation.sessionID == (interval.audioSessionID ?? interval.sessionID) &&
+                observation.observedAt > interval.start && observation.observedAt <= interval.end
+            }
+        }.max { $0.observedAt < $1.observedAt }?.audio
+    }
+
+    func setBookFormat(_ format: BookFormat, for book: BookRecord) {
+        guard format != .text || book.audioFileName == nil else { errorMessage = "Remove the local audio file before switching to text."; return }
+        perform {
+            try stopForMutation()
+            var updated = books.first(where: { $0.id == book.id }) ?? book
+            updated.format = format; updated.observedAt = Date()
+            try store.saveBook(updated)
+        }
+    }
+
+    /// Saves to a specific library ID; never derives elapsed time from a position delta.
+    @discardableResult
+    func logAudiobook(book: BookRecord?, title: String = "", author: String = "", audio: AudiobookProgress,
+                      start: Date?, end: Date) -> Bool {
+        do {
+            guard audio.isValid, end <= Date(), start.map({ $0 < end }) ?? true else {
+                throw ReadingStoreError.invalidData("Use a position within the total duration and a past session ending after its start.")
+            }
+            try stopForMutation()
+            var record = book.flatMap { selected in books.first { $0.id == selected.id } } ??
+                BookRecord(id: "manual:" + UUID().uuidString, title: title.trimmingCharacters(in: .whitespacesAndNewlines), author: author.isEmpty ? nil : author)
+            record.format = .audiobook; record.observedAt = Date()
+            let sessionID = UUID().uuidString
+            let interval = start.map { ReadingInterval(sessionID: sessionID, bookID: record.id,
+                start: $0, end: end, duration: end.timeIntervalSince($0), timezoneID: timezoneID, mode: .manual, audioSessionID: sessionID) }
+            let observation = ProgressObservation(bookID: record.id, observedAt: end, fraction: audio.fraction,
+                source: "manual-audio", reliable: true, audio: audio, sessionID: interval?.sessionID)
+            if audiobookPlayer.bookID == record.id { try audiobookPlayer.close() }
+            try store.saveAudiobook(record, progress: observation, interval: interval)
+            try resetEngineAfterMutation(); errorMessage = nil; refresh()
+            return true
+        } catch { errorMessage = String(describing: error); return false }
+    }
+
+    func chooseAudiobook(for book: BookRecord? = nil) {
+        guard !importingAudio else { return }
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = LocalAudiobook.extensions.compactMap { UTType(filenameExtension: $0) }
+        panel.allowsMultipleSelection = false; panel.canChooseDirectories = false
+        panel.message = "Import one unprotected local audio file. Stillleaf keeps a copy; your original stays where it is."
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        Task { await importAudiobook(url, for: book) }
+    }
+
+    func importAudiobook(_ url: URL, for book: BookRecord? = nil) async {
+        guard !importingAudio else { return }
+        importingAudio = true
+        defer { importingAudio = false }
+        let directory = support.appendingPathComponent("Audiobooks", isDirectory: true)
+        var imported: LocalAudiobook.Imported?
+        do {
+            let result = try await Task.detached(priority: .userInitiated) { try LocalAudiobook.copy(from: url, to: directory) }.value
+            imported = result
+            try stopForMutation()
+            var record: BookRecord
+            if let book {
+                guard let existing = books.first(where: { $0.id == book.id }) else {
+                    throw ReadingStoreError.invalidData("This book was removed while its audio was importing.")
+                }
+                record = existing
+            } else {
+                record = BookRecord(id: "audio:" + UUID().uuidString, title: url.deletingPathExtension().lastPathComponent, source: "local-audio")
+            }
+            let previousFile = record.audioFileName
+            record.format = .audiobook; record.audioFileName = result.fileName; record.observedAt = Date()
+            let saved = audiobookProgress(for: record.id)
+            let resume = saved.flatMap { abs($0.durationSeconds - result.duration) <= max(1, result.duration * 0.01) ? min($0.positionSeconds, result.duration) : nil } ?? 0
+            let audio = AudiobookProgress(positionSeconds: resume, durationSeconds: result.duration)
+            if audiobookPlayer.bookID == record.id { try audiobookPlayer.close() }
+            try store.saveAudiobook(record, progress: ProgressObservation(bookID: record.id, fraction: audio.fraction, source: "local-audio", reliable: true, audio: audio))
+            if let previousFile { try? FileManager.default.trashItem(at: directory.appendingPathComponent(previousFile), resultingItemURL: nil) }
+            refresh(); errorMessage = nil
+        } catch {
+            if let imported { try? FileManager.default.removeItem(at: directory.appendingPathComponent(imported.fileName)) }
+            errorMessage = "Could not import audio: \(error). Choose an unprotected file supported by macOS."
+        }
+    }
+
+    func openAudiobook(_ book: BookRecord) {
+        do {
+            guard let file = book.audioFileName else { return }
+            if audiobookPlayer.bookID != book.id {
+                try audiobookPlayer.load(book: book, url: support.appendingPathComponent("Audiobooks").appendingPathComponent(file),
+                    resume: audiobookProgress(for: book.id)?.positionSeconds ?? 0)
+            }
+            errorMessage = nil
+        } catch { errorMessage = "The audio copy is missing or unreadable. Import the local file again. \(error)" }
+    }
+
+    func removeAudiobook(_ book: BookRecord) {
+        perform {
+            try stopForMutation()
+            if audiobookPlayer.bookID == book.id { try audiobookPlayer.close() }
+            var updated = book; updated.audioFileName = nil; updated.observedAt = Date()
+            try store.saveBook(updated)
+            if let file = book.audioFileName {
+                let url = support.appendingPathComponent("Audiobooks").appendingPathComponent(file)
+                if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.trashItem(at: url, resultingItemURL: nil) }
+            }
+        }
+    }
+
     func addManual(title: String, author: String, start: Date, end: Date) {
         guard end > start, end <= Date(), !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { errorMessage = "Manual records need a title and a past end time after the start."; return }
         perform {
@@ -1161,6 +1318,7 @@ final class AppModel: ObservableObject {
     }
     func setBookExclusions(_ book: BookRecord, tracking: Bool, sharing: Bool) {
         perform {
+            if audiobookPlayer.bookID == book.id && book.trackingExcluded != tracking { try audiobookPlayer.pause() }
             var updated = book; updated.observedAt = Date(); updated.trackingExcluded = tracking; updated.sharingExcluded = sharing
             try store.saveBook(updated)
             if manualBook?.id == book.id { manualBook = updated }
@@ -1185,7 +1343,7 @@ final class AppModel: ObservableObject {
             // Unchanged bounds retain measured elapsed time; adjusted bounds are an explicit manual correction.
             let unchanged = abs(start.timeIntervalSince(interval.start)) < 0.001 && abs(end.timeIntervalSince(interval.end)) < 0.001
             let duration = unchanged ? interval.duration : end.timeIntervalSince(start)
-            let revised = ReadingInterval(sessionID: interval.sessionID, bookID: bookID, start: start, end: end, duration: duration, timezoneID: interval.timezoneID, mode: unchanged ? interval.mode : .manual, disposition: disposition)
+            let revised = ReadingInterval(sessionID: interval.sessionID, bookID: bookID, start: start, end: end, duration: duration, timezoneID: interval.timezoneID, mode: unchanged ? interval.mode : .manual, disposition: disposition, audioSessionID: interval.audioSessionID ?? (isListening(interval) ? interval.sessionID : nil))
             try store.correct(IntervalCorrection(originalIDs: originalIDs(for: interval), replacements: [revised], reason: "User reviewed timing, assignment or credit status."))
             try resetEngineAfterMutation()
         }
@@ -1195,8 +1353,8 @@ final class AppModel: ObservableObject {
         perform {
             try stopForMutation()
             let fraction = date.timeIntervalSince(interval.start) / interval.end.timeIntervalSince(interval.start)
-            let first = ReadingInterval(sessionID: interval.sessionID, bookID: interval.bookID, start: interval.start, end: date, duration: interval.duration * fraction, timezoneID: interval.timezoneID, mode: interval.mode, disposition: interval.disposition)
-            let second = ReadingInterval(sessionID: UUID().uuidString, bookID: interval.bookID, start: date, end: interval.end, duration: interval.duration * (1 - fraction), timezoneID: interval.timezoneID, mode: interval.mode, disposition: interval.disposition)
+            let first = ReadingInterval(sessionID: interval.sessionID, bookID: interval.bookID, start: interval.start, end: date, duration: interval.duration * fraction, timezoneID: interval.timezoneID, mode: interval.mode, disposition: interval.disposition, audioSessionID: interval.audioSessionID ?? (isListening(interval) ? interval.sessionID : nil))
+            let second = ReadingInterval(sessionID: UUID().uuidString, bookID: interval.bookID, start: date, end: interval.end, duration: interval.duration * (1 - fraction), timezoneID: interval.timezoneID, mode: interval.mode, disposition: interval.disposition, audioSessionID: interval.audioSessionID ?? (isListening(interval) ? interval.sessionID : nil))
             try store.correct(IntervalCorrection(originalIDs: originalIDs(for: interval), replacements: [first, second], reason: "User split a reading interval into two sessions."))
             try resetEngineAfterMutation()
         }
@@ -1207,7 +1365,12 @@ final class AppModel: ObservableObject {
         perform {
             try stopForMutation(); if manualBook?.id == book.id { manualBook = nil }
             defer { try? removeManagedBackups() }
+            if audiobookPlayer.bookID == book.id { try audiobookPlayer.close() }
             try store.deleteBook(book.id)
+            if let file = book.audioFileName {
+                let url = support.appendingPathComponent("Audiobooks").appendingPathComponent(file)
+                if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.trashItem(at: url, resultingItemURL: nil) }
+            }
             suppressedHistoryIDs.insert(Self.historyKey(book.id)); defaults.set(Array(suppressedHistoryIDs), forKey: "suppressedAppleHistory")
             publicCoverURLs.removeValue(forKey: book.id); defaults.set(publicCoverURLs, forKey: "publicCoverURLs")
             if pendingCompletion?.id == book.id { pendingCompletion = nil }
@@ -1215,13 +1378,16 @@ final class AppModel: ObservableObject {
         }
     }
     func deleteAllData() {
+        guard !importingAudio else { errorMessage = "Finish the audio import before deleting all data."; return }
         trackingEnabled = false
         syncAppleBooksHistoryEnabled = false; defaults.set(false, forKey: "syncAppleBooksHistoryEnabled")
         perform {
-            try stopForMutation(); manualBook = nil; try store.deleteAll(); try resetEngineAfterMutation(); try removeManagedBackups()
+            try stopForMutation(); try audiobookPlayer.close(); manualBook = nil; try store.deleteAll(); try resetEngineAfterMutation(); try removeManagedBackups()
             publicCoverURLs = [:]; defaults.removeObject(forKey: "publicCoverURLs")
             suppressedHistoryIDs = []; defaults.removeObject(forKey: "suppressedAppleHistory")
             defaults.removeObject(forKey: "lastAppleHistorySync"); pendingCompletion = nil
+            let audioDirectory = support.appendingPathComponent("Audiobooks")
+            if FileManager.default.fileExists(atPath: audioDirectory.path) { try FileManager.default.trashItem(at: audioDirectory, resultingItemURL: nil) }
             let coverDirectory = support.appendingPathComponent("Covers")
             if FileManager.default.fileExists(atPath: coverDirectory.path) { try FileManager.default.removeItem(at: coverDirectory); try FileManager.default.createDirectory(at: coverDirectory, withIntermediateDirectories: true) }
         }
@@ -1235,7 +1401,12 @@ final class AppModel: ObservableObject {
         let dir = support.appendingPathComponent("Covers")
         for file in try FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) where !referenced.contains(file.path) { try FileManager.default.removeItem(at: file) }
     }
-    func mergeBooks(source: BookRecord, target: BookRecord) { perform { try stopForMutation(); try store.merge(BookMerge(sourceID: source.id, targetID: target.id)) } }
+    func mergeBooks(source: BookRecord, target: BookRecord) {
+        guard source.resolvedFormat != .audiobook, target.resolvedFormat != .audiobook else {
+            errorMessage = "Keep audiobook editions separate so their audio files and content positions remain accessible."
+            return
+        }
+        perform { try stopForMutation(); try store.merge(BookMerge(sourceID: source.id, targetID: target.id)) } }
     func unmerge(_ merge: BookMerge) { perform { try stopForMutation(); try store.merge(BookMerge(sourceID: merge.sourceID, targetID: merge.targetID, active: false)) } }
 
     private func saveURL(name: String, type: UTType) -> URL? {
@@ -1254,7 +1425,7 @@ final class AppModel: ObservableObject {
         perform { try engine.checkpoint(); try store.exportCSV(to: dir.appendingPathComponent("Stillleaf-export-\(Int(Date().timeIntervalSince1970))")) }
     }
     func backup() { guard let url = saveURL(name: "Stillleaf-backup.sqlite", type: .database) else { return }; perform { try engine.checkpoint(); try store.backup(to: url) } }
-    func restore() { guard let url = openURL(types: [.database, .data]) else { return }; perform { try stopForMutation(); try store.restore(from: url); try resetEngineAfterMutation(); syncGoalFromHistory(); try ensureCurrentPageGoal() } }
+    func restore() { guard !importingAudio else { errorMessage = "Finish the audio import before restoring history."; return }; guard let url = openURL(types: [.database, .data]) else { return }; perform { try stopForMutation(); try store.restore(from: url); try resetEngineAfterMutation(); syncGoalFromHistory(); try ensureCurrentPageGoal() } }
     func showDashboard(section: DashboardSection? = nil, settingsCategory: SettingsCategory? = nil) {
         if let section {
             if section == .settings { settingsCategoryRequest = settingsCategory }
@@ -1264,6 +1435,7 @@ final class AppModel: ObservableObject {
     }
     func quit() { NSApp.terminate(nil) }
     func shutdown() {
+        audiobookPlayer.pauseReportingErrors()
         ready = false
         cancelExternalCoverLookups()
         timer?.invalidate(); windowObserver?.invalidate(); captureGeneration += 1

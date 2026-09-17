@@ -1,10 +1,12 @@
 import Foundation
 
-public enum ReadingMode: String, Codable, CaseIterable { case automatic, manual, imported }
+public enum ReadingMode: String, Codable, CaseIterable { case automatic, manual, imported, listening }
 public enum IntervalDisposition: String, Codable { case credited, uncertain, excluded }
 public enum PauseReason: String, Codable { case disabled, background, noReadingWindow, locked, displayAsleep, permissionLost, excludedBook, stopped, captureFailure, recovery, clockDiscontinuity }
 public enum TrackerPhase: String, Codable { case paused, reading, uncertain }
 public enum DailyGoalUnit: String, Codable { case pages, minutes }
+
+public enum BookFormat: String, Codable, CaseIterable { case text, audiobook }
 
 public struct BookRecord: Codable, Identifiable, Equatable {
     public var id: String
@@ -16,9 +18,15 @@ public struct BookRecord: Codable, Identifiable, Equatable {
     public var coverSource: String?
     public var trackingExcluded: Bool
     public var sharingExcluded: Bool
-    public init(id: String, title: String, author: String? = nil, source: String = "manual", observedAt: Date = Date(), coverPath: String? = nil, coverSource: String? = nil, trackingExcluded: Bool = false, sharingExcluded: Bool = false) {
+    /// Missing in older archives: interpreted as a text edition.
+    public var format: BookFormat?
+    /// A basename in the managed Audiobooks directory; audio is not embedded in history exports.
+    public var audioFileName: String?
+    public var resolvedFormat: BookFormat { format ?? .text }
+    public init(id: String, title: String, author: String? = nil, source: String = "manual", observedAt: Date = Date(), coverPath: String? = nil, coverSource: String? = nil, trackingExcluded: Bool = false, sharingExcluded: Bool = false, format: BookFormat? = nil, audioFileName: String? = nil) {
         self.id = id; self.title = title; self.author = author; self.source = source; self.observedAt = observedAt
         self.coverPath = coverPath; self.coverSource = coverSource; self.trackingExcluded = trackingExcluded; self.sharingExcluded = sharingExcluded
+        self.format = format; self.audioFileName = audioFileName
     }
 }
 public struct ProgressObservation: Codable, Identifiable, Equatable {
@@ -31,9 +39,12 @@ public struct ProgressObservation: Codable, Identifiable, Equatable {
     public var location: String?
     public var source: String
     public var reliable: Bool
-    public init(id: String = UUID().uuidString, bookID: String, observedAt: Date = Date(), page: Int? = nil, totalPages: Int? = nil, fraction: Double? = nil, location: String? = nil, source: String, reliable: Bool = false) {
+    public var audio: AudiobookProgress?
+    public var sessionID: String?
+    public init(id: String = UUID().uuidString, bookID: String, observedAt: Date = Date(), page: Int? = nil, totalPages: Int? = nil, fraction: Double? = nil, location: String? = nil, source: String, reliable: Bool = false, audio: AudiobookProgress? = nil, sessionID: String? = nil) {
         self.id = id; self.bookID = bookID; self.observedAt = observedAt; self.page = page; self.totalPages = totalPages
         self.fraction = fraction; self.location = location; self.source = source; self.reliable = reliable
+        self.audio = audio; self.sessionID = sessionID
     }
 }
 public struct ReadingInterval: Codable, Identifiable, Equatable {
@@ -46,8 +57,10 @@ public struct ReadingInterval: Codable, Identifiable, Equatable {
     public var timezoneID: String
     public var mode: ReadingMode
     public var disposition: IntervalDisposition
-    public init(id: String = UUID().uuidString, sessionID: String, bookID: String, start: Date, end: Date, duration: TimeInterval, timezoneID: String, mode: ReadingMode, disposition: IntervalDisposition = .credited) {
-        self.id = id; self.sessionID = sessionID; self.bookID = bookID; self.start = start; self.end = end; self.duration = duration; self.timezoneID = timezoneID; self.mode = mode; self.disposition = disposition
+    /// Original audio evidence session; preserved when a correction splits or reassigns this interval.
+    public var audioSessionID: String?
+    public init(id: String = UUID().uuidString, sessionID: String, bookID: String, start: Date, end: Date, duration: TimeInterval, timezoneID: String, mode: ReadingMode, disposition: IntervalDisposition = .credited, audioSessionID: String? = nil) {
+        self.id = id; self.sessionID = sessionID; self.bookID = bookID; self.start = start; self.end = end; self.duration = duration; self.timezoneID = timezoneID; self.mode = mode; self.disposition = disposition; self.audioSessionID = audioSessionID
     }
 }
 public struct GoalChange: Codable, Identifiable, Equatable {

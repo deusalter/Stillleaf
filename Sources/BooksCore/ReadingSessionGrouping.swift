@@ -127,7 +127,7 @@ public enum ReadingSessionGrouping {
         switch interval.mode {
         case .automatic:
             return gap < maximumBreak
-        case .manual:
+        case .manual, .listening:
             return interval.sessionID == previous.sessionID
         case .imported:
             return false

@@ -16,6 +16,8 @@ struct LibraryProgressLabel: Equatable {
 
     static func saved(_ observation: ProgressObservation?, pagesLogged: Int, finished: Bool) -> Self {
         if let observation, observation.reliable {
+            if let audio = observation.audio, audio.isValid,
+               let label = position(.time(current: audio.positionSeconds, total: audio.durationSeconds)) { return label }
             if let page = observation.page,
                let label = position(.pages(current: page, total: observation.totalPages)) { return label }
             if let fraction = observation.fraction, let label = position(.fraction(fraction)) {
