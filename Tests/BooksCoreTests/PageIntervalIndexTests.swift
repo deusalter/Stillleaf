@@ -16,7 +16,7 @@ final class PageIntervalIndexTests: XCTestCase {
         for index in 0..<800 {
             let date = base.addingTimeInterval(Double(index * 5 + index % 4))
             let book = index % 2 == 0 ? "alias" : "book"
-            let evidence = PageTurnEvidence(fromPage: 1, toPage: 2, pagesRead: 1, visiblePages: 1, layoutSignature: "fixture")
+            let evidence = PageTurnEvidence(fromPage: index + 1, toPage: index + 2, pagesRead: 1, visiblePages: 1, layoutSignature: "fixture")
             events.append(AuditEvent(date: date, kind: "pageTurn", bookID: book, sessionID: "long-session", detail: "Fixture", pageTurn: evidence))
         }
         let merges = [BookMerge(sourceID: "alias", targetID: "book")]
@@ -39,9 +39,9 @@ final class PageIntervalIndexTests: XCTestCase {
             ReadingInterval(sessionID: "session", bookID: "book", start: base.addingTimeInterval(start),
                 end: base.addingTimeInterval(end), duration: end - start, timezoneID: "UTC", mode: .automatic)
         }
-        let events = [0.0, 40.0, 50.0, 100.0, 101.0].map { seconds in
+        let events = [0.0, 40.0, 50.0, 100.0, 101.0].enumerated().map { index, seconds in
             AuditEvent(date: base.addingTimeInterval(seconds), kind: "pageTurn", bookID: "book", sessionID: "session", detail: "Fixture",
-                pageTurn: PageTurnEvidence(fromPage: 1, toPage: 2, pagesRead: 1, visiblePages: 1, layoutSignature: "fixture"))
+                pageTurn: PageTurnEvidence(fromPage: index + 1, toPage: index + 2, pagesRead: 1, visiblePages: 1, layoutSignature: "fixture"))
         }
         XCTAssertEqual(PageStatistics.pages(events: events, effectiveIntervals: intervals, merges: []), 3)
     }

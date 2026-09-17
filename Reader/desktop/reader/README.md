@@ -98,7 +98,7 @@ The Mac host now passes `experimentalContinuous:true`, so Continuous is one scro
 
 ## Page evidence
 
-The renderer reports `pageLayout` (a key per layout, and pages per turn: 1, or 2 for facing pages) and `pageTurn` (direction, pages, layout). Only deliberate sequential movement is a turn: paginated next/previous that actually moved, or one full screen of net scrolling in scroll mode. Contents, search, links, bookmarks, restores, reflow, resizes and multi-screen scrubbing never are. The Mac host keeps its own counter and samples it with the same bounded page-turn tracker used for Apple Books, so goals and streaks treat both sources alike. `test/page-evidence.test.mjs` covers these cases.
+The renderer reports `pageLayout` (a key per layout, and pages per turn: 1, or 2 for facing pages) and `pageTurn` (direction, pages, layout). Only deliberate sequential movement is a turn: paginated next/previous that actually moved, or one full screen of net scrolling in scroll mode. Contents, search, links, bookmarks, restores, reflow, resizes and multi-screen scrubbing never are. The Mac host receives actual chapter position and departure text ranges directly. It deduplicates text coverage per session independently of external Apple Books observation. Native `position` events carry chapter screen geometry; with `contentProgress:true`, background markup indexing adds measured `bookOffset` / `bookTotal` text coordinates for a content-weighted book fraction. These are position, not reading-credit events. See `docs/reading-progress.md` at repository root for coverage and compatibility semantics. `test/page-evidence.test.mjs` covers these cases.
 
 ## Integrated appearance controls
 

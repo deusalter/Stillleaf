@@ -18,7 +18,8 @@ let lifecycle=0;let preferenceQueue=Promise.resolve();let jumpHistory=[];let sta
 const frames=new WeakSet();let headingCache=new Map();
 const icons={contents:'<path d="M4 5h16M4 12h16M4 19h11"/>',search:'<circle cx="10" cy="10" r="6.5"/><path d="m15 15 5 5"/>',bookmark:'<path d="M6 3h12v18l-6-4-6 4z"/>',previous:'<path d="m14 5-7 7 7 7"/>',next:'<path d="m10 5 7 7-7 7"/>'};
 for(const [id,key]of [['contents','contents'],['search','search'],['save-bookmark','bookmark'],['previous','previous'],['next','next']])$(id).innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true">'+icons[key]+'</svg>';
-function emit(type,data={}){window.dispatchEvent(new CustomEvent('stillleaf-reader-event',{detail:{version:1,type,editionId:input?.editionId,...data}}))}
+let eventSequence=0;
+function emit(type,data={}){window.dispatchEvent(new CustomEvent('stillleaf-reader-event',{detail:{version:1,sequence:++eventSequence,observedAt:Date.now(),type,editionId:input?.editionId,...data}}))}
 function notice(message){$('notice').textContent=message;$('notice').hidden=false;clearTimeout(noticeTimer);noticeTimer=setTimeout(()=>$('notice').hidden=true,4200)}
 function snapshot(){return state?clone(state):null}
 function requireSaveBudget(candidate){
@@ -92,6 +93,10 @@ function updatePosition(){
    ?screenPages({extent:doc.scrollHeight,viewport:wnd.innerHeight,offset:wnd.scrollY})
    :screenPages({extent:doc.scrollWidth,viewport:wnd.innerWidth,offset:Math.abs(wnd.scrollX),columns:effectiveColumns()});
  }
+ if(pages&&!opening){
+  nativePosition=contentPosition(pages);
+  emit('position',{position:nativePosition});
+ }
  const label=pageLabel(pages);
  if($('position-label').textContent!==label)$('position-label').textContent=label;
  $('position-label').title=heading+' · Screen pages change with text size and window size';
@@ -99,6 +104,66 @@ function updatePosition(){
  $('chapter-label').title=heading;
  const saved=state.bookmarks.some(x=>samePlace(x.locator,lastLocator));
  $('save-bookmark').setAttribute('aria-pressed',String(saved));$('save-bookmark').setAttribute('aria-label',saved?'Remove bookmark':'Add bookmark');$('save-bookmark').title=saved?'Remove bookmark':'Add bookmark';
+}
+// Text coordinates survive font changes and resizing. Never infer a whole-book
+// page total from chapter ordinals. Empty/image-only pages retain position only.
+let nativePosition=null,contentIndex=null;
+const contentIndexes=new Map();
+async function indexContent(owner,generation,edition,order){
+ try{
+  let counts=contentIndexes.get(edition);
+  if(!counts){
+   counts=[];
+   for(const link of order){
+    // Yield between chapters. Never block opening on the complete denominator.
+    await new Promise(resolve=>setTimeout(resolve,0));
+    if(owner!==pool||generation!==lifecycle)return;
+    counts.push(await owner.textLength(link.href));
+   }
+   if(owner!==pool||generation!==lifecycle)return;
+   contentIndexes.set(edition,counts);
+   while(contentIndexes.size>16)contentIndexes.delete(contentIndexes.keys().next().value);
+  }
+  if(owner!==pool||generation!==lifecycle)return;
+  contentIndex=counts;refreshPosition();
+ }catch{ /* Keep chapter position; an incomplete denominator must never escape. */ }
+}
+
+function contentPosition(pages){
+ const result={href:lastLocator.href,page:pages.first,totalPages:pages.total,visiblePages:pages.last-pages.first+1};
+ const entry=navigator?.kind==='continuous'?navigator.entries.find(e=>e.link.href===lastLocator.href):null;
+ const frame=entry?.frame??[...$('reader').querySelectorAll('iframe')].find(f=>getComputedStyle(f).visibility!=='hidden');
+ const doc=frame?.contentDocument;if(!doc?.body)return result;
+ const bounds=frame.getBoundingClientRect(),viewport=$('reader').getBoundingClientRect();
+ const left=Math.max(0,viewport.left-bounds.left),right=Math.min(frame.clientWidth,viewport.right-bounds.left);
+ const top=Math.max(0,viewport.top-bounds.top),bottom=Math.min(frame.clientHeight,viewport.bottom-bounds.top);
+ const visible=r=>r.width>0&&r.height>0&&r.right>left&&r.left<right&&r.bottom>top&&r.top<bottom;
+ const walk=doc.createTreeWalker(doc.body,NodeFilter.SHOW_TEXT);let node,offset=0,lower=null,upper=null;
+ while((node=walk.nextNode())){
+  if(node.parentElement?.closest('script,style'))continue;
+  const length=node.length,range=doc.createRange();range.selectNodeContents(node);
+  if(node.textContent.trim()&&[...range.getClientRects()].some(visible)){
+   // Only boundary characters require geometry; a whole node in view is cheap.
+   let first=0,last=length;
+   for(;first<length;first++){range.setStart(node,first);range.setEnd(node,first+1);if(visible(range.getBoundingClientRect()))break}
+   for(;last>first;last--){range.setStart(node,last-1);range.setEnd(node,last);if(visible(range.getBoundingClientRect()))break}
+   if(last>first){lower??=offset+first;upper=offset+last;}
+  }
+  offset+=length;
+ }
+ if(lower!==null&&upper>lower){result.lower=lower;result.upper=upper;}
+ if(contentIndex){
+  const chapter=input.readingOrder.findIndex(link=>link.href===result.href);
+  const total=contentIndex.reduce((a,b)=>a+b,0);
+  // Position is the trailing visible text boundary, not a claim it was read.
+  // Image-only final screens can still display the end of the text coordinate.
+  const edge=pages.last===pages.total?contentIndex[chapter]:upper;
+  if(chapter>=0&&total>0&&edge!==null){
+   result.bookOffset=Math.min(total,contentIndex.slice(0,chapter).reduce((a,b)=>a+b,0)+Math.min(contentIndex[chapter],edge));
+   result.bookTotal=total;
+  }
+ }
+ return result;
 }
 let positionFrame=0;
 function refreshPosition(){
@@ -332,37 +397,40 @@ async function jumpNow(value,recordHistory){
 // Page evidence for reading goals. Only deliberate sequential movement is reported:
 // page turns in paginated modes and full screens scrolled by the reader. Jumps
 // (contents, search, links, bookmarks), restores, reflow and resizes never are. Each
-// layout gets its own key, so the host starts a fresh baseline after any change.
-let layoutGeneration=0,announcedLayout=null,quietUntil=0,scrollState=new WeakMap(),continuousNet=0;
+// layout gets its own key; native content identity remains independent of reflow.
+let layoutGeneration=0,announcedLayout=null,quietUntil=0,scrollState=new WeakMap(),continuousNet=0,continuousPosition=null;
 const pagesPerTurn=()=>state?.preferences.scroll?1:effectiveColumns();
 const layoutKey=()=>(state?.preferences.scroll?'s':'p')+pagesPerTurn()+'-'+layoutGeneration;
 function announceLayout(){if(!state||opening)return;const layout=layoutKey();if(layout===announcedLayout)return;announcedLayout=layout;emit('pageLayout',{layout,pages:pagesPerTurn()})}
-function relayout(){layoutGeneration++;quietUntil=performance.now()+800;scrollState=new WeakMap();continuousNet=0;announceLayout()}
-function pageTurned(direction){if(!state)return;announceLayout();emit('pageTurn',{direction,pages:pagesPerTurn(),layout:layoutKey()})}
+function relayout(){layoutGeneration++;quietUntil=performance.now()+800;scrollState=new WeakMap();continuousNet=0;continuousPosition=null;announceLayout()}
+function pageTurned(direction,departure=nativePosition){if(!state)return;announceLayout();emit('pageTurn',{direction,pages:pagesPerTurn(),layout:layoutKey(),departure})}
 /** Scroll mode: one page-equivalent per full screen of net movement by the reader. */
 function trackScroll(wnd){
  if(!state?.preferences.scroll||navigator?.kind==='continuous')return;
  const y=wnd.scrollY,height=wnd.innerHeight,now=performance.now(),last=scrollState.get(wnd);
- if(!last||now<quietUntil||boundaryBusy||reflowCount||resizing||!(height>0)){scrollState.set(wnd,{y,net:0});return}
+ if(!last||now<quietUntil||boundaryBusy||reflowCount||resizing||!(height>0)){scrollState.set(wnd,{y,net:0,position:nativePosition});return}
  const delta=y-last.y;
  // Scrubbing or programmatic jumps move several screens at once; they are never reading.
- if(Math.abs(delta)>height*1.5){scrollState.set(wnd,{y,net:0});return}
- let net=last.net+delta;
- while(net>=height){net-=height;pageTurned('forward')}
+ if(Math.abs(delta)>height*1.5){scrollState.set(wnd,{y,net:0,position:nativePosition});return}
+ let net=last.net+delta;const crossed=Math.abs(net)>=height;
+ while(net>=height){net-=height;pageTurned('forward',last.position)}
  while(net<=-height){net+=height;pageTurned('backward')}
- scrollState.set(wnd,{y,net});
+ if(crossed)refreshPosition();
+ scrollState.set(wnd,{y,net,position:crossed?nativePosition:last.position});
 }
 /** Continuous view: the adapter reports only the reader's own movement; its layout corrections never arrive here. */
 function trackContinuousScroll(delta,height){
  if(!state?.preferences.scroll||navigator?.kind!=='continuous')return;
- if(performance.now()<quietUntil||reflowCount||resizing||!(height>0)||Math.abs(delta)>height*1.5){continuousNet=0;return}
- continuousNet+=delta;
- while(continuousNet>=height){continuousNet-=height;pageTurned('forward')}
+ if(performance.now()<quietUntil||reflowCount||resizing||!(height>0)||Math.abs(delta)>height*1.5){continuousNet=0;continuousPosition=nativePosition;return}
+ continuousPosition??=nativePosition;
+ continuousNet+=delta;const crossed=Math.abs(continuousNet)>=height;
+ while(continuousNet>=height){continuousNet-=height;pageTurned('forward',continuousPosition)}
  while(continuousNet<=-height){continuousNet+=height;pageTurned('backward')}
+ if(crossed){navigator.report();continuousPosition=nativePosition}
 }
 // One turn at a time: overlapping goForward/goBackward calls across a chapter edge left every frame hidden.
 let turning=false,turnWatchdog=0;
-function turn(direction){dismissSelection();if(!navigator||turning)return;turning=true;clearTimeout(turnWatchdog);turnWatchdog=setTimeout(()=>turning=false,2000);(direction==='next'?navigator.goForward.bind(navigator):navigator.goBackward.bind(navigator))(false,moved=>{turning=false;clearTimeout(turnWatchdog);if(moved===true&&!state?.preferences.scroll)pageTurned(direction==='next'?'forward':'backward');stableAnchor=visibleAnchor();if(!state?.preferences.scroll&&!matchMedia('(prefers-reduced-motion: reduce)').matches)$('reader').animate([{opacity:.84,transform:`perspective(1600px) rotateY(${direction==='next'?'-':'+'}1.5deg)`},{opacity:1,transform:'none'}],{duration:140,easing:'ease-out'})})}
+function turn(direction){dismissSelection();if(!navigator||turning)return;refreshPosition();const departure=nativePosition;turning=true;clearTimeout(turnWatchdog);turnWatchdog=setTimeout(()=>turning=false,2000);(direction==='next'?navigator.goForward.bind(navigator):navigator.goBackward.bind(navigator))(false,moved=>{turning=false;clearTimeout(turnWatchdog);if(moved===true&&!state?.preferences.scroll)pageTurned(direction==='next'?'forward':'backward',departure);stableAnchor=visibleAnchor();if(!state?.preferences.scroll&&!matchMedia('(prefers-reduced-motion: reduce)').matches)$('reader').animate([{opacity:.84,transform:`perspective(1600px) rotateY(${direction==='next'?'-':'+'}1.5deg)`},{opacity:1,transform:'none'}],{duration:140,easing:'ease-out'})})}
 // A crossing stays busy until the next chapter lands plus a short settle, so a momentum wheel
 // stream turns one chapter, not several; #reader is aria-busy for exactly that span.
 let boundaryBusy=false;
@@ -438,12 +506,14 @@ async function open(value){
   $('reader').replaceChildren();$('book-title').textContent=value.title??'Untitled';$('book-author').textContent=value.creators?.join(', ')??'';document.title=(value.title??'Book')+' · Stillleaf';$('back').hidden=!value.canReturnToLibrary;
   syncAppearance();await prepareFont(state.preferences.fontFamily,lifecycle);
   await installNavigator(state.position);opening=false;refreshPosition();emit('ready',{warnings:[...pool.warnings]});announcedLayout=null;relayout();changed();
+  if(input.contentProgress===true)void indexContent(pool,lifecycle,input.editionId,input.readingOrder);
   if(pool.warnings.size&&$('notice').hidden)notice('Some original styling or illustrations could not be displayed.');
  }catch(error){opening=false;$('error').textContent=error.message;$('error').hidden=false;emit('error',{message:error.message});throw error}
 }
 async function close(){
  if(!await prepareClose())return false;
  lifecycle++;searchGeneration++;cancelAnimationFrame(positionFrame);clearTimeout(resizeTimer);clearTimeout(searchTimer);clearTimeout(stateTimer);clearTimeout(noticeTimer);
+ nativePosition=null;contentIndex=null;
  if(state)emit('state',{state:snapshot()});
  for(const dialog of document.querySelectorAll('dialog[open]'))dialog.close();
  const current=navigator;navigator=undefined;await preferenceQueue.catch(()=>{});await destroyNavigator(current);pool?.close();pool=undefined;state=undefined;lastLocator=undefined;selection=undefined;$('selection-tools').hidden=true;$('notice').hidden=true;editingNote=undefined;return true;

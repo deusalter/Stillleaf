@@ -236,7 +236,9 @@ final class AppModel: ObservableObject {
         }
         tick()
         } else { refresh(); refreshDiscordStatus() }
-        epubReaders.didFocusReader = { [weak self] in self?.cancelExternalCoverLookups() }
+        epubReaders.didFocusReader = { [weak self] in self?.cancelExternalCoverLookups(); self?.tick() }
+        epubReaders.positionChanged = { [weak self] in self?.tick() }
+        epubReaders.traversedContent = { [weak self] bookID, evidence in self?.recordNativeCoverage(bookID: bookID, evidence: evidence) }
         epubReaders.libraryRequested = { [weak self] in self?.showDashboard(section: .library) }
         epubLibrary.register = { [weak self] publication, directory in
             try self?.registerPublication(publication, directory: directory)
@@ -515,9 +517,8 @@ final class AppModel: ObservableObject {
             cancelExternalCoverLookups()
             captureGeneration += 1
             readerWindow = nil
-            apply(book: book, progress: nil, mode: .automatic, reason: book.trackingExcluded ? .excludedBook : nil,
-                  health: "Reading in Stillleaf. Time follows the active reader; page turns count as pages, jumps and reflow do not.",
-                  pagePosition: epubReaders.focusedPagePosition)
+            apply(book: book, progress: epubReaders.focusedProgress, mode: .automatic, reason: book.trackingExcluded ? .excludedBook : nil,
+                  health: "Reading in Stillleaf. Position comes from the reader; sequential content coverage and active time are recorded separately.")
             return
         }
         guard accessibilityGranted else { health = "Automatic tracking needs Accessibility access. Manual reading is available."; pause(.permissionLost); return }
@@ -552,6 +553,13 @@ final class AppModel: ObservableObject {
         }
     }
     private func apply(book: BookRecord?, progress: ProgressObservation?, mode: ReadingMode, reason: PauseReason?, health: String, navigationToken: String? = nil, pagePosition: ReaderPagePosition? = nil) {
+        let progressChanged = progress.map { value in
+            latestProgress.map { prior in
+                value.bookID != prior.bookID || value.page != prior.page || value.totalPages != prior.totalPages
+                    || value.fraction != prior.fraction || value.location != prior.location
+                    || value.source != prior.source || value.reliable != prior.reliable
+            } ?? true
+        } ?? false
         self.health = health; latestProgress = progress
         let uptime = ProcessInfo.processInfo.systemUptime
         let sampleDate = Date()
@@ -570,7 +578,7 @@ final class AppModel: ObservableObject {
             try engine.process(TrackingInput(date: sampleDate, uptime: uptime, book: book, mode: mode, pauseReason: reason, relevantActivity: readingActivity, progress: progress))
             snapshot = engine.snapshot
             var recordedPageTurn = false
-            if mode == .automatic, reason == nil, let book, let sessionID = snapshot.sessionID,
+            if mode == .automatic, reason == nil, let book, book.source != "stillleaf-epub", let sessionID = snapshot.sessionID,
                snapshot.phase != .paused {
                 if let evidence = observePagePosition(pagePosition, bookID: book.id, sessionID: sessionID,
                                                       date: sampleDate, uptime: uptime) {
@@ -583,11 +591,29 @@ final class AppModel: ObservableObject {
                 }
             } else { pageTurnTracker.reset(); readerPagination.reset(); currentPagePosition = nil }
             recordHealth(reason, verifiedCapture: mode == .automatic && book != nil && book?.source != "stillleaf-epub" && reason == nil)
-            if recordedPageTurn || Date().timeIntervalSince(lastRefresh) >= 15 || previousPhase != snapshot.phase || previousBookID != snapshot.book?.id { refresh() }
+            if recordedPageTurn || progressChanged || Date().timeIntervalSince(lastRefresh) >= 15 || previousPhase != snapshot.phase || previousBookID != snapshot.book?.id { refresh() }
             if let book, reason == nil { resolvePublicCoverIfNeeded(for: book) }
             publishPresence()
         } catch { trackingFailure(error) }
     }
+    private func recordNativeCoverage(bookID: String, evidence: PageTurnEvidence) {
+        guard ready, manualBook == nil, commonPauseReason() == nil,
+              epubReaders.focusedPublicationID.map({ "epub:" + $0 }) == bookID else { return }
+        let previousSession = snapshot.book?.id == bookID ? snapshot.sessionID : nil
+        tick()
+        guard let sessionID = previousSession, snapshot.sessionID == sessionID,
+              snapshot.phase != .paused, snapshot.book?.trackingExcluded == false else { return }
+        do {
+            let date = Date(), uptime = ProcessInfo.processInfo.systemUptime
+            try engine.checkpoint(date: date, uptime: uptime)
+            snapshot = engine.snapshot
+            guard snapshot.phase != .paused else { return }
+            try store.appendEvent(AuditEvent(date: date, kind: "pageTurn", bookID: bookID, sessionID: sessionID,
+                detail: "Native sequential navigation over the supplied chapter text range; not a comprehension claim.", pageTurn: evidence))
+            refresh()
+        } catch { trackingFailure(error) }
+    }
+
     /// A brief missing footer during a page animation is not a tracking pause.
     /// Both helpers still expire their baselines after five seconds.
     func observePagePosition(_ position: ReaderPagePosition?, bookID: String, sessionID: String,

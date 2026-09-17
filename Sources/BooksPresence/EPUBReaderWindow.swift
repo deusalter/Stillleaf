@@ -10,15 +10,16 @@ final class EPUBReaderWindows {
     private var opening: [String: UUID] = [:]
     private(set) var isTerminating = false
     var didFocusReader: (() -> Void)?
+    var positionChanged: (() -> Void)?
     var libraryRequested: (() -> Void)?
+    var traversedContent: ((String, PageTurnEvidence) -> Void)?
     private let stateDirectory: URL
     private var focusedReader: EPUBReaderWindow? {
         guard NSApp.isActive else { return nil }
         return windows.values.first(where: { $0.isReady && $0.window?.isKeyWindow == true && $0.window?.isMiniaturized == false })
     }
     var focusedPublicationID: String? { focusedReader?.publication.id }
-    /// The focused reader's page counter, sampled by the same page-turn tracker as Apple Books.
-    var focusedPagePosition: ReaderPagePosition? { focusedReader?.pagePosition }
+    var focusedProgress: ProgressObservation? { focusedReader?.progress }
     init(stateDirectory: URL) { self.stateDirectory = stateDirectory }
     func open(_ publication: EPUBPublication, directory: URL, present: Bool = true) async throws {
         guard !isTerminating else { return }
@@ -29,6 +30,14 @@ final class EPUBReaderWindows {
         let reader = try await EPUBReaderWindow(publication: publication, directory: directory, stateDirectory: stateDirectory)
         guard opening[publication.id] == reservation else { reader.window?.close(); return }
         reader.closed = { [weak self] in self?.windows.removeValue(forKey: publication.id) }
+        reader.positionChanged = { [weak self, weak reader] in
+            guard let self, let reader, self.focusedReader === reader else { return }
+            self.positionChanged?()
+        }
+        reader.traversedContent = { [weak self, weak reader] evidence in
+            guard let self, let reader, self.focusedReader === reader else { return }
+            self.traversedContent?("epub:" + publication.id, evidence)
+        }
         reader.focused = { [weak self] in self?.didFocusReader?() }
         reader.returnToLibrary = { [weak self] in self?.libraryRequested?() }
         windows[publication.id] = reader
@@ -73,14 +82,11 @@ private final class EPUBReaderWindow: NSObject, NSWindowDelegate, WKNavigationDe
     private var didLoad = false
     private var startupError: String?
     private(set) var isReady = false
-    private var pageCounter = 1
-    private var pageLayout: String?
-    private var pageVisible = 1
-    /// Moves only on deliberate turns the renderer reports. A new layout key gives a new
-    /// signature, so the tracker never compares pages across reflow, resize or mode changes.
-    var pagePosition: ReaderPagePosition? {
-        pageLayout.map { ReaderPagePosition(page: pageCounter, visiblePages: pageVisible, layoutSignature: "stillleaf-reader:" + $0) }
-    }
+    private var lastSequence: UInt64 = 0
+    private(set) var nativePosition: NativeReaderPosition?
+    private(set) var progress: ProgressObservation?
+    var traversedContent: ((PageTurnEvidence) -> Void)?
+    var positionChanged: (() -> Void)?
 
     init(publication: EPUBPublication, directory: URL, stateDirectory: URL) async throws {
         self.publication = publication
@@ -195,7 +201,9 @@ private final class EPUBReaderWindow: NSObject, NSWindowDelegate, WKNavigationDe
         if event["type"] as? String == "close-request" { Task { if await requestClose() { returnToLibrary?() } }; return }
         if event["type"] as? String == "ready" { isReady = true; if window?.isKeyWindow == true { focused?() }; return }
         if event["type"] as? String == "error" { isReady = false; return }
-        if event["type"] as? String == "pageLayout" || event["type"] as? String == "pageTurn" { receivePageEvidence(event); return }
+        if event["type"] as? String == "position" || event["type"] as? String == "pageTurn" {
+            receiveProgress(event); return
+        }
         guard event["type"] as? String == "state",
               let state = event["state"] as? [String: Any], JSONSerialization.isValidJSONObject(state),
               let encoded = try? JSONSerialization.data(withJSONObject: state),
@@ -213,19 +221,31 @@ private final class EPUBReaderWindow: NSObject, NSWindowDelegate, WKNavigationDe
         }
     }
 
-    /// The renderer reports a key per layout and each deliberate turn. The host owns the
-    /// counter, so one message moves it by at most two pages and never below page one.
-    private func receivePageEvidence(_ event: [String: Any]) {
-        guard isReady, let layout = event["layout"] as? String, !layout.isEmpty, layout.utf8.count <= 64,
-              layout.unicodeScalars.allSatisfy({ $0.isASCII && (CharacterSet.alphanumerics.contains($0) || $0 == "-") }),
-              let number = event["pages"] as? NSNumber, number.doubleValue == Double(number.intValue),
-              (1...2).contains(number.intValue) else { return }
-        pageLayout = layout; pageVisible = number.intValue
-        guard event["type"] as? String == "pageTurn" else { return }
-        switch event["direction"] as? String {
-        case "forward": pageCounter = min(pageCounter + number.intValue, 10_000_000)
-        case "backward": pageCounter = max(1, pageCounter - number.intValue)
-        default: return
+    /// The authenticated renderer supplies actual chapter geometry and text ranges.
+    /// Sequence numbers reject replay; only foreground sequential turns add coverage.
+    private func receiveProgress(_ event: [String: Any]) {
+        guard let observed = event["observedAt"] as? Double, observed.isFinite,
+              (-1...3).contains(Date().timeIntervalSince1970 - observed / 1000),
+              let number = event["sequence"] as? NSNumber,
+              number.doubleValue > 0, number.doubleValue <= 9_007_199_254_740_991,
+              number.doubleValue.rounded() == number.doubleValue,
+              number.uint64Value > lastSequence else { return }
+        lastSequence = number.uint64Value
+        let key = event["type"] as? String == "position" ? "position" : "departure"
+        guard let value = event[key] as? [String: Any], JSONSerialization.isValidJSONObject(value),
+              let data = try? JSONSerialization.data(withJSONObject: value),
+              let position = try? JSONDecoder().decode(NativeReaderPosition.self, from: data),
+              position.isValid(spine: publication.spine) else { return }
+        if key == "position" {
+            let previous = progress?.location
+            let previousFraction = progress?.fraction
+            nativePosition = position
+            progress = position.observation(bookID: "epub:" + publication.id, spine: publication.spine)
+            if progress?.location != previous || progress?.fraction != previousFraction { positionChanged?() }
+        } else if isReady, NSApp.isActive, window?.isKeyWindow == true,
+                  event["direction"] as? String == "forward",
+                  let evidence = position.forwardCoverage(spine: publication.spine) {
+            traversedContent?(evidence)
         }
     }
 
@@ -286,7 +306,7 @@ private final class EPUBReaderWindow: NSObject, NSWindowDelegate, WKNavigationDe
         var input: [String: Any] = ["editionId": publication.id, "title": publication.title, "creators": publication.authors,
             "layout": publication.layout ?? "reflowable", "canReturnToLibrary": true,
             // Continuous reads as one scroll across chapters; without this, scroll mode stops at each chapter end.
-            "experimentalContinuous": true,
+            "experimentalContinuous": true, "contentProgress": true,
             "readingOrder": publication.spine.map { path in ["href": path, "type": publication.resources.first(where: { $0.path == path })?.mediaType ?? "application/xhtml+xml"] }, "resources": resources]
         for (key, links) in [("toc", publication.toc), ("landmarks", publication.landmarks), ("pageList", publication.pageList)] {
             if let links { input[key] = try JSONSerialization.jsonObject(with: JSONEncoder().encode(links)) }
@@ -513,23 +533,23 @@ private extension EPUBReaderWindow {
             try Data(metrics.utf8).write(to: URL(fileURLWithPath: CommandLine.arguments[index + 1]).appendingPathComponent("native-experimental-continuous-metrics.json"))
         }
     }
-    /// A deliberate turn must reach the host counter under the announced layout.
+    /// A deliberate turn must reach the host as actual chapter geometry.
     func testPageEvidence() async throws {
         let deadline = Date().addingTimeInterval(5)
-        while pagePosition == nil && Date() < deadline { try await Task.sleep(nanoseconds: 50_000_000) }
-        guard let before = pagePosition else { throw EPUBImportError.invalid("The reader never announced its page layout.") }
+        while nativePosition == nil && Date() < deadline { try await Task.sleep(nanoseconds: 50_000_000) }
+        guard let before = nativePosition else { throw EPUBImportError.invalid("The reader never announced its page layout.") }
         _ = try await webView.evaluateJavaScript("window.StillleafReader.next(); true")
-        while (pagePosition?.page ?? 0) <= before.page && Date() < deadline { try await Task.sleep(nanoseconds: 50_000_000) }
-        guard let after = pagePosition, after.page == before.page + before.visiblePages,
-              after.layoutSignature == before.layoutSignature else {
-            throw EPUBImportError.invalid("A page turn did not reach the host page counter: \(String(describing: pagePosition))")
+        while (nativePosition?.page ?? 0) <= before.page && Date() < deadline { try await Task.sleep(nanoseconds: 50_000_000) }
+        guard let after = nativePosition, after.page == before.page + before.visiblePages,
+              after.href == before.href else {
+            throw EPUBImportError.invalid("A page turn did not reach the host chapter position: \(String(describing: nativePosition))")
         }
         _ = try await webView.evaluateJavaScript("window.StillleafReader.previous(); true")
         // Later checks read the chapter href, so wait for the turn back to land.
         let backDeadline = Date().addingTimeInterval(5)
-        while pagePosition?.page != before.page && Date() < backDeadline { try await Task.sleep(nanoseconds: 50_000_000) }
-        guard pagePosition?.page == before.page else {
-            throw EPUBImportError.invalid("Turning back did not return to the starting page: \(String(describing: pagePosition))")
+        while nativePosition?.page != before.page && Date() < backDeadline { try await Task.sleep(nanoseconds: 50_000_000) }
+        guard nativePosition?.page == before.page else {
+            throw EPUBImportError.invalid("Turning back did not return to the starting page: \(String(describing: nativePosition))")
         }
     }
     /// Fixtures with `#fixture-figure` must show the lazily fetched image, styled by a fetched stylesheet.
