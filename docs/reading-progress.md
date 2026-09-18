@@ -46,7 +46,10 @@ Text coordinates describe traversal, not attention or comprehension.
 `PageStatistics` rebuilds a range union per resolved book, tracking session and
 coordinate system from surviving effective history. The same range cannot add
 coverage twice within that session, even across brief pauses, repeated events,
-query date boundaries, or reopening the history database. A separately started
+query date boundaries, or reopening the history database. Display-group queries
+pass all effective intervals for deduplication and use `within:` only to select
+reported events afterward. The short-group visibility filter likewise resolves
+coverage once across all groups before selecting rows. A separately started
 session permits rereading; no lifetime maximum is used. The existing engine
 resumes pauses up to 120 seconds, and starts a new session after longer pauses,
 explicit stops, book changes, clock discontinuities or process restart. Restart

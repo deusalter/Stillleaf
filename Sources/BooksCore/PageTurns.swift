@@ -160,13 +160,15 @@ public enum PageStatistics {
     }
 
     /// Returns observed pages and explicit manual corrections in a half-open date range. Evidence counts only
-    /// when it belongs to a surviving, non-excluded effective interval.
+    /// when it belongs to a surviving, non-excluded effective interval. Supply the
+    /// complete effective history for coverage, then `within` to select display intervals.
     public static func pages(events: [AuditEvent], effectiveIntervals: [ReadingInterval], merges: [BookMerge],
                              from: Date? = nil, through: Date? = nil,
-                             bookID: String? = nil, sessionID: String? = nil) -> Int {
+                             bookID: String? = nil, sessionID: String? = nil,
+                             within selectedIntervals: [ReadingInterval]? = nil) -> Int {
         if let from, let through, through < from { return 0 }
         return qualified(events: events, effectiveIntervals: effectiveIntervals, merges: merges,
-                         from: from, through: through, bookID: bookID, sessionID: sessionID)
+                         from: from, through: through, bookID: bookID, sessionID: sessionID, selectedIntervals: selectedIntervals)
             .reduce(0) { $0 + $1.pages }
     }
 
@@ -183,7 +185,7 @@ public enum PageStatistics {
     /// page evidence cannot make the pace appear faster or slower.
     public static func pagesPerMinute(events: [AuditEvent], effectiveIntervals: [ReadingInterval],
                                       merges: [BookMerge], bookID: String? = nil,
-                                      sessionID: String? = nil) -> Double? {
+                                      sessionID: String? = nil, within selectedIntervals: [ReadingInterval]? = nil) -> Double? {
         let resolver = MergeResolver(merges: merges)
         let requestedBook = bookID.map(resolver.resolve)
         let credited = effectiveIntervals.filter { interval in
@@ -192,10 +194,12 @@ public enum PageStatistics {
                   sessionID.map({ interval.sessionID == $0 }) ?? true else { return false }
             return requestedBook.map({ resolver.resolve(interval.bookID) == $0 }) ?? true
         }
-        let seconds = credited.reduce(0) { $0 + $1.duration }
+        let selectedIDs = selectedIntervals.map { Set($0.map(\.id)) }
+        let measured = credited.filter { selectedIDs?.contains($0.id) ?? true }
+        let seconds = measured.reduce(0) { $0 + $1.duration }
         guard seconds > 0 else { return nil }
         let observedPages = qualified(events: events, effectiveIntervals: credited, merges: merges,
-                                      from: nil, through: nil, bookID: bookID, sessionID: sessionID, includeManual: false)
+                                      from: nil, through: nil, bookID: bookID, sessionID: sessionID, includeManual: false, selectedIntervals: measured)
             .reduce(0) { $0 + $1.pages }
         guard observedPages > 0 else { return nil }
         return Double(observedPages) * 60 / seconds
@@ -222,16 +226,25 @@ public enum PageStatistics {
         return StreakSummary(current: current, longest: longest, todayPending: todayPending, provisional: false)
     }
 
+    /// Visibility callers must resolve novelty before clipping to presentation groups.
+    /// Compute once for the complete group collection to keep large histories linearithmic.
+    static func eventsWithNewPages(events: [AuditEvent], effectiveIntervals: [ReadingInterval], merges: [BookMerge]) -> [AuditEvent] {
+        qualified(events: events, effectiveIntervals: effectiveIntervals, merges: merges,
+                  from: nil, through: nil, bookID: nil, sessionID: nil)
+            .filter { $0.pages > 0 }.map(\.event)
+    }
+
     private struct QualifiedPageTurn {
         var event: AuditEvent
         var pages: Int
     }
 
     private static func qualified(events: [AuditEvent], effectiveIntervals: [ReadingInterval], merges: [BookMerge],
-                                  from: Date?, through: Date?, bookID: String?, sessionID: String?, includeManual: Bool = true) -> [QualifiedPageTurn] {
+                                  from: Date?, through: Date?, bookID: String?, sessionID: String?, includeManual: Bool = true, selectedIntervals: [ReadingInterval]? = nil) -> [QualifiedPageTurn] {
         let resolver = MergeResolver(merges: merges)
         let requestedBook = bookID.map(resolver.resolve)
         let intervals = PageIntervalIndex(intervals: effectiveIntervals, resolve: resolver.resolve)
+        let selected = selectedIntervals.map { PageIntervalIndex(intervals: $0, resolve: resolver.resolve) }
         var coverage = ReadingCoverage()
         return events.enumerated().sorted {
             $0.element.date == $1.element.date ? $0.offset < $1.offset : $0.element.date < $1.element.date
@@ -255,7 +268,8 @@ public enum PageStatistics {
             // Resolve coverage before date filtering: a range query cannot make an
             // earlier traversal disappear and credit the same content again.
             let novel = event.pageTurn.map { coverage.pages($0, bookID: resolvedBook, sessionID: eventSession) } ?? count
-            guard from.map({ event.date >= $0 }) ?? true, through.map({ event.date < $0 }) ?? true else { return nil }
+            guard from.map({ event.date >= $0 }) ?? true, through.map({ event.date < $0 }) ?? true,
+                  selected?.contains(bookID: resolvedBook, sessionID: eventSession, date: event.date) ?? true else { return nil }
             return QualifiedPageTurn(event: event, pages: novel)
         }
     }

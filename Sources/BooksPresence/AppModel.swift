@@ -871,7 +871,7 @@ final class AppModel: ObservableObject {
         PageStatistics.pages(events: events, effectiveIntervals: intervals, merges: merges, from: from, through: through, bookID: bookID)
     }
     func pages(in group: ReadingSessionGroup, from: Date? = nil, through: Date? = nil) -> Int {
-        PageStatistics.pages(events: events, effectiveIntervals: group.intervals, merges: merges, from: from, through: through, bookID: group.bookID)
+        PageStatistics.pages(events: events, effectiveIntervals: intervals, merges: merges, from: from, through: through, bookID: group.bookID, within: group.intervals)
     }
     func pages(forSessionID sessionID: String) -> Int {
         if let cached = sessionPagesCache[sessionID] { return cached }

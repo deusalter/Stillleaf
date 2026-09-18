@@ -27,6 +27,16 @@ let restored = try JSONDecoder().decode([AuditEvent].self, from: encoded)
 require(PageStatistics.pages(events: restored, effectiveIntervals: [interval], merges: []) == 3, "reopening reconstructs coverage")
 var later = interval; later.sessionID = "later"
 require(PageStatistics.pages(events: repeated + [event(10, 11, second: 5, session: "later")], effectiveIntervals: [interval, later], merges: []) == 4, "new session permits rereading")
+let splitIntervals = (0..<3).map { index in
+    ReadingInterval(id: "split-\(index)", sessionID: "session", bookID: "book", start: date.addingTimeInterval(Double(index*10)), end: date.addingTimeInterval(Double(index*10+10)), duration: 10, timezoneID: "UTC", mode: .automatic, disposition: index == 1 ? .excluded : .credited)
+}
+let splitEvents = [event(10,11,second:5), event(10,11,second:25)]
+let splitGroups = ReadingSessionGrouping.groups(intervals: splitIntervals, merges: [])
+require(splitGroups.count == 2, "excluded interval splits display groups")
+require(splitGroups.map { PageStatistics.pages(events: splitEvents, effectiveIntervals: splitIntervals, merges: [], within: $0.intervals) } == [1,0], "display split cannot recredit earlier surviving coverage")
+require(PageStatistics.pagesPerMinute(events: splitEvents, effectiveIntervals: splitIntervals, merges: [], within: splitGroups[0].intervals) == 6, "selected pace uses selected elapsed time")
+require(PageStatistics.pagesPerMinute(events: splitEvents, effectiveIntervals: splitIntervals, merges: [], within: splitGroups[1].intervals) == nil, "later group has no novel coverage for pace")
+require(ReadingSessionGrouping.visibleGroups(splitGroups, events: splitEvents, merges: []).map(\.id) == [splitGroups[0].id], "split visibility must resolve session coverage first")
 let native = [(0,100),(0,50),(50,150),(100,200)].enumerated().map { i, range in
     event(1+i, 2+i, second: Double(i+1), content: ReaderContentCoverage(resource: "one.xhtml", lower: range.0, upper: range.1))
 }
