@@ -37,6 +37,22 @@ import BooksCore
         precondition(LibraryProgressLabel.position(.time(current: 1800, total: 7200)) == LibraryProgressLabel(primary: "25%", detail: "30:00 / 2:00:00"))
         precondition(LibraryProgressLabel.position(.time(current: 60, total: nil))?.detail == "Duration unavailable")
         precondition(LibraryProgressLabel.position(.time(current: .infinity, total: 100)) == nil)
+        var audioBook = BookRecord(id: "audio", title: "Same work")
+        audioBook.format = .audiobook
+        let textBook = BookRecord(id: "text", title: "Same work")
+        let linked = [BookMerge(sourceID: "text", targetID: "audio")]
+        let audioPosition = ProgressObservation(bookID: "audio", observedAt: Date(timeIntervalSince1970: 1),
+            fraction: 0.25, source: "audio", reliable: true,
+            audio: AudiobookProgress(positionSeconds: 1800, durationSeconds: 7200))
+        let newerText = ProgressObservation(bookID: "text", observedAt: Date(timeIntervalSince1970: 2),
+            page: 90, totalPages: 100, source: "epub", reliable: true)
+        let mixed = LibraryProgressLabel.latestPositions(books: [audioBook, textBook], observations: [audioPosition, newerText], merges: linked)
+        precondition(mixed["audio"]?.id == audioPosition.id)
+        let textOnly = LibraryProgressLabel.latestPositions(books: [audioBook, textBook], observations: [newerText], merges: linked)
+        precondition(textOnly["audio"] == nil)
+        audioBook.format = .text
+        let converted = LibraryProgressLabel.latestPositions(books: [audioBook, textBook], observations: [audioPosition, newerText], merges: linked)
+        precondition(converted["audio"]?.id == newerText.id)
         print("library-progress-smoke: page position, missing totals, invalid evidence, activity fallback and content-time formatting passed")
     }
 }

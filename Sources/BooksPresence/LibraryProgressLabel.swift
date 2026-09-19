@@ -14,6 +14,23 @@ struct LibraryProgressLabel: Equatable {
     let detail: String?
     var accessibilityText: String { [primary, detail].compactMap { $0 }.joined(separator: ", ") }
 
+    /// Linked text editions share a card, but audio content coordinates remain edition-specific.
+    static func latestPositions(books: [BookRecord], observations: [ProgressObservation], merges: [BookMerge]) -> [String: ProgressObservation] {
+        let resolver = BookMergeResolver(merges: merges)
+        let byID = Dictionary(books.map { ($0.id, $0) }, uniquingKeysWith: { _, latest in latest })
+        return observations.reduce(into: [:]) { result, observation in
+            guard observation.reliable else { return }
+            let id = resolver.resolvedID(for: observation.bookID)
+            guard let book = byID[id] else { return }
+            if book.resolvedFormat == .audiobook {
+                guard observation.bookID == id, observation.audio?.isValid == true else { return }
+            } else {
+                guard observation.audio == nil, byID[observation.bookID]?.resolvedFormat != .audiobook else { return }
+            }
+            if result[id].map({ $0.observedAt <= observation.observedAt }) ?? true { result[id] = observation }
+        }
+    }
+
     static func saved(_ observation: ProgressObservation?, pagesLogged: Int, finished: Bool) -> Self {
         if let observation, observation.reliable {
             if let audio = observation.audio, audio.isValid,

@@ -354,8 +354,8 @@ final class AppModel: ObservableObject {
         let resolver = BookMergeResolver(merges: merges)
         var pairs: [(edition: BookRecord, book: BookRecord)] = []
         for id in Set(ids).sorted() where !declined.contains(id) && resolver.resolvedID(for: id) == id {
-            guard let edition = books.first(where: { $0.id == id }) else { continue }
-            let matches = books.filter { $0.id != id && $0.source != "stillleaf-epub" && resolver.resolvedID(for: $0.id) == $0.id && BookIdentity.sameWork(edition, $0) }
+            guard let edition = books.first(where: { $0.id == id }), edition.resolvedFormat == .text else { continue }
+            let matches = books.filter { $0.resolvedFormat == .text && $0.id != id && $0.source != "stillleaf-epub" && resolver.resolvedID(for: $0.id) == $0.id && BookIdentity.sameWork(edition, $0) }
             if matches.count == 1 { pairs.append((edition, matches[0])) }
         }
         guard !pairs.isEmpty else { return }

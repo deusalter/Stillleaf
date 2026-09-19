@@ -26,11 +26,7 @@ struct LibraryView: View {
             let id = resolver.resolvedID(for: entry.id)
             result[id] = max(result[id] ?? .distantPast, date)
         }
-        let positions = model.progress.reduce(into: [String: ProgressObservation]()) { result, observation in
-            guard observation.reliable else { return }
-            let id = resolver.resolvedID(for: observation.bookID)
-            if result[id].map({ $0.observedAt < observation.observedAt }) ?? true { result[id] = observation }
-        }
+        let positions = LibraryProgressLabel.latestPositions(books: model.books, observations: model.progress, merges: model.merges)
         let visible = books.filter { book in
             (shelf == .all || (shelf == .finished ? finishedIDs.contains(book.id) : !finishedIDs.contains(book.id)))
                 && (search.isEmpty || book.title.localizedCaseInsensitiveContains(search) || (book.author ?? "").localizedCaseInsensitiveContains(search))
