@@ -160,5 +160,16 @@ func runAudiobookSmoke(previews: URL) async throws {
     try require(model.errorMessage != nil && model.books.count == 1, "invalid media accepted")
     let managed = try FileManager.default.contentsOfDirectory(at: support.appendingPathComponent("Audiobooks"), includingPropertiesForKeys: nil)
     try require(managed.count == 1, "failed import left a managed file")
+    // Legacy linked IDs must never receive hidden audio records or lend text positions to audio cards.
+    let linkedText = BookRecord(id: "linked-text-edition", title: original.title, source: "stillleaf-epub")
+    try store.saveBook(linkedText)
+    try store.merge(BookMerge(sourceID: linkedText.id, targetID: original.id))
+    model.refresh()
+    try require(model.canonicalLibraryBook(linkedText)?.id == original.id, "linked picker identity")
+    try require(model.logAudiobook(book: linkedText, audio: AudiobookProgress(positionSeconds: 10, durationSeconds: 30),
+        start: nil, end: Date()), "linked audio log")
+    try require(model.audiobookProgress(for: linkedText.id) == nil, "hidden edition acquired audio progress")
+    try require(model.audiobookProgress(for: original.id)?.positionSeconds == 10, "canonical audio position missing")
+    try require(model.libraryProgressObservations[original.id]?.audio?.positionSeconds == 10, "card/detail audio source differs")
     print("audiobook-native-smoke passed: import/decode, existing-book manual log, 2x playback, seek/pause, persisted resume, corrupt-file rollback; elapsed=\(listening), content=\(position)")
 }

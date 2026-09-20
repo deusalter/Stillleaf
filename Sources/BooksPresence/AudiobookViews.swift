@@ -127,7 +127,7 @@ struct AudiobookLogView: View {
     @State private var includeSession = false
     @State private var start = Date().addingTimeInterval(-1800)
     @State private var end = Date()
-    private var selectedBook: BookRecord? { book ?? model.books.first { $0.id == selectedID } }
+    private var selectedBook: BookRecord? { (book ?? model.books.first { $0.id == selectedID }).flatMap { model.canonicalLibraryBook($0) } }
     private var audio: AudiobookProgress? {
         guard let position = AudiobookProgress.parse(position), let duration = AudiobookProgress.parse(total) else { return nil }
         let value = AudiobookProgress(positionSeconds: position, durationSeconds: duration)
@@ -135,13 +135,13 @@ struct AudiobookLogView: View {
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            ReadingSheetHeader(title: "Log listening", subtitle: "Save your place in an audiobook.", close: { dismiss() })
+            ReadingSheetHeader(title: "Log listening", subtitle: nil, close: { dismiss() })
             VStack(alignment: .leading, spacing: 12) {
                 if let book { Text(book.title).font(ReadingType.bookTitle(20)) }
                 else {
                     Picker("Book", selection: $selectedID) {
                         Text("New audiobook").tag("")
-                        ForEach(model.books.sorted { $0.title < $1.title }) { Text($0.title).tag($0.id) }
+                        ForEach(model.books.filter { model.canonicalLibraryBook($0)?.id == $0.id }.sorted { $0.title < $1.title }) { Text($0.title).tag($0.id) }
                     }.onChange(of: selectedID) { _ in loadPosition() }
                     if selectedID.isEmpty {
                         TextField("Title", text: $title)

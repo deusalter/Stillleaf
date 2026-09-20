@@ -26,7 +26,7 @@ struct LibraryView: View {
             let id = resolver.resolvedID(for: entry.id)
             result[id] = max(result[id] ?? .distantPast, date)
         }
-        let positions = LibraryProgressLabel.latestPositions(books: model.books, observations: model.progress, merges: model.merges)
+        let positions = model.libraryProgressObservations
         let visible = books.filter { book in
             (shelf == .all || (shelf == .finished ? finishedIDs.contains(book.id) : !finishedIDs.contains(book.id)))
                 && (search.isEmpty || book.title.localizedCaseInsensitiveContains(search) || (book.author ?? "").localizedCaseInsensitiveContains(search))
@@ -265,7 +265,7 @@ struct BookDetailView: View {
     }
     private var observedPages: Int { model.pages(forBookID: currentBook.id) }
     private var pagesPerMinute: Double? { model.pagesPerMinute(forBookID: currentBook.id) }
-    private var latestReliableProgress: ProgressObservation? { observations.first(where: { $0.reliable }) }
+    private var latestReliableProgress: ProgressObservation? { model.libraryProgressObservations[currentBook.id] }
     private var finishedEntry: FinishedBookEntry? { model.finishedBooks.first { $0.id == currentBook.id } }
     private var ratingText: String? {
         model.rating(for: currentBook.id).map { "\($0.formatted(.number.precision(.fractionLength(0...2)))) / 5" }

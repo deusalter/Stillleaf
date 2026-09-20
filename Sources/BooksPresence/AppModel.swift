@@ -1115,6 +1115,14 @@ final class AppModel: ObservableObject {
         tick()
     }
     func stopManual() { perform { try stopForMutation(); manualBook = nil }; tick() }
+    func canonicalLibraryBook(_ book: BookRecord) -> BookRecord? {
+        let id = resolverID(book.id)
+        return books.first { $0.id == id }
+    }
+    var libraryProgressObservations: [String: ProgressObservation] {
+        LibraryProgressLabel.latestPositions(books: books, observations: progress, merges: merges)
+    }
+
     func audiobookProgress(for bookID: String) -> AudiobookProgress? {
         // Content positions belong to a particular edition, even when reading histories are linked.
         progress.enumerated().filter { $0.element.bookID == bookID && $0.element.audio != nil }
@@ -1141,6 +1149,7 @@ final class AppModel: ObservableObject {
     }
 
     func setBookFormat(_ format: BookFormat, for book: BookRecord) {
+        guard let book = canonicalLibraryBook(book) else { errorMessage = "This book is no longer in your library."; return }
         guard format != .text || book.audioFileName == nil else { errorMessage = "Remove the local audio file before switching to text."; return }
         perform {
             try stopForMutation()
@@ -1159,8 +1168,15 @@ final class AppModel: ObservableObject {
                 throw ReadingStoreError.invalidData("Use a position within the total duration and a past session ending after its start.")
             }
             try stopForMutation()
-            var record = book.flatMap { selected in books.first { $0.id == selected.id } } ??
-                BookRecord(id: "manual:" + UUID().uuidString, title: title.trimmingCharacters(in: .whitespacesAndNewlines), author: author.isEmpty ? nil : author)
+            var record: BookRecord
+            if let book {
+                guard let existing = canonicalLibraryBook(book) else {
+                    throw ReadingStoreError.invalidData("This book is no longer in your library.")
+                }
+                record = existing
+            } else {
+                record = BookRecord(id: "manual:" + UUID().uuidString, title: title.trimmingCharacters(in: .whitespacesAndNewlines), author: author.isEmpty ? nil : author)
+            }
             record.format = .audiobook; record.observedAt = Date()
             let sessionID = UUID().uuidString
             let interval = start.map { ReadingInterval(sessionID: sessionID, bookID: record.id,
@@ -1196,7 +1212,7 @@ final class AppModel: ObservableObject {
             try stopForMutation()
             var record: BookRecord
             if let book {
-                guard let existing = books.first(where: { $0.id == book.id }) else {
+                guard let existing = canonicalLibraryBook(book) else {
                     throw ReadingStoreError.invalidData("This book was removed while its audio was importing.")
                 }
                 record = existing
@@ -1219,6 +1235,7 @@ final class AppModel: ObservableObject {
     }
 
     func openAudiobook(_ book: BookRecord) {
+        guard let book = canonicalLibraryBook(book) else { errorMessage = "This book is no longer in your library."; return }
         do {
             guard let file = book.audioFileName else { return }
             if audiobookPlayer.bookID != book.id {
@@ -1230,6 +1247,7 @@ final class AppModel: ObservableObject {
     }
 
     func removeAudiobook(_ book: BookRecord) {
+        guard let book = canonicalLibraryBook(book) else { errorMessage = "This book is no longer in your library."; return }
         perform {
             try stopForMutation()
             if audiobookPlayer.bookID == book.id { try audiobookPlayer.close() }
