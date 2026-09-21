@@ -62,6 +62,15 @@ test('only deliberate page movement is reported as page evidence',{timeout:12000
  const observed=await page.evaluate(()=>window.positions.at(-1));
  assert.equal(observed.position.page,4);assert.ok(observed.position.totalPages>4);
 
+ // Queued animated turns capture each departure after the preceding accepted turn lands.
+ await page.emulateMedia({reducedMotion:'no-preference'});
+ await page.evaluate(async()=>{await Promise.all([window.StillleafReader.next(),window.StillleafReader.next(),window.StillleafReader.previous()])});
+ const queued=(await take()).filter(e=>e.type==='pageTurn');
+ assert.deepEqual(queued.map(e=>e.direction),['forward','forward','backward']);
+ assert.deepEqual(queued.map(e=>e.departure.page),[4,5,6],'queued slide departure is sampled at execution, not enqueue or arrival');
+ assert.ok(queued[1].departure.lower>queued[0].departure.lower);
+ await page.emulateMedia({reducedMotion:'reduce'});
+
  // Jumps and restores move the reader but are not reading.
  await page.evaluate(()=>window.StillleafReader.go({href:'c3.html',type:'text/html',locations:{progression:.5}}));await settle();
  await page.evaluate(()=>window.StillleafReader.go({href:'c1.html',type:'text/html',locations:{fragments:['c1p10']}}));await settle();
