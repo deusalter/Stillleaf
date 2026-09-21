@@ -2,12 +2,16 @@ import {EpubNavigator,EpubPreferences,DecorationStyleType} from '@readium/naviga
 import {Manifest,Publication,Locator} from '@readium/shared';
 import {PublicationResources,PublicationFetcher} from './resources';
 import {ContinuousNavigator} from './continuous';
+import {PageSlide} from './page-slide';
+import {installPageTurnWheel} from './page-turn-input';
 import {screenPages,pageLabel} from './page-progress';
 import {fontCSS,installFont,contrast} from './bundled-fonts';
 import {DEFAULT_PREFERENCES,preferences,restoreState,selectorFor,rangePoint} from './state';
 import {THEMES,FONTS,MARGINS,resolveTheme,fontStack,fontAvailable,marginMetrics,averageCharacterWidth} from './appearance';
 
 const $=id=>document.getElementById(id);
+const pageSlide=new PageSlide($('reader'));
+const pageTurnGesture={distance:0,sign:0,latched:false,last:0};
 const clone=value=>JSON.parse(JSON.stringify(value));
 const media=matchMedia('(prefers-color-scheme: dark)');
 const widePage=matchMedia('(min-width:1100px)');
@@ -272,6 +276,8 @@ function destroyNavigator(current){
  return current?.destroy();
 }
 async function setPreferences(value,retained){
+ pageSlide.cancel();
+ await navigation;
  if(!state)return;
  const location=retained??stableAnchor??visibleAnchor();if(location)stableAnchor=clone(location);reflowCount++;
  const restore=Object.keys(value).some(key=>!['theme'].includes(key))||Object.keys(value).length===0;
@@ -428,9 +434,27 @@ function trackContinuousScroll(delta,height){
  while(continuousNet<=-height){continuousNet+=height;pageTurned('backward')}
  if(crossed){navigator.report();continuousPosition=nativePosition}
 }
-// One turn at a time: overlapping goForward/goBackward calls across a chapter edge left every frame hidden.
-let turning=false,turnWatchdog=0;
-function turn(direction){dismissSelection();if(!navigator||turning)return;refreshPosition();const departure=nativePosition;turning=true;clearTimeout(turnWatchdog);turnWatchdog=setTimeout(()=>turning=false,2000);(direction==='next'?navigator.goForward.bind(navigator):navigator.goBackward.bind(navigator))(false,moved=>{turning=false;clearTimeout(turnWatchdog);if(moved===true&&!state?.preferences.scroll)pageTurned(direction==='next'?'forward':'backward',departure);stableAnchor=visibleAnchor();if(!state?.preferences.scroll&&!matchMedia('(prefers-reduced-motion: reduce)').matches)$('reader').animate([{opacity:.84,transform:`perspective(1600px) rotateY(${direction==='next'?'-':'+'}1.5deg)`},{opacity:1,transform:'none'}],{duration:140,easing:'ease-out'})})}
+// Share the jump queue: Readium must never receive overlapping navigation calls.
+// Waiting input accelerates presentation, but every accepted turn still navigates once.
+let queuedTurns=0;
+function turn(direction){
+ queuedTurns++;pageSlide.hurry();
+ return queueNavigation(async()=>{
+  if(!navigator||reflowCount||resizing)return false;
+  dismissSelection();
+  const current=navigator,generation=lifecycle;
+  return pageSlide.run(direction,{enabled:!state.preferences.scroll,rtl:input?.readingProgression==='rtl'||current.readingProgression==='rtl',hurried:()=>queuedTurns>1},()=>new Promise(resolve=>{
+   if(generation!==lifecycle||current!==navigator||reflowCount||resizing){resolve(false);return}
+   const timeout=setTimeout(()=>resolve(false),4000);
+   try{(direction==='next'?current.goForward.bind(current):current.goBackward.bind(current))(false,moved=>{
+    clearTimeout(timeout);
+    if(generation!==lifecycle||current!==navigator){resolve(false);return}
+    if(moved===true&&!state?.preferences.scroll)pageTurned(direction==='next'?'forward':'backward',departure);
+    stableAnchor=visibleAnchor();resolve(moved===true);
+   })}catch(error){clearTimeout(timeout);resolve(false)}
+  }));
+ }).finally(()=>{queuedTurns--});
+}
 // A crossing stays busy until the next chapter lands plus a short settle, so a momentum wheel
 // stream turns one chapter, not several; #reader is aria-busy for exactly that span.
 let boundaryBusy=false;
@@ -443,7 +467,7 @@ async function crossScrollBoundary(wnd,delta,event){
  try{await go({href:input.readingOrder[next].href,type:'text/html',locations:{progression:delta>0?0:1}},false)}finally{setTimeout(()=>setBoundaryBusy(false),200)}
 }
 function keyboard(event){
- if(event.defaultPrevented||event.altKey||event.metaKey||event.ctrlKey)return;
+ if(event.defaultPrevented||event.altKey||event.metaKey||event.ctrlKey||event.shiftKey)return;
  const tag=event.target?.tagName;if(['INPUT','TEXTAREA','SELECT'].includes(tag)||event.target?.isContentEditable)return;
  if(event.key==='Escape'){$('selection-tools').hidden=true;if(state?.preferences.immersive&&!document.querySelector('dialog[open]')){event.preventDefault();void setPreferences({immersive:false})}return}
  if(document.querySelector('dialog[open]'))return;
@@ -451,8 +475,17 @@ function keyboard(event){
   const rtl=input?.readingProgression==='rtl'||navigator?.readingProgression==='rtl';
   event.preventDefault();turn((event.key==='ArrowRight')!==rtl?'next':'previous');
  }
+ if(!state?.preferences.scroll&&(event.key==='PageDown'||event.key==='PageUp')){
+  event.preventDefault();turn(event.key==='PageDown'?'next':'previous');
+ }
 }
 window.addEventListener('keydown',keyboard);
+// WebKit can target the iframe's host surface for a trackpad event; Chromium
+// usually targets its inner document. Accept both, confined to the book viewport.
+installPageTurnWheel(window,{gesture:pageTurnGesture,enabled:event=>{
+ const r=$('reader').getBoundingClientRect();
+ return Boolean(state&&!state.preferences.scroll&&!document.querySelector('dialog[open]')&&event.clientX>=r.left&&event.clientX<=r.right&&event.clientY>=r.top&&event.clientY<=r.bottom);
+},rtl:()=>input?.readingProgression==='rtl'||navigator?.readingProgression==='rtl',turn});
 async function searchBook(){
  const query=$('search-query').value.trim(),generation=++searchGeneration;const results=$('search-results');results.replaceChildren();
  if(query.length<2){$('search-status').textContent='Enter at least two characters.';return}
@@ -471,18 +504,32 @@ async function searchBook(){
  }
  if(generation===searchGeneration)$('search-status').textContent=found?`${found===200?'First ':''}${found} ${found===1?'matching passage':'matching passages'}`:'No matching passages.';
 }
+// Route Readium's existing edge taps through the same motion/evidence path.
+function pageEdgeTap(event){
+ if(state?.preferences.scroll)return false;
+ if(event.interactiveElement||document.querySelector('dialog[open]'))return true;
+ const frame=[...$('reader').querySelectorAll('iframe')].find(f=>getComputedStyle(f).visibility!=='hidden');
+ if(!frame||frame.contentWindow.getSelection()?.toString())return true;
+ const width=frame.clientWidth*devicePixelRatio;
+ if(event.x<width/4||event.x>width*3/4){
+  const rtl=input?.readingProgression==='rtl'||navigator?.readingProgression==='rtl';
+  turn((event.x>width/2)!==rtl?'next':'previous');
+ }
+ return true;
+}
 async function installNavigator(location,settings=readiumPreferences()){
   const generation=lifecycle;
   const manifest=Manifest.deserialize({metadata:{title:input.title??'Untitled',language:input.languages??input.language??'en',readingProgression:input.readingProgression,conformsTo:['https://readium.org/webpub-manifest/profiles/epub']},readingOrder:input.readingOrder.map(x=>({...x,type:'text/html'}))});
   const publication=new Publication({manifest,fetcher:new PublicationFetcher(pool)});
   const positions=input.readingOrder.map((link,i)=>Locator.deserialize({...link,type:'text/html',locations:{position:i+1,progression:0,totalProgression:i/input.readingOrder.length}}));
   const listeners={
+   click:pageEdgeTap,tap:pageEdgeTap,
    positionChanged:locator=>{if(generation!==lifecycle||!state)return;lastLocator=locator.serialize();if(opening&&state.position){refreshPosition();return;}state.position=clone(lastLocator);refreshPosition();changed(false);emit('relocated',{locator:lastLocator,cause:'unknown',eligibleForProgress:false})},
    frameUnloaded:wnd=>frames.delete(wnd),
    readerScrolled:(delta,height)=>{if(generation===lifecycle)trackContinuousScroll(delta,height)},
    readerAnchorChanged:locator=>{if(generation===lifecycle&&performance.now()>=quietUntil&&!reflowCount&&!resizing)stableAnchor=clone(locator)},
    textSelected:value=>{if(generation===lifecycle)selected(value)},
-   frameLoaded:wnd=>{if(!wnd.CSS?.highlights&&navigator)navigator.decorationsAvailable=false;if(!frames.has(wnd)){frames.add(wnd);wnd.document.addEventListener('keydown',keyboard);if(navigator?.kind!=='continuous'){let anchorTimer;wnd.addEventListener('wheel',event=>{void crossScrollBoundary(wnd,event.deltaY,event);clearTimeout(anchorTimer);if(!boundaryBusy)anchorTimer=setTimeout(()=>{if(!reflowCount&&!resizing)stableAnchor=visibleAnchor()},100)},{passive:false});}wnd.document.addEventListener('keydown',event=>{if(navigator?.kind!=='continuous'&&['ArrowDown','PageDown','ArrowUp','PageUp'].includes(event.key)&&!['INPUT','TEXTAREA','SELECT'].includes(event.target?.tagName)){void crossScrollBoundary(wnd,['ArrowDown','PageDown'].includes(event.key)?1:-1,event);setTimeout(()=>{if(!boundaryBusy&&!reflowCount&&!resizing)stableAnchor=visibleAnchor()},100)}});wnd.document.addEventListener('pointerup',followPublicationLink,true);wnd.addEventListener('scroll',()=>trackScroll(wnd),{passive:true});wnd.document.addEventListener('click',followPublicationLink,true);wnd.document.addEventListener('keyup',()=>{const text=wnd.getSelection()?.toString();if(text&&lastLocator&&navigator?.kind!=='continuous')selected({text,locator:Locator.deserialize({...lastLocator,text:{highlight:text}})});});}},
+   frameLoaded:wnd=>{if(!wnd.CSS?.highlights&&navigator)navigator.decorationsAvailable=false;if(!frames.has(wnd)){frames.add(wnd);installPageTurnWheel(wnd,{gesture:pageTurnGesture,enabled:()=>Boolean(state&&!state.preferences.scroll&&!document.querySelector('dialog[open]')),rtl:()=>input?.readingProgression==='rtl'||navigator?.readingProgression==='rtl',turn});wnd.document.addEventListener('keydown',keyboard);if(navigator?.kind!=='continuous'){let anchorTimer;wnd.addEventListener('wheel',event=>{void crossScrollBoundary(wnd,event.deltaY,event);clearTimeout(anchorTimer);if(!boundaryBusy)anchorTimer=setTimeout(()=>{if(!reflowCount&&!resizing)stableAnchor=visibleAnchor()},100)},{passive:false});}wnd.document.addEventListener('keydown',event=>{if(navigator?.kind!=='continuous'&&['ArrowDown','PageDown','ArrowUp','PageUp'].includes(event.key)&&!['INPUT','TEXTAREA','SELECT'].includes(event.target?.tagName)){void crossScrollBoundary(wnd,['ArrowDown','PageDown'].includes(event.key)?1:-1,event);setTimeout(()=>{if(!boundaryBusy&&!reflowCount&&!resizing)stableAnchor=visibleAnchor()},100)}});wnd.document.addEventListener('pointerup',followPublicationLink,true);wnd.addEventListener('scroll',()=>trackScroll(wnd),{passive:true});wnd.document.addEventListener('click',followPublicationLink,true);wnd.document.addEventListener('keyup',()=>{const text=wnd.getSelection()?.toString();if(text&&lastLocator&&navigator?.kind!=='continuous')selected({text,locator:Locator.deserialize({...lastLocator,text:{highlight:text}})});});}},
    error:error=>{notice(error.message);emit('error',{message:error.message})}
   };
   navigator=input.experimentalContinuous&&settings.scroll?new ContinuousNavigator($('reader'),input,pool,listeners,location,settings):new EpubNavigator($('reader'),publication,listeners,positions,location?engineLocator(location):undefined,{preferences:settings,defaults:{}});
@@ -512,7 +559,7 @@ async function open(value){
 }
 async function close(){
  if(!await prepareClose())return false;
- lifecycle++;searchGeneration++;cancelAnimationFrame(positionFrame);clearTimeout(resizeTimer);clearTimeout(searchTimer);clearTimeout(stateTimer);clearTimeout(noticeTimer);
+ pageSlide.cancel();lifecycle++;searchGeneration++;cancelAnimationFrame(positionFrame);clearTimeout(resizeTimer);clearTimeout(searchTimer);clearTimeout(stateTimer);clearTimeout(noticeTimer);
  nativePosition=null;contentIndex=null;
  if(state)emit('state',{state:snapshot()});
  for(const dialog of document.querySelectorAll('dialog[open]'))dialog.close();
@@ -539,7 +586,7 @@ $('font-weight').onchange=()=>void setPreferences({fontWeight:$('font-weight').v
 $('text-align').onchange=()=>void setPreferences({textAlign:$('text-align').value});
 $('hyphens').onchange=()=>void setPreferences({hyphens:$('hyphens').value==='publisher'?null:$('hyphens').value==='true'});
 for(const [id,key]of [['letter-spacing','letterSpacing'],['word-spacing','wordSpacing']])$(id).oninput=()=>void setPreferences({[key]:Number($(id).value)});
-window.addEventListener('resize',()=>{if(!state)return;resizing=true;relayout();const anchor=stableAnchor?clone(stableAnchor):lastLocator?clone(lastLocator):null;clearTimeout(resizeTimer);resizeTimer=setTimeout(()=>{void setPreferences({},anchor).finally(()=>{resizing=false})},100)});
+window.addEventListener('resize',()=>{pageSlide.cancel();if(!state)return;resizing=true;relayout();const anchor=stableAnchor?clone(stableAnchor):lastLocator?clone(lastLocator):null;clearTimeout(resizeTimer);resizeTimer=setTimeout(()=>{void setPreferences({},anchor).finally(()=>{resizing=false})},100)});
 $('reset-appearance').onclick=()=>void setPreferences(DEFAULT_PREFERENCES);
 $('search-form').onsubmit=event=>{event.preventDefault();void searchBook()};$('search-query').oninput=()=>{clearTimeout(searchTimer);searchTimer=setTimeout(()=>void searchBook(),180)};
 $('highlight-selection').onclick=()=>{if(selection){annotate({...selection,color:'gold'});dismissSelection();notice('Passage highlighted.')}};
