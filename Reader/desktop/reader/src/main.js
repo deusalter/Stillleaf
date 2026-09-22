@@ -442,6 +442,7 @@ function turn(direction){
  return queueNavigation(async()=>{
   if(!navigator||reflowCount||resizing)return false;
   dismissSelection();
+  refreshPosition();const departure=nativePosition;
   const current=navigator,generation=lifecycle;
   return pageSlide.run(direction,{enabled:!state.preferences.scroll,rtl:input?.readingProgression==='rtl'||current.readingProgression==='rtl',hurried:()=>queuedTurns>1},()=>new Promise(resolve=>{
    if(generation!==lifecycle||current!==navigator||reflowCount||resizing){resolve(false);return}
