@@ -94,3 +94,40 @@ The existing application, database and preferences are not involved in these fix
 Final combined native progress/coverage validation belongs to the integration owner
 and core reviewer after preserving the departure hook above. This isolated branch
 does not claim to have run the merged accuracy implementation.
+
+## Follow-up: navigation completion must own the queue
+
+Independent review identified that the four-second turn timeout could release the
+queue while Readium still held `_isNavigating`, losing a subsequent queued turn.
+The same deadline existed in jumps, which now share this queue, so both paths use
+`NavigationCompletion`. Only Readium's callback releases a live operation. Retiring
+the owning navigator cancels the application wait; duplicate/late callbacks cannot
+run its completion effects. Close retires those waits before awaiting preference
+work. A preference request waiting for navigation also retains its original lifecycle
+so it cannot apply to a reopened publication.
+
+The new browser regression delays a real Readium chapter-activation message for
+4.25 seconds (prefetch cannot bypass this delay). It verifies that no later command
+starts, neither accepted input resolves early, and release completes both in order.
+It repeats this for a jump followed by a turn, with only the turn producing evidence.
+A separate case withholds a turn command on an already-loaded frame, disposes that
+navigator, checks that pending turns/preferences settle without stale effects, and
+reopens the book successfully. Unit tests cover duplicate callbacks, thrown starts,
+disposed-owner rejection and isolation of the new navigator.
+The existing facing-page UI assertion now waits for preference work to complete
+before turning; its old fixed delay could attempt a turn during reflow under load.
+
+This disposal regression concerns a navigator that Readium can actually retire.
+It does not claim to force-abort an indefinitely stalled Readium chapter activation:
+Readium's existing `FramePoolManager.destroy()` itself waits for in-progress chapter
+loads. An exploratory fixture that withheld that activation forever also held its
+destructor. The fix does not fabricate a completion or navigate again on that live
+engine to work around it.
+
+The accuracy integration requirement above is unchanged: capture `departure` inside
+the queued turn and pass it to `pageTurned` in the `NavigationCompletion.wait`
+completion callback. No event payloads or coverage calculations changed here.
+
+Follow-up validation: renderer build passed; final full renderer suite passed 16/16;
+the delayed-navigation regression also passed independently in WebKit. No installed
+app was changed and no branch was merged.

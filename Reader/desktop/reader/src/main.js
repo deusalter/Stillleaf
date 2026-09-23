@@ -4,6 +4,7 @@ import {PublicationResources,PublicationFetcher} from './resources';
 import {ContinuousNavigator} from './continuous';
 import {PageSlide} from './page-slide';
 import {installPageTurnWheel} from './page-turn-input';
+import {NavigationCompletion} from './navigation-completion';
 import {screenPages,pageLabel} from './page-progress';
 import {fontCSS,installFont,contrast} from './bundled-fonts';
 import {DEFAULT_PREFERENCES,preferences,restoreState,selectorFor,rangePoint} from './state';
@@ -11,6 +12,7 @@ import {THEMES,FONTS,MARGINS,resolveTheme,fontStack,fontAvailable,marginMetrics,
 
 const $=id=>document.getElementById(id);
 const pageSlide=new PageSlide($('reader'));
+const navigationCompletion=new NavigationCompletion();
 const pageTurnGesture={distance:0,sign:0,latched:false,last:0};
 const clone=value=>JSON.parse(JSON.stringify(value));
 const media=matchMedia('(prefers-color-scheme: dark)');
@@ -272,13 +274,15 @@ function visibleAnchor(){
 // Readium's destroy() waits for each frame to ack "unfocus", but a resize-driven CSS commit
 // halts hidden frames' comms and drops that ack, leaving destroy() (and open/close) unsettled.
 function destroyNavigator(current){
+ navigationCompletion.dispose(current);
  if(current&&current.kind!=='continuous'){current.resizeObserver?.disconnect();current.resizeHandler=async()=>{}}
  return current?.destroy();
 }
 async function setPreferences(value,retained){
+ const requestedLifecycle=lifecycle;
  pageSlide.cancel();
  await navigation;
- if(!state)return;
+ if(!state||requestedLifecycle!==lifecycle)return;
  const location=retained??stableAnchor??visibleAnchor();if(location)stableAnchor=clone(location);reflowCount++;
  const restore=Object.keys(value).some(key=>!['theme'].includes(key))||Object.keys(value).length===0;
  state.preferences=preferences({...state.preferences,...value});syncAppearance();changed();relayout();
@@ -398,7 +402,12 @@ async function jumpNow(value,recordHistory){
  const locator=validLocator(value);if(!navigator||!locator)return false;quietUntil=performance.now()+800;
  if(!input.readingOrder.some(link=>link.href===locator.href)){notice('This saved passage is outside the supported reading sequence.');return false;}
  const before=lastLocator?clone(lastLocator):null;dismissSelection();
- return new Promise(resolve=>{const timeout=setTimeout(()=>resolve(false),4000);try{navigator.go(engineLocator(locator),false,ok=>{clearTimeout(timeout);if(ok){stableAnchor=clone(locator)}if(ok&&recordHistory&&before){jumpHistory.push(before);if(jumpHistory.length>100)jumpHistory.shift();updateHistory();}resolve(ok)})}catch(error){clearTimeout(timeout);notice('This passage could not be opened.');resolve(false)}});
+ const current=navigator,generation=lifecycle;
+ return navigationCompletion.wait(current,done=>current.go(engineLocator(locator),false,done),ok=>{
+  if(generation!==lifecycle||current!==navigator)return;
+  if(ok){stableAnchor=clone(locator)}
+  if(ok&&recordHistory&&before){jumpHistory.push(before);if(jumpHistory.length>100)jumpHistory.shift();updateHistory();}
+ }).catch(()=>{if(generation===lifecycle)notice('This passage could not be opened.');return false});
 }
 // Page evidence for reading goals. Only deliberate sequential movement is reported:
 // page turns in paginated modes and full screens scrolled by the reader. Jumps
@@ -444,16 +453,14 @@ function turn(direction){
   dismissSelection();
   refreshPosition();const departure=nativePosition;
   const current=navigator,generation=lifecycle;
-  return pageSlide.run(direction,{enabled:!state.preferences.scroll,rtl:input?.readingProgression==='rtl'||current.readingProgression==='rtl',hurried:()=>queuedTurns>1},()=>new Promise(resolve=>{
-   if(generation!==lifecycle||current!==navigator||reflowCount||resizing){resolve(false);return}
-   const timeout=setTimeout(()=>resolve(false),4000);
-   try{(direction==='next'?current.goForward.bind(current):current.goBackward.bind(current))(false,moved=>{
-    clearTimeout(timeout);
-    if(generation!==lifecycle||current!==navigator){resolve(false);return}
+  return pageSlide.run(direction,{enabled:!state.preferences.scroll,rtl:input?.readingProgression==='rtl'||current.readingProgression==='rtl',hurried:()=>queuedTurns>1},()=>{
+   if(generation!==lifecycle||current!==navigator||reflowCount||resizing)return false;
+   return navigationCompletion.wait(current,done=>(direction==='next'?current.goForward.bind(current):current.goBackward.bind(current))(false,done),moved=>{
+    if(generation!==lifecycle||current!==navigator)return;
     if(moved===true&&!state?.preferences.scroll)pageTurned(direction==='next'?'forward':'backward',departure);
-    stableAnchor=visibleAnchor();resolve(moved===true);
-   })}catch(error){clearTimeout(timeout);resolve(false)}
-  }));
+    stableAnchor=visibleAnchor();
+   }).catch(()=>false);
+  });
  }).finally(()=>{queuedTurns--});
 }
 // A crossing stays busy until the next chapter lands plus a short settle, so a momentum wheel
@@ -564,7 +571,7 @@ async function close(){
  nativePosition=null;contentIndex=null;
  if(state)emit('state',{state:snapshot()});
  for(const dialog of document.querySelectorAll('dialog[open]'))dialog.close();
- const current=navigator;navigator=undefined;await preferenceQueue.catch(()=>{});await destroyNavigator(current);pool?.close();pool=undefined;state=undefined;lastLocator=undefined;selection=undefined;$('selection-tools').hidden=true;$('notice').hidden=true;editingNote=undefined;return true;
+ const current=navigator;navigator=undefined;navigationCompletion.dispose(current);await preferenceQueue.catch(()=>{});await destroyNavigator(current);pool?.close();pool=undefined;state=undefined;lastLocator=undefined;selection=undefined;$('selection-tools').hidden=true;$('notice').hidden=true;editingNote=undefined;return true;
 }
 const api={open,close,prepareClose,hasPendingDraft,returnFromJump,next:()=>turn('next'),previous:()=>turn('previous'),go,setPreferences,bookmark:()=>lastLocator?clone(lastLocator):null,restore:go,exportState:snapshot,addBookmark,annotate};
 window.StillleafReader=Object.freeze(api);
