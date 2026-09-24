@@ -131,3 +131,25 @@ completion callback. No event payloads or coverage calculations changed here.
 Follow-up validation: renderer build passed; final full renderer suite passed 16/16;
 the delayed-navigation regression also passed independently in WebKit. No installed
 app was changed and no branch was merged.
+
+### Integrated animation observation follow-up
+
+The shared UI test polled for a live 260ms animation after requesting a turn. An
+unchanged test copy reproduced the integration timeout. Startup traces against the
+unchanged integrated `2e15415` bundle showed a real animation with two snapshots,
+normal completion, and a successful turn. Delaying the observer by 500ms reproduced
+the same timeout even though the recorded slide had already completed successfully.
+This proves an observation race; it does not establish that every earlier timeout
+had that cause.
+
+The assertion now records `Element.animate` calls before requesting the turn and
+restores the original method in `finally`. After awaiting the turn it checks success,
+exactly one animation, two snapshots, the 260ms duration, the correct viewport-width
+translation, completion, and overlay cleanup. Missing snapshots or skipped turns
+still fail directly. No production renderer or progress code changes are included.
+
+Validation against the unchanged integrated bundle: the targeted shared UI test and
+the complete reader UI test file passed (3/3). A reduced-motion negative control
+was rejected directly (turn returned false); it is not evidence that the original
+timeout was caused by reduced motion. Diagnostic copies and logs are retained in
+`.local/integrated-slide-probe` in the typography worktree.
