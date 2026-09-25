@@ -27,4 +27,3 @@ struct BookMergeResolver {
         return current
     }
 }
-
