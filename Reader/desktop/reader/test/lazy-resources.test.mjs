@@ -65,6 +65,14 @@ test('host-served resources load on demand and render',{timeout:90000},async t=>
  for(const href of ['text/four.html','text/five.html','text/six.html','images/three.png','images/unused.png','images/vector.svg'])assert.ok(!requested.includes(href),href+' not fetched before it is needed: '+requested.join(', '));
  assert.equal(new Set(requested).size,requested.length,'each resource fetched at most once: '+requested.join(', '));
 
+ // Native content indexing reads future chapter markup without loading their assets.
+ await page.evaluate(()=>{window.indexedPositions=[];window.addEventListener('stillleaf-reader-event',e=>{if(e.detail.type==='position')window.indexedPositions.push(e.detail.position)})});
+ await page.evaluate(input=>window.StillleafReader.open({...input,contentProgress:true}),input());
+ await page.waitForFunction(()=>window.indexedPositions.some(p=>p.bookTotal>0));
+ assert.ok(requested.includes('text/six.html'),'content denominator includes all chapters');
+ assert.ok(!requested.includes('images/three.png'),'index does not load a future chapter image');
+ assert.ok(!requested.includes('images/unused.png'),'index does not load unused images');
+
  await page.evaluate(()=>window.StillleafReader.go({href:'text/six.html',type:'text/html',locations:{progression:0}}));
  await frameWith('#late');
  assert.ok(requested.includes('images/three.png'),'later chapter image fetched on navigation');

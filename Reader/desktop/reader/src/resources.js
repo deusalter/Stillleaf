@@ -3,6 +3,7 @@ import * as css from 'css-tree';
 import {Resource} from '@readium/shared';
 const htmlTypes=new Set(['application/xhtml+xml','text/html']);
 const assetTypes=new Set(['image/png','image/jpeg','image/gif','image/webp','font/woff','font/woff2','font/ttf','font/otf','font/sfnt','font/opentype','font/truetype','application/font-woff','application/vnd.ms-opentype','application/font-sfnt','application/x-font-ttf','application/x-font-otf','application/x-font-opentype','application/x-font-truetype','application/x-font-woff','application/font-ttf','application/font-otf']);
+function sanitizedDocument(source){return new DOMParser().parseFromString(DOMPurify.sanitize(source,{WHOLE_DOCUMENT:true,USE_PROFILES:{html:true},ADD_TAGS:['link'],ADD_ATTR:['rel'],FORBID_TAGS:['script','base','meta','iframe','object','embed','form','input','button','textarea','select'],FORBID_ATTR:['srcset','ping','target']}),'text/html')}
 const XLINK='http://www.w3.org/1999/xlink';
 /** Calibre-style covers wrap a single raster in `<svg><image/></svg>`. The HTML-only sanitizer
  *  drops SVG, which left a blank first page, so turn that wrapper into a plain `<img>`. */
@@ -120,10 +121,17 @@ export class PublicationResources {
   while(this.chapters.size>CHAPTER_CACHE)this.chapters.delete(this.chapters.keys().next().value);
   return html;
  }
+ /** Content indexing reads only chapter markup, never referenced images/fonts/CSS.
+  * Its sanitizer matches the displayed document; release bytes after counting. */
+ async textLength(href){
+  const item=this.map.get(href);if(!item||!htmlTypes.has(item.type))throw Error('Unsupported content index resource');
+  const doc=sanitizedDocument(unwrapSvgImages(new TextDecoder().decode(await this.read(href))));
+  for(const node of doc.body.querySelectorAll('script,style'))node.remove();
+  const length=doc.body.textContent.length;this.release(item);return length;
+ }
  rewrite(source,href,collecting){
   const warnings=collecting?new Set():this.warnings;
-  const clean=DOMPurify.sanitize(source,{WHOLE_DOCUMENT:true,USE_PROFILES:{html:true},ADD_TAGS:['link'],ADD_ATTR:['rel'],FORBID_TAGS:['script','base','meta','iframe','object','embed','form','input','button','textarea','select'],FORBID_ATTR:['srcset','ping','target']});
-  const doc=new DOMParser().parseFromString(clean,'text/html');
+  const doc=sanitizedDocument(source);
   for(const el of doc.querySelectorAll('*')){
    for(const attr of [...el.attributes]){
     if(attr.name.startsWith('on'))el.removeAttribute(attr.name);

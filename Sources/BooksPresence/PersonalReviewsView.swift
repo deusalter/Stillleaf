@@ -18,7 +18,7 @@ struct PersonalReviewsView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
-                PageHeader("Reviews", subtitle: "Your thoughts on the books you read.") {
+                PageHeader("Reviews", subtitle: nil) {
                     Button("Choose a book") { model.showDashboard(section: .library) }.controlSize(.small)
                 }
                 TextField("Find a book or a thought", text: $search).textFieldStyle(ReadingTextFieldStyle()).frame(maxWidth: 360)

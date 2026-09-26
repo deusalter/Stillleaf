@@ -449,8 +449,8 @@ private struct OnboardingMark: View {
                 .frame(width: 88, height: 88)
                 .shadow(color: ReadingPalette.accent.opacity(0.35), radius: 22, x: 0, y: 10)
                 .scaleEffect(breathe ? 1.03 : 1)
-            Image(systemName: "leaf.fill")
-                .font(.system(size: 36, weight: .medium))
+            PageleafMark()
+                .frame(width: 50, height: 50)
                 .foregroundStyle(ReadingPalette.onAccent)
                 .rotationEffect(.degrees(breathe ? -4 : 3))
         }
@@ -543,7 +543,8 @@ private struct OnboardingGoalStep: View {
             OnboardingTitle(title: "Pick a daily rhythm",
                             subtitle: "Small and steady beats big and abandoned. Choose what a good reading day looks like.")
             ReadingSegmentedControl(label: "Daily goal unit", options: [DailyGoalUnit.pages, .minutes],
-                                    selection: unitBinding, title: { $0 == .pages ? "Pages" : "Minutes" })
+                                    selection: unitBinding, title: { $0 == .pages ? "Pages" : "Minutes" },
+                                    preservesWalkthroughTreatment: true)
                 .frame(width: 260)
                 .onboardingReveal(2)
             dial.onboardingReveal(3)
@@ -868,7 +869,7 @@ private struct OnboardingReadyStep: View {
             Spacer(minLength: 0)
             OnboardingBurst(play: animated)
             OnboardingTitle(title: "You’re all set",
-                            subtitle: "Stillleaf lives in your menu bar. Click the book icon any time for today’s reading, or open the dashboard for the full picture.")
+                            subtitle: "Stillleaf lives in your menu bar. Click the Stillleaf icon any time for today’s reading, or open the dashboard for the full picture.")
             MenuBarHint().onboardingReveal(2)
             HStack(spacing: 8) {
                 summaryChip(symbol: "target", text: goalText)
@@ -917,7 +918,7 @@ private struct MenuBarHint: View {
                     .scaleEffect(pulse ? 1.5 : 0.8)
                 RoundedRectangle(cornerRadius: 6, style: .continuous).fill(ReadingPalette.accent.opacity(0.16))
                     .frame(width: 28, height: 22)
-                Image(systemName: "book.closed").foregroundStyle(ReadingPalette.accent)
+                PageleafMark().frame(width: 18, height: 18).foregroundStyle(ReadingPalette.accent)
             }
             Text(Date.now.formatted(.dateTime.weekday(.abbreviated).hour().minute()))
                 .foregroundStyle(ReadingPalette.secondaryInk)
@@ -926,7 +927,7 @@ private struct MenuBarHint: View {
         .padding(.horizontal, 18).padding(.vertical, 8)
         .onboardingGlass(cornerRadius: 12)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("The Stillleaf book icon in the menu bar")
+        .accessibilityLabel("The Stillleaf icon in the menu bar")
         .onAppear {
             guard !reduceMotion else { return }
             withAnimation(.easeOut(duration: 1.6).repeatForever(autoreverses: false)) { pulse = true }
@@ -945,8 +946,8 @@ private struct OnboardingBurst: View {
             ForEach(0..<12, id: \.self) { index in
                 let angle = Double(index) / 12 * 2 * Double.pi
                 let travel = 26 + 58 * Double(progress)
-                Image(systemName: "leaf.fill")
-                    .font(.system(size: index.isMultiple(of: 3) ? 13 : 9))
+                PageleafMark()
+                    .frame(width: index.isMultiple(of: 3) ? 18 : 13, height: index.isMultiple(of: 3) ? 18 : 13)
                     .foregroundStyle(index.isMultiple(of: 2) ? ReadingPalette.accent : ReadingPalette.chart(1))
                     .rotationEffect(.radians(angle + Double(progress) * 1.6))
                     .offset(x: cos(angle) * travel, y: sin(angle) * travel)

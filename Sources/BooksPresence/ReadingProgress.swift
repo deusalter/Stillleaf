@@ -91,12 +91,6 @@ struct DailyReadingOverview: View {
                         .font(.system(size: 13, weight: .medium)).foregroundStyle(ReadingPalette.fadedInk)
                 }
                 .frame(width: 176).offset(y: 2)
-                Label(complete ? "Goal complete" : "Your daily reading", systemImage: complete ? "checkmark" : "book")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(ReadingPalette.moss)
-                    .padding(.horizontal, 12).padding(.vertical, 7)
-                    .background(ReadingPalette.moss.opacity(0.09), in: Capsule())
-                    .offset(y: 99)
             }
             .frame(width: 254, height: 250)
             .accessibilityElement(children: .ignore)
@@ -106,9 +100,7 @@ struct DailyReadingOverview: View {
 
             VStack(alignment: .leading, spacing: 22) {
                 VStack(alignment: .leading, spacing: 5) {
-                    Text(goalTitle).font(ReadingType.bookTitle(24))
-                        .fixedSize(horizontal: false, vertical: true)
-                    Text(goalDetail).font(.callout).foregroundStyle(ReadingPalette.fadedInk)
+                    Text(goalDetail).font(ReadingType.bookTitle(24))
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 HStack(alignment: .top, spacing: 24) {

@@ -9,6 +9,27 @@ struct AppearancePicker: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 34) {
+            ReadingSection("Display mode") {
+                VStack(alignment: .leading, spacing: 10) {
+                    ReadingSegmentedControl(
+                        label: "Display mode",
+                        options: DashboardAppearance.allCases,
+                        selection: Binding(get: { store.appearanceMode }, set: { store.select(appearance: $0) }),
+                        title: { $0.label },
+                        systemImage: { mode in
+                            switch mode {
+                            case .system: return "desktopcomputer"
+                            case .light: return "sun.max"
+                            case .dark: return "moon"
+                            }
+                        }
+                    )
+                    .frame(maxWidth: 380)
+                    .accessibilityIdentifier("dashboard-appearance-mode")
+                    Text("System follows your Mac’s appearance.")
+                        .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
+                }
+            }
             ReadingSection("Theme") {
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(minimum: 140, maximum: 240), spacing: 18, alignment: .top), count: 3),
                           alignment: .leading, spacing: 18) {
@@ -29,12 +50,8 @@ struct AppearancePicker: View {
                                       selected: store.accentID == accent.id) { store.select(accent: accent.id) }
                         }
                     }
-                    Text(store.accent.map { "\($0.name) accent over \(store.theme.name)." } ?? "Using \(store.theme.name)'s own accent.")
-                        .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
                 }
             }
-            Text("Themes apply to the dashboard and the menu bar. Every combination keeps text readable in light and dark mode.")
-                .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
         }
     }
 }

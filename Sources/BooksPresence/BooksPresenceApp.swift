@@ -36,7 +36,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             state.dashboardAction = { [weak self] in self?.showDashboard() }
             state.onboardingAction = { [weak self] in self?.showOnboarding() }
             let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-            item.button?.image = NSImage(systemSymbolName: "book.closed", accessibilityDescription: "Stillleaf reading tracker")
+            item.button?.image = PageleafIdentity.statusImage
             item.button?.toolTip = "Stillleaf — reading activity"
             item.button?.target = self; item.button?.action = #selector(togglePopover)
             statusItem = item
@@ -93,7 +93,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         guard let model else { return }
         dismissMenuPanel()
         if dashboard == nil {
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1060, height: 760), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+            let window = DashboardWindow(contentRect: NSRect(x: 0, y: 0, width: 1060, height: 760), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
             window.title = "Stillleaf"; window.titlebarAppearsTransparent = true
             // Menu-bar (accessory) apps get no full-screen behavior unless a window opts in.
             window.collectionBehavior.insert(.fullScreenPrimary)
@@ -265,6 +265,15 @@ struct BooksPresenceMain {
     static func main() {
         let application = NSApplication.shared
         application.setActivationPolicy(.accessory)
+        if let index = CommandLine.arguments.firstIndex(of: "--self-test-audio"), index + 1 < CommandLine.arguments.count {
+            let destination = URL(fileURLWithPath: CommandLine.arguments[index + 1])
+            Task { @MainActor in
+                do { try await runAudiobookSmoke(previews: destination); exit(0) }
+                catch { fputs("audiobook-native-smoke failed: \(error)\n", stderr); exit(1) }
+            }
+            application.run()
+            return
+        }
         if let index = CommandLine.arguments.firstIndex(of: "--self-test-epub"), index + 1 < CommandLine.arguments.count {
             let fixture = URL(fileURLWithPath: CommandLine.arguments[index + 1])
             Task { @MainActor in

@@ -1,6 +1,19 @@
 import AppKit
 import SwiftUI
 
+enum DashboardAppearance: String, CaseIterable, Identifiable {
+    case system, light, dark
+    var id: String { rawValue }
+    var label: String { rawValue.capitalized }
+    var nativeAppearance: NSAppearance? {
+        switch self {
+        case .system: return nil
+        case .light: return NSAppearance(named: .aqua)
+        case .dark: return NSAppearance(named: .darkAqua)
+        }
+    }
+}
+
 /// The selected theme, persisted in UserDefaults. Views that host whole screens
 /// observe `revision` and re-key render-only subtrees so colours re-resolve;
 /// views that own draft state are never re-keyed.
@@ -8,11 +21,13 @@ import SwiftUI
 final class ThemeStore: ObservableObject {
     static let themeKey = "appearanceTheme"
     static let accentKey = "appearanceAccent"
+    static let modeKey = "appearanceMode"
     static let shared = ThemeStore(defaults: .standard)
 
     @Published private(set) var revision = 0
     private(set) var themeID = ReadingTheme.all[0].id
     private(set) var accentID: String?
+    private(set) var appearanceMode: DashboardAppearance = .system
     private var defaults: UserDefaults
 
     init(defaults: UserDefaults) {
@@ -22,6 +37,14 @@ final class ThemeStore: ObservableObject {
 
     var theme: ReadingTheme { ReadingTheme.named(themeID) }
     var accent: AccentPreset? { AccentPreset.named(accentID) }
+
+    func select(appearance mode: DashboardAppearance) {
+        guard mode != appearanceMode else { return }
+        appearanceMode = mode
+        defaults.set(mode.rawValue, forKey: Self.modeKey)
+        NSApp?.appearance = mode.nativeAppearance
+        publish()
+    }
 
     func select(theme id: String) {
         guard ReadingTheme.all.contains(where: { $0.id == id }), id != themeID else { return }
@@ -48,6 +71,8 @@ final class ThemeStore: ObservableObject {
     private func load() {
         themeID = ReadingTheme.named(defaults.string(forKey: Self.themeKey)).id
         accentID = AccentPreset.named(defaults.string(forKey: Self.accentKey))?.id
+        appearanceMode = DashboardAppearance(rawValue: defaults.string(forKey: Self.modeKey) ?? "") ?? .system
+        NSApp?.appearance = appearanceMode.nativeAppearance
         publish()
     }
 

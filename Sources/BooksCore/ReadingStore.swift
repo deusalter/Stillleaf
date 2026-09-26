@@ -127,10 +127,31 @@ public final class ReadingStore {
     }
 
     public func appendProgress(_ observation: ProgressObservation) throws {
-        guard Self.validDate(observation.observedAt), observation.fraction.map({ $0.isFinite && $0 >= 0 && $0 <= 1 }) ?? true else {
+        guard Self.validProgress(observation) else {
             throw ReadingStoreError.invalidData("progress fraction must be between zero and one")
         }
         try insertUnique(table: "progress", id: observation.id, payload: try encode(observation), value: observation)
+    }
+
+    /// Atomically saves position plus an optional independently measured listening interval.
+    public func saveAudiobook(_ book: BookRecord, progress: ProgressObservation, interval: ReadingInterval? = nil) throws {
+        try validate(book: book)
+        guard book.resolvedFormat == .audiobook, progress.bookID == book.id, progress.audio != nil,
+              interval == nil || (interval?.bookID == book.id && interval?.sessionID == progress.sessionID) else {
+            throw ReadingStoreError.invalidData("audiobook evidence must belong to this book and session")
+        }
+        // appendInterval updates the in-memory cache before the transaction commits.
+        // Invalidate on success AND rollback so failed progress cannot leave phantom time.
+        defer { effectiveCache = nil; intervalIDCache = nil }
+        try transaction {
+            try upsert(table: "books", id: book.id, payload: try encode(book))
+            if let interval { try appendInterval(interval) }
+            try appendProgress(progress)
+            if interval?.mode == .manual, progress.source == "manual-audio" {
+                try appendEvent(AuditEvent(date: progress.observedAt, kind: "manualAddition", bookID: book.id,
+                    sessionID: interval?.sessionID, detail: "User-entered listening time; content position recorded separately."))
+            }
+        }
     }
 
     public func setGoal(_ goal: GoalChange) throws {
@@ -244,20 +265,20 @@ public final class ReadingStore {
             try rejectOwnedDatabasePath(directory.appendingPathComponent(name))
         }
         let snapshot = try archive()
-        let intervalHeader = ["id", "session_id", "book_id", "start", "end", "duration_seconds", "timezone", "mode", "disposition"]
+        let intervalHeader = ["id", "session_id", "book_id", "start", "end", "duration_seconds", "timezone", "mode", "disposition", "audio_session_id"]
         let intervalRows = snapshot.intervals.map { interval in
-            [interval.id, interval.sessionID, interval.bookID, Self.iso8601(interval.start), Self.iso8601(interval.end), String(interval.duration), interval.timezoneID, interval.mode.rawValue, interval.disposition.rawValue]
+            [interval.id, interval.sessionID, interval.bookID, Self.iso8601(interval.start), Self.iso8601(interval.end), String(interval.duration), interval.timezoneID, interval.mode.rawValue, interval.disposition.rawValue, interval.audioSessionID ?? ""]
         }
         try Self.writeCSV(header: intervalHeader, rows: intervalRows, to: directory.appendingPathComponent("intervals.csv"))
 
-        let bookRows = snapshot.books.map { [$0.id, $0.title, $0.author ?? "", $0.source, Self.iso8601($0.observedAt), $0.coverPath ?? "", $0.coverSource ?? "", String($0.trackingExcluded), String($0.sharingExcluded)] }
-        try Self.writeCSV(header: ["id", "title", "author", "source", "observed_at", "cover_path", "cover_source", "tracking_excluded", "sharing_excluded"], rows: bookRows, to: directory.appendingPathComponent("books.csv"))
+        let bookRows = snapshot.books.map { [$0.id, $0.title, $0.author ?? "", $0.source, Self.iso8601($0.observedAt), $0.coverPath ?? "", $0.coverSource ?? "", String($0.trackingExcluded), String($0.sharingExcluded), $0.resolvedFormat.rawValue, $0.audioFileName ?? ""] }
+        try Self.writeCSV(header: ["id", "title", "author", "source", "observed_at", "cover_path", "cover_source", "tracking_excluded", "sharing_excluded", "format", "audio_file_name"], rows: bookRows, to: directory.appendingPathComponent("books.csv"))
 
         let dayRows = snapshot.goals.map { [$0.id, $0.effectiveDay, String($0.minutes), $0.pages.map { String($0) } ?? "", $0.primaryUnit?.rawValue ?? "", Self.iso8601($0.createdAt)] }
         try Self.writeCSV(header: ["id", "effective_day", "minutes", "pages", "primary_unit", "created_at"], rows: dayRows, to: directory.appendingPathComponent("goals.csv"))
 
         let effectiveRows = try effectiveIntervals().map { interval in
-            [interval.id, interval.sessionID, interval.bookID, Self.iso8601(interval.start), Self.iso8601(interval.end), String(interval.duration), interval.timezoneID, interval.mode.rawValue, interval.disposition.rawValue]
+            [interval.id, interval.sessionID, interval.bookID, Self.iso8601(interval.start), Self.iso8601(interval.end), String(interval.duration), interval.timezoneID, interval.mode.rawValue, interval.disposition.rawValue, interval.audioSessionID ?? ""]
         }
         try Self.writeCSV(header: intervalHeader, rows: effectiveRows, to: directory.appendingPathComponent("effective_intervals.csv"))
 
@@ -269,8 +290,14 @@ public final class ReadingStore {
         let eventRows = snapshot.events.map(Self.eventCSVRow)
         try Self.writeCSV(header: ["id", "date", "kind", "book_id", "session_id", "detail", "from_page", "to_page", "pages_read", "visible_pages", "layout_signature", "finished_at", "completion_source", "completion_imported", "rating_state", "rating_value", "adjustment_pages", "adjustment_recorded_at", "adjustment_reason", "annual_goal_year", "annual_goal_state", "annual_goal_books", "review_state", "review_text", "started_at"], rows: eventRows, to: directory.appendingPathComponent("events.csv"))
 
-        let progressRows = snapshot.progress.map { [$0.id, $0.bookID, Self.iso8601($0.observedAt), $0.page.map(String.init) ?? "", $0.totalPages.map(String.init) ?? "", $0.fraction.map { String($0) } ?? "", $0.location ?? "", $0.source, String($0.reliable)] }
-        try Self.writeCSV(header: ["id", "book_id", "observed_at", "page", "total_pages", "fraction", "location", "source", "reliable"], rows: progressRows, to: directory.appendingPathComponent("progress.csv"))
+        let progressRows: [[String]] = snapshot.progress.map { observation in
+            var row = [observation.id, observation.bookID, Self.iso8601(observation.observedAt)]
+            row += [observation.page.map(String.init) ?? "", observation.totalPages.map(String.init) ?? ""]
+            row += [observation.fraction.map(String.init(describing:)) ?? "", observation.location ?? "", observation.source, String(observation.reliable)]
+            row += [observation.audio.map { String($0.positionSeconds) } ?? "", observation.audio.map { String($0.durationSeconds) } ?? "", observation.sessionID ?? ""]
+            return row
+        }
+        try Self.writeCSV(header: ["id", "book_id", "observed_at", "page", "total_pages", "fraction", "location", "source", "reliable", "content_position_seconds", "content_duration_seconds", "session_id"], rows: progressRows, to: directory.appendingPathComponent("progress.csv"))
     }
 
     public func backup(to destination: URL) throws {
@@ -406,7 +433,7 @@ public final class ReadingStore {
     }
 
     private func validate(book: BookRecord) throws {
-        guard !book.id.isEmpty, !book.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, Self.validDate(book.observedAt) else {
+        guard !book.id.isEmpty, !book.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, Self.validDate(book.observedAt), Self.validAudioFile(book) else {
             throw ReadingStoreError.invalidData("book id and title are required")
         }
     }
@@ -649,7 +676,7 @@ public final class ReadingStore {
         try unique(archive.progress.map(\.id), label: "progress")
         try unique(archive.merges.map(\.id), label: "merge")
         let books = Set(archive.books.map(\.id))
-        for book in archive.books where book.id.isEmpty || book.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !validDate(book.observedAt) { throw ReadingStoreError.invalidData("book id, title, and observation date are required") }
+        for book in archive.books where book.id.isEmpty || book.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !validDate(book.observedAt) || !validAudioFile(book) { throw ReadingStoreError.invalidData("book id, title, and observation date are required") }
         for interval in archive.intervals + archive.corrections.flatMap(\.replacements) {
             guard books.contains(interval.bookID) else { throw ReadingStoreError.invalidData("interval \(interval.id) refers to an unknown book") }
             try validateInterval(interval)
@@ -665,7 +692,7 @@ public final class ReadingStore {
                 throw ReadingStoreError.invalidData("page event \(event.id) has no source session interval")
             }
         }
-        for progress in archive.progress where !books.contains(progress.bookID) || !validDate(progress.observedAt) || !(progress.fraction.map { $0.isFinite && $0 >= 0 && $0 <= 1 } ?? true) { throw ReadingStoreError.invalidData("invalid progress \(progress.id)") }
+        for progress in archive.progress where !books.contains(progress.bookID) || !validProgress(progress) { throw ReadingStoreError.invalidData("invalid progress \(progress.id)") }
         for merge in archive.merges where merge.sourceID == merge.targetID || !books.contains(merge.sourceID) || !books.contains(merge.targetID) || !validDate(merge.date) { throw ReadingStoreError.invalidData("invalid merge \(merge.id)") }
         let effective = try effectiveIntervals(in: archive)
         for pair in zip(effective, effective.dropFirst()) where pair.0.end > pair.1.start {
@@ -837,8 +864,21 @@ public final class ReadingStore {
         return try encoder.encode(value)
     }
 
+    private static func validAudioFile(_ book: BookRecord) -> Bool {
+        guard let name = book.audioFileName else { return true }
+        return book.resolvedFormat == .audiobook && !name.isEmpty && name != "." && name != ".." &&
+            !name.contains("/") && !name.contains("\\") && !name.contains("\0")
+    }
+
+    private static func validProgress(_ progress: ProgressObservation) -> Bool {
+        guard validDate(progress.observedAt), progress.fraction.map({ $0.isFinite && (0...1).contains($0) }) ?? true else { return false }
+        guard let audio = progress.audio else { return true }
+        return audio.isValid && progress.page == nil && progress.totalPages == nil &&
+            (progress.fraction.map { abs($0 - audio.fraction) < 0.000001 } ?? true)
+    }
+
     private static func substantiveBook(_ book: BookRecord) -> String {
-        [book.title, book.author ?? "", book.source, book.coverPath ?? "", book.coverSource ?? "", String(book.trackingExcluded), String(book.sharingExcluded)].joined(separator: "\u{1f}")
+        [book.title, book.author ?? "", book.source, book.coverPath ?? "", book.coverSource ?? "", String(book.trackingExcluded), String(book.sharingExcluded), book.format?.rawValue ?? "", book.audioFileName ?? ""].joined(separator: "\u{1f}")
     }
 
     private static func iso8601(_ date: Date) -> String {

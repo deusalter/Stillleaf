@@ -39,6 +39,7 @@ struct ManualStartView: View {
 struct ManualAdditionView: View {
     @ObservedObject var model: AppModel
     @Environment(\.dismiss) private var dismiss
+    @State private var loggingAudio = false
     @State private var title = ""
     @State private var author = ""
     @State private var end = Date()
@@ -46,7 +47,8 @@ struct ManualAdditionView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
-            ReadingSheetHeader(title: "Add reading time", subtitle: "Keep a reading session in your journal.", close: { dismiss() })
+            ReadingSheetHeader(title: "Add reading time", subtitle: nil, close: { dismiss() })
+            Button("Log an audiobook instead…") { loggingAudio = true }
             VStack(alignment: .leading, spacing: 12) {
                 Text("Book").font(.headline)
                 TextField("Title", text: $title)
@@ -70,6 +72,7 @@ struct ManualAdditionView: View {
                 .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || end <= start)
             }
         }
+        .sheet(isPresented: $loggingAudio) { AudiobookLogView(model: model) }
         .padding(26).frame(width: 500)
         .background(ReadingPalette.paper).foregroundStyle(ReadingPalette.ink)
         .tint(ReadingPalette.moss).textFieldStyle(ReadingTextFieldStyle())
@@ -90,7 +93,7 @@ struct MergeBooksView: View {
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            ReadingSheetHeader(title: "Merge books", subtitle: "Bring duplicate records together.", close: { dismiss() })
+            ReadingSheetHeader(title: "Merge books", subtitle: nil, close: { dismiss() })
             Text("Merge \(source.title) into a selected record. Its recorded time will be shown with that record; you can reverse this decision later with Unmerge.")
                 .font(.callout).foregroundStyle(ReadingPalette.secondaryInk)
             if targets.isEmpty {
@@ -136,7 +139,7 @@ struct HealthView: View {
         let events = outages
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
-                if showsHeading { PageHeader("Troubleshooting", subtitle: "Check permissions and recent tracking issues.") }
+                if showsHeading { PageHeader("Troubleshooting", subtitle: nil) }
                 VStack(alignment: .leading, spacing: 18) {
                     HStack(spacing: 14) {
                         Image(systemName: model.accessibilityGranted ? "checkmark.shield" : "lock.shield")
@@ -206,7 +209,7 @@ struct TrackingHelpView: View {
     @Environment(\.dismiss) private var dismiss
     var body: some View {
         VStack(spacing: 0) {
-            ReadingSheetHeader(title: "Troubleshooting", subtitle: "Check permissions and recent tracking issues.", close: { dismiss() })
+            ReadingSheetHeader(title: "Troubleshooting", subtitle: nil, close: { dismiss() })
                 .padding(.horizontal, 30).padding(.top, 24)
             HStack {
                 Text("Reading time can be corrected without changing your personal book reviews.").font(.caption).foregroundStyle(ReadingPalette.fadedInk)
@@ -293,7 +296,7 @@ struct SettingsView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 26) {
                     VStack(alignment: .leading, spacing: 26) {
-                        PageHeader("Settings", subtitle: "Make Stillleaf fit your reading.")
+                        PageHeader("Settings", subtitle: nil)
                         ReadingSegmentedControl(label: "Settings category", options: SettingsCategory.allCases,
                             selection: $category, title: { item in
                                 item.title + ((item == .reading && readingDirty) || (item == .discord && discordDirty) ? " •" : "")
@@ -356,14 +359,13 @@ struct SettingsView: View {
 
     private var readingSettings: some View {
         VStack(alignment: .leading, spacing: 34) {
-            if model.automaticTrackingNeedsAccess { permissionNotice }
-            ReadingSection("Your daily goal") {
+            ReadingSection("Daily goal") {
                 VStack(alignment: .leading, spacing: 14) {
                     ReadingSegmentedControl(label: "Daily goal unit", options: [DailyGoalUnit.pages, .minutes],
                         selection: $dailyUnitDraft, title: { $0 == .pages ? "Pages" : "Minutes" })
                         .frame(maxWidth: 320)
                     HStack {
-                        Text("A little reading, every day.").font(.callout).foregroundStyle(ReadingPalette.secondaryInk)
+                        Text("Daily target").font(.callout)
                         Spacer(minLength: 8)
                         if dailyUnitDraft == .pages {
                             numericEditor(label: "Daily page goal", value: $pageGoalDraft, range: 1...10_000, stepperValue: pageGoalBinding)
@@ -371,15 +373,15 @@ struct SettingsView: View {
                             numericEditor(label: "Daily goal minutes", value: $goalDraft, range: 1...1_440, stepperValue: goalBinding)
                         }
                     }
-                    Text((dailyUnitDraft == .pages ? "Counts tracked pages and pages you add yourself." : "Counts credited reading time, including manual sessions. Unconfirmed time waits for review.") + " Each unit remembers its own target. Changes apply from today.")
+                    Text(dailyUnitDraft == .pages ? "Tracked and manually logged pages. Changes apply from today." : "Tracked and manually logged minutes. Unconfirmed time waits for review.")
                         .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            ReadingSection("Your \(String(model.goalYear)) books goal") {
+            ReadingSection("Books in \(String(model.goalYear))") {
                 VStack(alignment: .leading, spacing: 12) {
                     HStack {
-                        Text("An optional goal for books finished this year.").font(.callout).foregroundStyle(ReadingPalette.secondaryInk)
+                        Text("Set a yearly goal").font(.callout)
                         Spacer()
                         Toggle("Set a yearly books goal", isOn: $annualEnabledDraft).labelsHidden().toggleStyle(.switch)
                     }
@@ -390,22 +392,26 @@ struct SettingsView: View {
                             numericEditor(label: "Yearly books goal", value: $annualGoalDraft, range: 1...10_000, stepperValue: annualGoalBinding)
                         }
                     }
-                    Text("Uses confirmed finish dates in your calendar time zone. Undated books are excluded.")
+                    Text("Counts books with a finish date this year.")
                         .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
                 }
             }
             ReadingSection("Tracking") {
                 VStack(spacing: 0) {
+                    if model.automaticTrackingNeedsAccess {
+                        permissionNotice.padding(.bottom, 12)
+                    }
                     SettingRow(icon: "book.closed", title: "Track Apple Books", description: "Record reading automatically on this Mac.") {
                         Toggle("Track Apple Books", isOn: trackingBinding).labelsHidden().toggleStyle(.switch)
                     }
                     settingDivider
-                    SettingRow(icon: "power", title: "Open at login", description: "Keep Stillleaf ready in your menu bar.") {
+                    SettingRow(icon: "power", title: "Open at login", description: "") {
                         Toggle("Open at login", isOn: launchAtLoginBinding).labelsHidden().toggleStyle(.switch)
                     }
                 }
             }
-            ReadingSection("Advanced") {
+            VStack(alignment: .leading, spacing: 14) {
+                Hairline()
                 DisclosureGroup(isExpanded: $showAdvancedReading) {
                     VStack(alignment: .leading, spacing: 16) {
                         VStack(alignment: .leading, spacing: 8) {
@@ -426,13 +432,11 @@ struct SettingsView: View {
                 } label: {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Advanced reading").font(.headline)
-                        Text("Review behavior · \(timezoneDraft.replacingOccurrences(of: "_", with: " "))")
+                        Text("Time zone and unconfirmed reading time")
                             .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
                     }
                 }
             }
-            Text("Tracking and login switches save immediately. Goals and advanced changes use Save below.")
-                .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
         }
     }
 
@@ -440,7 +444,7 @@ struct SettingsView: View {
         HStack(spacing: 14) {
             Image(systemName: "accessibility").foregroundStyle(ReadingPalette.warning)
             VStack(alignment: .leading, spacing: 4) {
-                Text("Allow automatic tracking").font(.headline)
+                Text("Apple Books access").font(.headline)
                 Text("Stillleaf needs Accessibility access to read your book's page number.")
                     .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
             }
@@ -459,6 +463,7 @@ struct SettingsView: View {
                     SettingRow(icon: "bubble.left.and.bubble.right", title: "Share reading on Discord", description: "Show your book while its Apple Books reader is open.") {
                         Toggle("Share reading on Discord", isOn: discordBinding).labelsHidden().toggleStyle(.switch)
                     }
+                    .help("Switching apps pauses the card for up to 20 minutes. Closing the reader clears it. Exclude individual books in Book details.")
                     HStack(spacing: 8) {
                         Image(systemName: model.discordNeedsSetup ? "exclamationmark.circle" : "dot.radiowaves.left.and.right")
                         Text(model.discordStatus).fixedSize(horizontal: false, vertical: true)
@@ -471,7 +476,8 @@ struct SettingsView: View {
                     }
                 }
             }
-            ReadingSection("Connection") {
+            VStack(alignment: .leading, spacing: 14) {
+                Hairline()
                 DisclosureGroup(isExpanded: $showDiscordConnection) {
                     VStack(alignment: .leading, spacing: 16) {
                         VStack(alignment: .leading, spacing: 7) {
@@ -499,8 +505,6 @@ struct SettingsView: View {
                         .font(.headline)
                 }
             }
-            Text("Switching apps keeps a paused card for up to 20 minutes. Closing the reader clears it. Exclude individual books in Book details.")
-                .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
         }
     }
 
@@ -520,9 +524,9 @@ struct SettingsView: View {
                     }.padding(.leading, 32)
                 }
             }
-            ReadingSection("Your history, kept here") {
+            ReadingSection("Backups & export") {
                 VStack(alignment: .leading, spacing: 14) {
-                    Text("Reading history stays on this Mac. Keep a backup wherever you choose.")
+                    Text("Your reading history is stored on this Mac.")
                         .font(.callout).foregroundStyle(ReadingPalette.secondaryInk)
                     HStack(spacing: 10) {
                         Button("Create backup") { model.backup() }.buttonStyle(ReadingButtonStyle(emphasis: .primary))
@@ -530,7 +534,7 @@ struct SettingsView: View {
                     }
                     Hairline()
                     HStack {
-                        Text("Move or explore your history").font(.callout)
+                        Text("Reading archive").font(.callout)
                         Spacer()
                         Menu("Export…") {
                             Button("Full archive (JSON)") { model.exportJSON() }
@@ -560,7 +564,6 @@ struct SettingsView: View {
                         Image(systemName: "sparkles").font(.title3).foregroundStyle(ReadingPalette.accent)
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Welcome tour").font(.headline)
-                            Text("Revisit your goal, tracking access and theme in a few steps.").font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
                         }
                         Spacer()
                         Button("Show tour") { model.showOnboarding() }.controlSize(.small)
@@ -819,8 +822,10 @@ private struct SettingRow<Control: View>: View {
                 .frame(width: 20)
             VStack(alignment: .leading, spacing: 3) {
                 Text(title).font(.body.weight(.medium))
-                Text(description).font(.callout).foregroundStyle(ReadingPalette.secondaryInk)
-                    .fixedSize(horizontal: false, vertical: true)
+                if !description.isEmpty {
+                    Text(description).font(.callout).foregroundStyle(ReadingPalette.secondaryInk)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             Spacer(minLength: 16)
             control()

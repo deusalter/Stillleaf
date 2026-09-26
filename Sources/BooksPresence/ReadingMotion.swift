@@ -5,6 +5,8 @@ enum ReadingMotion {
     static let hover = Animation.easeOut(duration: 0.14)
     static let press = Animation.easeOut(duration: 0.10)
     static let entrance = Animation.easeOut(duration: 0.18)
+    /// A non-overshooting spring retargets an in-flight selection without a delay.
+    static let selection = Animation.spring(response: 0.24, dampingFraction: 1)
 }
 
 private struct ReadingEntrance: ViewModifier {

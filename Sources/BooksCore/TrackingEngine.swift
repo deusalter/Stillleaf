@@ -268,7 +268,9 @@ public final class TrackingEngine {
 
     private func isEvidence(_ input: TrackingInput, comparedWith state: ActiveState) -> Bool {
         if input.relevantActivity { return true }
-        guard input.progress?.reliable == true, let signature = navigationSignature(input.progress) else { return false }
+        // Native relocation includes restore, jump and reflow. It is position only.
+        guard input.progress?.source != "stillleaf-epub-location",
+              input.progress?.reliable == true, let signature = navigationSignature(input.progress) else { return false }
         return signature != state.lastProgressSignature
     }
 

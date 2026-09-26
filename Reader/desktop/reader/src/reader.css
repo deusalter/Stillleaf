@@ -5,6 +5,12 @@
 /* Readium creates frames; the host owns their viewport geometry. */
 #reader iframe{border:0;inset:0;width:100%;height:100%;display:block}
 
+/* Inert page surfaces slide together above the unchanged live text geometry. */
+#reading-viewport{position:relative}
+.reader-page-slide{position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:2;background:var(--paper);contain:strict}
+.page-slide-track{position:absolute;inset:0;will-change:transform}
+.page-slide-snapshot{position:absolute;top:0;border:0;display:block;pointer-events:none;background:var(--paper)}
+
 #reader{margin-inline:auto}
 
 .note-panel{max-height:calc(100dvh - 24px);overflow:auto;overscroll-behavior:contain}

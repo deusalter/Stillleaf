@@ -22,14 +22,24 @@ test('only deliberate page movement is reported as page evidence',{timeout:12000
  const page=await browser.newPage({viewport:{width:1000,height:800},reducedMotion:'reduce'});
  const errors=[];page.on('pageerror',e=>errors.push(e.message));
  await page.goto(origin+'/index.html');await page.waitForFunction(()=>Boolean(window.StillleafReader));
- await page.evaluate(()=>{window.events=[];window.addEventListener('stillleaf-reader-event',e=>{if(['pageTurn','pageLayout'].includes(e.detail.type))window.events.push(e.detail)})});
+ await page.evaluate(()=>{window.events=[];window.positions=[];window.addEventListener('stillleaf-reader-event',e=>{if(e.detail.type==='position')window.positions.push(e.detail);if(['pageTurn','pageLayout'].includes(e.detail.type))window.events.push(e.detail)})});
  const take=async()=>page.evaluate(()=>window.events.splice(0));
  const settle=()=>page.waitForTimeout(900);
  // Scroll events arrive on the next frame; wait for the turn itself rather than a fixed pause.
  const turned=()=>page.waitForFunction(()=>window.events.some(e=>e.type==='pageTurn'),null,{timeout:5000});
  const frameWith=selector=>page.waitForFunction(selector=>[...document.querySelectorAll('#reader iframe')].some(f=>f.contentDocument?.querySelector(selector)),selector);
 
- await page.evaluate(input=>window.StillleafReader.open(input),book);await frameWith('#c1p0');await settle();
+ const indexedBook={...book,contentProgress:true,resources:book.resources.map((r,i)=>i===2?{...r,dataBase64:Buffer.from(chapter(3).replace('</body>',prose.repeat(100)+'</body>')).toString('base64')}:r)};
+ await page.evaluate(input=>window.StillleafReader.open(input),indexedBook);await frameWith('#c1p0');await settle();
+ await page.waitForFunction(()=>window.positions.some(e=>e.position.bookTotal>0));
+ const indexCheck=await page.evaluate(resources=>{
+  const lengths=resources.map(r=>new DOMParser().parseFromString(atob(r.dataBase64),'text/html').body.textContent.length);
+  return {lengths,position:window.positions.at(-1).position};
+ },indexedBook.resources);
+ assert.equal(indexCheck.position.bookTotal,indexCheck.lengths.reduce((a,b)=>a+b,0));
+ assert.ok(indexCheck.lengths[2]>indexCheck.lengths[0]*2,'unequal chapter lengths exercise proportional weighting');
+ assert.equal(indexCheck.position.bookOffset,indexCheck.position.upper);
+
  let events=await take();
  assert.deepEqual(events.map(e=>e.type),['pageLayout'],'opening announces the layout and turns nothing');
  assert.equal(events[0].pages,1);assert.equal(events[0].editionId,'page-evidence');
@@ -41,16 +51,40 @@ test('only deliberate page movement is reported as page evidence',{timeout:12000
  assert.deepEqual(events.map(e=>[e.type,e.direction,e.pages,e.layout]),[
   ['pageTurn','forward',1,single],['pageTurn','forward',1,single],['pageTurn','forward',1,single],['pageTurn','backward',1,single]]);
 
+ const forward=events.filter(e=>e.direction==='forward');
+ assert.ok(forward.every(e=>e.departure.href==='c1.html'&&e.departure.upper>e.departure.lower),'turns carry actual departure text');
+ assert.deepEqual(forward.map(e=>e.departure.page),[1,2,3],'native coordinates are real chapter pages');
+ assert.ok(forward[1].departure.lower>forward[0].departure.lower);
+ assert.ok(forward[2].sequence>forward[1].sequence);
+ await page.evaluate(()=>window.StillleafReader.next());await page.waitForTimeout(150);
+ const revisited=(await take()).find(e=>e.type==='pageTurn');
+ assert.deepEqual(revisited.departure,forward[2].departure,'backtracking and turning again names the same content');
+ const observed=await page.evaluate(()=>window.positions.at(-1));
+ assert.equal(observed.position.page,4);assert.ok(observed.position.totalPages>4);
+
+ // Queued animated turns capture each departure after the preceding accepted turn lands.
+ await page.emulateMedia({reducedMotion:'no-preference'});
+ await page.evaluate(async()=>{await Promise.all([window.StillleafReader.next(),window.StillleafReader.next(),window.StillleafReader.previous()])});
+ const queued=(await take()).filter(e=>e.type==='pageTurn');
+ assert.deepEqual(queued.map(e=>e.direction),['forward','forward','backward']);
+ assert.deepEqual(queued.map(e=>e.departure.page),[4,5,6],'queued slide departure is sampled at execution, not enqueue or arrival');
+ assert.ok(queued[1].departure.lower>queued[0].departure.lower);
+ await page.emulateMedia({reducedMotion:'reduce'});
+
  // Jumps and restores move the reader but are not reading.
  await page.evaluate(()=>window.StillleafReader.go({href:'c3.html',type:'text/html',locations:{progression:.5}}));await settle();
  await page.evaluate(()=>window.StillleafReader.go({href:'c1.html',type:'text/html',locations:{fragments:['c1p10']}}));await settle();
  assert.deepEqual(await take(),[],'jumps report no page movement');
+ const jumped=await page.evaluate(()=>window.positions.at(-1).position);
+ assert.equal(jumped.bookTotal,indexCheck.position.bookTotal);
+ assert.ok(jumped.page>1,'jump updates actual page position without adding coverage');
 
  // Reflow starts a new layout, so no turn is compared across it.
  await page.evaluate(()=>window.StillleafReader.setPreferences({fontSize:1.5}));await settle();
  events=await take();
  assert.ok(events.every(e=>e.type==='pageLayout')&&events.length>=1,JSON.stringify(events));
  assert.notEqual(events.at(-1).layout,single);
+ assert.equal(await page.evaluate(()=>window.positions.at(-1).position.bookTotal),indexCheck.position.bookTotal,'font reflow keeps the content denominator');
 
  // Facing pages: a turn moves two pages.
  await page.setViewportSize({width:1300,height:850});await page.evaluate(()=>window.StillleafReader.setPreferences({columns:'two'}));await settle();
@@ -73,6 +107,10 @@ test('only deliberate page movement is reported as page evidence',{timeout:12000
  await turned();events=await take();assert.deepEqual(events.map(e=>[e.type,e.direction]),[['pageTurn','backward']]);
  await scrollFrame(3,1);
  assert.deepEqual(await take(),[],'a three-screen jump is scrubbing, not reading');
+ await page.evaluate(()=>window.StillleafReader.go({href:'c3.html',type:'text/html',locations:{progression:1}}));await settle();
+ const endPosition=await page.evaluate(()=>window.positions.at(-1).position);
+ assert.equal(endPosition.bookOffset,endPosition.bookTotal,'last screen represents the end of the book including trailing whitespace');
+ assert.deepEqual(await take(),[],'seeking to the end still credits no coverage');
  assert.deepEqual(errors,[]);
 });
 

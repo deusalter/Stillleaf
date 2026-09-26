@@ -744,3 +744,6 @@ summary:focus-visible {
     font-size: 13px;
   }
 }
+
+/* Approved Pageleaf identity; inherits the active theme ink. */
+.pageleaf-brand { width: 28px; height: 28px; fill: currentColor; vertical-align: -3px; margin-right: 7px; }

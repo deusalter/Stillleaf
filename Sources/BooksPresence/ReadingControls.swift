@@ -7,6 +7,9 @@ struct ReadingSegmentedControl<Value: Hashable>: View {
     let options: [Value]
     @Binding var selection: Value
     let title: (Value) -> String
+    var systemImage: ((Value) -> String)? = nil
+    /// Keep the approved first-run tour's existing type and timing intact.
+    var preservesWalkthroughTreatment = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var colorScheme
     @FocusState private var focused: Value?
@@ -16,8 +19,16 @@ struct ReadingSegmentedControl<Value: Hashable>: View {
         HStack(spacing: 3) {
             ForEach(options, id: \.self) { option in
                 Button { selection = option } label: {
-                    Text(title(option))
-                        .font(.system(size: 12, weight: selection == option ? .semibold : .medium))
+                    HStack(spacing: 7) {
+                        if let systemImage {
+                            Image(systemName: systemImage(option))
+                                .accessibilityHidden(true)
+                        }
+                        Text(title(option))
+                    }
+                        .font(preservesWalkthroughTreatment
+                              ? .system(size: 12, weight: selection == option ? .semibold : .medium)
+                              : ReadingType.controlLabel)
                         .lineLimit(1).padding(.horizontal, 12).padding(.vertical, 9)
                         .frame(maxWidth: .infinity)
                         .foregroundStyle(selection == option ? ReadingPalette.ink : ReadingPalette.secondaryInk)
@@ -38,7 +49,7 @@ struct ReadingSegmentedControl<Value: Hashable>: View {
         }
         .padding(3)
         .background(ReadingPalette.ink.opacity(0.06), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: selection)
+        .animation(reduceMotion ? nil : (preservesWalkthroughTreatment ? .easeOut(duration: 0.16) : ReadingMotion.selection), value: selection)
         .accessibilityElement(children: .contain).accessibilityLabel(label)
         .onMoveCommand { direction in
             guard direction == .left || direction == .right,
@@ -97,13 +108,15 @@ struct ReadingMenuPicker<Value: Hashable>: View {
 
 struct ReadingSheetHeader: View {
     let title: String
-    let subtitle: String
+    var subtitle: String? = nil
     let close: () -> Void
     var body: some View {
         HStack(alignment: .top, spacing: 16) {
             VStack(alignment: .leading, spacing: 5) {
                 Text(title).font(ReadingType.bookTitle(24))
-                Text(subtitle).font(.callout).foregroundStyle(ReadingPalette.fadedInk)
+                if let subtitle, !subtitle.isEmpty {
+                    Text(subtitle).font(.callout).foregroundStyle(ReadingPalette.fadedInk)
+                }
             }
             Spacer(minLength: 0)
             Button(action: close) { Image(systemName: "xmark") }

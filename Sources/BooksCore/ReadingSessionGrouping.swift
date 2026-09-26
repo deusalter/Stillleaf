@@ -78,14 +78,19 @@ public enum ReadingSessionGrouping {
     /// evidence, daily totals, and export remain intact. Two minutes of recorded
     /// time is enough to retain time-only reading even without page observations.
     /// Evaluate the whole group before day clipping so midnight does not turn a
-    /// legitimate session into an empty fragment on either day.
+    /// legitimate session into an empty fragment on either day. Supply the complete
+    /// unfiltered group collection so display splits retain session-wide coverage.
     public static func visibleGroups(_ groups: [ReadingSessionGroup], events: [AuditEvent],
                                      merges: [BookMerge], activeSessionID: String? = nil,
                                      correctedIntervalIDs: Set<String> = []) -> [ReadingSessionGroup] {
         let resolver = MergeResolver(merges: merges)
         struct EventKey: Hashable { let bookID: String; let sessionID: String }
         var eventsByIdentity: [EventKey: [AuditEvent]] = [:]
-        for event in events where event.kind == "pageTurn" || event.kind == "manualPageAdjustment" {
+        // Resolve session coverage across every group before choosing per-row candidates.
+        // An excluded gap or explicit display split does not begin a rereading session.
+        let novelEvents = PageStatistics.eventsWithNewPages(events: events,
+            effectiveIntervals: groups.flatMap(\.intervals), merges: merges)
+        for event in novelEvents {
             guard let bookID = event.bookID, let sessionID = event.sessionID else { continue }
             eventsByIdentity[EventKey(bookID: resolver.resolve(bookID), sessionID: sessionID), default: []].append(event)
         }
@@ -113,6 +118,9 @@ public enum ReadingSessionGrouping {
                 guard let bucket = eventsByIdentity[key] else { continue }
                 candidates.append(contentsOf: bucket[upperBound(bucket, group.start)..<upperBound(bucket, group.end)])
             }
+            // Candidates already have positive globally resolved novelty. This local
+            // qualification checks only surviving group membership for visibility;
+            // its raw count is never used as the group's reported page total.
             return PageStatistics.pages(events: candidates, effectiveIntervals: group.intervals,
                                         merges: merges, bookID: group.bookID) > 0
         }
@@ -127,7 +135,7 @@ public enum ReadingSessionGrouping {
         switch interval.mode {
         case .automatic:
             return gap < maximumBreak
-        case .manual:
+        case .manual, .listening:
             return interval.sessionID == previous.sessionID
         case .imported:
             return false

@@ -47,8 +47,6 @@ struct AnnualReadingGoalView: View {
             HStack(alignment: .top, spacing: 16) {
                 VStack(alignment: .leading, spacing: 5) {
                     Text("Your \(String(model.goalYear)) in books").font(ReadingType.bookTitle(25))
-                    Text(recentBooks.isEmpty ? "Make room for your next finished book." : "Recently finished")
-                        .font(.callout).foregroundStyle(ReadingPalette.secondaryInk)
                 }
                 Spacer(minLength: 8)
                 VStack(alignment: .trailing, spacing: 3) {
@@ -98,8 +96,10 @@ struct AnnualReadingGoalView: View {
                         .accessibilityHidden(true)
                 }
                 HStack(alignment: .center, spacing: 12) {
-                    Text(detail).font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
-                        .fixedSize(horizontal: false, vertical: true)
+                    if model.annualBookGoal != nil {
+                        Text(detail).font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                     Spacer(minLength: 0)
                     Button(model.annualBookGoal == nil ? "Set goal" : "Edit goal") {
                         model.showDashboard(section: .settings, settingsCategory: .reading)

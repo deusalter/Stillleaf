@@ -5,6 +5,10 @@ import BooksCore
 /// Renders only app-owned views with synthetic history; never captures the screen or the user's database.
 @MainActor
 func renderUIPreviews(to destination: URL) throws {
+    if CommandLine.arguments.contains("--history-atlas") {
+        try renderHistoryAtlasPreviews(to: destination)
+        return
+    }
     let support = FileManager.default.temporaryDirectory.appendingPathComponent("BooksPresence-preview-\(UUID().uuidString)")
     let suite = "BooksPresence.Preview.\(UUID().uuidString)"
     let defaults = UserDefaults(suiteName: suite)!
@@ -137,7 +141,7 @@ func renderUIPreviews(to destination: URL) throws {
 }
 
 @MainActor
-private func renderNativeView(_ view: AnyView, size: NSSize, appearance: NSAppearance?, settle: TimeInterval = 0.45, to output: URL) throws {
+func renderNativeView(_ view: AnyView, size: NSSize, appearance: NSAppearance?, settle: TimeInterval = 0.45, to output: URL) throws {
     let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless], backing: .buffered, defer: false)
     window.isReleasedWhenClosed = false
     window.appearance = appearance
