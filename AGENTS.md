@@ -1,5 +1,9 @@
 # Stillleaf
 
+## Canonical repository
+
+Use `git@github.com:deusalter/Stillleaf.git` as the canonical GitHub remote. Before pushing, fetch `origin` and verify this checkout shares the current `origin/main` history. If the histories are unrelated, stop and move the work to a fresh clone; never merge or force-push an old repository history into the replacement. Recovery bundles and archived repositories are backups, not push destinations. Start new sessions in the refreshed project checkout and run `scripts/install-git-hooks.sh` once per clone.
+
 ## Commit attribution
 
 Do not add `Co-Authored-By`, `Claude-Session`, or AI attribution footers to commits or pull requests. Keep the user's Git author and committer identity; never substitute an AI identity. Do not bypass or disable attribution hooks or repository protections. If a check rejects a commit, fix the metadata instead. Run `scripts/install-git-hooks.sh` in each new clone. See `docs/COMMIT_ATTRIBUTION.md` for enforcement and limitations.
