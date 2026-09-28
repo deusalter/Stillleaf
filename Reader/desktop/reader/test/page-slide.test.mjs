@@ -87,13 +87,26 @@ test('actual Readium page slides, reversal, chapter edges and reduced motion', {
   // Horizontal trackpad momentum is one turn; reversing direction remains responsive.
   await page.evaluate(() => { window.turnEvents.length = 0; });
   await page.mouse.move(500, 380);
-  await page.mouse.wheel(80, 0); await page.mouse.wheel(60, 0); await page.mouse.wheel(30, 0);
-  await page.evaluate(()=>window.dispatchEvent(new WheelEvent('wheel',{deltaX:60,clientX:500,clientY:380,cancelable:true}))); // Same stroke retargeted to the iframe host.
+  // Deliver one stroke in one browser task; separate driver round-trips may
+  // legitimately exceed the handler's 180ms new-gesture boundary on a slow host.
+  await page.evaluate(() => {
+    const frame = [...document.querySelectorAll('#reader iframe')].find(f => getComputedStyle(f).visibility !== 'hidden');
+    for (const deltaX of [80, 60, 30]) frame.contentWindow.dispatchEvent(new frame.contentWindow.WheelEvent('wheel', {deltaX, cancelable: true}));
+    window.dispatchEvent(new WheelEvent('wheel', {deltaX: 60, clientX: 500, clientY: 380, cancelable: true}));
+  });
   await page.waitForTimeout(900); assert.deepEqual(await page.evaluate(()=>window.turnEvents.map(e=>e.direction)),['forward'], JSON.stringify(await page.evaluate(()=>({hit:document.elementFromPoint(500,380)?.outerHTML,place:window.StillleafReader.bookmark()})))); await page.waitForFunction(() => !document.querySelector('.reader-page-slide'));
   assert.equal(await page.evaluate(() => window.turnEvents[0].direction), 'forward');
   await page.mouse.wheel(-80, 0);
   await page.waitForFunction(() => window.turnEvents.length === 2 && !document.querySelector('.reader-page-slide'));
   assert.deepEqual(await start(), beginning);
+  // Also retain real browser-input routing in both directions, separately from
+  // the precisely timed synthetic momentum burst above.
+  await page.mouse.wheel(80, 0);
+  await page.waitForFunction(() => window.turnEvents.length === 3 && !document.querySelector('.reader-page-slide'));
+  await page.mouse.wheel(-80, 0);
+  await page.waitForFunction(() => window.turnEvents.length === 4 && !document.querySelector('.reader-page-slide'));
+  assert.deepEqual(await start(), beginning);
+  await page.evaluate(() => { window.turnEvents.splice(2); });
   await page.keyboard.press('Shift+ArrowRight'); await page.waitForTimeout(60);
   assert.equal(await page.evaluate(() => window.turnEvents.length), 2);
   await page.keyboard.press('PageDown');

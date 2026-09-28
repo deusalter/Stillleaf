@@ -23,6 +23,18 @@ test('shared reader UI interactions, saved state and responsive themes',{timeout
  await page.goto(origin+'/index.html');await page.waitForFunction(()=>Boolean(window.StillleafReader));
  await page.evaluate(()=>{window.saved=[];window.addEventListener('stillleaf-reader-event',e=>{if(e.detail.type==='state')window.saved.push(e.detail.state)})});
  const input=fixture();await page.evaluate(input=>window.StillleafReader.open(input),input);
+ // Closing during the resize debounce must not leave the next book permanently
+ // marked as resizing. This failed deterministically before the teardown reset.
+ await page.evaluate(()=>window.StillleafReader.setPreferences({}));
+ const reopenedTurn=await page.evaluate(async input=>{
+  window.dispatchEvent(new Event('resize'));
+  await window.StillleafReader.open(input);
+  window.saved=[]; // Revision monotonicity below applies to this newly opened state.
+  await window.StillleafReader.setPreferences({});
+  return window.StillleafReader.next();
+ },input);
+ assert.equal(reopenedTurn,true,'Page turns work after reopening during a pending resize');
+ await page.evaluate(()=>window.StillleafReader.previous());
  await page.waitForFunction(()=>window.StillleafReader.bookmark()?.href==='one.html');await mkdir(artifacts,{recursive:true});await page.screenshot({path:path.join(artifacts,'reader-paper.png')});
  const geometry=await page.evaluate(()=>{const frame=[...document.querySelectorAll('#reader iframe')].find(f=>f.contentDocument?.getElementById('p0'));const r=frame.getBoundingClientRect(),header=document.querySelector('.reader-bar').getBoundingClientRect(),footer=document.querySelector('.reading-footer').getBoundingClientRect();const text=frame.contentDocument.getElementById('p0').firstChild;let chars=0,top;for(let i=0;i<text.length;i++){const range=frame.contentDocument.createRange();range.setStart(text,i);range.setEnd(text,i+1);const rect=range.getBoundingClientRect();top??=rect.top;if(Math.abs(rect.top-top)>2)break;chars++;}return{top:r.top-header.bottom,bottom:footer.top-r.bottom,width:r.width,firstLineCharacters:chars,headingBreak:frame.contentWindow.getComputedStyle(frame.contentDocument.querySelector('h1')).breakAfter}});
  assert.ok(geometry.top>=31&&geometry.bottom>=31,JSON.stringify(geometry));assert.ok(geometry.width<=690,JSON.stringify(geometry));assert.ok(geometry.firstLineCharacters>=50&&geometry.firstLineCharacters<=75,JSON.stringify(geometry));assert.match(geometry.headingBreak,/avoid/);console.log('Geometry '+JSON.stringify(geometry));
