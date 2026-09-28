@@ -3,6 +3,7 @@ import {Manifest,Publication,Locator} from '@readium/shared';
 import {PublicationResources,PublicationFetcher} from './resources';
 import {ContinuousNavigator} from './continuous';
 import {PageSlide} from './page-slide';
+import {visibleTextBounds} from './visible-text';
 import {installPageTurnWheel} from './page-turn-input';
 import {NavigationCompletion} from './navigation-completion';
 import {screenPages,pageLabel} from './page-progress';
@@ -147,14 +148,9 @@ function contentPosition(pages){
  const walk=doc.createTreeWalker(doc.body,NodeFilter.SHOW_TEXT);let node,offset=0,lower=null,upper=null;
  while((node=walk.nextNode())){
   if(node.parentElement?.closest('script,style'))continue;
-  const length=node.length,range=doc.createRange();range.selectNodeContents(node);
-  if(node.textContent.trim()&&[...range.getClientRects()].some(visible)){
-   // Only boundary characters require geometry; a whole node in view is cheap.
-   let first=0,last=length;
-   for(;first<length;first++){range.setStart(node,first);range.setEnd(node,first+1);if(visible(range.getBoundingClientRect()))break}
-   for(;last>first;last--){range.setStart(node,last-1);range.setEnd(node,last);if(visible(range.getBoundingClientRect()))break}
-   if(last>first){lower??=offset+first;upper=offset+last;}
-  }
+  const length=node.length;
+  const bounds=node.textContent.trim()?visibleTextBounds(node,visible):null;
+  if(bounds&&bounds.last>bounds.first){lower??=offset+bounds.first;upper=offset+bounds.last;}
   offset+=length;
  }
  if(lower!==null&&upper>lower){result.lower=lower;result.upper=upper;}
