@@ -53,7 +53,9 @@ struct LibraryView: View {
                         Menu {
                             Button("Import local audio…") { model.chooseAudiobook() }
                             Button("Log audiobook progress…") { loggingAudio = true }
-                        } label: { Label("Audiobook", systemImage: "headphones") }.disabled(model.importingAudio)
+                        } label: { Label("Audiobook", systemImage: "headphones") }
+                            .menuStyle(ReadingMenuStyle())
+                            .disabled(model.importingAudio)
                         Button { present(.manualAdd) } label: { Label("Add reading", systemImage: "plus") }
                             .controlSize(.small)
                     }
@@ -160,10 +162,11 @@ extension LibraryView {
                 Picker("Sort books", selection: $sort) {
                     ForEach(LibrarySort.allCases, id: \.self) { value in Text(value.rawValue).tag(value) }
                 }
+                .pickerStyle(.inline)
             } label: { Label(sort.rawValue, systemImage: "arrow.up.arrow.down") }
-            .menuStyle(.borderlessButton).fixedSize()
-            .foregroundStyle(ReadingPalette.ink)
+            .menuStyle(ReadingMenuStyle())
             .accessibilityLabel("Sort books")
+            .accessibilityValue(sort.rawValue)
         }
     }
 }
@@ -205,7 +208,7 @@ struct BookLibraryCard: View {
                             .font(.callout.weight(.semibold)).foregroundStyle(ReadingPalette.accent)
                         if let rating {
                             Label(rating.formatted(.number.precision(.fractionLength(0...2))), systemImage: "star.fill")
-                                .font(.caption.weight(.medium)).foregroundStyle(ReadingPalette.warning)
+                                .font(.caption.weight(.medium)).foregroundStyle(ReadingPalette.accent)
                         }
                     }.padding(.top, 2)
                     if let detail = progressLabel.detail {
@@ -368,7 +371,7 @@ struct BookDetailView: View {
                 if let ratingText {
                     Label("Your rating: \(ratingText)", systemImage: "star.fill")
                         .font(.caption)
-                        .foregroundStyle(ReadingPalette.ochre)
+                        .foregroundStyle(ReadingPalette.accent)
                 }
             }
             Spacer(minLength: 0)

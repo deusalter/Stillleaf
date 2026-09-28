@@ -1,22 +1,20 @@
 import SwiftUI
 import BooksCore
 
-/// Atlas owns its chart surfaces, not the dashboard theme or appearance preference.
+/// History shares the dashboard's dynamic palette, including custom accents.
+/// Keep the appearance parameter at call sites for the chart views' existing API;
+/// ReadingPalette resolves the actual appearance through its dynamic colors.
 enum AtlasStyle {
-    static func canvas(_ dark: Bool) -> Color { color(dark ? 0x152630 : 0xF5F8FC) }
-    static func surface(_ dark: Bool) -> Color { color(dark ? 0x1D323F : 0xFFFFFF) }
-    static func ink(_ dark: Bool) -> Color { color(dark ? 0xEAF2FA : 0x183448) }
-    static func muted(_ dark: Bool) -> Color { color(dark ? 0xA3B8C9 : 0x526C83) }
-    static func rule(_ dark: Bool) -> Color { color(dark ? 0x354D5E : 0xDCE6EF) }
-    static func accent(_ dark: Bool) -> Color { color(dark ? 0xA6BDF9 : 0x365BB8) }
+    static func canvas(_ dark: Bool) -> Color { ReadingPalette.canvas }
+    static func surface(_ dark: Bool) -> Color { ReadingPalette.surface }
+    static func ink(_ dark: Bool) -> Color { ReadingPalette.ink }
+    static func muted(_ dark: Bool) -> Color { ReadingPalette.secondaryInk }
+    static func rule(_ dark: Bool) -> Color { ReadingPalette.border }
+    static func accent(_ dark: Bool) -> Color { ReadingPalette.accent }
     static func book(_ id: String, dark: Bool) -> Color {
-        let colors: [UInt32] = dark ? [0x94B6FA, 0xC6A0E2, 0x79C8BE, 0xE1B38A, 0xAFADE9, 0xAEC482, 0xE8A4B4, 0x84C3DB] :
-            [0x557CC6, 0xA16DBD, 0x3A918A, 0xB58159, 0x7775A8, 0x7C944C, 0xBC7487, 0x508CA7]
         let hash = id.utf8.reduce(UInt64(14695981039346656037)) { ($0 ^ UInt64($1)) &* 1099511628211 }
-        return color(colors[Int(hash % UInt64(colors.count))])
-    }
-    static func color(_ hex: UInt32) -> Color {
-        Color(red: Double((hex >> 16) & 255) / 255, green: Double((hex >> 8) & 255) / 255, blue: Double(hex & 255) / 255)
+        let count = ThemeSnapshot.current().light.chart.count
+        return ReadingPalette.chart(Int(hash % UInt64(max(1, count))))
     }
     static func date(_ date: Date, zone: String, pattern: String) -> String {
         let formatter = DateFormatter(); formatter.locale = .current
