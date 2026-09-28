@@ -153,3 +153,7 @@ the complete reader UI test file passed (3/3). A reduced-motion negative control
 was rejected directly (turn returned false); it is not evidence that the original
 timeout was caused by reduced motion. Diagnostic copies and logs are retained in
 `.local/integrated-slide-probe` in the typography worktree.
+
+## CI fixture cleanup
+
+Regular slide checks do not require Playwright's optional FFmpeg download. Set `SLIDE_RECORD_VIDEO=1` when recording review videos with FFmpeg installed. All visual geometry, animation, navigation and cleanup assertions still run without video. Browser/context cleanup is registered before page creation, including setup failures, and runs before HTTP-server shutdown.
