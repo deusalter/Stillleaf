@@ -12,6 +12,7 @@ func runUISmoke() throws {
     let defaults = UserDefaults(suiteName: suite)!
     defer { try? FileManager.default.removeItem(at: root); defaults.removePersistentDomain(forName: suite) }
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    try checkHistoryRefreshPerformance(at: root.appendingPathComponent("performance"))
     try seedUISmokeHistory(at: root)
     let model = try AppModel(support: root, defaults: defaults, startTracking: false)
     guard model.manualPages(forBookID: "smoke-pages-a") == 7 else {
@@ -524,3 +525,54 @@ private func sameFixtureDate(_ lhs: Date?, _ rhs: Date, tolerance: TimeInterval 
     return abs(lhs.timeIntervalSince(rhs)) <= tolerance
 }
 private enum BooksAccessErrorForUI: Error { case failed(String) }
+
+/// A synthetic library near the reported history size; never opens the user's database.
+@MainActor
+private func checkHistoryRefreshPerformance(at root: URL) throws {
+    let suite = "BooksPresence.PerformanceValidation.\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suite)!
+    defer { defaults.removePersistentDomain(forName: suite) }
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    let store = try ReadingStore(url: root.appendingPathComponent("history.sqlite"))
+    var archive = HistoryArchive()
+    archive.books = (0..<62).map { BookRecord(id: "perf-\($0)", title: "Fixture \($0)") }
+    let start = Date().addingTimeInterval(-365 * 86400)
+    for i in 0..<3280 {
+        let date = start.addingTimeInterval(Double(i * 9000))
+        let book = archive.books[i % 62].id
+        let session = "session-\(i)"
+        archive.intervals.append(ReadingInterval(sessionID: session, bookID: book, start: date,
+            end: date.addingTimeInterval(60), duration: 60, timezoneID: "UTC", mode: .automatic))
+        archive.events.append(AuditEvent(date: date.addingTimeInterval(60), kind: "pageTurn", bookID: book,
+            sessionID: session, detail: "Synthetic fixture", pageTurn: PageTurnEvidence(fromPage: i + 1,
+            toPage: i + 3, pagesRead: 2, visiblePages: 1, layoutSignature: "fixture")))
+        if i < 1997 {
+            archive.progress.append(ProgressObservation(bookID: book, observedAt: date,
+                page: i + 1, totalPages: 4000, source: "fixture", reliable: true))
+        }
+    }
+    for i in 0..<2531 {
+        archive.events.append(AuditEvent(date: start.addingTimeInterval(Double(i)), kind: "bookRated",
+            bookID: archive.books[i % 62].id, detail: "Synthetic rating", rating: BookRatingEvidence(value: Double(i % 11) / 2)))
+    }
+    let file = root.appendingPathComponent("fixture.json")
+    let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .millisecondsSince1970
+    try encoder.encode(archive).write(to: file)
+    try store.importJSON(from: file)
+    let model = try AppModel(support: root, defaults: defaults, startTracking: false)
+    let began = ProcessInfo.processInfo.systemUptime
+    for _ in 0..<10 { model.refresh() }
+    guard model.errorMessage == nil, model.books.count == 62, model.events.count == 5811,
+          model.intervals.count == 3280, model.progress.count == 1997 else {
+        throw BooksAccessErrorForUI.failed("Synthetic performance fixture failed to refresh")
+    }
+    print("ui-smoke: full refresh 62 books / 5811 events / 3280 intervals / 1997 positions: \((ProcessInfo.processInfo.systemUptime - began) * 100) ms/run (10 runs)")
+    let expected = LibraryProgressLabel.latestPositions(books: model.books, observations: model.progress, merges: model.merges)
+    guard model.libraryProgressObservations == expected else { throw BooksAccessErrorForUI.failed("Prepared library positions changed selection") }
+    // Prove a warm cache is replaced on refresh, including source deletions.
+    model.deleteAllData()
+    model.refresh()
+    guard model.libraryProgressObservations.isEmpty, model.rating(for: "perf-0") == nil else {
+        throw BooksAccessErrorForUI.failed("Refresh retained deleted rating or position evidence")
+    }
+}

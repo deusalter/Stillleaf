@@ -89,6 +89,8 @@ final class AppModel: ObservableObject {
     private var sessionPaceCache: [String: CachedPace] = [:]
     private var bookPagesCache: [String: Int] = [:]
     private var sessionPagesCache: [String: Int] = [:]
+    private var bookRatings: [String: Double] = [:]
+    private var libraryPositions: [String: ProgressObservation] = [:]
     private var pageEvidenceCache: PageStatistics.Snapshot?
     private var pageEvidence: PageStatistics.Snapshot {
         if let cached = pageEvidenceCache { return cached }
@@ -782,6 +784,7 @@ final class AppModel: ObservableObject {
             books = archive.books.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
             intervals = try store.effectiveIntervals().sorted { $0.start > $1.start }
             events = archive.events.sorted { $0.date > $1.date }
+            bookRatings = BookHistory.ratings(events: events)
             var latestReviews: [String: AuditEvent] = [:]
             let bookIDs = Set(books.map(\.id))
             for event in archive.events where event.kind == "bookReviewed" && event.review != nil {
@@ -792,6 +795,7 @@ final class AppModel: ObservableObject {
             bookReviewDates = latestReviews.mapValues(\.date)
             progress = archive.progress.sorted { $0.observedAt > $1.observedAt }
             merges = archive.merges
+            libraryPositions = LibraryProgressLabel.latestPositions(books: books, observations: progress, merges: merges)
             correctedIntervalIDs = Set(archive.corrections.flatMap { $0.replacements.map(\.id) })
             let splitSessions = Set(archive.corrections.flatMap { correction -> [String] in
                 guard Set(correction.replacements.map(\.sessionID)).count > 1 else { return [] }
@@ -805,8 +809,7 @@ final class AppModel: ObservableObject {
             let key = ReadingStatistics.dayKey(Date(), timezoneID: timezoneID)
             today = days.first { $0.day == key } ?? DailyTotal(day: key, creditedSeconds: 0, uncertainSeconds: 0, manualSeconds: 0, goalMinutes: goalMinutes)
             streak = ReadingStatistics.streak(days: days, today: key)
-            pageDays = PageStatistics.daily(events: archive.events, effectiveIntervals: intervals, goals: archive.goals,
-                merges: merges, timezoneID: timezoneID, from: earliest, through: Date())
+            pageDays = pageEvidence.daily(goals: archive.goals, timezoneID: timezoneID, from: earliest, through: Date())
             pageDaysByKey = Dictionary(uniqueKeysWithValues: pageDays.map { ($0.day, $0) })
             todayPages = pageDays.first { $0.day == key }?.pages ?? 0
             sessionPages = snapshot.sessionID.map { pages(forSessionID: $0) } ?? 0
@@ -970,7 +973,7 @@ final class AppModel: ObservableObject {
         return errorMessage
     }
 
-    func rating(for bookID: String) -> Double? { BookHistory.rating(bookID: bookID, events: events) }
+    func rating(for bookID: String) -> Double? { bookRatings[bookID] }
     func saveRating(_ rating: Double?, for bookID: String) {
         guard books.contains(where: { $0.id == bookID }),
               rating.map({ $0.isFinite && $0 >= 0 && $0 <= 5 && ($0 * 4).rounded() == $0 * 4 }) ?? true else {
@@ -1128,7 +1131,7 @@ final class AppModel: ObservableObject {
         return books.first { $0.id == id }
     }
     var libraryProgressObservations: [String: ProgressObservation] {
-        LibraryProgressLabel.latestPositions(books: books, observations: progress, merges: merges)
+        libraryPositions
     }
 
     func audiobookProgress(for bookID: String) -> AudiobookProgress? {
