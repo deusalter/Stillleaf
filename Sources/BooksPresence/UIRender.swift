@@ -2,6 +2,48 @@ import AppKit
 import SwiftUI
 import BooksCore
 
+/// Interactive regression fixture using the real dashboard hierarchy and hosting controller.
+/// The database and preferences are disposable, and live tracking stays disabled.
+@MainActor
+func runInteractiveLibraryPreview() throws {
+    let support = FileManager.default.temporaryDirectory.appendingPathComponent("Stillleaf-library-preview-\(UUID().uuidString)")
+    let suite = "Stillleaf.LibraryPreview.\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suite)!
+    defer {
+        defaults.removePersistentDomain(forName: suite)
+        try? FileManager.default.removeItem(at: support)
+        ThemeStore.shared.reload(from: .standard)
+    }
+    ThemeStore.shared.reload(from: defaults)
+    try seedPreviewHistory(at: support)
+    let model = try AppModel(support: support, defaults: defaults, startTracking: false)
+    defer { model.shutdown() }
+    let window = DashboardWindow(contentRect: NSRect(x: 0, y: 0, width: 1060, height: 760),
+        styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false
+    window.title = "Stillleaf — Synthetic Library Preview"
+    window.contentViewController = NSHostingController(rootView: DashboardView(model: model, initialSection: .library))
+    window.center()
+    AppPresence.willPresentWindow()
+    window.makeKeyAndOrderFront(nil)
+    NSApp.activate(ignoringOtherApps: true)
+    let delegate = LibraryPreviewWindowDelegate()
+    window.delegate = delegate
+    withExtendedLifetime(delegate) { NSApp.run() }
+}
+
+@MainActor
+private final class LibraryPreviewWindowDelegate: NSObject, NSWindowDelegate {
+    func windowWillClose(_ notification: Notification) {
+        NSApp.stop(nil)
+        // Wake the application loop so the isolated database and defaults are cleaned up.
+        if let event = NSEvent.otherEvent(with: .applicationDefined, location: .zero, modifierFlags: [],
+            timestamp: 0, windowNumber: 0, context: nil, subtype: 0, data1: 0, data2: 0) {
+            NSApp.postEvent(event, atStart: false)
+        }
+    }
+}
+
 /// Renders only app-owned views with synthetic history; never captures the screen or the user's database.
 @MainActor
 func renderUIPreviews(to destination: URL) throws {

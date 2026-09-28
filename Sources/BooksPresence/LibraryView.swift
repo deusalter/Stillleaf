@@ -159,10 +159,16 @@ extension LibraryView {
             TextField("Find a title or author", text: $search)
                 .textFieldStyle(ReadingTextFieldStyle()).frame(minWidth: 180, maxWidth: 260)
             Menu {
-                Picker("Sort books", selection: $sort) {
-                    ForEach(LibrarySort.allCases, id: \.self) { value in Text(value.rawValue).tag(value) }
+                ForEach(LibrarySort.allCases, id: \.self) { value in
+                    Button { sort = value } label: {
+                        if sort == value {
+                            Label(value.rawValue, systemImage: "checkmark")
+                        } else {
+                            Text(value.rawValue)
+                        }
+                    }
+                    .accessibilityAddTraits(sort == value ? .isSelected : [])
                 }
-                .pickerStyle(.inline)
             } label: { Label(sort.rawValue, systemImage: "arrow.up.arrow.down") }
             .menuStyle(ReadingMenuStyle())
             .accessibilityLabel("Sort books")
