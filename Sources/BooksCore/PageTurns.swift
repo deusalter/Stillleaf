@@ -122,6 +122,56 @@ public struct PageTurnTracker {
 }
 
 public enum PageStatistics {
+    /// Prepares coverage once for a complete effective history. Display queries
+    /// select already-qualified evidence, so earlier reading still prevents repeats.
+    public struct Snapshot {
+        private struct Entry {
+            let date: Date
+            let bookID: String
+            let sessionID: String
+            let pages: Int
+        }
+        private let resolver: MergeResolver
+        private let entries: [Entry]
+        private let byBook: [String: [Entry]]
+        private let bySession: [String: [Entry]]
+
+        fileprivate init(events: [AuditEvent], effectiveIntervals: [ReadingInterval], merges: [BookMerge]) {
+            let resolver = MergeResolver(merges: merges)
+            self.resolver = resolver
+            let entries = PageStatistics.qualified(events: events, effectiveIntervals: effectiveIntervals, merges: merges,
+                from: nil, through: nil, bookID: nil, sessionID: nil).compactMap { item -> Entry? in
+                    guard let bookID = item.event.bookID, let sessionID = item.event.sessionID else { return nil }
+                    return Entry(date: item.event.date, bookID: resolver.resolve(bookID), sessionID: sessionID, pages: item.pages)
+                }
+            self.entries = entries
+            byBook = Dictionary(grouping: entries, by: \.bookID)
+            bySession = Dictionary(grouping: entries, by: \.sessionID)
+        }
+
+        public func pages(from: Date? = nil, through: Date? = nil, bookID: String? = nil,
+                          sessionID: String? = nil, within selectedIntervals: [ReadingInterval]? = nil) -> Int {
+            if let from, let through, through < from { return 0 }
+            let requestedBook = bookID.map(resolver.resolve)
+            let candidates: [Entry]
+            if let requestedBook { candidates = byBook[requestedBook] ?? [] }
+            else if let sessionID { candidates = bySession[sessionID] ?? [] }
+            else { candidates = entries }
+            let selected = selectedIntervals.map { PageIntervalIndex(intervals: $0, resolve: resolver.resolve) }
+            return candidates.reduce(0) { total, entry in
+                guard sessionID.map({ entry.sessionID == $0 }) ?? true,
+                      from.map({ entry.date >= $0 }) ?? true,
+                      through.map({ entry.date < $0 }) ?? true,
+                      selected?.contains(bookID: entry.bookID, sessionID: entry.sessionID, date: entry.date) ?? true else { return total }
+                return total + entry.pages
+            }
+        }
+    }
+
+    public static func snapshot(events: [AuditEvent], effectiveIntervals: [ReadingInterval], merges: [BookMerge]) -> Snapshot {
+        Snapshot(events: events, effectiveIntervals: effectiveIntervals, merges: merges)
+    }
+
     public static func daily(events: [AuditEvent], effectiveIntervals: [ReadingInterval], goals: [GoalChange],
                              merges: [BookMerge], timezoneID: String, from: Date, through: Date) -> [DailyPageTotal] {
         guard through >= from else { return [] }

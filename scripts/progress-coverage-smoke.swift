@@ -78,4 +78,31 @@ try engine.stop(date: date.addingTimeInterval(4), uptime: 104)
 let time = try timeStore.effectiveIntervals()
 require(time.filter { $0.disposition == .credited }.reduce(0) { $0 + $1.duration } == 1, "relocation does not renew native activity credit")
 require(time.reduce(0) { $0 + $1.duration } == 4, "time remains elapsed duration independent of percentage")
+// Prepared queries must preserve coverage before date/group clipping, even for
+// aliases, tied timestamps, manual corrections, and excluded fragments.
+var aliasEvent = event(12, 13, second: 5)
+aliasEvent.bookID = "alias"
+let adjustment = AuditEvent(date: date.addingTimeInterval(5), kind: "manualPageAdjustment",
+    bookID: "book", sessionID: "session", detail: "fixture",
+    pageAdjustment: ManualPageAdjustmentEvidence(pages: -1, recordedAt: date.addingTimeInterval(5), reason: "Correction"))
+let snapshotEvents = repeated + native + splitEvents + [aliasEvent, adjustment, event(10, 11, second: 5, session: "later")]
+let snapshotIntervals = splitIntervals + [later]
+let snapshotMerges = [BookMerge(sourceID: "alias", targetID: "book")]
+let prepared = PageStatistics.snapshot(events: snapshotEvents, effectiveIntervals: snapshotIntervals, merges: snapshotMerges)
+for book: String? in [nil, "book", "alias", "missing"] {
+    for session: String? in [nil, "session", "later", "missing"] {
+        for bounds: (Double?, Double?) in [(nil,nil), (0,5), (5,26), (2,4), (5,5), (6,5)] {
+            for selection: [ReadingInterval]? in [nil, [], [splitIntervals[0]], [splitIntervals[1]], [splitIntervals[2]], [later]] {
+                let from = bounds.0.map { date.addingTimeInterval($0) }
+                let through = bounds.1.map { date.addingTimeInterval($0) }
+                let original = PageStatistics.pages(events: snapshotEvents, effectiveIntervals: snapshotIntervals,
+                    merges: snapshotMerges, from: from, through: through, bookID: book, sessionID: session, within: selection)
+                require(prepared.pages(from: from, through: through, bookID: book, sessionID: session, within: selection) == original,
+                    "prepared evidence preserves book/session/date/group query semantics")
+            }
+        }
+    }
+}
+require(prepared.pages(bookID: "alias") == prepared.pages(bookID: "book"), "prepared aliases resolve canonically")
+require(PageStatistics.snapshot(events: [], effectiveIntervals: [], merges: []).pages() == 0, "empty prepared history")
 print("Progress coverage smoke passed")

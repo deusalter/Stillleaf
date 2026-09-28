@@ -89,6 +89,13 @@ final class AppModel: ObservableObject {
     private var sessionPaceCache: [String: CachedPace] = [:]
     private var bookPagesCache: [String: Int] = [:]
     private var sessionPagesCache: [String: Int] = [:]
+    private var pageEvidenceCache: PageStatistics.Snapshot?
+    private var pageEvidence: PageStatistics.Snapshot {
+        if let cached = pageEvidenceCache { return cached }
+        let prepared = PageStatistics.snapshot(events: events, effectiveIntervals: intervals, merges: merges)
+        pageEvidenceCache = prepared
+        return prepared
+    }
 
     var displayIntervals: [ReadingInterval] {
         if let cached = displayedIntervalsCache { return cached }
@@ -767,6 +774,7 @@ final class AppModel: ObservableObject {
     func refresh() {
         do {
             let archive = try store.archive()
+            pageEvidenceCache = nil
             displayedIntervalsCache = nil; sessionGroupsCache = nil
             durableVisibleSessionIDs = nil; visibleSessionGroupsCache = nil
             bookPaceCache.removeAll(keepingCapacity: true); sessionPaceCache.removeAll(keepingCapacity: true)
@@ -859,23 +867,23 @@ final class AppModel: ObservableObject {
         return pace
     }
     func pages(from: Date, through: Date) -> Int {
-        PageStatistics.pages(events: events, effectiveIntervals: intervals, merges: merges, from: from, through: through)
+        pageEvidence.pages(from: from, through: through)
     }
     func pages(forBookID bookID: String) -> Int {
         if let cached = bookPagesCache[bookID] { return cached }
-        let count = PageStatistics.pages(events: events, effectiveIntervals: intervals, merges: merges, bookID: bookID)
+        let count = pageEvidence.pages(bookID: bookID)
         bookPagesCache[bookID] = count
         return count
     }
     func pages(forBookID bookID: String, from: Date, through: Date) -> Int {
-        PageStatistics.pages(events: events, effectiveIntervals: intervals, merges: merges, from: from, through: through, bookID: bookID)
+        pageEvidence.pages(from: from, through: through, bookID: bookID)
     }
     func pages(in group: ReadingSessionGroup, from: Date? = nil, through: Date? = nil) -> Int {
-        PageStatistics.pages(events: events, effectiveIntervals: intervals, merges: merges, from: from, through: through, bookID: group.bookID, within: group.intervals)
+        pageEvidence.pages(from: from, through: through, bookID: group.bookID, within: group.intervals)
     }
     func pages(forSessionID sessionID: String) -> Int {
         if let cached = sessionPagesCache[sessionID] { return cached }
-        let count = PageStatistics.pages(events: events, effectiveIntervals: intervals, merges: merges, sessionID: sessionID)
+        let count = pageEvidence.pages(sessionID: sessionID)
         sessionPagesCache[sessionID] = count
         return count
     }
