@@ -127,6 +127,7 @@ final class AppModel: ObservableObject {
     private let defaults: UserDefaults
     private let support: URL
     private let store: ReadingStore
+    private let historyReader: (URL) throws -> (archive: HistoryArchive, intervals: [ReadingInterval])
     private var engine: TrackingEngine
     private let captures: BooksCapture
     private let covers: CoverCache
@@ -196,7 +197,9 @@ final class AppModel: ObservableObject {
         return groups
     }
 
-    init(support: URL, defaults: UserDefaults = .standard, startTracking: Bool = true) throws {
+    init(support: URL, defaults: UserDefaults = .standard, startTracking: Bool = true,
+         historyReader: @escaping (URL) throws -> (archive: HistoryArchive, intervals: [ReadingInterval]) = ReadingStore.readSnapshot) throws {
+        self.historyReader = historyReader
         self.support = support
         self.defaults = defaults
         epubLibrary = EPUBLibraryController(directory: support.appendingPathComponent("Publications", isDirectory: true))
@@ -628,7 +631,7 @@ final class AppModel: ObservableObject {
                 }
             } else { pageTurnTracker.reset(); readerPagination.reset(); currentPagePosition = nil }
             recordHealth(reason, verifiedCapture: mode == .automatic && book != nil && book?.source != "stillleaf-epub" && reason == nil)
-            if recordedPageTurn || progressChanged || Date().timeIntervalSince(lastRefresh) >= 15 || previousPhase != snapshot.phase || previousBookID != snapshot.book?.id { refresh() }
+            if recordedPageTurn || progressChanged || Date().timeIntervalSince(lastRefresh) >= 15 || previousPhase != snapshot.phase || previousBookID != snapshot.book?.id { requestHistoryRefresh() }
             if let book, reason == nil { resolvePublicCoverIfNeeded(for: book) }
             publishPresence()
         } catch { trackingFailure(error) }
@@ -647,7 +650,7 @@ final class AppModel: ObservableObject {
             guard snapshot.phase != .paused else { return }
             try store.appendEvent(AuditEvent(date: date, kind: "pageTurn", bookID: bookID, sessionID: sessionID,
                 detail: "Native sequential navigation over the supplied chapter text range; not a comprehension claim.", pageTurn: evidence))
-            refresh()
+            requestHistoryRefresh()
         } catch { trackingFailure(error) }
     }
 
@@ -671,7 +674,7 @@ final class AppModel: ObservableObject {
             try engine.process(TrackingInput(mode: manualBook == nil ? .automatic : .manual, pauseReason: reason))
             if changed { snapshot = engine.snapshot }
             recordHealth(reason)
-            if changed || today.day != ReadingStatistics.dayKey(Date(), timezoneID: timezoneID) { refresh() }
+            if changed || today.day != ReadingStatistics.dayKey(Date(), timezoneID: timezoneID) { requestHistoryRefresh() }
         } catch { trackingFailure(error) }
         publishPresence()
     }
@@ -773,63 +776,103 @@ final class AppModel: ObservableObject {
         try data.write(to: url, options: [.atomic])
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
     }
+    // Only the worker owns its read connection. The tracking store stays on the main actor.
+    private let refreshQueue = DispatchQueue(label: "Stillleaf.history-presentation", qos: .userInitiated)
+    private var refreshGeneration = 0
+    private var refreshInFlight = false
+    private var refreshPending = false
+    private var refreshStopped = false
+    var historyRefreshIsIdle: Bool { !refreshInFlight && !refreshPending }
+
+    /// Reader-driven requests coalesce without starving publication during continuous reading.
+    /// Serial results may trail live progress; explicit edits invalidate them via refreshGeneration.
+    func requestHistoryRefresh() {
+        guard !refreshStopped else { return }
+        if refreshInFlight { refreshPending = true; return }
+        startHistoryRefresh()
+    }
+
+    private func startHistoryRefresh() {
+        refreshInFlight = true
+        refreshPending = false
+        let generation = refreshGeneration
+        let zone = timezoneID, fallbackGoal = goalMinutes
+        let day = ReadingStatistics.dayKey(Date(), timezoneID: zone)
+        let locale = Locale.current.identifier
+        let systemZone = TimeZone.current.identifier
+        let systemCalendar = Calendar.current
+        let url = support.appendingPathComponent("history.sqlite")
+        let read = historyReader
+        refreshQueue.async { [weak self] in
+            let result = Result {
+                let source = try read(url)
+                return HistoryPresentation(archive: source.archive, effectiveIntervals: source.intervals,
+                    timezoneID: zone, goalMinutes: fallbackGoal)
+            }
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.refreshInFlight = false
+                guard !self.refreshStopped else { return }
+                if generation == self.refreshGeneration {
+                    if zone == self.timezoneID, fallbackGoal == self.goalMinutes,
+                       day == ReadingStatistics.dayKey(Date(), timezoneID: zone),
+                       locale == Locale.current.identifier, systemZone == TimeZone.current.identifier,
+                       systemCalendar == Calendar.current {
+                        switch result {
+                        case .success(let prepared): self.applyHistory(prepared); self.publishPresence()
+                        case .failure(let error): self.errorMessage = "Cannot read local history: \(error)"
+                        }
+                    } else { self.refreshPending = true }
+                }
+                if self.refreshPending { self.startHistoryRefresh() }
+            }
+        }
+    }
+
+    /// Explicit edits retain immediate read-after-write behavior and supersede queued reads.
     func refresh() {
+        refreshGeneration += 1
+        refreshPending = false
         do {
             let archive = try store.archive()
-            pageEvidenceCache = nil
-            displayedIntervalsCache = nil; sessionGroupsCache = nil
-            durableVisibleSessionIDs = nil; visibleSessionGroupsCache = nil
-            bookPaceCache.removeAll(keepingCapacity: true); sessionPaceCache.removeAll(keepingCapacity: true)
-            bookPagesCache.removeAll(keepingCapacity: true); sessionPagesCache.removeAll(keepingCapacity: true)
-            books = archive.books.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
-            intervals = try store.effectiveIntervals().sorted { $0.start > $1.start }
-            events = archive.events.sorted { $0.date > $1.date }
-            bookRatings = BookHistory.ratings(events: events)
-            var latestReviews: [String: AuditEvent] = [:]
-            let bookIDs = Set(books.map(\.id))
-            for event in archive.events where event.kind == "bookReviewed" && event.review != nil {
-                guard let id = event.bookID, bookIDs.contains(id) else { continue }
-                if latestReviews[id].map({ $0.date <= event.date }) ?? true { latestReviews[id] = event }
-            }
-            bookReviewCache = latestReviews.compactMapValues { $0.review?.text }
-            bookReviewDates = latestReviews.mapValues(\.date)
-            progress = archive.progress.sorted { $0.observedAt > $1.observedAt }
-            merges = archive.merges
-            libraryPositions = LibraryProgressLabel.latestPositions(books: books, observations: progress, merges: merges)
-            correctedIntervalIDs = Set(archive.corrections.flatMap { $0.replacements.map(\.id) })
-            let splitSessions = Set(archive.corrections.flatMap { correction -> [String] in
-                guard Set(correction.replacements.map(\.sessionID)).count > 1 else { return [] }
-                return correction.replacements.sorted { $0.start < $1.start }.dropFirst().map(\.sessionID)
-            })
-            sessionBreakIDs = Set(splitSessions.compactMap { session in
-                intervals.filter { $0.sessionID == session }.min { $0.start < $1.start }?.id
-            })
-            let earliest = min(intervals.map(\.start).min() ?? Date(), Calendar.current.date(byAdding: .day, value: -365, to: Date())!)
-            days = ReadingStatistics.daily(intervals: intervals, goals: archive.goals, timezoneID: timezoneID, from: earliest, through: Date())
-            let key = ReadingStatistics.dayKey(Date(), timezoneID: timezoneID)
-            today = days.first { $0.day == key } ?? DailyTotal(day: key, creditedSeconds: 0, uncertainSeconds: 0, manualSeconds: 0, goalMinutes: goalMinutes)
-            streak = ReadingStatistics.streak(days: days, today: key)
-            pageDays = pageEvidence.daily(goals: archive.goals, timezoneID: timezoneID, from: earliest, through: Date())
-            pageDaysByKey = Dictionary(uniqueKeysWithValues: pageDays.map { ($0.day, $0) })
-            todayPages = pageDays.first { $0.day == key }?.pages ?? 0
-            sessionPages = snapshot.sessionID.map { pages(forSessionID: $0) } ?? 0
-            pageStreak = PageStatistics.streak(days: pageDays, today: key)
-            goalHistory = archive.goals
-            goalProgressByDay = Dictionary(uniqueKeysWithValues: days.map { day in
-                (day.day, ReadingGoals.daily(day: day.day, pages: pageDaysByKey[day.day]?.pages ?? 0,
-                    creditedSeconds: day.creditedSeconds, goals: archive.goals))
-            })
-            dailyGoalStreak = ReadingStatistics.streak(days: days.map { day in
-                DailyTotal(day: day.day, creditedSeconds: goalProgressByDay[day.day]?.reached == true ? 60 : 0,
-                    uncertainSeconds: day.uncertainSeconds, manualSeconds: 0, goalMinutes: 1)
-            }, today: key)
-            annualBookGoal = ReadingGoals.annualTarget(year: goalYear, events: archive.events)
-            annualBooksFinished = ReadingGoals.finishedCount(year: goalYear, timezoneID: timezoneID,
-                books: books, events: archive.events, merges: merges)
-            finishedBooks = BookHistory.completedBooks(books: books, events: archive.events)
-            if let pending = pendingCompletion { pendingCompletion = finishedBooks.first { $0.id == pending.id } }
-            lastRefresh = Date()
+            applyHistory(HistoryPresentation(archive: archive, effectiveIntervals: try store.effectiveIntervals(),
+                timezoneID: timezoneID, goalMinutes: goalMinutes))
         } catch { errorMessage = "Cannot read local history: \(error)" }
+    }
+
+    private func applyHistory(_ prepared: HistoryPresentation) {
+        displayedIntervalsCache = nil; sessionGroupsCache = nil
+        durableVisibleSessionIDs = nil; visibleSessionGroupsCache = nil
+        bookPaceCache.removeAll(keepingCapacity: true); sessionPaceCache.removeAll(keepingCapacity: true)
+        bookPagesCache.removeAll(keepingCapacity: true); sessionPagesCache.removeAll(keepingCapacity: true)
+        books = prepared.books
+        intervals = prepared.intervals
+        events = prepared.events
+        bookRatings = prepared.bookRatings
+        bookReviewCache = prepared.bookReviewCache
+        bookReviewDates = prepared.bookReviewDates
+        progress = prepared.progress
+        merges = prepared.merges
+        libraryPositions = prepared.libraryPositions
+        correctedIntervalIDs = prepared.correctedIntervalIDs
+        sessionBreakIDs = prepared.sessionBreakIDs
+        days = prepared.days
+        today = prepared.today
+        streak = prepared.streak
+        pageEvidenceCache = prepared.pageEvidence
+        pageDays = prepared.pageDays
+        pageDaysByKey = prepared.pageDaysByKey
+        todayPages = prepared.todayPages
+        pageStreak = prepared.pageStreak
+        goalHistory = prepared.goalHistory
+        goalProgressByDay = prepared.goalProgressByDay
+        dailyGoalStreak = prepared.dailyGoalStreak
+        annualBookGoal = prepared.annualBookGoal
+        annualBooksFinished = prepared.annualBooksFinished
+        finishedBooks = prepared.finishedBooks
+        sessionPages = snapshot.sessionID.map { pages(forSessionID: $0) } ?? 0
+        if let pending = pendingCompletion { pendingCompletion = finishedBooks.first { $0.id == pending.id } }
+        lastRefresh = Date()
     }
     private func syncGoalFromHistory() {
         guard let archive = try? store.archive() else { return }
@@ -1102,6 +1145,7 @@ final class AppModel: ObservableObject {
         } catch { appleHistoryStatus = "Could not save Apple Books history: \(error.localizedDescription)" }
     }
     private func perform(_ action: () throws -> Void) {
+        refreshGeneration += 1; refreshPending = false
         do { try action(); errorMessage = nil; refresh() }
         catch { errorMessage = String(describing: error) }
     }
@@ -1111,6 +1155,7 @@ final class AppModel: ObservableObject {
         snapshot = engine.snapshot
     }
     private func stopForMutation() throws {
+        refreshGeneration += 1; refreshPending = false
         try audiobookPlayer.pause()
         captureGeneration += 1
         historyGeneration += 1
@@ -1464,6 +1509,7 @@ final class AppModel: ObservableObject {
     }
     func quit() { NSApp.terminate(nil) }
     func shutdown() {
+        refreshStopped = true; refreshGeneration += 1; refreshPending = false
         audiobookPlayer.pauseReportingErrors()
         ready = false
         cancelExternalCoverLookups()

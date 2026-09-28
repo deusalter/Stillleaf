@@ -27,6 +27,31 @@ public final class ReadingStore {
     private let decoder: JSONDecoder
     private var effectiveCache: [ReadingInterval]?
     private var intervalIDCache: Set<String>?
+    private struct PageSourceKey: Hashable { let bookID: String; let sessionID: String }
+    private var pageSourceEnds: [PageSourceKey: [Date]]?
+
+    private func indexPageSources(_ intervals: [ReadingInterval]) {
+        pageSourceEnds = [:]
+        for interval in intervals { cachePageSource(interval) }
+    }
+
+    private func cachePageSource(_ interval: ReadingInterval) {
+        guard pageSourceEnds != nil, interval.mode == .automatic else { return }
+        pageSourceEnds![PageSourceKey(bookID: interval.bookID, sessionID: interval.sessionID), default: []].append(interval.end)
+    }
+
+    private func pageEventHasSourceInterval(_ event: AuditEvent) throws -> Bool {
+        if pageSourceEnds == nil {
+            let db = try requireDatabase()
+            let originals: [ReadingInterval] = try Self.readRows(db, table: "intervals", decoder: decoder)
+            let corrections: [IntervalCorrection] = try Self.readRows(db, table: "corrections", decoder: decoder)
+            indexPageSources(originals + corrections.flatMap(\.replacements))
+        }
+        guard let bookID = event.bookID, let sessionID = event.sessionID else { return false }
+        return pageSourceEnds?[PageSourceKey(bookID: bookID, sessionID: sessionID)]?.contains {
+            abs(event.date.timeIntervalSince($0)) <= 0.001
+        } ?? false
+    }
     private static let schemaVersion = 1
     private static let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
@@ -66,6 +91,28 @@ public final class ReadingStore {
         if let database { sqlite3_close(database) }
     }
 
+    /// Opens a short-lived read-only connection and reads all tables in one WAL snapshot.
+    /// Never shares this store's connection, decoder, or effective-interval caches.
+    public static func readSnapshot(at url: URL) throws -> (archive: HistoryArchive, intervals: [ReadingInterval]) {
+        var handle: OpaquePointer?
+        guard sqlite3_open_v2(url.path, &handle, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK,
+              let db = handle else {
+            let message = handle.map { String(cString: sqlite3_errmsg($0)) } ?? "could not open database"
+            if let handle { sqlite3_close(handle) }
+            throw ReadingStoreError.sqlite(message)
+        }
+        defer { sqlite3_close(db) }
+        guard sqlite3_busy_timeout(db, 5_000) == SQLITE_OK,
+              sqlite3_exec(db, "BEGIN", nil, nil, nil) == SQLITE_OK else {
+            throw ReadingStoreError.sqlite(String(cString: sqlite3_errmsg(db)))
+        }
+        defer { sqlite3_exec(db, "ROLLBACK", nil, nil, nil) }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .millisecondsSince1970
+        let archive = try readArchive(from: db, decoder: decoder)
+        return (archive, try effectiveIntervals(in: archive))
+    }
+
     public func archive() throws -> HistoryArchive {
         try Self.readArchive(from: requireDatabase(), decoder: decoder)
     }
@@ -75,6 +122,7 @@ public final class ReadingStore {
         let snapshot = try archive()
         let intervals = try Self.effectiveIntervals(in: snapshot)
         effectiveCache = intervals
+        indexPageSources(snapshot.intervals + snapshot.corrections.flatMap(\.replacements))
         intervalIDCache = Set((snapshot.intervals + snapshot.corrections.flatMap(\.replacements)).map(\.id))
         return intervals
     }
@@ -109,6 +157,7 @@ public final class ReadingStore {
         try insertInterval(canonical)
         effectiveCache?.insert(canonical, at: insertion)
         intervalIDCache?.insert(canonical.id)
+        cachePageSource(canonical)
     }
 
     public func appendEvent(_ event: AuditEvent) throws {
@@ -119,7 +168,7 @@ public final class ReadingStore {
             }
         }
         if event.pageTurn != nil || event.pageAdjustment != nil {
-            guard Self.pageEventHasSourceInterval(event, in: try archive()) else {
+            guard try pageEventHasSourceInterval(event) else {
                 throw ReadingStoreError.invalidData("page event does not belong to a recorded session interval")
             }
         }
@@ -142,7 +191,7 @@ public final class ReadingStore {
         }
         // appendInterval updates the in-memory cache before the transaction commits.
         // Invalidate on success AND rollback so failed progress cannot leave phantom time.
-        defer { effectiveCache = nil; intervalIDCache = nil }
+        defer { effectiveCache = nil; intervalIDCache = nil; pageSourceEnds = nil }
         try transaction {
             try upsert(table: "books", id: book.id, payload: try encode(book))
             if let interval { try appendInterval(interval) }
@@ -187,6 +236,7 @@ public final class ReadingStore {
         prospective.corrections.append(canonical)
         try Self.validate(prospective)
         try insertUnique(table: "corrections", id: canonical.id, payload: try encode(canonical), value: canonical)
+        indexPageSources(prospective.intervals + prospective.corrections.flatMap(\.replacements))
         effectiveCache = try Self.effectiveIntervals(in: prospective)
         intervalIDCache = Set((prospective.intervals + prospective.corrections.flatMap(\.replacements)).map(\.id))
     }
@@ -212,6 +262,7 @@ public final class ReadingStore {
             try Self.validate(try archive())
         }
         effectiveCache = nil
+        pageSourceEnds = nil
         intervalIDCache = nil
         try purgeDeletedPages()
     }
@@ -228,6 +279,7 @@ public final class ReadingStore {
             try Self.validate(try archive())
         }
         effectiveCache = nil
+        pageSourceEnds = nil
         intervalIDCache = nil
         try purgeDeletedPages()
     }
@@ -235,6 +287,7 @@ public final class ReadingStore {
     public func deleteAll() throws {
         try transaction { try clearAll() }
         effectiveCache = []
+        pageSourceEnds = [:]
         intervalIDCache = []
         try purgeDeletedPages()
     }
@@ -255,6 +308,7 @@ public final class ReadingStore {
         let merged = try Self.merged(existing, imported)
         try Self.validate(merged)
         try transaction { try insertArchive(imported, allowIdentical: true) }
+        indexPageSources(merged.intervals + merged.corrections.flatMap(\.replacements))
         effectiveCache = try Self.effectiveIntervals(in: merged)
         intervalIDCache = Set((merged.intervals + merged.corrections.flatMap(\.replacements)).map(\.id))
     }
@@ -337,6 +391,7 @@ public final class ReadingStore {
             try clearAll()
             try insertArchive(restored, allowIdentical: false)
         }
+        indexPageSources(restored.intervals + restored.corrections.flatMap(\.replacements))
         effectiveCache = try Self.effectiveIntervals(in: restored)
         intervalIDCache = Set((restored.intervals + restored.corrections.flatMap(\.replacements)).map(\.id))
         try purgeDeletedPages()
@@ -356,6 +411,7 @@ public final class ReadingStore {
         if let interval = canonicalInterval, let insertion {
             effectiveCache?.insert(interval, at: insertion)
             intervalIDCache?.insert(interval.id)
+            cachePageSource(interval)
         }
     }
 
@@ -395,6 +451,7 @@ public final class ReadingStore {
             return result
         } catch {
             try? execute("ROLLBACK")
+            pageSourceEnds = nil
             throw error
         }
     }
@@ -637,12 +694,15 @@ public final class ReadingStore {
         }
         defer { sqlite3_finalize(statement) }
         var rows: [T] = []
-        while sqlite3_step(statement) == SQLITE_ROW {
+        var step = sqlite3_step(statement)
+        while step == SQLITE_ROW {
             guard let text = sqlite3_column_text(statement, 0), let data = Data(base64Encoded: String(cString: text)) else {
                 throw ReadingStoreError.invalidData("invalid payload in \(table)")
             }
             rows.append(try decoder.decode(T.self, from: data))
+            step = sqlite3_step(statement)
         }
+        guard step == SQLITE_DONE else { throw ReadingStoreError.sqlite(String(cString: sqlite3_errmsg(db))) }
         return rows
     }
 

@@ -569,10 +569,119 @@ private func checkHistoryRefreshPerformance(at root: URL) throws {
     print("ui-smoke: full refresh 62 books / 5811 events / 3280 intervals / 1997 positions: \((ProcessInfo.processInfo.systemUptime - began) * 100) ms/run (10 runs)")
     let expected = LibraryProgressLabel.latestPositions(books: model.books, observations: model.progress, merges: model.merges)
     guard model.libraryProgressObservations == expected else { throw BooksAccessErrorForUI.failed("Prepared library positions changed selection") }
+    // Hold a captured snapshot on the worker. Main-queue work must still execute.
+    let captured = DispatchSemaphore(value: 0), release = DispatchSemaphore(value: 0)
+    let asyncModel = try AppModel(support: root, defaults: defaults, startTracking: false, historyReader: { url in
+        let source = try ReadingStore.readSnapshot(at: url)
+        captured.signal()
+        guard release.wait(timeout: .now() + 10) == .success else {
+            throw BooksAccessErrorForUI.failed("Worker gate timed out")
+        }
+        return source
+    })
+    let requestStart = ProcessInfo.processInfo.systemUptime
+    asyncModel.requestHistoryRefresh()
+    let requestMS = (ProcessInfo.processInfo.systemUptime - requestStart) * 1000
+    guard captured.wait(timeout: .now() + 5) == .success else { throw BooksAccessErrorForUI.failed("Worker never read history") }
+    var heartbeat = false
+    DispatchQueue.main.async { heartbeat = true }
+    try pumpHistoryRefresh { heartbeat }
+    guard !asyncModel.historyRefreshIsIdle else { throw BooksAccessErrorForUI.failed("Slow worker did not remain gated") }
+    release.signal()
+    try pumpHistoryRefresh { asyncModel.historyRefreshIsIdle }
+    guard asyncModel.books == model.books, asyncModel.events == model.events,
+          asyncModel.todayPages == model.todayPages, asyncModel.libraryProgressObservations == expected else {
+        throw BooksAccessErrorForUI.failed("Background presentation differs from synchronous history")
+    }
+    print("ui-smoke: background refresh enqueue \(requestMS) ms; main-queue heartbeat ran while snapshot worker was gated")
+
+    // Many requests while one read is held must produce only one follow-up read.
+    asyncModel.requestHistoryRefresh()
+    guard captured.wait(timeout: .now() + 5) == .success else { throw BooksAccessErrorForUI.failed("Burst worker never read history") }
+    for _ in 0..<20 { asyncModel.requestHistoryRefresh() }
+    release.signal()
+    var burstRetried = false
+    try pumpHistoryRefresh {
+        if !burstRetried { burstRetried = captured.wait(timeout: .now()) == .success }
+        return burstRetried
+    }
+    release.signal()
+    try pumpHistoryRefresh { asyncModel.historyRefreshIsIdle }
+    guard captured.wait(timeout: .now()) == .timedOut else { throw BooksAccessErrorForUI.failed("Refresh burst was not coalesced") }
+    // A burst queues just one follow-up; the older snapshot cannot overwrite an edit.
+    asyncModel.requestHistoryRefresh()
+    guard captured.wait(timeout: .now() + 5) == .success else { throw BooksAccessErrorForUI.failed("Second worker never read history") }
+    for _ in 0..<20 { asyncModel.requestHistoryRefresh() }
+    asyncModel.deleteAllData()
+    guard asyncModel.books.isEmpty else { throw BooksAccessErrorForUI.failed("Delete did not publish synchronously") }
+    release.signal()
+    try pumpHistoryRefresh { asyncModel.historyRefreshIsIdle }
+    guard asyncModel.books.isEmpty, asyncModel.events.isEmpty, asyncModel.libraryProgressObservations.isEmpty else {
+        throw BooksAccessErrorForUI.failed("Stale worker resurrected deleted history")
+    }
+    // Restore while idle, then change timezone during a captured read. It must retry.
+    try store.importJSON(from: file)
+    asyncModel.refresh()
+    asyncModel.requestHistoryRefresh()
+    guard captured.wait(timeout: .now() + 5) == .success else { throw BooksAccessErrorForUI.failed("Timezone worker never read history") }
+    asyncModel.timezoneID = "Pacific/Kiritimati"
+    release.signal()
+    var retried = false
+    try pumpHistoryRefresh {
+        if !retried { retried = captured.wait(timeout: .now()) == .success }
+        return retried
+    }
+    release.signal()
+    try pumpHistoryRefresh { asyncModel.historyRefreshIsIdle }
+    guard asyncModel.today.day == ReadingStatistics.dayKey(Date(), timezoneID: "Pacific/Kiritimati"),
+          asyncModel.books.count == 62 else { throw BooksAccessErrorForUI.failed("Timezone retry did not publish current history") }
+    asyncModel.requestHistoryRefresh()
+    guard captured.wait(timeout: .now() + 5) == .success else { throw BooksAccessErrorForUI.failed("Shutdown worker never read history") }
+    let preShutdownEvents = asyncModel.events
+    asyncModel.shutdown()
+    asyncModel.requestHistoryRefresh()
+    release.signal()
+    try pumpHistoryRefresh { asyncModel.historyRefreshIsIdle }
+    guard asyncModel.events == preShutdownEvents, captured.wait(timeout: .now()) == .timedOut else {
+        throw BooksAccessErrorForUI.failed("Shutdown allowed late publication or requeue")
+    }
+    // Measure the main run-loop slice including publication, separately from worker latency.
+    let measuredModel = try AppModel(support: root, defaults: defaults, startTracking: false)
+    var longestSlice = 0.0
+    let backgroundStart = ProcessInfo.processInfo.systemUptime
+    for _ in 0..<10 {
+        measuredModel.requestHistoryRefresh()
+        let deadline = Date().addingTimeInterval(10)
+        while !measuredModel.historyRefreshIsIdle, Date() < deadline {
+            let sliceStart = ProcessInfo.processInfo.systemUptime
+            RunLoop.current.run(until: Date().addingTimeInterval(0.001))
+            longestSlice = max(longestSlice, ProcessInfo.processInfo.systemUptime - sliceStart)
+        }
+        guard measuredModel.historyRefreshIsIdle else { throw BooksAccessErrorForUI.failed("Measured refresh timed out") }
+    }
+    print("ui-smoke: background end-to-end refresh \((ProcessInfo.processInfo.systemUptime - backgroundStart) * 100) ms/run (10 runs)")
+    print("ui-smoke: maximum main run-loop slice during 10 background refreshes \(longestSlice * 1000) ms (includes publication; not a frame-rate measurement)")
+    let source = archive.intervals[0]
+    let writeStart = ProcessInfo.processInfo.systemUptime
+    for _ in 0..<20 {
+        try store.appendEvent(AuditEvent(date: source.end, kind: "pageTurn", bookID: source.bookID,
+            sessionID: source.sessionID, detail: "Synthetic validation timing",
+            pageTurn: PageTurnEvidence(fromPage: 1, toPage: 2, pagesRead: 1, visiblePages: 1, layoutSignature: "fixture")))
+    }
+    print("ui-smoke: durable page event validation/write \((ProcessInfo.processInfo.systemUptime - writeStart) * 50) ms/run (20 runs)")
     // Prove a warm cache is replaced on refresh, including source deletions.
     model.deleteAllData()
     model.refresh()
     guard model.libraryProgressObservations.isEmpty, model.rating(for: "perf-0") == nil else {
         throw BooksAccessErrorForUI.failed("Refresh retained deleted rating or position evidence")
     }
+}
+
+@MainActor
+private func pumpHistoryRefresh(until finished: () -> Bool) throws {
+    let deadline = Date().addingTimeInterval(10)
+    while !finished(), Date() < deadline {
+        RunLoop.current.run(until: Date().addingTimeInterval(0.002))
+    }
+    guard finished() else { throw BooksAccessErrorForUI.failed("Background refresh timed out") }
 }
