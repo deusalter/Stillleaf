@@ -9,12 +9,8 @@ struct QuarterStarRating: View {
     private var displayed: Double? { hovered ?? rating }
     private var value: Double { rating ?? 0 }
     private var tracking: Bool { hovered != nil || dragging }
-    private var activeStar: Int? {
-        guard tracking, let displayed, displayed > 0 else { return nil }
-        return min(4, Int(ceil(displayed)) - 1)
-    }
     private var response: Animation? {
-        reduceMotion ? nil : (tracking ? .easeOut(duration: 0.075) : .interpolatingSpring(stiffness: 380, damping: 30))
+        reduceMotion ? nil : .easeOut(duration: tracking ? 0.075 : 0.15)
     }
     private let starWidth: CGFloat = 42
     private let gap: CGFloat = 6
@@ -24,8 +20,6 @@ struct QuarterStarRating: View {
             HStack(spacing: gap) {
                 ForEach(0..<5, id: \.self) { index in
                     FractionalStar(fill: min(1, max(0, (displayed ?? 0) - Double(index))), size: 32)
-                        .scaleEffect(!reduceMotion && activeStar == index ? (dragging ? 1.10 : 1.06) : 1)
-                        .offset(y: !reduceMotion && activeStar == index ? -2 : 0)
                         .frame(width: starWidth, height: 44)
                 }
             }
@@ -137,46 +131,22 @@ private struct FractionalStar: View, Animatable {
     var animatableData: Double { get { fill } set { fill = newValue } }
 
     var body: some View {
-        let round = StrokeStyle(lineWidth: size * 0.1, lineJoin: .round)
-        ZStack {
-            // Empty star: a soft, rounded track.
-            StarShape().fill(ReadingPalette.track)
-            StarShape().stroke(ReadingPalette.track, style: round)
-            // Filled portion: gold with a gentle top highlight and a crisp edge.
-            ZStack {
-                StarShape().fill(ReadingPalette.star)
-                StarShape().stroke(ReadingPalette.star, style: round)
-                StarShape().fill(LinearGradient(colors: [.white.opacity(0.28), .clear], startPoint: .top, endPoint: .center))
-                StarShape().stroke(ReadingPalette.starEdge, style: StrokeStyle(lineWidth: max(0.75, size * 0.045), lineJoin: .round))
+        // Reuse the same native silhouette for track and fill, so fractional
+        // ratings stay aligned even at the small sizes used in library rows.
+        Image(systemName: "star.fill")
+            .resizable()
+            .scaledToFit()
+            .foregroundStyle(ReadingPalette.track)
+            .overlay(alignment: .leading) {
+                Image(systemName: "star.fill")
+                    .resizable()
+                    .scaledToFit()
+                    .foregroundStyle(ReadingPalette.accent)
+                    .mask(alignment: .leading) {
+                        Rectangle().frame(width: size * min(1, max(0, fill)))
+                    }
             }
-            .mask(alignment: .leading) {
-                GeometryReader { proxy in
-                    // Spring interpolation may briefly pass an endpoint.
-                    Rectangle().frame(width: proxy.size.width * min(1, max(0, fill)))
-                }
-            }
-        }
-        .padding(size * 0.05)
-        .frame(width: size, height: size)
-        .accessibilityHidden(true)
-    }
-}
-
-/// A five-point star with a slightly fuller body than the SF symbol; rounded
-/// strokes soften its tips.
-private struct StarShape: Shape {
-    func path(in rect: CGRect) -> Path {
-        let center = CGPoint(x: rect.midX, y: rect.midY + rect.height * 0.04)
-        let outer = min(rect.width, rect.height) / 2
-        let inner = outer * 0.47
-        var path = Path()
-        for index in 0..<10 {
-            let radius = index.isMultiple(of: 2) ? outer : inner
-            let angle = (Double(index) * 36 - 90) * .pi / 180
-            let point = CGPoint(x: center.x + CGFloat(cos(angle)) * radius, y: center.y + CGFloat(sin(angle)) * radius)
-            if index == 0 { path.move(to: point) } else { path.addLine(to: point) }
-        }
-        path.closeSubpath()
-        return path
+            .frame(width: size, height: size)
+            .accessibilityHidden(true)
     }
 }
