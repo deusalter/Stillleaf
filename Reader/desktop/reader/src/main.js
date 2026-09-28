@@ -567,7 +567,7 @@ async function open(value){
 }
 async function close(){
  if(!await prepareClose())return false;
- pageSlide.cancel();lifecycle++;searchGeneration++;cancelAnimationFrame(positionFrame);clearTimeout(resizeTimer);clearTimeout(searchTimer);clearTimeout(stateTimer);clearTimeout(noticeTimer);
+ pageSlide.cancel();lifecycle++;searchGeneration++;cancelAnimationFrame(positionFrame);clearTimeout(resizeTimer);resizing=false;clearTimeout(searchTimer);clearTimeout(stateTimer);clearTimeout(noticeTimer);
  nativePosition=null;contentIndex=null;
  if(state)emit('state',{state:snapshot()});
  for(const dialog of document.querySelectorAll('dialog[open]'))dialog.close();

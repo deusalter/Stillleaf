@@ -157,3 +157,7 @@ timeout was caused by reduced motion. Diagnostic copies and logs are retained in
 ## CI fixture cleanup
 
 Regular slide checks do not require Playwright's optional FFmpeg download. Set `SLIDE_RECORD_VIDEO=1` when recording review videos with FFmpeg installed. All visual geometry, animation, navigation and cleanup assertions still run without video. Browser/context cleanup is registered before page creation, including setup failures, and runs before HTTP-server shutdown.
+
+## Resize teardown regression
+
+Closing now clears the resize latch together with its timer. A pending resize immediately followed by reopening previously left all subsequent page turns returning false. The failure reproduced naturally under CPU throttling and deterministically with resize/reopen in one task; both passed with the teardown reset. The shared UI test now retains that regression. Momentum tests dispatch a single stroke in one browser task, keeping it within the existing 180 ms gesture boundary, while separate trusted wheel events still verify real input routing in both directions.
