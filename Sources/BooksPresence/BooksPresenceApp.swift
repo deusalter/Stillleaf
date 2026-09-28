@@ -265,6 +265,10 @@ struct BooksPresenceMain {
     static func main() {
         let application = NSApplication.shared
         application.setActivationPolicy(.accessory)
+        if CommandLine.arguments.contains("--preview-library") {
+            do { try runInteractiveLibraryPreview(); exit(0) }
+            catch { fputs("library-preview failed: \(error)\n", stderr); exit(1) }
+        }
         if let index = CommandLine.arguments.firstIndex(of: "--self-test-audio"), index + 1 < CommandLine.arguments.count {
             let destination = URL(fileURLWithPath: CommandLine.arguments[index + 1])
             Task { @MainActor in
