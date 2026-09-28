@@ -29,12 +29,20 @@ test('actual Readium page slides, reversal, chapter edges and reduced motion', {
     } catch { res.writeHead(404).end(); }
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-  t.after(async () => { await new Promise(resolve => server.close(resolve)); });
+  let browser, context;
+  // Register cleanup before setup can fail (for example, missing optional FFmpeg).
+  t.after(async () => {
+    try { await context?.close(); }
+    finally {
+      try { await browser?.close(); }
+      finally { await new Promise(resolve => server.close(resolve)); }
+    }
+  });
   const engine = process.env.SLIDE_BROWSER === 'webkit' ? 'webkit' : 'chromium';
-  const browser = await (engine === 'webkit' ? webkit.launch() : chromium.launch({executablePath: process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', headless: true}));
-  const context = await browser.newContext({viewport: {width: 1000, height: 800}, reducedMotion: 'no-preference', recordVideo: {dir: artifacts, size: {width: 1000, height: 800}}});
+  browser = await (engine === 'webkit' ? webkit.launch() : chromium.launch({executablePath: process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', headless: true}));
+  const recordVideo = process.env.SLIDE_RECORD_VIDEO === '1' ? {dir: artifacts, size: {width: 1000, height: 800}} : undefined;
+  context = await browser.newContext({viewport: {width: 1000, height: 800}, reducedMotion: 'no-preference', ...(recordVideo ? {recordVideo} : {})});
   const page = await context.newPage(); const errors = []; page.on('pageerror', error => errors.push(error.message));
-  t.after(async () => { await context.close(); await browser.close(); });
   await page.goto(`http://127.0.0.1:${server.address().port}/index.html`);
   await page.waitForFunction(() => Boolean(window.StillleafReader));
   await page.evaluate(input => window.StillleafReader.open(input), fixture());
@@ -155,5 +163,5 @@ test('actual Readium page slides, reversal, chapter edges and reduced motion', {
   await finish();
   assert.equal(await page.locator('.reader-page-slide').count(), 0); assert.deepEqual(errors, []);
   await writeFile(path.join(artifacts, `${engine}-metrics.json`), JSON.stringify(metrics, null, 2));
-  const video = page.video(); await page.close(); await video.saveAs(path.join(artifacts, `${engine}-reader-slide.webm`));
+  const video = page.video(); await page.close(); if (video) await video.saveAs(path.join(artifacts, `${engine}-reader-slide.webm`));
 });
