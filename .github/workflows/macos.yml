@@ -25,6 +25,11 @@ jobs:
         run: scripts/build-reader-assets.sh .build/release
       - name: Renderer tests (headless Chrome)
         run: npm --prefix Reader/desktop/reader test
+      - name: Visible text boundaries (headless WebKit)
+        working-directory: Reader/desktop/reader
+        run: |
+          npx playwright install webkit
+          READER_TEST_BROWSER=webkit node --test test/visible-text.test.mjs
       # Native checks still run when renderer tests fail, so one red step never hides another.
       - name: Native model and view self-check
         if: ${{ !cancelled() && steps.reader-assets.outcome == 'success' }}
