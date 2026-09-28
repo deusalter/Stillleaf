@@ -1,5 +1,34 @@
 import SwiftUI
 
+/// Keep native menu actions and selection semantics inside a compact reading toolbar surface.
+struct ReadingMenuStyle: MenuStyle {
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.isFocused) private var isFocused
+    @State private var isHovering = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        Menu(configuration)
+            .menuStyle(.borderlessButton)
+            .controlSize(.small)
+            .font(.caption.weight(.medium))
+            .foregroundStyle(ReadingPalette.ink)
+            .tint(ReadingPalette.ink)
+            .fixedSize()
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .frame(minHeight: 28)
+            .background(ReadingPalette.accent.opacity(isHovering && isEnabled ? 0.14 : 0.075),
+                        in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .stroke(ReadingPalette.accent.opacity(isFocused ? 1 : (isHovering && isEnabled ? 0.20 : 0.08)),
+                            lineWidth: isFocused ? 2 : 1)
+            }
+            .opacity(isEnabled ? 1 : 0.42)
+            .onHover { isHovering = $0 }
+    }
+}
+
 /// A compact native button treatment for reading actions. Button roles remain intact for VoiceOver,
 /// keyboard activation, and destructive actions.
 struct ReadingButtonStyle: ButtonStyle {
