@@ -56,10 +56,19 @@ try store.appendEvent(event(replacement))
 // A transaction that adds an automatic interval then fails must not leave a phantom source.
 let audioBook = BookRecord(id: book.id, title: book.title, format: .audiobook)
 let badProgress = ProgressObservation(bookID: book.id, observedAt: date.addingTimeInterval(180),
-    page: 1, source: "local-audio", reliable: true, audio: AudiobookProgress(positionSeconds: 1, durationSeconds: 100))
+    page: 1, source: "local-audio", reliable: true, audio: AudiobookProgress(positionSeconds: 1, durationSeconds: 100), sessionID: "phantom")
 let phantom = ReadingInterval(id: "phantom", sessionID: "phantom", bookID: book.id,
     start: date.addingTimeInterval(120), end: date.addingTimeInterval(180), duration: 60, timezoneID: "UTC", mode: .automatic)
-reject { try store.saveAudiobook(audioBook, progress: badProgress, interval: phantom) }
+do {
+    try store.saveAudiobook(audioBook, progress: badProgress, interval: phantom)
+    fatalError("Invalid mixed-unit progress accepted")
+} catch ReadingStoreError.invalidData(let message) {
+    // This error comes from appendProgress, after appendInterval mutated the source cache.
+    precondition(message == "progress fraction must be between zero and one", "Did not reach progress insertion: \(message)")
+}
+let afterRollback = try store.archive()
+precondition(!afterRollback.intervals.contains { $0.id == phantom.id })
+precondition(afterRollback.books.first { $0.id == book.id }?.resolvedFormat == .text)
 reject { try store.appendEvent(event(phantom)) }
 try store.appendEvent(event(replacement))
 // Read-only entry point must not create a missing database.
