@@ -16,7 +16,7 @@ public enum ReadingStatistics {
         for goal in goals { latestGoalByDay[goal.effectiveDay] = goal.minutes }
         let goalDays = latestGoalByDay.keys.sorted()
         var output: [DailyTotal] = []
-        var indexByDay: [String: Int] = [:]
+        var dayStarts: [Date] = []
         var dayStart = first
         var activeGoal = 20.0
         var goalIndex = 0
@@ -27,32 +27,39 @@ public enum ReadingStatistics {
                 activeGoal = latestGoalByDay[goalDays[goalIndex]] ?? activeGoal
                 goalIndex += 1
             }
-            indexByDay[key] = output.count
+            dayStarts.append(dayStart)
             output.append(DailyTotal(day: key, creditedSeconds: 0, uncertainSeconds: 0, manualSeconds: 0, goalMinutes: activeGoal))
             dayStart = nextDay
         }
-        guard let endExclusive = calendar.date(byAdding: .day, value: 1, to: last) else { return output }
+        guard !dayStarts.isEmpty, let endExclusive = calendar.date(byAdding: .day, value: 1, to: last) else { return output }
         for interval in intervals where interval.disposition != .excluded {
             let boundedStart = max(interval.start, first)
             let boundedEnd = min(interval.end, endExclusive)
             guard boundedEnd > boundedStart || (interval.start == interval.end && interval.start >= first && interval.start < endExclusive) else { continue }
             let wallDuration = interval.end.timeIntervalSince(interval.start)
-            var intervalDay = calendar.startOfDay(for: boundedStart)
+            // Boundaries are computed once, including DST-length civil days. Locate
+            // the first affected bin without constructing calendars or date strings
+            // for every interval in a long history.
+            var lower = 0, upper = dayStarts.count
+            while lower < upper {
+                let middle = lower + (upper - lower) / 2
+                if dayStarts[middle] <= boundedStart { lower = middle + 1 }
+                else { upper = middle }
+            }
+            var index = max(0, lower - 1)
             repeat {
-                guard let nextDay = calendar.date(byAdding: .day, value: 1, to: intervalDay) else { break }
-                let overlapStart = max(max(interval.start, intervalDay), first)
-                let overlapEnd = min(min(interval.end, nextDay), endExclusive)
+                let nextDay = index + 1 < dayStarts.count ? dayStarts[index + 1] : endExclusive
+                let overlapStart = max(interval.start, dayStarts[index])
+                let overlapEnd = min(interval.end, nextDay)
                 if overlapEnd > overlapStart || wallDuration == 0 {
                     let share = wallDuration > 0 ? interval.duration * overlapEnd.timeIntervalSince(overlapStart) / wallDuration : interval.duration
-                    if let index = indexByDay[dayKey(intervalDay, timezoneID: timezoneID)] {
-                        if interval.disposition == .credited {
-                            output[index].creditedSeconds += share
-                            if interval.mode == .manual { output[index].manualSeconds += share }
-                        } else if interval.disposition == .uncertain { output[index].uncertainSeconds += share }
-                    }
+                    if interval.disposition == .credited {
+                        output[index].creditedSeconds += share
+                        if interval.mode == .manual { output[index].manualSeconds += share }
+                    } else if interval.disposition == .uncertain { output[index].uncertainSeconds += share }
                 }
-                intervalDay = nextDay
-            } while intervalDay < boundedEnd
+                index += 1
+            } while index < dayStarts.count && dayStarts[index] < boundedEnd
         }
         return output
     }

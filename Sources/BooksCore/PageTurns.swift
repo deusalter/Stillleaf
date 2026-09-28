@@ -149,6 +149,42 @@ public enum PageStatistics {
             bySession = Dictionary(grouping: entries, by: \.sessionID)
         }
 
+        /// Builds daily totals from the same qualified coverage used by book/session queries.
+        public func daily(goals: [GoalChange], timezoneID: String, from: Date, through: Date) -> [DailyPageTotal] {
+            guard through >= from else { return [] }
+            let calendar = PageStatistics.calendar(timezoneID)
+            let first = calendar.startOfDay(for: from)
+            let last = calendar.startOfDay(for: through)
+            guard let endExclusive = calendar.date(byAdding: .day, value: 1, to: last) else { return [] }
+
+            var latestGoalByDay: [String: GoalChange] = [:]
+            for goal in goals { latestGoalByDay[goal.effectiveDay] = goal }
+            let goalDays = latestGoalByDay.keys.sorted()
+            var activeGoal: Double?
+            var goalIndex = 0
+            var output: [DailyPageTotal] = []
+            var indexByDay: [String: Int] = [:]
+            var dayStart = first
+            while dayStart <= last {
+                guard let nextDay = calendar.date(byAdding: .day, value: 1, to: dayStart) else { break }
+                let key = PageStatistics.dayKey(dayStart, timezoneID: timezoneID)
+                while goalIndex < goalDays.count, goalDays[goalIndex] <= key {
+                    activeGoal = latestGoalByDay[goalDays[goalIndex]]?.pages
+                    goalIndex += 1
+                }
+                indexByDay[key] = output.count
+                output.append(DailyPageTotal(day: key, pages: 0, goalPages: activeGoal))
+                dayStart = nextDay
+            }
+
+            for item in entries where item.date >= first && item.date < endExclusive {
+                if let index = indexByDay[PageStatistics.dayKey(item.date, timezoneID: timezoneID)] {
+                    output[index].pages += item.pages
+                }
+            }
+            return output
+        }
+
         public func pages(from: Date? = nil, through: Date? = nil, bookID: String? = nil,
                           sessionID: String? = nil, within selectedIntervals: [ReadingInterval]? = nil) -> Int {
             if let from, let through, through < from { return 0 }
@@ -174,39 +210,8 @@ public enum PageStatistics {
 
     public static func daily(events: [AuditEvent], effectiveIntervals: [ReadingInterval], goals: [GoalChange],
                              merges: [BookMerge], timezoneID: String, from: Date, through: Date) -> [DailyPageTotal] {
-        guard through >= from else { return [] }
-        let calendar = calendar(timezoneID)
-        let first = calendar.startOfDay(for: from)
-        let last = calendar.startOfDay(for: through)
-        guard let endExclusive = calendar.date(byAdding: .day, value: 1, to: last) else { return [] }
-
-        var latestGoalByDay: [String: GoalChange] = [:]
-        for goal in goals { latestGoalByDay[goal.effectiveDay] = goal }
-        let goalDays = latestGoalByDay.keys.sorted()
-        var activeGoal: Double?
-        var goalIndex = 0
-        var output: [DailyPageTotal] = []
-        var indexByDay: [String: Int] = [:]
-        var dayStart = first
-        while dayStart <= last {
-            guard let nextDay = calendar.date(byAdding: .day, value: 1, to: dayStart) else { break }
-            let key = dayKey(dayStart, timezoneID: timezoneID)
-            while goalIndex < goalDays.count, goalDays[goalIndex] <= key {
-                activeGoal = latestGoalByDay[goalDays[goalIndex]]?.pages
-                goalIndex += 1
-            }
-            indexByDay[key] = output.count
-            output.append(DailyPageTotal(day: key, pages: 0, goalPages: activeGoal))
-            dayStart = nextDay
-        }
-
-        for item in qualified(events: events, effectiveIntervals: effectiveIntervals, merges: merges,
-                              from: first, through: endExclusive, bookID: nil, sessionID: nil) {
-            if let index = indexByDay[dayKey(item.event.date, timezoneID: timezoneID)] {
-                output[index].pages += item.pages
-            }
-        }
-        return output
+        snapshot(events: events, effectiveIntervals: effectiveIntervals, merges: merges)
+            .daily(goals: goals, timezoneID: timezoneID, from: from, through: through)
     }
 
     /// Returns observed pages and explicit manual corrections in a half-open date range. Evidence counts only

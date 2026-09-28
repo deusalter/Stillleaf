@@ -91,6 +91,16 @@ public enum BookHistory {
         return chosen.event.rating?.value
     }
 
+    /// Prepares all ratings in one pass. Later input wins equal-date ties, including clears.
+    public static func ratings(events: [AuditEvent]) -> [String: Double] {
+        var latest: [String: AuditEvent] = [:]
+        for event in events where event.kind == "bookRated" && event.rating != nil {
+            guard let id = event.bookID else { continue }
+            if latest[id].map({ $0.date <= event.date }) ?? true { latest[id] = event }
+        }
+        return latest.compactMapValues { $0.rating?.value }
+    }
+
     /// Returns the latest explicit review text. A latest typed clear event
     /// intentionally returns nil rather than exposing an older review.
     public static func review(bookID: String, events: [AuditEvent]) -> String? {
