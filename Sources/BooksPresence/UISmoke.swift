@@ -357,6 +357,9 @@ func runUISmoke() throws {
     for _ in 0..<100 {
         for bookID in cachedBookIDs {
             cachedPageSum += model.pages(forBookID: bookID)
+            guard model.pages(forBookID: bookID, from: .distantPast, through: .distantFuture) == model.pages(forBookID: bookID) else {
+                throw BooksAccessErrorForUI.failed("Prepared range totals differ from complete book totals")
+            }
             _ = model.pagesPerMinute(forBookID: bookID)
         }
         _ = model.displayIntervals
@@ -370,6 +373,8 @@ func runUISmoke() throws {
     print("ui-smoke: 100 cached statistics passes: \(cachedMilliseconds) ms")
     model.deleteAllData()
     guard cachedBookIDs.allSatisfy({ model.pages(forBookID: $0) == 0 && model.pagesPerMinute(forBookID: $0) == nil }),
+          cachedBookIDs.allSatisfy({ model.pages(forBookID: $0, from: .distantPast, through: .distantFuture) == 0 }),
+          model.pages(from: .distantPast, through: .distantFuture) == 0,
           model.displayIntervals.isEmpty, model.readingSessions.isEmpty else {
         throw BooksAccessErrorForUI.failed("History deletion left stale cached statistics")
     }
