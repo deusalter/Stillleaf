@@ -10,6 +10,9 @@ export async function fontCSS(id){
  return cache.get(id);
 }
 export async function installFont(doc,id,css){
+ // Readium can expose a document while replacing/unloading its frame. Its
+ // eventual chapter receives trustedFontCSS through the resource sanitizer.
+ if(!doc?.head)return;
  let style=styles.get(doc);if(!style){style=doc.createElement('style');doc.head.append(style);styles.set(doc,style)}
  style.textContent=css;
  const font=FONTS.find(font=>font.id===id);
