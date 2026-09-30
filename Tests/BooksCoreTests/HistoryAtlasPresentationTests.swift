@@ -164,7 +164,7 @@ final class HistoryAtlasPresentationTests: XCTestCase {
         XCTAssertTrue(after.creditedBookIDs.isEmpty)
     }
 
-    func testMonthIncludesPageOnlyDaysWithoutInventingRecordedTime() {
+    func testEveryScaleIncludesPageOnlyDaysWithoutInventingRecordedTime() {
         var first = interval("first", start: date("2026-09-26T12:00:00Z"))
         first.duration = 0
         let input = source([first], events: [pageEvent(first, from: 1, to: 6)])
@@ -174,6 +174,22 @@ final class HistoryAtlasPresentationTests: XCTestCase {
         XCTAssertEqual(prepared.activeDays, 1)
         XCTAssertEqual(prepared.daysByKey["2026-09-26"]?.bookIDs, ["b"])
         XCTAssertEqual(prepared.daysByKey["2026-09-26"]?.pagesByBook["b"], 5)
+        for scale in [CalendarScale.day, .week, .month, .year] {
+            let period = HistoryAtlasPeriod(source: input,
+                navigation: CalendarNavigation(timezoneID: "UTC", anchor: first.start, scale: scale))
+            XCTAssertEqual(period.pages, 5)
+            XCTAssertEqual(period.creditedSeconds, 0)
+            XCTAssertEqual(period.secondsByBook["b"] ?? 0, 0)
+            XCTAssertEqual(period.creditedBookIDs, ["b"])
+            if scale == .day { XCTAssertEqual(period.dayBookIDs, ["b"]) }
+            if scale == .year {
+                XCTAssertEqual(period.yearRows.map(\.id), ["b"])
+                XCTAssertEqual(period.yearRows.first?.pages, 5)
+                XCTAssertEqual(period.yearRows.first?.creditedSeconds, 0)
+                XCTAssertEqual(period.yearRows.first?.activity.count, 1)
+                XCTAssertEqual(period.yearRows.first?.target, date("2026-09-26T00:00:00Z"))
+            }
+        }
     }
 
     func testLatestRequestWinsIncludingReturnToEarlierSelection() {

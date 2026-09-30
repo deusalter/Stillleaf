@@ -43,6 +43,9 @@ final class ReadingTrackingSourceTests: XCTestCase {
                 XCTAssertEqual(presence.state(for: engine.snapshot, book: book, enabled: true,
                     readerOpen: route == .nativeReader, uptime: Double(100 + second)), .reading)
                 if second == 1 || second == 3 {
+                    // Match the native adapter: persist the active interval before
+                    // appending coverage that refers to that recorded session.
+                    try engine.checkpoint(date: progress.observedAt, uptime: Double(100 + second))
                     try store.appendEvent(AuditEvent(date: progress.observedAt, kind: "pageTurn", bookID: book.id,
                         sessionID: engine.snapshot.sessionID, detail: "Native sequential content traversal",
                         pageTurn: try XCTUnwrap(position.forwardCoverage(spine: ["one.xhtml"]))))

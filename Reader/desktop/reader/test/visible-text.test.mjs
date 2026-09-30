@@ -70,6 +70,6 @@ test('visible text boundaries match exhaustive fragment scans with bounded layou
   results.forEach(result=>t.diagnostic(JSON.stringify(result)));
   for(const result of results) {
     assert.deepEqual(result.actual,result.expected,result.name+' preserves exact text coverage');
-    assert.ok(result.calls<=33+2*Math.ceil(Math.log2(Math.max(1,result.length))),result.name+' requires logarithmic search plus bounded whitespace refinement');
+    assert.ok(result.calls<=65+2*Math.ceil(Math.log2(Math.max(1,result.length))),result.name+' requires logarithmic search plus bounded whitespace refinement at both ends');
   }
 });

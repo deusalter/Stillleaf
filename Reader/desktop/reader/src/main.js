@@ -351,7 +351,10 @@ function annotate(value){
  const now=new Date().toISOString();const item={id:prior?.id??crypto.randomUUID(),locator,quote:String(value.quote).slice(0,32768),note:String(value.note??'').slice(0,65536),color:colors[value.color]?value.color:'gold',createdAt:prior?.createdAt??now,updatedAt:now};
  const annotations=prior?state.annotations.map(existing=>existing===prior?item:existing):[...state.annotations,item];
  requireSaveBudget({...state,annotations});state.annotations=annotations;
- applyAnnotations();changed();return clone(item);
+ // Notes change the margin cards and stored state, not the highlight ranges.
+ // Retain resolved ranges while typing, even across hundreds of highlights.
+ if(!prior||prior.color!==item.color)applyAnnotations();else annotationUI.schedule();
+ changed();return clone(item);
 }
 function addBookmark(){
  if(!lastLocator)return;
@@ -378,8 +381,8 @@ function persistNote(){
  try{
   const color=document.querySelector('input[name="note-color"]:checked').value;
   const note=$('note-text').value;
-  if(editingNote.id&&note===(editingNote.note??'')&&color===(colors[editingNote.color]?editingNote.color:'gold'))return true;
-  editingNote=annotate({...editingNote,note,color});$('note-error').hidden=true;$('note-status').textContent='Saved automatically';return true;
+  if(!(editingNote.id&&note===(editingNote.note??'')&&color===(colors[editingNote.color]?editingNote.color:'gold')))editingNote=annotate({...editingNote,note,color});
+  $('delete-note').hidden=!editingNote.id;$('note-error').hidden=true;$('note-status').textContent='Saved automatically';return true;
  }catch(error){$('note-status').textContent='Changes not saved';$('note-error').textContent=(error.message||'The note could not be saved.')+' Your draft is still here.';$('note-error').hidden=false;return false}
 }
 function saveNote(){

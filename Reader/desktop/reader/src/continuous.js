@@ -99,8 +99,11 @@ export class ContinuousNavigator {
   // Internal geometry may change while the chapter's total height stays equal.
   entry.mutations=new MutationObserver(dirty);entry.mutations.observe(frame.contentDocument.body,{subtree:true,childList:true,characterData:true,attributes:true});
   entry.fontsChanged=dirty;frame.contentDocument.fonts.addEventListener('loadingdone',dirty);
-  frame.contentDocument.addEventListener('load',dirty,true);
-  frame.contentDocument.addEventListener('error',dirty,true);
+  // Highlight styles load too, but cannot change chapter geometry. Only
+  // publication images/stylesheets completing affect this layout cache.
+  const resourceChanged=event=>{if(['IMG','LINK'].includes(event.target?.tagName))dirty()};
+  frame.contentDocument.addEventListener('load',resourceChanged,true);
+  frame.contentDocument.addEventListener('error',resourceChanged,true);
  }
  invalidate(entry){
   // Reports can run before the debounced height measurement. Never reuse old

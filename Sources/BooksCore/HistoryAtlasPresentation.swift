@@ -137,7 +137,8 @@ public struct HistoryAtlasPeriod {
             for book in day.books { seconds[book.bookID, default: 0] += book.creditedSeconds }
         }
         secondsByBook = seconds
-        creditedBookIDs = seconds.keys.filter { seconds[$0, default: 0] > 0 }.sorted()
+        let pageBookIDs = totals.byBook.keys.filter { totals.byBook[$0, default: 0] > 0 }
+        creditedBookIDs = Array(Set(seconds.keys.filter { seconds[$0, default: 0] > 0 } + pageBookIDs)).sorted()
 
         // Resolve observation identities only for indexing. Original edition/session
         // identities remain intact for audioPosition's historical evidence checks.
@@ -172,7 +173,7 @@ public struct HistoryAtlasPeriod {
             let displaySlices = HistoryAtlas.slices(intervals: source.displayIntervals, merges: source.merges, period: period)
             displayStart = displaySlices.map(\.start).min()
             displaySlicesByBook = Dictionary(grouping: displaySlices.filter { $0.interval.disposition != .excluded }, by: \.bookID)
-            dayBookIDs = Array(Set(slices.filter { $0.interval.disposition != .excluded }.map(\.bookID))).sorted {
+            dayBookIDs = Array(Set(slices.filter { $0.interval.disposition != .excluded }.map(\.bookID) + pageBookIDs)).sorted {
                 (source.booksByID[$0]?.title ?? "Unknown book").localizedStandardCompare(source.booksByID[$1]?.title ?? "Unknown book") == .orderedAscending
             }
             let slicesByInterval = Dictionary(slices.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
@@ -206,6 +207,15 @@ public struct HistoryAtlasPeriod {
                         lastActive[book.bookID] = day.date
                     } else if book.uncertainSeconds > 0 { pending[book.bookID, default: []].append(fraction(day.date)) }
                     if book.uncertainSeconds > 0 { lastPending[book.bookID] = day.date }
+                }
+                // Qualified page evidence can exist without recorded time. Keep
+                // its book and active day visible without manufacturing seconds.
+                for (id, pages) in totals.byDayBook[day.key] ?? [:] where pages > 0 {
+                    firstDates[id] = min(firstDates[id] ?? .distantFuture, day.date)
+                    lastActive[id] = day.date
+                    if !day.books.contains(where: { $0.bookID == id && $0.creditedSeconds > 0 }) {
+                        activity[id, default: []].append(AtlasYearMark(start: fraction(day.date), end: fraction(end)))
+                    }
                 }
             }
             var finishes: [String: [Date]] = [:]

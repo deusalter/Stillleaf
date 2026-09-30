@@ -22,6 +22,10 @@ test('continuous layout converges and measures only dirty chapters, including ca
   const stats=frames.map(f=>{const w=f.contentWindow,s={elements:0,ranges:0,fragments:0};const e=w.Element.prototype.getBoundingClientRect,r=w.Range.prototype.getBoundingClientRect,c=w.Range.prototype.getClientRects;w.Element.prototype.getBoundingClientRect=function(){s.elements++;return e.call(this)};w.Range.prototype.getBoundingClientRect=function(){s.ranges++;return r.call(this)};w.Range.prototype.getClientRects=function(){s.fragments++;return c.call(this)};return s});
   const snapshot=()=>stats.map(s=>({...s})),reset=()=>stats.forEach(s=>Object.keys(s).forEach(k=>s[k]=0)),wait=ms=>new Promise(r=>setTimeout(r,ms));
   reset();await wait(700);const idle=snapshot();reset();
+  const locator=StillleafReader.bookmark();
+  let annotation=StillleafReader.annotate({locator,quote:locator.text?.highlight||'The ferry crossed slowly',note:'A margin note',color:'gold'});
+  for(let i=0;i<20;i++)annotation=StillleafReader.annotate({...annotation,note:'An autosaved thought '+i,color:i%2?'sage':'rose'});
+  await wait(700);const annotations=snapshot();reset();
   frames[1].contentDocument.getElementById('p500').style.height='220px';await wait(700);const dirty=snapshot();reset();
   // Same total height, different internal text geometry. A height-only cache gate is incorrect.
   const doc=frames[0].contentDocument,height=frames[0].clientHeight;
@@ -32,11 +36,12 @@ test('continuous layout converges and measures only dirty chapters, including ca
   const intervals=[];let last=performance.now();
   for(let i=0;i<60;i++){flow.scrollBy(0,24);await new Promise(requestAnimationFrame);const now=performance.now();intervals.push(now-last);last=now}
   await wait(200);const scroll=snapshot();intervals.sort((a,b)=>a-b);
-  return {idle,dirty,sameHeight,scroll,frames:frames.length,frameMs:{median:intervals[30],p95:intervals[57],max:intervals.at(-1)},label:document.querySelector('#position-label').textContent};
+  return {idle,annotations,dirty,sameHeight,scroll,frames:frames.length,frameMs:{median:intervals[30],p95:intervals[57],max:intervals.at(-1)},label:document.querySelector('#position-label').textContent};
  });
  t.diagnostic(JSON.stringify(metrics));
  if(process.env.READER_BASELINE)return;
  assert.ok(metrics.idle.every(s=>s.elements<10&&s.ranges<10),'settled observers perform no chapter geometry scans');
+ assert.ok(metrics.annotations.every(s=>s.elements<100),'highlight and margin note updates do not remeasure publication chapters');
  assert.ok(metrics.dirty.filter(s=>s.elements>100).length===1,'one dirty chapter must not measure every mounted chapter');
  assert.equal(metrics.sameHeight.after,metrics.sameHeight.before,'internal movement can leave chapter height unchanged');
  assert.ok(metrics.sameHeight.cost[0].elements>100&&metrics.sameHeight.cost.slice(1).every(s=>s.elements<10),'same-height mutation invalidates only its chapter');
