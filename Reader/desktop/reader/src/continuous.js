@@ -87,7 +87,7 @@ export class ContinuousNavigator {
   if(this.destroyed||generation!==this.epoch)return;
   if(!frame.contentWindow.CSS?.highlights||typeof frame.contentWindow.Highlight!=='function')throw Error('Continuous view needs text highlight support unavailable in this browser. Choose Single page or Facing pages.');
   this.measure(entry);this.bindFrame(entry);this.paint(entry);this.listeners.frameLoaded?.(frame.contentWindow);
-  const dirty=()=>{if(entry.frame!==frame||this.destroyed)return;this.invalidate(entry);this.scheduleMeasurement()};
+  const dirty=()=>{if(entry.frame!==frame||this.destroyed)return;this.invalidate(entry);this.listeners.chapterInvalidated?.(entry.index);this.scheduleMeasurement()};
   // ResizeObserver's initial delivery is a baseline. Equal repeated deliveries
   // from sizing our own iframe do not constitute a new content layout.
   entry.observedSize=null;

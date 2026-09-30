@@ -67,7 +67,7 @@ test('host-served resources load on demand and render',{timeout:90000},async t=>
  assert.equal(new Set(requested).size,requested.length,'each resource fetched at most once: '+requested.join(', '));
 
  // Chapter screen pages render without eager whole-book layout or assets.
- await page.waitForFunction(()=>/^Page \d+ of \d+ · Chapter \d+$/.test(document.querySelector('#position-label').textContent));
+ await page.waitForFunction(()=>/^Page \d+ of \d+(?: · Chapter \d+ · Calculating book pages…)?$/.test(document.querySelector('#position-label').textContent));
  assert.equal(requested.filter(href=>href==='text/one.html').length,1,'index reuses the displayed chapter instead of fetching its released bytes again');
  await page.evaluate(()=>{window.indexedPositions=[];window.addEventListener('stillleaf-reader-event',e=>{if(e.detail.type==='position')window.indexedPositions.push(e.detail.position)})});
  await page.evaluate(input=>window.StillleafReader.open({...input,contentProgress:true}),input());

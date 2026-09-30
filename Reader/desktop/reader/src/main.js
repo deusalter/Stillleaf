@@ -8,6 +8,7 @@ import {visibleTextBounds,firstFullyVisibleOffset} from './visible-text';
 import {installPageTurnWheel} from './page-turn-input';
 import {NavigationCompletion} from './navigation-completion';
 import {screenPages,pageLabel,chapterPagesLeft} from './page-progress';
+import {ScreenPaginationIndex} from './screen-pagination-index';
 import {continuousTextCandidates} from './content-geometry';
 import {syncTypographyChoices} from './appearance-choices';
 import {fontCSS,installFont,contrast} from './bundled-fonts';
@@ -26,6 +27,84 @@ const colors={gold:'#e4c778',sage:'#a7cbb0',rose:'#d7a9b4'};
 let navigator,pool,input,state,lastLocator,selection,editingNote,activeTab='contents',searchGeneration=0,searchTimer,stateTimer,noticeTimer,lastFocus,opening=false;
 let lifecycle=0;let preferenceQueue=Promise.resolve(),preferenceRevision=0,preferenceRestore=false;let jumpHistory=[];let stableAnchor=null,reflowCount=0,resizeTimer,resizing=false;
 const frames=new WeakSet();let headingCache=new Map();
+const pageLayoutObservers=new WeakMap();
+let screenIndex,backgroundQuietUntil=0;
+const backgroundActivity=()=>{backgroundQuietUntil=performance.now()+350};
+for(const type of ['wheel','scroll','pointerdown','keydown','input'])window.addEventListener(type,backgroundActivity,{capture:true,passive:true});
+const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+async function paginationIdle(signal){
+ // Yield between chapters and pause while the reader scrolls or changes layout.
+ await new Promise(requestAnimationFrame);
+ while(!signal.aborted&&(opening||reflowCount||resizing||performance.now()<backgroundQuietUntil))await delay(80);
+}
+function paginationLayout(){
+ return JSON.stringify({edition:input.editionId,width:$('reading-viewport').clientWidth,height:$('reader').clientHeight,
+  continuous:Boolean(input.experimentalContinuous&&state.preferences.scroll),settings:readiumPreferences(),renderer:'screen-v1'});
+}
+function assetsSettled(doc){return doc?.body&&doc.fonts.status!=='loading'&&[...doc.images].every(image=>image.complete)}
+async function measureChapterScreens(book,owner,chapter,signal,key){
+ const layout=JSON.parse(key),link=book.readingOrder[chapter];
+ const host=document.createElement('div');host.className='pagination-probe';host.inert=true;host.setAttribute('aria-hidden','true');
+ host.style.width=layout.width+'px';host.style.height=layout.height+'px';
+ const container=document.createElement('div');container.style.height='100%';host.append(container);document.body.append(host);
+ let probe,timer;
+ let rejectAbort;const onAbort=()=>rejectAbort(new DOMException('Stale pagination','AbortError'));
+ const aborted=new Promise((_,reject)=>{rejectAbort=reject;signal.addEventListener('abort',onAbort,{once:true});timer=setTimeout(()=>reject(Error('Chapter layout did not settle')),12000)});
+ try{
+  if(signal.aborted)throw new DOMException('Stale pagination','AbortError');
+  const measuring=(async()=>{
+   if(layout.continuous){
+    probe=new ContinuousNavigator(container,{...book,readingOrder:[link]},owner,{},null,layout.settings);
+   }else{
+    const manifest=Manifest.deserialize({metadata:{title:book.title??'Untitled',language:book.languages??book.language??'en',readingProgression:book.readingProgression,conformsTo:['https://readium.org/webpub-manifest/profiles/epub']},readingOrder:[{...link,type:'text/html'}]});
+    const publication=new Publication({manifest,fetcher:new PublicationFetcher(owner)});
+    const locator=Locator.deserialize({...link,type:'text/html',locations:{position:1,progression:0,totalProgression:0}});
+    probe=new EpubNavigator(container,publication,{},[locator],undefined,{preferences:layout.settings,defaults:{}});
+   }
+   await probe.load();
+   if(signal.aborted)return;
+   const frame=[...container.querySelectorAll('iframe')].find(f=>getComputedStyle(f).visibility!=='hidden');
+   const wnd=frame?.contentWindow,doc=frame?.contentDocument;
+   if(!doc?.body)throw Error('Missing chapter layout');
+   await doc.fonts.ready;
+   // Image load/error both settle geometry. A pending resource leaves the
+   // denominator calculating rather than claiming a provisional exact count.
+   await Promise.all([...doc.images].filter(image=>!image.complete).map(image=>new Promise(resolve=>{image.addEventListener('load',resolve,{once:true});image.addEventListener('error',resolve,{once:true})})));
+   await delay(120);
+   if(signal.aborted)return;
+   let extent,viewport;
+   if(layout.continuous){probe.measure(probe.entries[0]);extent=probe.entries[0].height;viewport=layout.height;}
+   else{const root=doc.scrollingElement;extent=layout.settings.scroll?root.scrollHeight:root.scrollWidth;viewport=layout.settings.scroll?wnd.innerHeight:wnd.innerWidth;}
+   return screenPages({extent,viewport})?.total;
+  })();
+  return await Promise.race([measuring,aborted]);
+ }finally{
+  clearTimeout(timer);
+  signal.removeEventListener('abort',onAbort);
+  // Disconnect resize before the frame handshake, as for live navigators.
+  try{await destroyNavigator(probe)}finally{host.remove()}
+ }
+}
+function observeChapterPages(wnd,generation){
+ if(navigator?.kind==='continuous')return;
+ const href=navigator?.currentLocator?.href??lastLocator?.href;
+ const chapter=input.readingOrder.findIndex(link=>link.href===href);
+ let previous,pending=0;const doc=wnd.document;
+ const measure=()=>{
+  pending=0;if(generation!==lifecycle||!state||reflowCount||resizing)return;
+  const root=doc.scrollingElement;if(!root||!assetsSettled(doc))return;
+  const count=screenPages(state.preferences.scroll?{extent:root.scrollHeight,viewport:wnd.innerHeight}:{extent:root.scrollWidth,viewport:wnd.innerWidth})?.total;
+  if(previous!==undefined&&count!==previous){quietUntil=performance.now()+800;screenIndex?.record(chapter,count);refreshPosition()}
+  previous=count;
+ };
+ const schedule=()=>{if(!pending)pending=requestAnimationFrame(measure)};
+ const resource=event=>{if(['IMG','LINK'].includes(event.target?.tagName))schedule()};
+ // Readium decoration changes can touch the body; compare the constant-cost
+ // screen extent before updating counts, rather than rescanning its text.
+ const observer=new MutationObserver(schedule);observer.observe(doc.body,{subtree:true,childList:true,attributes:true,characterData:true});
+ doc.fonts.addEventListener('loadingdone',schedule);doc.addEventListener('load',resource,true);doc.addEventListener('error',resource,true);schedule();
+ pageLayoutObservers.set(wnd,()=>{observer.disconnect();cancelAnimationFrame(pending);doc.fonts.removeEventListener('loadingdone',schedule);doc.removeEventListener('load',resource,true);doc.removeEventListener('error',resource,true)});
+}
 const annotationUI=new AnnotationUI({popup:$('selection-tools'),layer:$('annotation-margins'),viewport:$('reader'),
  frames:()=>navigator?.kind==='continuous'?navigator.entries.filter(e=>e.frame).map(e=>({frame:e.frame,href:e.link.href})):[...$('reader').querySelectorAll('iframe')].filter(f=>getComputedStyle(f).visibility!=='hidden').map(frame=>({frame,href:lastLocator?.href})),
  annotations:()=>state?.annotations??[],continuous:()=>navigator?.kind==='continuous',onDismiss:()=>{selection=null},
@@ -111,15 +190,26 @@ function updatePosition(){
    :{extent:doc.scrollWidth,viewport:wnd.innerWidth,offset:Math.abs(wnd.scrollX),columns:effectiveColumns()};pages=screenPages(metrics);}
  }
  const left=chapterPagesLeft(metrics??{});
+ const chapter=input.readingOrder.findIndex(link=>link.href===lastLocator.href);
+ if(screenIndex&&!opening){
+  screenIndex.configure(paginationLayout(),input.readingOrder.length);
+  if(!reflowCount&&!resizing&&navigator?.kind==='continuous'){
+   for(const entry of navigator.entries)if(entry.frame&&!navigator.dirtyEntries.has(entry)&&assetsSettled(entry.frame.contentDocument)){
+    screenIndex.record(entry.index,screenPages({extent:entry.height,viewport:$('reader').clientHeight})?.total);
+   }
+  }else if(!reflowCount&&!resizing){
+   const frame=[...$('reader').querySelectorAll('iframe')].find(f=>getComputedStyle(f).visibility!=='hidden');
+   if(pages&&assetsSettled(frame?.contentDocument))screenIndex.record(chapter,pages.total);
+  }
+ }
  if(pages&&!opening){
   nativePosition=contentPosition(pages,left===0);
   emit('position',{position:nativePosition});
  }
- // Screen totals are measured for this chapter; unmounted chapters have no
- // reliable laid-out screen denominator. Text coordinates still track the book.
- const label=pages?`${pageLabel(pages)} · Chapter ${input.readingOrder.findIndex(link=>link.href===lastLocator.href)+1}`:'Calculating chapter pages…';
+ const bookScreens=!reflowCount&&!resizing?screenIndex?.pages(chapter,pages):null;
+ const label=bookScreens?pageLabel(bookScreens):pages?`${pageLabel(pages)} · Chapter ${chapter+1} · Calculating book pages…`:'Calculating book pages…';
  if($('position-label').textContent!==label)$('position-label').textContent=label;
- $('position-label').title=heading+' · One page is one full reading screen. Counts update with layout.';
+ $('position-label').title=heading+' · One page is one full reading screen. Whole-book counts update with layout.';
  const remaining=left===null?'':`${left} ${left===1?'page':'pages'} left in chapter`;
  if($('chapter-label').textContent!==remaining)$('chapter-label').textContent=remaining;
  $('chapter-label').title=heading+' · Remaining reading screens in this chapter.';
@@ -320,7 +410,7 @@ async function setPreferences(value,retained){
  });
  // Every caller settles after the final coalesced job, including callers whose
  // own intermediate layout was skipped while a slider continued moving.
- try{let pending;do{pending=preferenceQueue;await pending}while(generation===lifecycle&&pending!==preferenceQueue)}finally{reflowCount=Math.max(0,reflowCount-1)}
+ try{let pending;do{pending=preferenceQueue;await pending}while(generation===lifecycle&&pending!==preferenceQueue)}finally{reflowCount=Math.max(0,reflowCount-1);if(generation===lifecycle&&state)refreshPosition()}
 }
 function dismissSelection(){annotationUI.dismiss();for(const f of document.querySelectorAll('#reader iframe'))f.contentWindow?.getSelection()?.removeAllRanges()}
 function selected(value){
@@ -585,13 +675,14 @@ async function installNavigator(location,settings=readiumPreferences()){
   const publication=new Publication({manifest,fetcher:new PublicationFetcher(pool)});
   const positions=input.readingOrder.map((link,i)=>Locator.deserialize({...link,type:'text/html',locations:{position:i+1,progression:0,totalProgression:i/input.readingOrder.length}}));
   const listeners={
+   chapterInvalidated:index=>screenIndex?.invalidate(index),
    click:pageEdgeTap,tap:pageEdgeTap,
    positionChanged:locator=>{if(generation!==lifecycle||!state)return;lastLocator=locator.serialize();if(opening&&state.position){refreshPosition();return;}state.position=clone(lastLocator);refreshPosition();changed(false);emit('relocated',{locator:lastLocator,cause:'unknown',eligibleForProgress:false})},
-   frameUnloaded:wnd=>frames.delete(wnd),
+   frameUnloaded:wnd=>{pageLayoutObservers.get(wnd)?.();pageLayoutObservers.delete(wnd);frames.delete(wnd)},
    readerScrolled:(delta,height)=>{if(generation===lifecycle)trackContinuousScroll(delta,height)},
    readerAnchorChanged:locator=>{if(generation===lifecycle&&performance.now()>=quietUntil&&!reflowCount&&!resizing)stableAnchor=clone(locator)},
    textSelected:value=>{if(generation===lifecycle)selected(value)},
-   frameLoaded:wnd=>{if(!wnd.CSS?.highlights&&navigator)navigator.decorationsAvailable=false;if(!frames.has(wnd)){frames.add(wnd);installPageTurnWheel(wnd,{gesture:pageTurnGesture,enabled:()=>Boolean(state&&!state.preferences.scroll&&!document.querySelector('dialog[open]')),rtl:()=>input?.readingProgression==='rtl'||navigator?.readingProgression==='rtl',turn});wnd.document.addEventListener('keydown',keyboard);if(navigator?.kind!=='continuous'){let anchorTimer;wnd.addEventListener('wheel',event=>{void crossScrollBoundary(wnd,event.deltaY,event);clearTimeout(anchorTimer);if(!boundaryBusy)anchorTimer=setTimeout(()=>{if(!reflowCount&&!resizing)stableAnchor=visibleAnchor()},100)},{passive:false});}wnd.document.addEventListener('keydown',event=>{if(navigator?.kind!=='continuous'&&['ArrowDown','PageDown','ArrowUp','PageUp'].includes(event.key)&&!['INPUT','TEXTAREA','SELECT'].includes(event.target?.tagName)){void crossScrollBoundary(wnd,['ArrowDown','PageDown'].includes(event.key)?1:-1,event);setTimeout(()=>{if(!boundaryBusy&&!reflowCount&&!resizing)stableAnchor=visibleAnchor()},100)}});wnd.document.addEventListener('pointerup',followPublicationLink,true);wnd.addEventListener('scroll',()=>trackScroll(wnd),{passive:true});wnd.document.addEventListener('click',followPublicationLink,true);wnd.document.addEventListener('keyup',()=>{const text=wnd.getSelection()?.toString();if(text&&lastLocator&&navigator?.kind!=='continuous')selected({text,locator:Locator.deserialize({...lastLocator,text:{highlight:text}})});});}},
+   frameLoaded:wnd=>{if(!wnd.CSS?.highlights&&navigator)navigator.decorationsAvailable=false;if(!frames.has(wnd)){frames.add(wnd);observeChapterPages(wnd,generation);for(const type of ["wheel","scroll","keydown","pointerdown"])wnd.addEventListener(type,backgroundActivity,{capture:true,passive:true});installPageTurnWheel(wnd,{gesture:pageTurnGesture,enabled:()=>Boolean(state&&!state.preferences.scroll&&!document.querySelector('dialog[open]')),rtl:()=>input?.readingProgression==='rtl'||navigator?.readingProgression==='rtl',turn});wnd.document.addEventListener('keydown',keyboard);if(navigator?.kind!=='continuous'){let anchorTimer;wnd.addEventListener('wheel',event=>{void crossScrollBoundary(wnd,event.deltaY,event);clearTimeout(anchorTimer);if(!boundaryBusy)anchorTimer=setTimeout(()=>{if(!reflowCount&&!resizing)stableAnchor=visibleAnchor()},100)},{passive:false});}wnd.document.addEventListener('keydown',event=>{if(navigator?.kind!=='continuous'&&['ArrowDown','PageDown','ArrowUp','PageUp'].includes(event.key)&&!['INPUT','TEXTAREA','SELECT'].includes(event.target?.tagName)){void crossScrollBoundary(wnd,['ArrowDown','PageDown'].includes(event.key)?1:-1,event);setTimeout(()=>{if(!boundaryBusy&&!reflowCount&&!resizing)stableAnchor=visibleAnchor()},100)}});wnd.document.addEventListener('pointerup',followPublicationLink,true);wnd.addEventListener('scroll',()=>trackScroll(wnd),{passive:true});wnd.document.addEventListener('click',followPublicationLink,true);wnd.document.addEventListener('keyup',()=>{const text=wnd.getSelection()?.toString();if(text&&lastLocator&&navigator?.kind!=='continuous')selected({text,locator:Locator.deserialize({...lastLocator,text:{highlight:text}})});});}},
    error:error=>{notice(error.message);emit('error',{message:error.message})}
   };
   navigator=input.experimentalContinuous&&settings.scroll?new ContinuousNavigator($('reader'),input,pool,listeners,location,settings):new EpubNavigator($('reader'),publication,listeners,positions,location?engineLocator(location):undefined,{preferences:settings,defaults:{}});
@@ -614,6 +705,9 @@ async function open(value){
   const override=validLocator(value.locator);if(override)state.position=override;
   $('reader').replaceChildren();$('book-title').textContent=value.title??'Untitled';$('book-author').textContent=value.creators?.join(', ')??'';document.title=(value.title??'Book')+' · Stillleaf';$('back').hidden=!value.canReturnToLibrary;
   syncAppearance();await prepareFont(state.preferences.fontFamily,lifecycle);
+  const owner=pool,book=input;
+  screenIndex=new ScreenPaginationIndex({measure:(chapter,signal,key)=>measureChapterScreens(book,owner,chapter,signal,key),idle:paginationIdle,
+   changed:()=>{if(owner===pool&&!opening){cancelAnimationFrame(positionFrame);positionFrame=requestAnimationFrame(()=>{if(owner===pool)refreshPosition()})}}});
   await installNavigator(state.position);opening=false;refreshPosition();emit('ready',{warnings:[...pool.warnings]});announcedLayout=null;relayout();changed();
   void indexContent(pool,lifecycle,input.editionId,input.readingOrder);
   if(pool.warnings.size&&$('notice').hidden)notice('Some original styling or illustrations could not be displayed.');
@@ -623,10 +717,11 @@ async function close(){
  if(!await prepareClose())return false;
  if(navigator?.kind==='continuous')navigator.report();
  clearTimeout(noteSaveTimer);annotationUI.reset();pageSlide.cancel();lifecycle++;searchGeneration++;cancelAnimationFrame(positionFrame);clearTimeout(resizeTimer);resizing=false;clearTimeout(searchTimer);clearTimeout(stateTimer);clearTimeout(noticeTimer);
+ const paginationClosed=screenIndex?.queue;screenIndex?.close();screenIndex=undefined;
  nativePosition=null;contentIndex=null;contentIndexFailed=false;preferenceRestore=false;
  if(state)emit('state',{state:snapshot()});
  for(const dialog of document.querySelectorAll('dialog[open]'))dialog.close();
- const current=navigator;navigator=undefined;navigationCompletion.dispose(current);await preferenceQueue.catch(()=>{});await destroyNavigator(current);pool?.close();pool=undefined;state=undefined;lastLocator=undefined;selection=undefined;$('selection-tools').hidden=true;$('notice').hidden=true;editingNote=undefined;return true;
+ const current=navigator;navigator=undefined;navigationCompletion.dispose(current);await preferenceQueue.catch(()=>{});await destroyNavigator(current);await paginationClosed?.catch(()=>{});pool?.close();pool=undefined;state=undefined;lastLocator=undefined;selection=undefined;$('selection-tools').hidden=true;$('notice').hidden=true;editingNote=undefined;return true;
 }
 const api={open,close,prepareClose,hasPendingDraft,returnFromJump,next:()=>turn('next'),previous:()=>turn('previous'),go,setPreferences,bookmark:()=>lastLocator?clone(lastLocator):null,restore:go,exportState:()=>{if(hasPendingDraft())persistNote();if(navigator?.kind==='continuous')navigator.report();return snapshot()},addBookmark,annotate};
 window.StillleafReader=Object.freeze(api);

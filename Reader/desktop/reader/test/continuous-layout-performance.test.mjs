@@ -46,7 +46,7 @@ test('continuous layout converges and measures only dirty chapters, including ca
  assert.equal(metrics.sameHeight.after,metrics.sameHeight.before,'internal movement can leave chapter height unchanged');
  assert.ok(metrics.sameHeight.cost[0].elements>100&&metrics.sameHeight.cost.slice(1).every(s=>s.elements<10),'same-height mutation invalidates only its chapter');
  assert.ok(metrics.scroll.reduce((sum,s)=>sum+s.fragments,0)<3000,'caret fallback must avoid repeatedly scanning offscreen prefixes');
- assert.match(metrics.label,/^Page \d+ of \d+ · Chapter 1$/);
+ assert.match(metrics.label,/^Page \d+ of \d+(?: · Chapter \d+ · Calculating book pages…)?$/);
  const coverage=await page.evaluate(source=>{
   const scan=new Function(source+';return visibleTextBounds')(),flow=document.querySelector('#reader'),frame=flow.querySelector('iframe'),doc=frame.contentDocument,bounds=frame.getBoundingClientRect(),view=flow.getBoundingClientRect();
   const visible=r=>r.width>0&&r.height>0&&r.right>0&&r.left<frame.clientWidth&&r.bottom>view.top-bounds.top&&r.top<view.bottom-bounds.top;

@@ -6,7 +6,7 @@ Continuous measurement now batches dirty chapters instead of measuring every mou
 
 Caret hit-testing remains the first anchor path. Its fallback uses the shared indexed text candidates and exact visible fragments, avoiding offscreen paragraph-prefix scans. Chromium's grouped-range omission of a wrapped trailing space is corrected with a bounded adjacent-whitespace check. Exact fragment tests cover bidi, graphemes, columns and clipping.
 
-Every newly reported screen is one page in single, facing and continuous modes. Seven leaves are four facing screens; the last partial spread is one screen. Page-layout identity still distinguishes actual columns and reflow. The footer explicitly labels measured chapter-local pages; no whole-book screen total is fabricated from text units or unloaded placeholders. Fonts, widths, heights and modes recalculate these counts. Canonical book text coordinates and locators are independent of the display.
+Every newly reported screen is one page in single, facing and continuous modes. Seven leaves are four facing screens; the last partial spread is one screen. Page-layout identity still distinguishes actual columns and reflow. Integration adds exact whole-book layout totals through a bounded background measurement cache; the footer labels chapter-local counts and “Calculating book pages…” until it completes. Fonts, widths, heights and modes recalculate these counts. Canonical book text coordinates and locators are independent of the display. See [SCREEN_LAYOUT_PAGINATION.md](../docs/SCREEN_LAYOUT_PAGINATION.md).
 
 ## Native evidence and compatibility
 
@@ -33,4 +33,4 @@ Reproduce with `test/continuous-layout-performance.test.mjs`. Run it against a b
 
 ## Shared-file ownership
 
-`src/main.js` edits are limited to the page-progress import, `updatePosition`, the `contentPosition` payload, `pagesPerTurn` and `layoutKey`. Selection popup, annotation rendering/editing/persistence and onboarding/History files are untouched. The annotations branch should reconcile those exact pagination hunks when integrating its main.js edits.
+The original source commit changed the page-progress import, `updatePosition`, the `contentPosition` payload, `pagesPerTurn` and `layoutKey`. Cloud integration subsequently reconciled annotations in `main.js`, corrected note-only repainting and style-load invalidation, and added whole-book pagination. Original source measurements above remain measurements of the source commit, not the later combined implementation.

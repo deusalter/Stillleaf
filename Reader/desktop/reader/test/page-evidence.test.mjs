@@ -94,7 +94,7 @@ test('only deliberate page movement is reported as page evidence',{timeout:12000
  events=await take();assert.deepEqual(events.map(e=>[e.type,e.direction,e.pages,e.layout]),[['pageTurn','forward',1,facing.layout]]);
  assert.equal(events[0].departure.visiblePages,1);assert.equal(events[0].departure.pageUnit,'screen');
  assert.ok(events[0].departure.upper>events[0].departure.lower,'both columns retain actual content coordinates');
- assert.match(await page.locator('#position-label').textContent(),/^Page \d+ of \d+ · Chapter 1$/);
+ assert.match(await page.locator('#position-label').textContent(),/^Page \d+ of \d+(?: · Chapter \d+ · Calculating book pages…)?$/);
  await page.evaluate(()=>window.StillleafReader.previous());await page.waitForTimeout(150);
  assert.deepEqual((await take()).map(e=>[e.direction,e.pages]),[['backward',1]]);
  await page.evaluate(()=>window.StillleafReader.setPreferences({columns:'one'}));await settle();

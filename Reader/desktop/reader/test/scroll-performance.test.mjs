@@ -21,7 +21,7 @@ test('settled continuous scrolling does not restore layout or accumulate wheel t
  await page.goto(`http://127.0.0.1:${server.address().port}/index.html`);await page.waitForFunction(()=>window.StillleafReader);
  await page.evaluate(input=>window.StillleafReader.open(input),book);await page.waitForTimeout(1000);
  const initialLabel=await page.locator('#position-label').textContent();
- assert.match(initialLabel,/^Page 1 of \d+ · Chapter 1$/);
+ assert.match(initialLabel,/^Page 1 of \d+(?: · Chapter \d+ · Calculating book pages…)?$/);
  assert.match(await page.locator('#chapter-label').textContent(),/^\d+ pages? left in chapter$/);
  const result=await page.evaluate(async()=>{
   const flow=document.querySelector('#reader'),frame=flow.querySelector('iframe');
@@ -50,7 +50,7 @@ test('settled continuous scrolling does not restore layout or accumulate wheel t
  await page.evaluate(()=>window.StillleafReader.go({href:'c0.html',type:'text/html',locations:{fragments:['p0']}}));
  await page.waitForTimeout(200);
  const start=await page.locator('#position-label').textContent(),total=Number(start.match(/of (\d+)/)?.[1]),chapterStart=await page.evaluate(()=>StillleafReader.bookmark().locations.progression);
- assert.match(start,/^Page 1 of \d+ · Chapter 1$/);assert.ok(total>2);
+ assert.match(start,/^Page 1 of \d+(?: · Chapter \d+ · Calculating book pages…)?$/);assert.ok(total>2);
  await page.evaluate(()=>window.StillleafReader.next());
  assert.ok(await page.evaluate(start=>StillleafReader.bookmark().locations.progression>start,chapterStart),'screen turn advances actual location even within one reference page');
  assert.equal(Number((await page.locator('#position-label').textContent()).match(/of (\d+)/)?.[1]),total);
@@ -62,7 +62,7 @@ test('settled continuous scrolling does not restore layout or accumulate wheel t
  await page.evaluate(()=>window.StillleafReader.go({href:'c0.html',type:'text/html',locations:{fragments:['p0']}}));
  await page.waitForTimeout(250);
  const facingStart=await page.locator('#position-label').textContent(),facingChapter=await page.evaluate(()=>StillleafReader.bookmark().locations.progression);
- assert.match(facingStart,/^Page 1 of \d+ · Chapter 1$/);
+ assert.match(facingStart,/^Page 1 of \d+(?: · Chapter \d+ · Calculating book pages…)?$/);
  const facingTotal=Number(facingStart.match(/of (\d+)/)?.[1]);assert.ok(facingTotal<total,'a spread counts once and layout recalculates the screen total');
  await page.evaluate(()=>window.StillleafReader.next());
  assert.ok(await page.evaluate(start=>StillleafReader.bookmark().locations.progression>start,facingChapter));
