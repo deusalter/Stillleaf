@@ -4,7 +4,7 @@ export class ScreenPaginationIndex {
   this.measure=measure;this.idle=idle;this.changed=changed;this.cache=new Map();this.generation=0;this.queue=Promise.resolve();this.counts=[];
  }
  configure(key,length){
-  if(this.key===key)return;
+  if(this.key===key){if(this.controller?.signal.aborted)this.start();return;}
   this.cancel();this.key=key;
   this.counts=this.cache.get(key)?.slice()??Array(length).fill(null);
   this.cache.delete(key);this.cache.set(key,this.counts);
