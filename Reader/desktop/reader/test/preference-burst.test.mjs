@@ -8,8 +8,11 @@ import {webkit} from 'playwright';
 test('rapid preferences coalesce to the final merged layout and retain the reading anchor',{timeout:60000},async t=>{
  const root=path.resolve(import.meta.dirname,'../dist');
  const server=createServer(async(req,res)=>{try{const file=path.resolve(root,'.'+new URL(req.url,'http://localhost').pathname);if(!file.startsWith(root+path.sep))throw Error();res.setHeader('Content-Type',{'.html':'text/html','.js':'text/javascript','.css':'text/css'}[path.extname(file)]??'application/octet-stream');res.end(await readFile(file))}catch{res.writeHead(404).end()}});
- await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));const browser=await webkit.launch();
- t.after(async()=>{await browser.close();await new Promise(resolve=>server.close(resolve))});
+ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+ // Register server cleanup before browser setup, which can fail on a fresh CI host.
+ t.after(()=>new Promise(resolve=>{server.close(resolve);server.closeAllConnections()}));
+ const browser=await webkit.launch();
+ t.after(()=>browser.close());
  const page=await browser.newPage({viewport:{width:1000,height:800},reducedMotion:'reduce'});
  await page.goto(`http://127.0.0.1:${server.address().port}/index.html`);await page.waitForFunction(()=>window.StillleafReader);
  const html='<html><body>'+Array.from({length:200},(_,i)=>`<p id="p${i}">The river ${i} crossed the valley. She opened the book beneath the shade and began reading.</p>`).join('')+'</body></html>';

@@ -11,8 +11,11 @@ const prose='The ferry crossed slowly while gulls kept pace with the wake. She r
 
 test('continuous progress measures visible text only and coalesces host updates',{timeout:60000},async t=>{
  const server=createServer(async(req,res)=>{try{const file=path.resolve(root,'.'+new URL(req.url,'http://localhost').pathname);if(!file.startsWith(root+path.sep))throw Error();res.setHeader('Content-Type',{'.html':'text/html','.js':'text/javascript','.css':'text/css'}[path.extname(file)]??'application/octet-stream');res.end(await readFile(file))}catch{res.writeHead(404).end()}});
- await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));const browser=await webkit.launch({headless:true});
- t.after(async()=>{await browser.close();await new Promise(resolve=>server.close(resolve))});
+ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+ // Register server cleanup before browser setup, which can fail on a fresh CI host.
+ t.after(()=>new Promise(resolve=>{server.close(resolve);server.closeAllConnections()}));
+ const browser=await webkit.launch({headless:true});
+ t.after(()=>browser.close());
  const page=await browser.newPage({viewport:{width:1000,height:800}});
  await page.goto(`http://127.0.0.1:${server.address().port}/index.html`);await page.waitForFunction(()=>window.StillleafReader);
  await page.evaluate(()=>{window.positions=[];window.addEventListener('stillleaf-reader-event',event=>{if(event.detail.type==='position')window.positions.push(event.detail.position)})});

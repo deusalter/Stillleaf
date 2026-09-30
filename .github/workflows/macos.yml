@@ -23,12 +23,14 @@ jobs:
       - name: Build reader renderer next to the release binary
         id: reader-assets
         run: scripts/build-reader-assets.sh .build/release
-      - name: Renderer tests (headless Chrome)
+      - name: Install headless WebKit
+        working-directory: Reader/desktop/reader
+        run: npx playwright install webkit
+      - name: Renderer tests (headless Chrome and WebKit)
         run: npm --prefix Reader/desktop/reader test
       - name: Reader geometry and XHTML (headless WebKit)
         working-directory: Reader/desktop/reader
         run: |
-          npx playwright install webkit
           READER_TEST_BROWSER=webkit SLIDE_BROWSER=webkit node --test --test-concurrency=1 test/visible-text.test.mjs test/visible-anchor.test.mjs test/render-stability.test.mjs test/page-slide.test.mjs test/continuous-geometry.test.mjs test/preference-burst.test.mjs test/appearance-controls.test.mjs
       - name: Native date-field semantics (offscreen)
         run: |
