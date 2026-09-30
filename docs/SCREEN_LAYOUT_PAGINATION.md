@@ -23,10 +23,13 @@ keyboard or accessibility input; its frames remain outside the live reader.
 Probes have no annotation decorators, selection callbacks, state callbacks or
 reading-evidence listeners. Every annotation/frame query remains scoped to the
 live `#reader`. They cannot steal keyboard focus. A changed layout aborts stale
-measurements; closing waits for probe disposal before revoking publication
-resources. Continuous content mutations and publication resource completion
-invalidate affected live measurements; paginated resource changes update the
-constant-cost screen extent. Note-only saves retain cached highlight ranges;
+measurements. Each probe owns an independent resource view with cancellable
+requests; close aborts its work and bounds renderer teardown even if a frame
+handshake never completes. Late continuations cannot access the live owner.
+Continuous probes share the live scroll container CSS, including scrollbar
+geometry. Content mutations and publication resource completion invalidate
+affected measurements. Paginated counts become calculating as fonts or images
+start loading, then update after assets settle using the constant-cost extent. Note-only saves retain cached highlight ranges;
 highlight styles do not invalidate publication geometry.
 
 Displayed whole-book pages are independent of durable locators and native
@@ -37,6 +40,7 @@ no reading turns and rewrite no historical evidence or annotations.
 Tests cover unequal chapter counts, odd spreads, cache reuse, stale font/viewport
 generations, incomplete resources, both renderer modes, actual two-chapter
 Readium totals, narrow facing fallback, continuous measured totals, focus,
-closing during a probe and switching books. The native smoke additionally
+closing during a deliberately stalled resource, switching books, asset-start
+invalidation and live/probe scrollbar geometry. The native smoke additionally
 checks rejected-save close cancellation and autosaved durable close. Synthetic
 cloud tests do not replace the user's final test with their own EPUBs on macOS.

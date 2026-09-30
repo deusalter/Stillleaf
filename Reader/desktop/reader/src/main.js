@@ -44,20 +44,21 @@ function paginationLayout(){
 function assetsSettled(doc){return doc?.body&&doc.fonts.status!=='loading'&&[...doc.images].every(image=>image.complete)}
 async function measureChapterScreens(book,owner,chapter,signal,key){
  const layout=JSON.parse(key),link=book.readingOrder[chapter];
+ const resourcesController=new AbortController(),resources=owner.fork(resourcesController.signal);
  const host=document.createElement('div');host.className='pagination-probe';host.inert=true;host.setAttribute('aria-hidden','true');
  host.style.width=layout.width+'px';host.style.height=layout.height+'px';
  const container=document.createElement('div');container.style.height='100%';host.append(container);document.body.append(host);
  let probe,timer;
- let rejectAbort;const onAbort=()=>rejectAbort(new DOMException('Stale pagination','AbortError'));
- const aborted=new Promise((_,reject)=>{rejectAbort=reject;signal.addEventListener('abort',onAbort,{once:true});timer=setTimeout(()=>reject(Error('Chapter layout did not settle')),12000)});
+ let rejectAbort;const onAbort=()=>{resourcesController.abort();rejectAbort(new DOMException('Stale pagination','AbortError'))};
+ const aborted=new Promise((_,reject)=>{rejectAbort=reject;signal.addEventListener('abort',onAbort,{once:true});timer=setTimeout(()=>{resourcesController.abort();reject(Error('Chapter layout did not settle'))},12000)});
  try{
   if(signal.aborted)throw new DOMException('Stale pagination','AbortError');
   const measuring=(async()=>{
    if(layout.continuous){
-    probe=new ContinuousNavigator(container,{...book,readingOrder:[link]},owner,{},null,layout.settings);
+    probe=new ContinuousNavigator(container,{...book,readingOrder:[link]},resources,{},null,layout.settings);
    }else{
     const manifest=Manifest.deserialize({metadata:{title:book.title??'Untitled',language:book.languages??book.language??'en',readingProgression:book.readingProgression,conformsTo:['https://readium.org/webpub-manifest/profiles/epub']},readingOrder:[{...link,type:'text/html'}]});
-    const publication=new Publication({manifest,fetcher:new PublicationFetcher(owner)});
+    const publication=new Publication({manifest,fetcher:new PublicationFetcher(resources)});
     const locator=Locator.deserialize({...link,type:'text/html',locations:{position:1,progression:0,totalProgression:0}});
     probe=new EpubNavigator(container,publication,{},[locator],undefined,{preferences:layout.settings,defaults:{}});
    }
@@ -81,29 +82,38 @@ async function measureChapterScreens(book,owner,chapter,signal,key){
  }finally{
   clearTimeout(timer);
   signal.removeEventListener('abort',onAbort);
+  resourcesController.abort();
   // Disconnect resize before the frame handshake, as for live navigators.
-  try{await destroyNavigator(probe)}finally{host.remove()}
+  // Readium may await an in-progress frame handshake indefinitely. Its cleanup
+  // starts immediately, but cannot hold close hostage. The independent resource
+  // view is aborted/closed, so a late continuation cannot access the live owner.
+  try{await Promise.race([Promise.resolve(destroyNavigator(probe)).catch(()=>{}),delay(400)])}finally{host.remove();resources.close()}
  }
 }
 function observeChapterPages(wnd,generation){
  if(navigator?.kind==='continuous')return;
  const href=navigator?.currentLocator?.href??lastLocator?.href;
  const chapter=input.readingOrder.findIndex(link=>link.href===href);
- let previous,pending=0;const doc=wnd.document;
+ let previous,previousExtent,pending=0,invalidated=false;const doc=wnd.document;
+ const live=()=>generation===lifecycle&&state&&[...$('reader').querySelectorAll('iframe')].some(frame=>frame.contentWindow===wnd);
+ const extent=()=>state.preferences.scroll?doc.scrollingElement.scrollHeight:doc.scrollingElement.scrollWidth;
+ const invalidate=()=>{if(!live()||invalidated)return;invalidated=true;quietUntil=performance.now()+800;screenIndex?.invalidate(chapter)};
  const measure=()=>{
-  pending=0;if(generation!==lifecycle||!state||reflowCount||resizing)return;
-  const root=doc.scrollingElement;if(!root||!assetsSettled(doc))return;
+  pending=0;if(!live()||reflowCount||resizing)return;
+  const root=doc.scrollingElement;if(!root)return;
+  if(!assetsSettled(doc)){invalidate();return;}
   const count=screenPages(state.preferences.scroll?{extent:root.scrollHeight,viewport:wnd.innerHeight}:{extent:root.scrollWidth,viewport:wnd.innerWidth})?.total;
   if(previous!==undefined&&count!==previous){quietUntil=performance.now()+800;screenIndex?.record(chapter,count);refreshPosition()}
-  previous=count;
+  previous=count;previousExtent=extent();invalidated=false;refreshPosition();
  };
  const schedule=()=>{if(!pending)pending=requestAnimationFrame(measure)};
- const resource=event=>{if(['IMG','LINK'].includes(event.target?.tagName))schedule()};
+ const loading=()=>{invalidate();schedule()};
+ const resource=event=>{if(['IMG','LINK'].includes(event.target?.tagName))loading()};
  // Readium decoration changes can touch the body; compare the constant-cost
  // screen extent before updating counts, rather than rescanning its text.
- const observer=new MutationObserver(schedule);observer.observe(doc.body,{subtree:true,childList:true,attributes:true,characterData:true});
- doc.fonts.addEventListener('loadingdone',schedule);doc.addEventListener('load',resource,true);doc.addEventListener('error',resource,true);schedule();
- pageLayoutObservers.set(wnd,()=>{observer.disconnect();cancelAnimationFrame(pending);doc.fonts.removeEventListener('loadingdone',schedule);doc.removeEventListener('load',resource,true);doc.removeEventListener('error',resource,true)});
+ const observer=new MutationObserver(()=>{if(!live())return;if(!assetsSettled(doc)||previousExtent!==extent())invalidate();schedule()});observer.observe(doc.body,{subtree:true,childList:true,attributes:true,characterData:true});
+ doc.fonts.addEventListener('loading',loading);doc.fonts.addEventListener('loadingdone',schedule);doc.fonts.addEventListener('loadingerror',schedule);doc.addEventListener('load',resource,true);doc.addEventListener('error',resource,true);schedule();
+ pageLayoutObservers.set(wnd,()=>{observer.disconnect();cancelAnimationFrame(pending);doc.fonts.removeEventListener('loading',loading);doc.fonts.removeEventListener('loadingdone',schedule);doc.fonts.removeEventListener('loadingerror',schedule);doc.removeEventListener('load',resource,true);doc.removeEventListener('error',resource,true)});
 }
 const annotationUI=new AnnotationUI({popup:$('selection-tools'),layer:$('annotation-margins'),viewport:$('reader'),
  frames:()=>navigator?.kind==='continuous'?navigator.entries.filter(e=>e.frame).map(e=>({frame:e.frame,href:e.link.href})):[...$('reader').querySelectorAll('iframe')].filter(f=>getComputedStyle(f).visibility!=='hidden').map(frame=>({frame,href:lastLocator?.href})),
@@ -206,7 +216,8 @@ function updatePosition(){
   nativePosition=contentPosition(pages,left===0);
   emit('position',{position:nativePosition});
  }
- const bookScreens=!reflowCount&&!resizing?screenIndex?.pages(chapter,pages):null;
+ const displayFrame=navigator?.kind==='continuous'?navigator.entries.find(entry=>entry.index===chapter)?.frame:[...$('reader').querySelectorAll('iframe')].find(frame=>getComputedStyle(frame).visibility!=='hidden');
+ const bookScreens=!reflowCount&&!resizing&&assetsSettled(displayFrame?.contentDocument)?screenIndex?.pages(chapter,pages):null;
  const label=bookScreens?pageLabel(bookScreens):pages?`${pageLabel(pages)} · Chapter ${chapter+1} · Calculating book pages…`:'Calculating book pages…';
  if($('position-label').textContent!==label)$('position-label').textContent=label;
  $('position-label').title=heading+' · One page is one full reading screen. Whole-book counts update with layout.';
