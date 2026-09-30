@@ -38,6 +38,11 @@ async function snapshot(reader, track, offset) {
   frame.style.width = `${source.clientWidth}px`; frame.style.height = `${source.clientHeight}px`;
   track.append(frame);
   const original = source.contentDocument, doc = frame.contentDocument;
+  // A fresh about:blank iframe is quirks-mode. Match the live document before
+  // importing its tree: identical CSS in a different mode changes column breaks.
+  doc.open();
+  doc.write(original.compatMode === 'CSS1Compat' ? '<!doctype html><html><head></head><body></body></html>' : '<html><head></head><body></body></html>');
+  doc.close();
   const root = doc.importNode(original.documentElement, true);
   // Cloned publication markup is already sanitized. Do not clone engine scripts.
   root.querySelectorAll('script').forEach(script => script.remove());

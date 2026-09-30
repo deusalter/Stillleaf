@@ -4,6 +4,17 @@ import {Resource} from '@readium/shared';
 const htmlTypes=new Set(['application/xhtml+xml','text/html']);
 const assetTypes=new Set(['image/png','image/jpeg','image/gif','image/webp','font/woff','font/woff2','font/ttf','font/otf','font/sfnt','font/opentype','font/truetype','application/font-woff','application/vnd.ms-opentype','application/font-sfnt','application/x-font-ttf','application/x-font-otf','application/x-font-opentype','application/x-font-truetype','application/x-font-woff','application/font-ttf','application/font-otf']);
 function sanitizedDocument(source){return new DOMParser().parseFromString(DOMPurify.sanitize(source,{WHOLE_DOCUMENT:true,USE_PROFILES:{html:true},ADD_TAGS:['link'],ADD_ATTR:['rel'],FORBID_TAGS:['script','base','meta','iframe','object','embed','form','input','button','textarea','select'],FORBID_ATTR:['srcset','ping','target']}),'text/html')}
+// EPUB XHTML permits self-closing non-void elements (for example page anchors).
+// Serialize its XML tree through an HTML document before the HTML sanitizer or
+// SVG-cover adapter sees it, otherwise <a id="page"/> swallows following prose.
+function htmlSource(source,type){
+ if(type!=='application/xhtml+xml')return source;
+ const xml=new DOMParser().parseFromString(source,'application/xhtml+xml');
+ if(xml.querySelector('parsererror'))return source; // Retain the existing malformed-book fallback.
+ const html=document.implementation.createHTMLDocument('');
+ html.replaceChild(html.importNode(xml.documentElement,true),html.documentElement);
+ return '<!doctype html>'+html.documentElement.outerHTML;
+}
 const XLINK='http://www.w3.org/1999/xlink';
 /** Calibre-style covers wrap a single raster in `<svg><image/></svg>`. The HTML-only sanitizer
  *  drops SVG, which left a blank first page, so turn that wrapper into a plain `<img>`. */
@@ -107,7 +118,7 @@ export class PublicationResources {
  async chapter(href){
   const item=this.map.get(href);if(!item||!htmlTypes.has(item.type))throw Error('Only HTML EPUB chapters are supported in this build');
   if(this.chapters.has(href)){const html=this.chapters.get(href);this.chapters.delete(href);this.chapters.set(href,html);return html}
-  const source=unwrapSvgImages(new TextDecoder().decode(await this.read(href)));
+  const source=unwrapSvgImages(htmlSource(new TextDecoder().decode(await this.read(href)),item.type));
   let html=null;
   for(let round=0;round<MAX_PRELOAD_ROUNDS&&html===null;round++){
    let needed,result;this.pending=new Set();
@@ -125,7 +136,7 @@ export class PublicationResources {
   * Its sanitizer matches the displayed document; release bytes after counting. */
  async textLength(href){
   const item=this.map.get(href);if(!item||!htmlTypes.has(item.type))throw Error('Unsupported content index resource');
-  const doc=sanitizedDocument(unwrapSvgImages(new TextDecoder().decode(await this.read(href))));
+  const doc=sanitizedDocument(unwrapSvgImages(htmlSource(new TextDecoder().decode(await this.read(href)),item.type)));
   for(const node of doc.body.querySelectorAll('script,style'))node.remove();
   const length=doc.body.textContent.length;this.release(item);return length;
  }

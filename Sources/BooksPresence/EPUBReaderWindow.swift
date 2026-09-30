@@ -378,6 +378,7 @@ func runEPUBReaderSmoke(fixture: URL) async throws {
     guard try await reader.testFixtureAssets() else {
         throw EPUBImportError.invalid("Chapter stylesheet or image did not load through the reader scheme.")
     }
+    try await reader.testRenderStability()
     try await reader.testPageEvidence()
     if let index = CommandLine.arguments.firstIndex(of: "--reader-artifacts"), index + 1 < CommandLine.arguments.count {
         try await reader.testRenderReviewSnapshots(directory: URL(fileURLWithPath: CommandLine.arguments[index + 1]))
@@ -532,6 +533,45 @@ private extension EPUBReaderWindow {
         if let index = CommandLine.arguments.firstIndex(of: "--reader-artifacts"), index + 1 < CommandLine.arguments.count {
             try Data(metrics.utf8).write(to: URL(fileURLWithPath: CommandLine.arguments[index + 1]).appendingPathComponent("native-experimental-continuous-metrics.json"))
         }
+    }
+    /// Synthetic fixture only: real WKWebView must preserve XHTML targets and the
+    /// exact page geometry when the animation overlay reveals its live document.
+    func testRenderStability() async throws {
+        let script = """
+        const api=window.StillleafReader;
+        const frame=()=>[...document.querySelectorAll('#reader iframe')].find(f=>getComputedStyle(f).visibility!=='hidden'&&f.contentDocument?.body);
+        if(!frame()?.contentDocument.getElementById('fixture-page'))return 'fixture markers absent';
+        const saved=api.exportState(),pause=ms=>new Promise(r=>setTimeout(r,ms));
+        const require=(ok,message)=>{if(!ok)throw Error(message)};
+        await api.setPreferences({theme:'original',fontFamily:'sans',fontSize:1.3,scroll:false,columns:'one'});
+        await api.go({href:saved.position.href,type:'text/html',locations:{progression:0}});
+        let f=frame(),d=f.contentDocument,p=d.getElementById('fixture-prose');
+        require(!p.closest('a')&&d.getElementById('fixture-page').textContent==='', 'XHTML destination swallowed prose');
+        require(f.contentWindow.getComputedStyle(p).color===f.contentWindow.getComputedStyle(d.body).color, 'Publisher link style colored prose');
+        require(d.querySelector('a[href*="#note-one"]'), 'Footnote link was lost');
+        if(matchMedia('(prefers-reduced-motion: reduce)').matches){await api.setPreferences(saved.preferences);await api.go(saved.position);return 'anchor checks passed; slide skipped for Reduced Motion'};
+        const turn=api.next();let animation;
+        const deadline=performance.now()+5000;
+        while(performance.now()<deadline){animation=document.querySelector('.page-slide-track')?.getAnimations().find(a=>a.playState==='running');if(animation)break;await pause(10)}
+        require(animation,'No page-slide animation for fixture');
+        animation.pause();animation.currentTime=animation.effect.getTiming().duration;
+        await new Promise(requestAnimationFrame);
+        const copy=[...document.querySelectorAll('.page-slide-snapshot')].at(-1);f=frame();
+        const geometry=frame=>{const d=frame.contentDocument,r=frame.getBoundingClientRect();return {mode:d.compatMode,host:[r.x,r.y],rects:[...d.querySelectorAll('h1,p')].map(p=>{const r=p.getBoundingClientRect();return [r.x,r.y,r.width,r.height]})}};
+        const live=geometry(f),snapshot=geometry(copy);
+        require(live.mode===snapshot.mode&&live.mode==='CSS1Compat','Snapshot document mode differs');
+        require(live.host.every((v,i)=>Math.abs(v-snapshot.host[i])<1),'Snapshot frame position differs');
+        require(live.rects.length===snapshot.rects.length&&live.rects.every((r,i)=>r.every((v,j)=>Math.abs(v-snapshot.rects[i][j])<1)),'Snapshot text geometry differs');
+        animation.finish();await turn;await pause(100);
+        const revealed=geometry(frame());
+        require(live.rects.every((r,i)=>r.every((v,j)=>Math.abs(v-revealed.rects[i][j])<1)),'Text moved after animation');
+        await api.setPreferences(saved.preferences);await api.go(saved.position);
+        return 'XHTML anchor styling and snapshot/live text geometry passed';
+        """
+        let result: Any = try await withCheckedThrowingContinuation { continuation in
+            webView.callAsyncJavaScript(script, arguments: [:], in: nil, in: .page) { result in continuation.resume(with: result) }
+        }
+        print("epub-reader-render-stability: " + String(describing: result))
     }
     /// A deliberate turn must reach the host as actual chapter geometry.
     func testPageEvidence() async throws {
