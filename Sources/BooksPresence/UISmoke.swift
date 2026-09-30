@@ -15,6 +15,8 @@ func runUISmoke() throws {
     try checkHistoryRefreshPerformance(at: root.appendingPathComponent("performance"))
     try seedUISmokeHistory(at: root)
     let model = try AppModel(support: root, defaults: defaults, startTracking: false)
+    guard let atlasSource = model.historyAtlasSource else { throw BooksAccessErrorForUI.failed("History source was not published") }
+    try runHistoryAtlasNavigationSmoke(source: atlasSource)
     guard model.manualPages(forBookID: "smoke-pages-a") == 7 else {
         throw BooksAccessErrorForUI.failed("Manual page corrections were not exposed to the journal")
     }

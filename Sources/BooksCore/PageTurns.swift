@@ -130,6 +130,7 @@ public enum PageStatistics {
             let bookID: String
             let sessionID: String
             let pages: Int
+            let manual: Bool
         }
         private let resolver: MergeResolver
         private let entries: [Entry]
@@ -142,7 +143,8 @@ public enum PageStatistics {
             let entries = PageStatistics.qualified(events: events, effectiveIntervals: effectiveIntervals, merges: merges,
                 from: nil, through: nil, bookID: nil, sessionID: nil).compactMap { item -> Entry? in
                     guard let bookID = item.event.bookID, let sessionID = item.event.sessionID else { return nil }
-                    return Entry(date: item.event.date, bookID: resolver.resolve(bookID), sessionID: sessionID, pages: item.pages)
+                    return Entry(date: item.event.date, bookID: resolver.resolve(bookID), sessionID: sessionID,
+                        pages: item.pages, manual: item.event.pageAdjustment != nil)
                 }
             self.entries = entries
             byBook = Dictionary(grouping: entries, by: \.bookID)
@@ -186,7 +188,8 @@ public enum PageStatistics {
         }
 
         public func pages(from: Date? = nil, through: Date? = nil, bookID: String? = nil,
-                          sessionID: String? = nil, within selectedIntervals: [ReadingInterval]? = nil) -> Int {
+                          sessionID: String? = nil, within selectedIntervals: [ReadingInterval]? = nil,
+                          manualOnly: Bool = false) -> Int {
             if let from, let through, through < from { return 0 }
             let requestedBook = bookID.map(resolver.resolve)
             let candidates: [Entry]
@@ -196,11 +199,39 @@ public enum PageStatistics {
             let selected = selectedIntervals.map { PageIntervalIndex(intervals: $0, resolve: resolver.resolve) }
             return candidates.reduce(0) { total, entry in
                 guard sessionID.map({ entry.sessionID == $0 }) ?? true,
+                      !manualOnly || entry.manual,
                       from.map({ entry.date >= $0 }) ?? true,
                       through.map({ entry.date < $0 }) ?? true,
                       selected?.contains(bookID: entry.bookID, sessionID: entry.sessionID, date: entry.date) ?? true else { return total }
                 return total + entry.pages
             }
+        }
+
+        /// One pass over already-qualified evidence for a visible calendar period.
+        /// Deduplication remains global; filtering never requalifies earlier pages.
+        public func atlasTotals(period: DateInterval, timezoneID: String) -> AtlasPageTotals {
+            var result = AtlasPageTotals()
+            let calendar = PageStatistics.calendar(timezoneID)
+            var boundaries: [(end: Date, key: String)] = []
+            var start = calendar.startOfDay(for: period.start)
+            while start < period.end {
+                guard let end = calendar.date(byAdding: .day, value: 1, to: start), end > start else { break }
+                boundaries.append((end, PageStatistics.dayKey(start, timezoneID: timezoneID)))
+                start = end
+            }
+            guard !boundaries.isEmpty else { return result }
+            // Snapshot entries are chronological. Move through civil boundaries
+            // once, avoiding a timezone/calendar conversion for every page event.
+            var index = 0
+            for entry in entries where entry.date >= period.start && entry.date < period.end {
+                while index + 1 < boundaries.count, entry.date >= boundaries[index].end { index += 1 }
+                let key = boundaries[index].key
+                result.pages += entry.pages
+                result.byBook[entry.bookID, default: 0] += entry.pages
+                result.byDay[key, default: 0] += entry.pages
+                result.byDayBook[key, default: [:]][entry.bookID, default: 0] += entry.pages
+            }
+            return result
         }
     }
 

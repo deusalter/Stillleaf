@@ -3,6 +3,7 @@ import BooksCore
 
 /// Immutable presentation computed entirely from one committed archive.
 struct HistoryPresentation {
+    let atlasSource: HistoryAtlasSource
     let books: [BookRecord]
     let intervals: [ReadingInterval]
     let events: [AuditEvent]
@@ -79,6 +80,9 @@ struct HistoryPresentation {
         let annualBooksFinished = ReadingGoals.finishedCount(year: goalYear, timezoneID: timezoneID,
             books: books, events: archive.events, merges: merges)
         let finishedBooks = BookHistory.completedBooks(books: books, events: archive.events)
+        atlasSource = HistoryAtlasSource(books: books, intervals: intervals, events: events, progress: progress,
+            merges: merges, finishedBooks: finishedBooks, pageEvidence: pageEvidence,
+            breakBeforeIntervalIDs: sessionBreakIDs)
         self.books = books
         self.intervals = intervals
         self.events = events

@@ -39,6 +39,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var pageStreak = StreakSummary(current: 0, longest: 0, todayPending: true, provisional: false)
     @Published private(set) var pageDays: [DailyPageTotal] = []
     @Published private(set) var finishedBooks: [FinishedBookEntry] = []
+    @Published private(set) var historyAtlasSource: HistoryAtlasSource?
     @Published private(set) var pendingCompletion: FinishedBookEntry?
     @Published private(set) var pendingCompletionEventID: String?
     @Published private(set) var appleHistoryStatus = "Reading Apple Books history…"
@@ -899,6 +900,7 @@ final class AppModel: ObservableObject {
         annualBookGoal = prepared.annualBookGoal
         annualBooksFinished = prepared.annualBooksFinished
         finishedBooks = prepared.finishedBooks
+        historyAtlasSource = prepared.atlasSource
         sessionPages = snapshot.sessionID.map { pages(forSessionID: $0) } ?? 0
         if let pending = pendingCompletion { pendingCompletion = finishedBooks.first { $0.id == pending.id } }
         lastRefresh = Date()
