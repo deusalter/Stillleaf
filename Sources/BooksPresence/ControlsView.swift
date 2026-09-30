@@ -142,7 +142,7 @@ struct HealthView: View {
                 if showsHeading { PageHeader("Troubleshooting", subtitle: nil) }
                 VStack(alignment: .leading, spacing: 18) {
                     HStack(spacing: 14) {
-                        Image(systemName: model.accessibilityGranted ? "checkmark.shield" : "lock.shield")
+                        Image(systemName: "book.pages")
                             .font(.system(size: 24, weight: .medium)).foregroundStyle(ReadingPalette.moss)
                             .frame(width: 52, height: 52)
                             .background(ReadingPalette.moss.opacity(0.09), in: RoundedRectangle(cornerRadius: 16))
@@ -154,16 +154,21 @@ struct HealthView: View {
                         Button { model.refresh() } label: { Image(systemName: "arrow.clockwise") }
                             .buttonStyle(ReadingButtonStyle(iconOnly: true)).accessibilityLabel("Refresh tracking status")
                     }
-                    HStack(spacing: 30) {
-                        LabeledValue(label: "Accessibility", value: model.accessibilityGranted ? "Allowed" : "Needs access")
-                        LabeledValue(label: "Last reading captured", value: ReadingFormat.date(model.lastCapture))
-                    }
-                    HStack(spacing: 10) {
-                        if !model.accessibilityGranted {
-                            Button("Enable tracking access") { model.requestAccessibility() }
-                                .buttonStyle(ReadingButtonStyle(emphasis: .primary))
-                        }
-                        Button("Accessibility settings") { model.openAccessibilitySettings() }
+                    Text("Stillleaf’s reader records progress and active reading time without Accessibility access.")
+                        .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
+                    DisclosureGroup("Optional Apple Books integration") {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Accessibility is required only to track the book and page number shown in Apple Books.")
+                                .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
+                            LabeledValue(label: "Apple Books tracking access", value: model.accessibilityGranted ? "Allowed" : "Not allowed")
+                            LabeledValue(label: "Last Apple Books capture", value: ReadingFormat.date(model.lastCapture))
+                            HStack(spacing: 10) {
+                                if !model.accessibilityGranted {
+                                    Button("Allow Apple Books access") { model.requestAccessibility() }
+                                }
+                                Button("Accessibility settings") { model.openAccessibilitySettings() }
+                            }
+                        }.padding(.top, 10)
                     }
                     DisclosureGroup("More details") {
                         Text(model.health.isEmpty ? "No additional tracking details yet." : model.health)
@@ -274,6 +279,7 @@ struct SettingsView: View {
     @State private var applyFeedback: String?
     @State private var applyFailed = false
     @State private var showAdvancedReading = false
+    @State private var showAppleBooksSetup = false
     @State private var showDiscordConnection = false
     @State private var showRemoval = false
 
@@ -398,12 +404,27 @@ struct SettingsView: View {
             }
             ReadingSection("Tracking") {
                 VStack(spacing: 0) {
-                    if model.automaticTrackingNeedsAccess {
-                        permissionNotice.padding(.bottom, 12)
+                    SettingRow(icon: "book.closed", title: "Track reading", description: "Record active reading time and progress in Stillleaf and supported readers.") {
+                        Toggle("Track reading", isOn: trackingBinding).labelsHidden().toggleStyle(.switch)
                     }
-                    SettingRow(icon: "book.closed", title: "Track Apple Books", description: "Record reading automatically on this Mac.") {
-                        Toggle("Track Apple Books", isOn: trackingBinding).labelsHidden().toggleStyle(.switch)
+                    DisclosureGroup(isExpanded: $showAppleBooksSetup) {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Stillleaf’s reader records page coverage, progress and active reading time without Accessibility access. Allow access here only if you want to track reading in Apple Books.")
+                                .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
+                                .fixedSize(horizontal: false, vertical: true)
+                            if !model.accessibilityGranted {
+                                permissionNotice
+                            } else {
+                                Label("Apple Books tracking access allowed", systemImage: "checkmark.shield")
+                                    .font(.caption).foregroundStyle(ReadingPalette.accent)
+                            }
+                            Button("Apple Books Accessibility settings") { model.openAccessibilitySettings() }
+                                .controlSize(.small)
+                        }.padding(.top, 12)
+                    } label: {
+                        Text("Optional Apple Books integration").font(.callout.weight(.medium))
                     }
+                    .padding(.vertical, 14)
                     settingDivider
                     SettingRow(icon: "power", title: "Open at login", description: "") {
                         Toggle("Open at login", isOn: launchAtLoginBinding).labelsHidden().toggleStyle(.switch)
@@ -445,11 +466,11 @@ struct SettingsView: View {
             Image(systemName: "accessibility").foregroundStyle(ReadingPalette.warning)
             VStack(alignment: .leading, spacing: 4) {
                 Text("Apple Books access").font(.headline)
-                Text("Stillleaf needs Accessibility access to read your book's page number.")
+                Text("Accessibility access lets Stillleaf track the open book and page number in Apple Books.")
                     .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
             }
             Spacer()
-            Button("Allow access") { model.requestAccessibility() }
+            Button("Allow Apple Books access") { model.requestAccessibility() }
                 .buttonStyle(ReadingButtonStyle(emphasis: .primary)).controlSize(.small)
         }
         .padding(14)
@@ -460,7 +481,7 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 34) {
             ReadingSection("Discord") {
                 VStack(alignment: .leading, spacing: 0) {
-                    SettingRow(icon: "bubble.left.and.bubble.right", title: "Share reading on Discord", description: "Show your book while its Apple Books reader is open.") {
+                    SettingRow(icon: "bubble.left.and.bubble.right", title: "Share reading on Discord", description: "Show your book while reading in Stillleaf or Apple Books.") {
                         Toggle("Share reading on Discord", isOn: discordBinding).labelsHidden().toggleStyle(.switch)
                     }
                     .help("Switching apps pauses the card for up to 20 minutes. Closing the reader clears it. Exclude individual books in Book details.")

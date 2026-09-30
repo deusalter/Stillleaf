@@ -135,7 +135,7 @@ struct TodayView: View {
 
     private var trackingLabel: String {
         if !model.trackingEnabled { return "Tracking off" }
-        if model.automaticTrackingNeedsAccess { return "Access needed" }
+        if model.appleBooksTrackingNeedsAccess { return "Apple Books access needed" }
         if model.snapshot.phase == .reading { return "Reading now" }
         return "Ready to read"
     }
@@ -266,7 +266,7 @@ private func activityPauseSummary(_ reason: PauseReason?) -> String {
     case .noReadingWindow: return "No active reading window"
     case .locked: return "Mac locked"
     case .displayAsleep: return "Display asleep"
-    case .permissionLost: return "Accessibility access needed"
+    case .permissionLost: return "Apple Books access needed"
     case .excludedBook: return "Book excluded"
     case .stopped: return "Session stopped"
     case .captureFailure: return "Reader needs attention"
@@ -323,7 +323,7 @@ func pauseDescription(_ reason: PauseReason) -> String {
     case .noReadingWindow: return "there is no verified reading window"
     case .locked: return "your Mac is locked"
     case .displayAsleep: return "the display is asleep"
-    case .permissionLost: return "Accessibility permission is unavailable"
+    case .permissionLost: return "Apple Books tracking has no Accessibility permission"
     case .excludedBook: return "this book is excluded from tracking"
     case .stopped: return "the session was stopped"
     case .captureFailure: return "capture did not provide a verified reader"

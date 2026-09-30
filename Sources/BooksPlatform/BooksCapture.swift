@@ -40,7 +40,7 @@ public final class BooksCapture {
         return unsafeBitCast(value, to: AXUIElement.self)
     }
     public func capture() -> CaptureResult {
-        guard Self.isTrusted else { return CaptureResult(pauseReason: .permissionLost, health: "Accessibility access is required for automatic tracking. Manual reading is available.") }
+        guard Self.isTrusted else { return CaptureResult(pauseReason: .permissionLost, health: "Apple Books tracking requires Accessibility access. Stillleaf’s built-in reader records progress and active reading time without it.") }
         guard let app = NSWorkspace.shared.frontmostApplication, app.bundleIdentifier == Self.bundleID else { return CaptureResult(pauseReason: .background, health: "Waiting for an Apple Books reading window.") }
         guard let window = Self.focusedWindow(pid: app.processIdentifier) else { return CaptureResult(pauseReason: .noReadingWindow, health: "Books has no accessible focused reading window.") }
         guard (Self.attribute(window, kAXMinimizedAttribute) as? Bool) == false,

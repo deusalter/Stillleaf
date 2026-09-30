@@ -229,9 +229,9 @@ struct PopoverView: View {
                 Label(pace, systemImage: "gauge.with.dots.needle.50percent")
                     .font(.caption).foregroundStyle(ReadingPalette.fadedInk)
             }
-            if model.automaticTrackingNeedsAccess {
-                PopoverSetupNotice(icon: "accessibility", title: "Allow automatic tracking",
-                    description: "Stillleaf needs Accessibility access.") {
+            if model.appleBooksTrackingNeedsAccess {
+                PopoverSetupNotice(icon: "accessibility", title: "Apple Books tracking needs access",
+                    description: "Accessibility is required only for Apple Books. Stillleaf’s own reader records progress and time without it.") {
                     Button("Allow access") { model.requestAccessibility() }.controlSize(.small)
                 }
             }
@@ -378,7 +378,7 @@ private struct DashboardSidebar: View {
             }
             Spacer(minLength: 28)
             VStack(alignment: .leading, spacing: 6) {
-                if model.automaticTrackingNeedsAccess || model.snapshot.pauseReason == .captureFailure {
+                if model.appleBooksTrackingNeedsAccess || model.snapshot.pauseReason == .captureFailure {
                     Button(action: troubleshoot) {
                         Label(trackingStatus, systemImage: "exclamationmark.circle")
                             .font(.system(size: 11, weight: .medium)).foregroundStyle(ReadingPalette.warning)
@@ -405,7 +405,7 @@ private struct DashboardSidebar: View {
         if model.snapshot.phase == .reading { return "Reading now" }
         if model.snapshot.phase == .uncertain { return "Review suggested" }
         switch model.snapshot.pauseReason {
-        case .permissionLost: return "Access needed"
+        case .permissionLost: return "Apple Books access needed"
         case .background: return "Waiting for Books"
         case .locked, .displayAsleep: return "Tracking paused"
         case .captureFailure: return "Check tracking status"

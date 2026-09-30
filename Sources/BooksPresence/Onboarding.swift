@@ -10,7 +10,7 @@ enum OnboardingStep: Int, CaseIterable, Identifiable {
         case .welcome: return "Welcome"
         case .tour: return "How it works"
         case .goal: return "Daily goal"
-        case .access: return "Automatic tracking"
+        case .access: return "Read in Stillleaf"
         case .appearance: return "Appearance"
         case .ready: return "Ready"
         }
@@ -92,13 +92,14 @@ enum OnboardingMotion {
     static let select = Animation.spring(response: 0.34, dampingFraction: 0.82)
 }
 
-/// First-launch welcome: what Stillleaf does, a daily goal, tracking access,
+/// First-launch welcome: reading in Stillleaf, a daily goal, optional Apple Books setup,
 /// a theme, and where the app lives afterwards. Every step is optional.
 @MainActor
 struct OnboardingView: View {
     @ObservedObject var model: AppModel
     @ObservedObject var flow: OnboardingFlow
     let finish: (OnboardingDestination) -> Void
+    var appleBooksSetupExpanded = false
     @ObservedObject private var theme = ThemeStore.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var navigating = false
@@ -190,7 +191,7 @@ struct OnboardingView: View {
             Text("Changes apply from today. Edit any time in Settings.")
                 .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
         case .access:
-            Text("Optional. Manual reading always works.")
+            Text("Stillleaf records reading without Accessibility access.")
                 .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
         default:
             EmptyView()
@@ -200,7 +201,7 @@ struct OnboardingView: View {
     private var primaryTitle: String {
         switch flow.step {
         case .welcome: return "Get started"
-        case .ready: return "Start reading"
+        case .ready: return "Import EPUBs…"
         default: return "Continue"
         }
     }
@@ -208,7 +209,7 @@ struct OnboardingView: View {
     private func primaryAction() {
         switch flow.step {
         case .ready:
-            finish(.menuBar)
+            finish(.importBooks)
         default:
             if let next = OnboardingStep(rawValue: flow.step.rawValue + 1) { navigate(to: next) }
         }
@@ -247,7 +248,7 @@ struct OnboardingView: View {
         case .welcome: OnboardingWelcomeStep()
         case .tour: OnboardingTourStep()
         case .goal: OnboardingGoalStep(flow: flow)
-        case .access: OnboardingAccessStep(model: model)
+        case .access: OnboardingAccessStep(model: model, appleBooksExpanded: appleBooksSetupExpanded)
         case .appearance: OnboardingAppearanceStep(flow: flow, store: theme)
         case .ready: OnboardingReadyStep(model: model, theme: theme, finish: finish)
         }
@@ -410,7 +411,7 @@ private struct OnboardingWelcomeStep: View {
                     .font(.system(size: 42, weight: .regular, design: .serif)).tracking(-0.8)
                     .accessibilityAddTraits(.isHeader)
                     .onboardingReveal(1)
-                Text("A quiet reading journal for your Mac. Stillleaf keeps time while you read,\nsets gentle goals, and remembers every book you finish.")
+                Text("Import EPUBs and read in Stillleaf. Your progress and active reading time\nare recorded automatically, with your place saved for next time.")
                     .font(.system(size: 15)).foregroundStyle(ReadingPalette.secondaryInk)
                     .multilineTextAlignment(.center).lineSpacing(3)
                     .onboardingReveal(2)
@@ -467,10 +468,10 @@ private struct OnboardingMark: View {
 
 private struct OnboardingTourStep: View {
     private let features: [(symbol: String, title: String, detail: String)] = [
-        ("book.pages", "Follows Apple Books",
-         "With a book open in Apple Books, Stillleaf notices page turns and keeps time for you. Idle stretches wait for your review."),
-        ("text.book.closed", "Reads EPUBs itself",
-         "Import DRM-free EPUBs and read them in Stillleaf’s own reader, with your place kept for every edition."),
+        ("text.book.closed", "Read inside Stillleaf",
+         "Import DRM-free EPUBs. Stillleaf records page coverage and active reading time, and saves your place without extra permissions."),
+        ("book.pages", "Apple Books, optionally",
+         "Prefer Apple Books? Enable Accessibility access in Settings to track its page turns and reading time."),
         ("flame", "Goals and streaks",
          "Set a daily goal in pages or minutes, add an optional yearly books goal, and watch your streak grow."),
         ("calendar", "A calendar of reading",
@@ -488,7 +489,7 @@ private struct OnboardingTourStep: View {
                 }
             }
             .frame(maxWidth: 640)
-            Text("Automatic time is inferred from reading activity. It never reads the words on the page.")
+            Text("Active reading time is inferred from reading activity. Idle stretches wait for your review.")
                 .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
                 .onboardingReveal(6)
         }
@@ -684,31 +685,41 @@ private struct OnboardingGoalStep: View {
 private struct OnboardingAccessStep: View {
     @ObservedObject var model: AppModel
     @State private var requested = false
+    @State private var showingAppleBooks: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    init(model: AppModel, appleBooksExpanded: Bool = false) {
+        self.model = model
+        _showingAppleBooks = State(initialValue: appleBooksExpanded)
+    }
+
     var body: some View {
-        VStack(spacing: 22) {
-            OnboardingTitle(title: "Let Stillleaf follow along",
-                            subtitle: "Automatic tracking uses macOS Accessibility access to see which book is open in Apple Books and its page number.")
-            statusCard.onboardingReveal(2)
-            HStack(alignment: .top, spacing: 14) {
-                privacyColumn(title: "Stillleaf reads", allowed: true, items: [
-                    "Which book is open in Apple Books",
-                    "The page number the reader shows"
-                ])
-                privacyColumn(title: "Stillleaf never reads", allowed: false, items: [
-                    "The words on the page",
-                    "Your screen or other apps"
-                ])
+        ScrollView {
+            VStack(spacing: 20) {
+                OnboardingTitle(title: "Read inside Stillleaf",
+                                subtitle: "Import a DRM-free EPUB and start reading. Stillleaf keeps your place and records page coverage and active reading time automatically.")
+                Label("No Accessibility permission needed", systemImage: "book.pages")
+                    .font(.callout.weight(.medium)).foregroundStyle(ReadingPalette.accent)
+                    .padding(18).frame(width: 560).onboardingGlass()
+                    .onboardingReveal(2)
+                DisclosureGroup(isExpanded: $showingAppleBooks) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Accessibility access is required only to track reading in Apple Books. It lets Stillleaf read the open book’s title and page number, without reading its page text or other apps.")
+                            .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
+                            .fixedSize(horizontal: false, vertical: true)
+                        statusCard
+                    }.padding(.top, 12)
+                } label: {
+                    Text("Optional Apple Books integration").font(.callout.weight(.medium))
+                }
+                .frame(width: 560).onboardingReveal(3)
+                loginRow.onboardingReveal(4)
             }
-            .frame(width: 560)
-            .onboardingReveal(3)
-            loginRow.onboardingReveal(4)
+            .padding(.horizontal, 40).padding(.vertical, 12)
         }
-        .padding(.horizontal, 40).padding(.top, 4)
-        .frame(maxHeight: .infinity)
-        .task { @MainActor in
-            // System Settings grants access outside the app; follow it while this step is open.
+        .task(id: showingAppleBooks) { @MainActor in
+            guard showingAppleBooks else { return }
+            // Poll only while the optional permission setup is disclosed.
             while !Task.isCancelled {
                 withAnimation(reduceMotion ? nil : OnboardingMotion.reveal) { model.refreshAccessibilityStatus() }
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
@@ -735,7 +746,7 @@ private struct OnboardingAccessStep: View {
             }
             .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 4) {
-                Text("Accessibility access").font(.system(size: 15, weight: .semibold))
+                Text("Apple Books tracking access").font(.system(size: 15, weight: .semibold))
                 Text(statusDetail)
                     .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
                     .fixedSize(horizontal: false, vertical: true)
@@ -757,32 +768,14 @@ private struct OnboardingAccessStep: View {
         .frame(width: 560)
         .onboardingGlass(highlighted: granted)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Accessibility access")
+        .accessibilityLabel("Accessibility access for Apple Books tracking")
         .accessibilityValue(granted ? "Allowed" : "Not allowed")
     }
 
     private var statusDetail: String {
         if granted { return "Allowed. Open a book in Apple Books and Stillleaf starts keeping time." }
         if requested { return "In System Settings → Privacy & Security → Accessibility, switch on Stillleaf. This page updates on its own; if it doesn’t, reopen Stillleaf." }
-        return "Not allowed yet. Without it, you can still read in Stillleaf’s own reader or log time manually."
-    }
-
-    private func privacyColumn(title: String, allowed: Bool, items: [String]) -> some View {
-        VStack(alignment: .leading, spacing: 9) {
-            Text(title.uppercased()).font(ReadingType.sectionLabel).tracking(0.8).foregroundStyle(ReadingPalette.secondaryInk)
-            ForEach(items, id: \.self) { item in
-                HStack(alignment: .top, spacing: 8) {
-                    Image(systemName: allowed ? "checkmark.circle.fill" : "xmark.circle")
-                        .foregroundStyle(allowed ? ReadingPalette.accent : ReadingPalette.secondaryInk)
-                    Text(item).font(.system(size: 12))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .accessibilityElement(children: .combine)
-            }
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-        .onboardingGlass(cornerRadius: 14)
+        return "Optional. Allow access to record page turns and time while reading in Apple Books."
     }
 
     private var loginRow: some View {
@@ -869,17 +862,15 @@ private struct OnboardingReadyStep: View {
             Spacer(minLength: 0)
             OnboardingBurst(play: animated)
             OnboardingTitle(title: "You’re all set",
-                            subtitle: "Stillleaf lives in your menu bar. Click the Stillleaf icon any time for today’s reading, or open the dashboard for the full picture.")
+                            subtitle: "Import an EPUB to begin reading. Stillleaf records your progress and active time, and saves your place. Your journal is always available from the menu bar.")
             MenuBarHint().onboardingReveal(2)
             HStack(spacing: 8) {
                 summaryChip(symbol: "target", text: goalText)
-                summaryChip(symbol: model.accessibilityGranted ? "checkmark.shield" : "hand.raised",
-                            text: model.accessibilityGranted ? "Automatic tracking on" : "Manual reading for now")
+                summaryChip(symbol: "book.pages", text: "Stillleaf reader ready")
                 summaryChip(symbol: "paintpalette", text: theme.theme.name)
             }
             .onboardingReveal(3)
             HStack(spacing: 10) {
-                Button { finish(.importBooks) } label: { Label("Import EPUBs…", systemImage: "square.and.arrow.down") }
                 Button { finish(.dashboard) } label: { Label("Open dashboard", systemImage: "rectangle.grid.2x2") }
             }
             .onboardingReveal(4)
