@@ -3,6 +3,7 @@ import {Manifest,Publication,Locator} from '@readium/shared';
 import {PublicationResources,PublicationFetcher} from './resources';
 import {ContinuousNavigator} from './continuous';
 import {AnnotationUI} from './annotation-ui';
+import {annotationLocator,quotePreview} from './annotation-anchor';
 import {PageSlide} from './page-slide';
 import {visibleTextBounds,firstFullyVisibleOffset} from './visible-text';
 import {installPageTurnWheel} from './page-turn-input';
@@ -438,8 +439,10 @@ function selected(value){
    locator.text={...locator.text,highlight:value.text,before:before.toString().slice(-80),after:after.toString().slice(0,80)};break;
   }
  }
- selection={locator,quote:value.text.slice(0,32768)};annotationUI.show(selection,selectedRange);
- emit('selection',{selection:{text:selection.quote,locator}});
+ locator.text={...locator.text,highlight:value.text};
+ try{selection={locator:annotationLocator(locator),quote:quotePreview(value.text)}}catch(error){notice(error.message);return}
+ annotationUI.show(selection,selectedRange);
+ emit('selection',{selection:{text:selection.quote,locator:selection.locator}});
 }
 function applyAnnotations(){
  annotationUI.invalidate();
@@ -448,9 +451,9 @@ function applyAnnotations(){
 }
 function annotate(value){
  const prior=state.annotations.find(x=>x.id===value.id);
- const locator=validLocator(prior?.locator??value.locator);if(!locator||!String(value.quote??'').trim())throw Error('Select a passage to annotate.');
+ const locator=validLocator(prior?.locator??annotationLocator(value.locator));if(!locator||!String(value.quote??'').trim())throw Error('Select a passage to annotate.');
  if(!prior&&state.annotations.length>=1000)throw Error('This book has reached the annotation limit.');
- const now=new Date().toISOString();const item={id:prior?.id??crypto.randomUUID(),locator,quote:String(value.quote).slice(0,32768),note:String(value.note??'').slice(0,65536),color:colors[value.color]?value.color:'gold',createdAt:prior?.createdAt??now,updatedAt:now};
+ const now=new Date().toISOString();const item={id:prior?.id??crypto.randomUUID(),locator,quote:prior?.quote??quotePreview(value.quote),note:String(value.note??'').slice(0,65536),color:colors[value.color]?value.color:'gold',createdAt:prior?.createdAt??now,updatedAt:now};
  const annotations=prior?state.annotations.map(existing=>existing===prior?item:existing):[...state.annotations,item];
  requireSaveBudget({...state,annotations});state.annotations=annotations;
  // Notes change the margin cards and stored state, not the highlight ranges.

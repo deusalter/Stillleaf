@@ -121,3 +121,17 @@ final class ReaderStateValidationTests: XCTestCase {
         XCTAssertThrowsError(try validate(value))
     }
 }
+
+extension ReaderStateValidationTests {
+    func testLocatorTextLimitMatchesRendererUTF16Contract() throws {
+        let source = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Reader/desktop/reader/src/annotation-anchor.js")
+        XCTAssertTrue(try String(contentsOf: source, encoding: .utf8).contains("MAX_LOCATOR_TEXT=\(ReaderStateValidation.maximumLocatorText)"))
+        for key in ["before", "highlight", "after"] {
+            var value = state
+            value["position"] = ["href": "chapter.xhtml", "text": [key: String(repeating: "😀", count: ReaderStateValidation.maximumLocatorText / 2)]]
+            XCTAssertNoThrow(try validate(value))
+            value["position"] = ["href": "chapter.xhtml", "text": [key: String(repeating: "😀", count: ReaderStateValidation.maximumLocatorText / 2) + "x"]]
+            XCTAssertThrowsError(try validate(value))
+        }
+    }
+}
