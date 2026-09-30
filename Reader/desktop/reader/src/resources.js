@@ -136,7 +136,10 @@ export class PublicationResources {
   * Its sanitizer matches the displayed document; release bytes after counting. */
  async textLength(href){
   const item=this.map.get(href);if(!item||!htmlTypes.has(item.type))throw Error('Unsupported content index resource');
-  const doc=sanitizedDocument(unwrapSvgImages(htmlSource(new TextDecoder().decode(await this.read(href)),item.type)));
+  // Displayed chapters already own the sanitized markup after releasing bytes.
+  // Reusing it avoids a second host fetch when the book denominator starts.
+  const source=this.chapters.get(href)??unwrapSvgImages(htmlSource(new TextDecoder().decode(await this.read(href)),item.type));
+  const doc=sanitizedDocument(source);
   for(const node of doc.body.querySelectorAll('script,style'))node.remove();
   const length=doc.body.textContent.length;this.release(item);return length;
  }

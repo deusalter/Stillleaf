@@ -11,6 +11,7 @@ final class EPUBReaderWindows {
     private(set) var isTerminating = false
     var didFocusReader: (() -> Void)?
     var positionChanged: (() -> Void)?
+    var positionFinalized: ((ProgressObservation) -> Void)?
     var libraryRequested: (() -> Void)?
     var traversedContent: ((String, PageTurnEvidence) -> Void)?
     private let stateDirectory: URL
@@ -31,9 +32,10 @@ final class EPUBReaderWindows {
         guard opening[publication.id] == reservation else { reader.window?.close(); return }
         reader.closed = { [weak self] in self?.windows.removeValue(forKey: publication.id) }
         reader.positionChanged = { [weak self, weak reader] in
-            guard let self, let reader, self.focusedReader === reader else { return }
-            self.positionChanged?()
+            guard let self, let reader else { return }
+            self.deliverPosition(from: reader)
         }
+        reader.positionFinalized = { [weak self] progress in self?.positionFinalized?(progress) }
         reader.traversedContent = { [weak self, weak reader] evidence in
             guard let self, let reader, self.focusedReader === reader else { return }
             self.traversedContent?("epub:" + publication.id, evidence)
@@ -43,6 +45,14 @@ final class EPUBReaderWindows {
         windows[publication.id] = reader
         if present { reader.show() }
         else { reader.window?.setFrameOrigin(NSPoint(x: -20_000, y: -20_000)); reader.window?.orderBack(nil) }
+    }
+    fileprivate func deliverPosition(from reader: EPUBReaderWindow) {
+        if focusedReader === reader { positionChanged?() }
+        else if let progress = reader.progress {
+            // A debounced renderer report can arrive after resign-key already flushed.
+            // Keep that final location without treating the background report as activity.
+            positionFinalized?(progress)
+        }
     }
     @discardableResult
     func close(publicationID: String) async -> Bool {
@@ -87,6 +97,9 @@ private final class EPUBReaderWindow: NSObject, NSWindowDelegate, WKNavigationDe
     private(set) var progress: ProgressObservation?
     var traversedContent: ((PageTurnEvidence) -> Void)?
     var positionChanged: (() -> Void)?
+    private var progressDelivery = ReaderProgressDeliveryGate()
+    private var progressDeliveryTask: Task<Void, Never>?
+    var positionFinalized: ((ProgressObservation) -> Void)?
 
     init(publication: EPUBPublication, directory: URL, stateDirectory: URL) async throws {
         self.publication = publication
@@ -120,6 +133,7 @@ private final class EPUBReaderWindow: NSObject, NSWindowDelegate, WKNavigationDe
 
     func show() { AppPresence.willPresentWindow(); window?.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true) }
     func windowDidBecomeKey(_ notification: Notification) { focused?() }
+    func windowDidResignKey(_ notification: Notification) { flushPositionUpdate(final: true) }
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         Task { await requestClose() }
         return false
@@ -154,6 +168,7 @@ private final class EPUBReaderWindow: NSObject, NSWindowDelegate, WKNavigationDe
                     }
                 }
             }
+            flushPositionUpdate(final: true)
         } catch {
             let alert = NSAlert()
             alert.messageText = "Your latest reading changes could not be saved"
@@ -166,6 +181,7 @@ private final class EPUBReaderWindow: NSObject, NSWindowDelegate, WKNavigationDe
         return true
     }
     func windowWillClose(_ notification: Notification) {
+        flushPositionUpdate(final: true)
         stateWorker.sync {}
         webView.stopLoading()
         webView.configuration.userContentController.removeScriptMessageHandler(forName: "readerEvents")
@@ -241,11 +257,34 @@ private final class EPUBReaderWindow: NSObject, NSWindowDelegate, WKNavigationDe
             let previousFraction = progress?.fraction
             nativePosition = position
             progress = position.observation(bookID: "epub:" + publication.id, spine: publication.spine)
-            if progress?.location != previous || progress?.fraction != previousFraction { positionChanged?() }
+            if progress?.location != previous || progress?.fraction != previousFraction { schedulePositionUpdate() }
         } else if isReady, NSApp.isActive, window?.isKeyWindow == true,
                   event["direction"] as? String == "forward",
                   let evidence = position.forwardCoverage(spine: publication.spine) {
             traversedContent?(evidence)
+        }
+    }
+
+    // Keep nativePosition/progress current for the ordinary one-second tracking poll,
+    // but do not run synchronous tracking/database/history work for every scroll line.
+    // Page-turn coverage remains immediate and independent of this notification gate.
+    private func schedulePositionUpdate() {
+        let delay = progressDelivery.request(at: ProcessInfo.processInfo.systemUptime)
+        if delay == 0 { flushPositionUpdate(); return }
+        guard progressDeliveryTask == nil else { return }
+        progressDeliveryTask = Task { @MainActor [weak self] in
+            do { try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000)) }
+            catch { return }
+            self?.flushPositionUpdate()
+        }
+    }
+
+    private func flushPositionUpdate(final: Bool = false) {
+        progressDeliveryTask?.cancel()
+        progressDeliveryTask = nil
+        if progressDelivery.deliver(at: ProcessInfo.processInfo.systemUptime) {
+            if final, let progress { positionFinalized?(progress) }
+            else { positionChanged?() }
         }
     }
 
@@ -380,6 +419,7 @@ func runEPUBReaderSmoke(fixture: URL) async throws {
     }
     try await reader.testRenderStability()
     try await reader.testPageEvidence()
+    try reader.testProgressDeliveryBurst()
     if let index = CommandLine.arguments.firstIndex(of: "--reader-artifacts"), index + 1 < CommandLine.arguments.count {
         try await reader.testRenderReviewSnapshots(directory: URL(fileURLWithPath: CommandLine.arguments[index + 1]))
     }
@@ -473,6 +513,55 @@ private extension EPUBReaderWindows {
 }
 
 private extension EPUBReaderWindow {
+    func testProgressDeliveryBurst() throws {
+        guard let href = publication.spine.first else { throw EPUBImportError.invalid("Missing smoke-test spine.") }
+        flushPositionUpdate()
+        let priorCallback = positionChanged, priorGate = progressDelivery, priorFinalized = positionFinalized
+        let priorPosition = nativePosition, priorProgress = progress, priorSequence = lastSequence
+        var deliveries = 0
+        var finalized: [ProgressObservation] = []
+        positionChanged = { deliveries += 1 }
+        positionFinalized = { finalized.append($0) }
+        progressDelivery = ReaderProgressDeliveryGate()
+        defer {
+            progressDeliveryTask?.cancel(); progressDeliveryTask = nil
+            positionChanged = priorCallback; progressDelivery = priorGate; positionFinalized = priorFinalized
+            nativePosition = priorPosition; progress = priorProgress; lastSequence = priorSequence
+        }
+        for offset in 1...120 {
+            receiveProgress(["type": "position", "observedAt": Date().timeIntervalSince1970 * 1000,
+                "sequence": NSNumber(value: priorSequence + UInt64(offset)),
+                "position": ["href": href, "page": 1, "totalPages": 10, "visiblePages": 1,
+                             "bookOffset": offset, "bookTotal": 1000]])
+        }
+        guard deliveries == 1, nativePosition?.bookOffset == 120,
+              progress?.fraction == 0.12, progressDelivery.pending else {
+            throw EPUBImportError.invalid("Native burst did not retain the newest position with bounded tracking notifications.")
+        }
+        windowDidResignKey(Notification(name: NSWindow.didResignKeyNotification))
+        flushPositionUpdate(final: true)
+        guard deliveries == 1, finalized.count == 1, finalized.first?.fraction == 0.12,
+              !progressDelivery.pending, progressDeliveryTask == nil else {
+            throw EPUBImportError.invalid("Native focus-loss/close flush did not deliver pending progress exactly once.")
+        }
+        let manager = EPUBReaderWindows(stateDirectory: stateURL.deletingLastPathComponent())
+        manager.positionChanged = { deliveries += 1 }
+        manager.positionFinalized = { finalized.append($0) }
+        positionChanged = { [unowned self] in manager.deliverPosition(from: self) }
+        receiveProgress(["type": "position", "observedAt": Date().timeIntervalSince1970 * 1000,
+            "sequence": NSNumber(value: priorSequence + 121),
+            "position": ["href": href, "page": 1, "totalPages": 10, "visiblePages": 1,
+                         "bookOffset": 121, "bookTotal": 1000]])
+        // Exercise the ordinary trailing task's path after focus has already gone.
+        flushPositionUpdate()
+        flushPositionUpdate(final: true)
+        guard deliveries == 1, finalized.count == 2, finalized.last?.fraction == 0.121,
+              !progressDelivery.pending, progressDeliveryTask == nil else {
+            throw EPUBImportError.invalid("A late background position was dropped or incorrectly counted as activity.")
+        }
+        print("reader-progress-burst: 120 positions coalesced; focus-loss and late background final positions retained once without activity")
+    }
+
     func testWaitUntilReady() async throws {
         let deadline = Date().addingTimeInterval(20)
         while Date() < deadline {

@@ -54,8 +54,10 @@ async function snapshot(reader, track, offset) {
     new Promise(resolve => { link.addEventListener('load', resolve, {once: true}); link.addEventListener('error', resolve, {once: true}); })));
   await doc.fonts.ready;
   await Promise.all([...doc.images].filter(image => !image.complete).map(image => image.decode().catch(() => {})));
-  await paint();
   if (!frame.isConnected || !frame.contentWindow) return null;
+  // Resolve final asset sizes before restoring the column. A synchronous layout
+  // read makes that offset valid without waiting an extra frame for each copy.
+  void doc.documentElement.offsetHeight;
   frame.contentWindow.scrollTo(x, y);
   copyHighlights(original, doc);
   await paint();

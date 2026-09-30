@@ -3,10 +3,12 @@ import {Manifest,Publication,Locator} from '@readium/shared';
 import {PublicationResources,PublicationFetcher} from './resources';
 import {ContinuousNavigator} from './continuous';
 import {PageSlide} from './page-slide';
-import {visibleTextBounds} from './visible-text';
+import {visibleTextBounds,firstFullyVisibleOffset} from './visible-text';
 import {installPageTurnWheel} from './page-turn-input';
 import {NavigationCompletion} from './navigation-completion';
-import {screenPages,pageLabel} from './page-progress';
+import {screenPages,pageLabel,bookPages,chapterPagesLeft} from './page-progress';
+import {continuousTextCandidates} from './content-geometry';
+import {syncTypographyChoices} from './appearance-choices';
 import {fontCSS,installFont,contrast} from './bundled-fonts';
 import {DEFAULT_PREFERENCES,preferences,restoreState,selectorFor,rangePoint} from './state';
 import {THEMES,FONTS,MARGINS,resolveTheme,fontStack,fontAvailable,marginMetrics,averageCharacterWidth} from './appearance';
@@ -21,7 +23,7 @@ const widePage=matchMedia('(min-width:1100px)');
 const effectiveColumns=()=>state?.preferences.columns==='two'&&widePage.matches&&!state.preferences.scroll?2:1;
 const colors={gold:'#e4c778',sage:'#a7cbb0',rose:'#d7a9b4'};
 let navigator,pool,input,state,lastLocator,selection,editingNote,activeTab='contents',searchGeneration=0,searchTimer,stateTimer,noticeTimer,lastFocus,opening=false;
-let lifecycle=0;let preferenceQueue=Promise.resolve();let jumpHistory=[];let stableAnchor=null,reflowCount=0,resizeTimer,resizing=false;
+let lifecycle=0;let preferenceQueue=Promise.resolve(),preferenceRevision=0,preferenceRestore=false;let jumpHistory=[];let stableAnchor=null,reflowCount=0,resizeTimer,resizing=false;
 const frames=new WeakSet();let headingCache=new Map();
 const icons={contents:'<path d="M4 5h16M4 12h16M4 19h11"/>',search:'<circle cx="10" cy="10" r="6.5"/><path d="m15 15 5 5"/>',bookmark:'<path d="M6 3h12v18l-6-4-6 4z"/>',previous:'<path d="m14 5-7 7 7 7"/>',next:'<path d="m10 5 7 7-7 7"/>'};
 for(const [id,key]of [['contents','contents'],['search','search'],['save-bookmark','bookmark'],['previous','previous'],['next','next']])$(id).innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true">'+icons[key]+'</svg>';
@@ -87,34 +89,37 @@ function headingFor(href){
 function updatePosition(){
  if(!lastLocator)return;
  const heading=headingFor(lastLocator.href);
- let pages;
+ let pages,metrics;
  if(navigator?.kind==='continuous'){
   const entry=navigator.entries.find(item=>item.link.href===lastLocator.href);
-  if(entry?.frame){const viewport=$('reader');pages=screenPages({extent:entry.height,viewport:viewport.clientHeight,offset:viewport.scrollTop-entry.section.offsetTop});}
+  if(entry?.frame){const viewport=$('reader');metrics={extent:entry.height,viewport:viewport.clientHeight,offset:viewport.scrollTop-entry.section.offsetTop};pages=screenPages(metrics);}
  }else{
   // Readium's positions are spine entries, not pages. Measure the visible frame;
   // its start/end progressions use different denominators in paginated mode.
   const frame=[...$('reader').querySelectorAll('iframe')].find(f=>getComputedStyle(f).visibility!=='hidden');
   const wnd=frame?.contentWindow,doc=wnd?.document.scrollingElement;
-  if(doc)pages=state.preferences.scroll
-   ?screenPages({extent:doc.scrollHeight,viewport:wnd.innerHeight,offset:wnd.scrollY})
-   :screenPages({extent:doc.scrollWidth,viewport:wnd.innerWidth,offset:Math.abs(wnd.scrollX),columns:effectiveColumns()});
+  if(doc){metrics=state.preferences.scroll
+   ?{extent:doc.scrollHeight,viewport:wnd.innerHeight,offset:wnd.scrollY}
+   :{extent:doc.scrollWidth,viewport:wnd.innerWidth,offset:Math.abs(wnd.scrollX),columns:effectiveColumns()};pages=screenPages(metrics);}
  }
+ const left=chapterPagesLeft(metrics??{});
  if(pages&&!opening){
-  nativePosition=contentPosition(pages);
+  nativePosition=contentPosition(pages,left===0);
   emit('position',{position:nativePosition});
  }
- const label=pageLabel(pages);
+ const reference=bookPages({counts:contentIndex,chapter:input.readingOrder.findIndex(link=>link.href===lastLocator.href),lower:nativePosition?.lower,upper:nativePosition?.upper,progression:lastLocator.locations?.progression,atEnd:left===0,columns:effectiveColumns()});
+ const label=reference?pageLabel(reference):contentIndexFailed?'Book progress unavailable':'Calculating book pages…';
  if($('position-label').textContent!==label)$('position-label').textContent=label;
- $('position-label').title=heading+' · Screen pages change with text size and window size';
- if($('chapter-label').textContent!=='in this chapter')$('chapter-label').textContent='in this chapter';
- $('chapter-label').title=heading;
+ $('position-label').title='Book pages use fixed text units and remain stable across text size and window changes; they are not printed pages.';
+ const remaining=reference?`${reference.remaining} ${reference.remaining===1?'page':'pages'} left in chapter`:'';
+ if($('chapter-label').textContent!==remaining)$('chapter-label').textContent=remaining;
+ $('chapter-label').title=heading+' · Remaining reference pages use the same fixed text units as book progress.';
  const saved=state.bookmarks.some(x=>samePlace(x.locator,lastLocator));
  $('save-bookmark').setAttribute('aria-pressed',String(saved));$('save-bookmark').setAttribute('aria-label',saved?'Remove bookmark':'Add bookmark');$('save-bookmark').title=saved?'Remove bookmark':'Add bookmark';
 }
 // Text coordinates survive font changes and resizing. Never infer a whole-book
 // page total from chapter ordinals. Empty/image-only pages retain position only.
-let nativePosition=null,contentIndex=null;
+let nativePosition=null,contentIndex=null,contentIndexFailed=false;
 const contentIndexes=new Map();
 async function indexContent(owner,generation,edition,order){
  try{
@@ -133,10 +138,10 @@ async function indexContent(owner,generation,edition,order){
   }
   if(owner!==pool||generation!==lifecycle)return;
   contentIndex=counts;refreshPosition();
- }catch{ /* Keep chapter position; an incomplete denominator must never escape. */ }
+ }catch{if(owner===pool&&generation===lifecycle){contentIndexFailed=true;refreshPosition()}}
 }
 
-function contentPosition(pages){
+function contentPosition(pages,atEnd=false){
  const result={href:lastLocator.href,page:pages.first,totalPages:pages.total,visiblePages:pages.last-pages.first+1};
  const entry=navigator?.kind==='continuous'?navigator.entries.find(e=>e.link.href===lastLocator.href):null;
  const frame=entry?.frame??[...$('reader').querySelectorAll('iframe')].find(f=>getComputedStyle(f).visibility!=='hidden');
@@ -145,13 +150,15 @@ function contentPosition(pages){
  const left=Math.max(0,viewport.left-bounds.left),right=Math.min(frame.clientWidth,viewport.right-bounds.left);
  const top=Math.max(0,viewport.top-bounds.top),bottom=Math.min(frame.clientHeight,viewport.bottom-bounds.top);
  const visible=r=>r.width>0&&r.height>0&&r.right>left&&r.left<right&&r.bottom>top&&r.top<bottom;
- const walk=doc.createTreeWalker(doc.body,NodeFilter.SHOW_TEXT);let node,offset=0,lower=null,upper=null;
- while((node=walk.nextNode())){
-  if(node.parentElement?.closest('script,style'))continue;
-  const length=node.length;
+ let lower=null,upper=null;
+ const candidates=entry?continuousTextCandidates(doc,entry.geometryRevision,top,bottom):(()=>{
+  const items=[],walk=doc.createTreeWalker(doc.body,NodeFilter.SHOW_TEXT);let node,offset=0;
+  while((node=walk.nextNode())){if(node.parentElement?.closest('script,style'))continue;items.push({node,offset});offset+=node.length;}
+  return items;
+ })();
+ for(const {node,offset}of candidates){
   const bounds=node.textContent.trim()?visibleTextBounds(node,visible):null;
   if(bounds&&bounds.last>bounds.first){lower??=offset+bounds.first;upper=offset+bounds.last;}
-  offset+=length;
  }
  if(lower!==null&&upper>lower){result.lower=lower;result.upper=upper;}
  if(contentIndex){
@@ -159,7 +166,7 @@ function contentPosition(pages){
   const total=contentIndex.reduce((a,b)=>a+b,0);
   // Position is the trailing visible text boundary, not a claim it was read.
   // Image-only final screens can still display the end of the text coordinate.
-  const edge=pages.last===pages.total?contentIndex[chapter]:upper;
+  const edge=atEnd?contentIndex[chapter]:upper;
   if(chapter>=0&&total>0&&edge!==null){
    result.bookOffset=Math.min(total,contentIndex.slice(0,chapter).reduce((a,b)=>a+b,0)+Math.min(contentIndex[chapter],edge));
    result.bookTotal=total;
@@ -242,7 +249,7 @@ function syncAppearance(){
  $('content-width').value=p.contentWidth;$('content-width-value').textContent=p.contentWidth+'%';
  $('side-margin').value=readingMargins().gutter;$('side-margin-value').textContent=Math.round(readingMargins().gutter)+' px';
  for(const button of document.querySelectorAll('[data-theme]'))button.setAttribute('aria-pressed',String(button.dataset.theme===state.preferences.theme));
- {const mode=state.preferences.scroll?'continuous':state.preferences.columns==='two'?'facing':'single';for(const b of $('reading-mode').querySelectorAll('[role=radio]')){const on=b.dataset.mode===mode;b.setAttribute('aria-checked',String(on));b.tabIndex=on?0:-1}}$('font-weight').querySelector('[data-custom]')?.remove();if(state.preferences.fontWeight!==null&&![400,700].includes(state.preferences.fontWeight)){const option=document.createElement('option');option.dataset.custom='true';option.value=String(state.preferences.fontWeight);option.textContent='Custom ('+state.preferences.fontWeight+')';$('font-weight').append(option)}$('font-weight').value=state.preferences.fontWeight==null?'publisher':String(state.preferences.fontWeight);$('text-align').value=state.preferences.textAlign;$('hyphens').value=state.preferences.hyphens==null?'publisher':String(state.preferences.hyphens);
+ {const mode=state.preferences.scroll?'continuous':state.preferences.columns==='two'?'facing':'single';for(const b of $('reading-mode').querySelectorAll('[role=radio]')){const on=b.dataset.mode===mode;b.setAttribute('aria-checked',String(on));b.tabIndex=on?0:-1}}syncTypographyChoices(state.preferences);
  $('previous').title=state.preferences.scroll?'Previous section':'Previous page';$('next').title=state.preferences.scroll?'Next section':'Next page';
  $('columns-note').textContent=state.preferences.scroll||state.preferences.columns!=='two'?'':widePage.matches?'A narrow window shows one page at a time.':'Widen the window to see both pages.';
  for(const [id,key]of [['letter-spacing','letterSpacing'],['word-spacing','wordSpacing']]){$(id).value=state.preferences[key];$(id+'-value').textContent=Math.round(state.preferences[key]*100)+'%';}
@@ -259,11 +266,12 @@ function visibleAnchor(){
  if(!lastLocator)return null;
  const frame=[...document.querySelectorAll('#reader iframe')].find(f=>getComputedStyle(f).visibility!=='hidden');
  if(!frame?.contentDocument)return clone(lastLocator);
- const doc=frame.contentDocument,wnd=frame.contentWindow,walk=doc.createTreeWalker(doc.body,NodeFilter.SHOW_TEXT);let node,checked=0;
- while((node=walk.nextNode())&&checked<30000){
+ const doc=frame.contentDocument,wnd=frame.contentWindow,walk=doc.createTreeWalker(doc.body,NodeFilter.SHOW_TEXT);let node;
+ while((node=walk.nextNode())){
   if(!node.textContent.trim()||['STYLE','SCRIPT'].includes(node.parentElement?.tagName))continue;
   const range=doc.createRange();range.selectNodeContents(node);if(![...range.getClientRects()].some(r=>r.right>0&&r.left<wnd.innerWidth&&r.bottom>0&&r.top<wnd.innerHeight))continue;
-  for(let i=0;i<node.length&&checked++<30000;i++){range.setStart(node,i);range.setEnd(node,i+1);const r=range.getBoundingClientRect();if(r.left>=0&&r.left<wnd.innerWidth&&r.top>=0&&r.bottom<=wnd.innerHeight&&node.textContent.slice(i).trim())return {...clone(lastLocator),locations:{...lastLocator.locations,cssSelector:selectorFor(node.parentElement)},text:{highlight:node.textContent.slice(i,i+80)}};}
+  const i=firstFullyVisibleOffset(node,{width:wnd.innerWidth,height:wnd.innerHeight});
+  if(i!==null)return {...clone(lastLocator),locations:{...lastLocator.locations,cssSelector:selectorFor(node.parentElement)},text:{highlight:node.textContent.slice(i,i+80)}};
  }
  return clone(lastLocator);
 }
@@ -281,10 +289,29 @@ async function setPreferences(value,retained){
  if(!state||requestedLifecycle!==lifecycle)return;
  const location=retained??stableAnchor??visibleAnchor();if(location)stableAnchor=clone(location);reflowCount++;
  const restore=Object.keys(value).some(key=>!['theme'].includes(key))||Object.keys(value).length===0;
- state.preferences=preferences({...state.preferences,...value});syncAppearance();changed();relayout();
- const settings=readiumPreferences(),generation=lifecycle,fontId=state.preferences.fontFamily;
- preferenceQueue=preferenceQueue.catch(()=>{}).then(async()=>{if(generation!==lifecycle||!navigator)return;await prepareFont(fontId,generation);if(generation!==lifecycle||!navigator)return;const current=navigator,continuous=Boolean(input.experimentalContinuous&&settings.scroll);if((current.kind==='continuous')!==continuous){await destroyNavigator(current);if(generation===lifecycle)await installNavigator(location,settings)}else{await current.submitPreferences(new EpubPreferences(settings));if(restore&&location&&current===navigator&&generation===lifecycle){await new Promise(resolve=>setTimeout(resolve,120));if(generation===lifecycle)await go(location,false)}}});
- try{await preferenceQueue}finally{reflowCount=Math.max(0,reflowCount-1)}
+ state.preferences=preferences({...state.preferences,...value});syncAppearance();changed(false);
+ const settings=readiumPreferences(),generation=lifecycle,fontId=state.preferences.fontFamily,request=++preferenceRevision;
+ preferenceRestore||=restore;
+ preferenceQueue=preferenceQueue.catch(()=>{}).then(async()=>{
+  if(generation!==lifecycle||request!==preferenceRevision||!navigator)return;
+  relayout();await prepareFont(fontId,generation);
+  if(generation!==lifecycle||request!==preferenceRevision||!navigator)return;
+  const current=navigator,continuous=Boolean(input.experimentalContinuous&&settings.scroll);
+  // Finish an in-flight mode switch even if superseded so the next job always
+  // receives a live navigator. Queued jobs have already been coalesced above.
+  if((current.kind==='continuous')!==continuous){await destroyNavigator(current);if(generation===lifecycle)await installNavigator(location,settings)}
+  else{
+   await current.submitPreferences(new EpubPreferences(settings));
+   if(preferenceRestore&&location&&current===navigator&&generation===lifecycle&&request===preferenceRevision){
+    await new Promise(resolve=>setTimeout(resolve,120));
+    if(generation===lifecycle&&request===preferenceRevision)await go(location,false);
+   }
+  }
+  if(generation===lifecycle&&request===preferenceRevision)preferenceRestore=false;
+ });
+ // Every caller settles after the final coalesced job, including callers whose
+ // own intermediate layout was skipped while a slider continued moving.
+ try{let pending;do{pending=preferenceQueue;await pending}while(generation===lifecycle&&pending!==preferenceQueue)}finally{reflowCount=Math.max(0,reflowCount-1)}
 }
 function dismissSelection(){selection=null;$('selection-tools').hidden=true;for(const f of document.querySelectorAll('#reader iframe'))f.contentWindow?.getSelection()?.removeAllRanges()}
 function selected(value){
@@ -557,19 +584,20 @@ async function open(value){
   $('reader').replaceChildren();$('book-title').textContent=value.title??'Untitled';$('book-author').textContent=value.creators?.join(', ')??'';document.title=(value.title??'Book')+' · Stillleaf';$('back').hidden=!value.canReturnToLibrary;
   syncAppearance();await prepareFont(state.preferences.fontFamily,lifecycle);
   await installNavigator(state.position);opening=false;refreshPosition();emit('ready',{warnings:[...pool.warnings]});announcedLayout=null;relayout();changed();
-  if(input.contentProgress===true)void indexContent(pool,lifecycle,input.editionId,input.readingOrder);
+  void indexContent(pool,lifecycle,input.editionId,input.readingOrder);
   if(pool.warnings.size&&$('notice').hidden)notice('Some original styling or illustrations could not be displayed.');
  }catch(error){opening=false;$('error').textContent=error.message;$('error').hidden=false;emit('error',{message:error.message});throw error}
 }
 async function close(){
  if(!await prepareClose())return false;
+ if(navigator?.kind==='continuous')navigator.report();
  pageSlide.cancel();lifecycle++;searchGeneration++;cancelAnimationFrame(positionFrame);clearTimeout(resizeTimer);resizing=false;clearTimeout(searchTimer);clearTimeout(stateTimer);clearTimeout(noticeTimer);
- nativePosition=null;contentIndex=null;
+ nativePosition=null;contentIndex=null;contentIndexFailed=false;preferenceRestore=false;
  if(state)emit('state',{state:snapshot()});
  for(const dialog of document.querySelectorAll('dialog[open]'))dialog.close();
  const current=navigator;navigator=undefined;navigationCompletion.dispose(current);await preferenceQueue.catch(()=>{});await destroyNavigator(current);pool?.close();pool=undefined;state=undefined;lastLocator=undefined;selection=undefined;$('selection-tools').hidden=true;$('notice').hidden=true;editingNote=undefined;return true;
 }
-const api={open,close,prepareClose,hasPendingDraft,returnFromJump,next:()=>turn('next'),previous:()=>turn('previous'),go,setPreferences,bookmark:()=>lastLocator?clone(lastLocator):null,restore:go,exportState:snapshot,addBookmark,annotate};
+const api={open,close,prepareClose,hasPendingDraft,returnFromJump,next:()=>turn('next'),previous:()=>turn('previous'),go,setPreferences,bookmark:()=>lastLocator?clone(lastLocator):null,restore:go,exportState:()=>{if(navigator?.kind==='continuous')navigator.report();return snapshot()},addBookmark,annotate};
 window.StillleafReader=Object.freeze(api);
 $('return-jump').onclick=()=>void returnFromJump();
 $('back').onclick=async()=>{if(await prepareClose())emit('close-request')};$('next').onclick=api.next;$('previous').onclick=api.previous;$('save-bookmark').onclick=addBookmark;
