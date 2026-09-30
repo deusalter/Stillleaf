@@ -1,5 +1,7 @@
 import {Locator} from '@readium/shared';
 import {selectorFor,rangePoint} from './state';
+import {continuousTextCandidates} from './content-geometry';
+import {visibleTextBounds} from './visible-text';
 
 const MAX_FRAMES=8, MAX_CHAPTER_BYTES=8*1024*1024, MAX_CHAPTER_HEIGHT=250000, MAX_BOOK_HEIGHT=8000000;
 const clone=value=>JSON.parse(JSON.stringify(value));
@@ -33,12 +35,17 @@ export class ContinuousNavigator {
  kind='continuous';
  constructor(container,input,pool,listeners,initial,settings){
   this.container=container;this.input=input;this.pool=pool;this.listeners=listeners;this.initial=serial(initial);this.settings=settings;this.entries=[];this.destroyed=false;this.epoch=0;this.queue=Promise.resolve();this.suppress=0;this.decorations=[];this.decorationObserver=null;this.current=null;this.lastAnchor=null;this.lastInput=0;this.currentIndex=0;this.ownTop=0;this.readerAnchor=null;
-  this.evidenceTop=0;
+  this.evidenceTop=0;this.dirtyEntries=new Set();this.viewportSize=null;
   // Every programmatic scroll goes through setTop, which moves evidenceTop too, so the delta seen here is the reader's.
   // Native scrolling stays immediate; location serialization and host updates run
   // at most once per 80ms, with screen-crossing evidence reported synchronously.
   this.onScroll=()=>{if(this.destroyed)return;const top=this.container.scrollTop,delta=top-this.evidenceTop;this.evidenceTop=top;if(!delta)return;if(this.suppress){if(this.moved()){this.noteReaderScroll();this.listeners.readerScrolled?.(delta,this.container.clientHeight)}return}this.listeners.readerScrolled?.(delta,this.container.clientHeight);this.lastInput=performance.now();if(!this.scrollTimer)this.scrollTimer=setTimeout(()=>{this.scrollTimer=0;const locator=this.report();if(locator)this.listeners.readerAnchorChanged?.(locator);void this.updateWindow()},80)};
-  this.onResize=()=>{if(this.destroyed)return;clearTimeout(this.resizeTimer);this.resizeTimer=setTimeout(()=>void this.remeasure(),60)};
+  this.scheduleMeasurement=()=>{if(this.destroyed)return;clearTimeout(this.resizeTimer);this.resizeTimer=setTimeout(()=>void this.remeasure(),60)};
+  this.onResize=records=>{
+   const size=records[0]?.contentRect;if(!size)return;
+   const next=[size.width,size.height],previous=this.viewportSize;this.viewportSize=next;
+   if(!previous||next.some((value,i)=>value!==previous[i])){for(const entry of this.entries)if(entry.frame)this.invalidate(entry);this.scheduleMeasurement()}
+  };
  }
  async load(){
   this.container.classList.add('continuous-reader');this.container.style.removeProperty('width');this.container.tabIndex=0;this.container.setAttribute('aria-label','Continuous book');
@@ -80,8 +87,26 @@ export class ContinuousNavigator {
   if(this.destroyed||generation!==this.epoch)return;
   if(!frame.contentWindow.CSS?.highlights||typeof frame.contentWindow.Highlight!=='function')throw Error('Continuous view needs text highlight support unavailable in this browser. Choose Single page or Facing pages.');
   this.measure(entry);this.bindFrame(entry);this.paint(entry);this.listeners.frameLoaded?.(frame.contentWindow);
-  entry.observer=new ResizeObserver(this.onResize);entry.observer.observe(frame.contentDocument.body);
-  for(const image of frame.contentDocument.images)image.addEventListener('load',this.onResize,{once:true});
+  const dirty=()=>{if(entry.frame!==frame||this.destroyed)return;this.invalidate(entry);this.scheduleMeasurement()};
+  // ResizeObserver's initial delivery is a baseline. Equal repeated deliveries
+  // from sizing our own iframe do not constitute a new content layout.
+  entry.observedSize=null;
+  entry.observer=new ResizeObserver(records=>{
+   const rect=records[0]?.contentRect;if(!rect)return;
+   const size=[rect.width,rect.height],previous=entry.observedSize;entry.observedSize=size;
+   if(previous&&size.some((value,i)=>value!==previous[i]))dirty();
+  });entry.observer.observe(frame.contentDocument.body);
+  // Internal geometry may change while the chapter's total height stays equal.
+  entry.mutations=new MutationObserver(dirty);entry.mutations.observe(frame.contentDocument.body,{subtree:true,childList:true,characterData:true,attributes:true});
+  entry.fontsChanged=dirty;frame.contentDocument.fonts.addEventListener('loadingdone',dirty);
+  frame.contentDocument.addEventListener('load',dirty,true);
+  frame.contentDocument.addEventListener('error',dirty,true);
+ }
+ invalidate(entry){
+  // Reports can run before the debounced height measurement. Never reuse old
+  // rectangles after a mutation, even during that short pending interval.
+  if(!this.dirtyEntries.has(entry))entry.geometryRevision=(entry.geometryRevision??0)+1;
+  this.dirtyEntries.add(entry);
  }
  measure(entry){
   const doc=entry.frame?.contentDocument;if(!doc?.body)return;
@@ -94,11 +119,12 @@ export class ContinuousNavigator {
   while((element=walk.nextNode())){if(++count>20000)throw Error('This section is too complex for continuous view. Use a paginated mode.');bottom=Math.max(bottom,element.getBoundingClientRect().bottom)}
   const height=Math.ceil(Math.max(120,bottom));
   if(!Number.isFinite(height)||height>MAX_CHAPTER_HEIGHT)throw Error('This section exceeds continuous-view layout limits. Use a paginated mode.');
+  this.dirtyEntries.delete(entry);
   entry.geometryRevision=(entry.geometryRevision??0)+1;entry.height=height;entry.frame.style.height=height+'px';entry.section.style.height=height+'px';
   if(this.entries.reduce((sum,item)=>sum+item.height,0)>MAX_BOOK_HEIGHT)throw Error('This book exceeds continuous-view layout limits. Use a paginated mode.');
  }
  unmount(entry){
-  if(!entry.frame)return;entry.observer?.disconnect();entry.observer=null;
+  if(!entry.frame)return;this.dirtyEntries.delete(entry);entry.observer?.disconnect();entry.observer=null;entry.mutations?.disconnect();entry.mutations=null;entry.frame.contentDocument?.fonts.removeEventListener('loadingdone',entry.fontsChanged);
   this.listeners.frameUnloaded?.(entry.frame.contentWindow);
   if(document.activeElement===entry.frame)this.container.focus({preventScroll:true});
   entry.frame.remove();entry.frame=null;entry.appearance=null;entry.highlightStyle=null;entry.ranges=[];if(entry.url)URL.revokeObjectURL(entry.url);entry.url=null;
@@ -136,12 +162,19 @@ export class ContinuousNavigator {
     if(top<viewport.top||top>=viewport.bottom)continue;
     const text=node.textContent.slice(i,i+80);return {locator:{href:entry.link.href,type:'text/html',title:entry.link.title,locations:{position:entry.index+1,progression:Math.max(0,Math.min(1,(viewport.top-bounds.top)/entry.height)),cssSelector:selectorFor(node.parentElement),domRange:{start:rangePoint(node,i),end:rangePoint(node,Math.min(node.length,i+text.length))}},text:{highlight:text}},offset:top-viewport.top};
    }
-   const walk=doc.createTreeWalker(doc.body,NodeFilter.SHOW_TEXT);let node,checked=0;
-   while((node=walk.nextNode())&&checked++<3000){if(!node.textContent.trim()||['STYLE','SCRIPT'].includes(node.parentElement?.tagName))continue;const range=doc.createRange();range.selectNodeContents(node);if(![...range.getClientRects()].some(r=>r.bottom+bounds.top>viewport.top&&r.top+bounds.top<viewport.bottom))continue;
-    for(let i=0;i<node.length&&checked++<30000;i++){range.setStart(node,i);range.setEnd(node,i+1);const r=range.getBoundingClientRect(),y=bounds.top+r.top;if(y>=viewport.top&&r.right>0&&r.left<entry.frame.clientWidth&&node.textContent.slice(i).trim()){
-     const text=node.textContent.slice(i,i+80),start=rangePoint(node,i),end=rangePoint(node,Math.min(node.length,i+Math.max(1,text.length)));
-     return {locator:{href:entry.link.href,type:'text/html',title:entry.link.title,locations:{position:entry.index+1,progression:Math.max(0,Math.min(1,(viewport.top-bounds.top)/entry.height)),cssSelector:selectorFor(node.parentElement),domRange:{start,end}},text:{highlight:text}},offset:y-viewport.top};
-    }}
+   // Share the layout index with page evidence. Caret APIs may miss publisher
+   // gutters or be unavailable; only visible text needs exact glyph testing.
+   const top=Math.max(0,viewport.top-bounds.top),bottom=Math.min(entry.height,viewport.bottom-bounds.top);
+   for(const {node}of continuousTextCandidates(doc,entry.geometryRevision,top,bottom)){
+    const hit=visibleTextBounds(node,r=>r.width>0&&r.height>0&&r.bottom>top&&r.top<bottom&&r.right>0&&r.left<entry.frame.clientWidth);if(!hit)continue;
+    const range=doc.createRange();
+    for(let i=hit.first;i<hit.last&&i<hit.first+30000;i++){
+     range.setStart(node,i);range.setEnd(node,i+1);const r=range.getBoundingClientRect(),y=bounds.top+r.top;
+     if(y>=viewport.top&&y<viewport.bottom&&r.right>0&&r.left<entry.frame.clientWidth&&node.textContent.slice(i).trim()){
+      const text=node.textContent.slice(i,i+80),start=rangePoint(node,i),end=rangePoint(node,Math.min(node.length,i+Math.max(1,text.length)));
+      return {locator:{href:entry.link.href,type:'text/html',title:entry.link.title,locations:{position:entry.index+1,progression:Math.max(0,Math.min(1,(viewport.top-bounds.top)/entry.height)),cssSelector:selectorFor(node.parentElement),domRange:{start,end}},text:{highlight:text}},offset:y-viewport.top};
+     }
+    }
    }
    // A cover or full-page illustration at the top is still the reader's place; record how far into it they are.
    if(Math.min(bounds.bottom,viewport.bottom)-Math.max(bounds.top,viewport.top)>=48)return {locator:{href:entry.link.href,type:'text/html',title:entry.link.title,locations:{position:entry.index+1,progression:Math.max(0,Math.min(1,(viewport.top-bounds.top)/entry.height))}},offset:0};
@@ -161,8 +194,8 @@ export class ContinuousNavigator {
  /** After layout work, restore the reader's newer choice over the anchor captured before the work began. */
  settle(anchor,fallback=true){if(this.moved())this.noteReaderScroll();const chosen=this.readerAnchor??(fallback?anchor:null);this.readerAnchor=null;if(chosen)this.restoreAnchorNow(chosen);}
  async remeasure(){
-  if(this.destroyed)return;if(this.moved())this.noteReaderScroll();const anchor=this.lastAnchor??this.captureAnchor();this.suppress++;
-  try{for(const entry of this.entries)if(entry.frame)this.measure(entry);this.settle(anchor,performance.now()-this.lastInput>140)}catch(error){this.listeners.error?.(error)}finally{this.suppress--}this.report();
+  if(this.destroyed||!this.dirtyEntries.size)return;if(this.moved())this.noteReaderScroll();const anchor=this.lastAnchor??this.captureAnchor();this.suppress++;
+  try{for(const entry of [...this.dirtyEntries])if(entry.frame)this.measure(entry);this.settle(anchor,performance.now()-this.lastInput>140)}catch(error){this.listeners.error?.(error)}finally{this.suppress--}this.report();
  }
  report(){if(this.destroyed||this.suppress)return;this.ownTop=this.container.scrollTop;const anchor=this.captureAnchor();if(!anchor)return;this.lastAnchor=anchor;this.current=anchor.locator;this.currentIndex=this.entries.findIndex(e=>e.link.href===this.current.href);this.listeners.positionChanged?.(Locator.deserialize(this.current));return this.current;}
  async navigate(value){

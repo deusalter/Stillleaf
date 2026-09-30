@@ -6,7 +6,7 @@ import {PageSlide} from './page-slide';
 import {visibleTextBounds,firstFullyVisibleOffset} from './visible-text';
 import {installPageTurnWheel} from './page-turn-input';
 import {NavigationCompletion} from './navigation-completion';
-import {screenPages,pageLabel,bookPages,chapterPagesLeft} from './page-progress';
+import {screenPages,pageLabel,chapterPagesLeft} from './page-progress';
 import {continuousTextCandidates} from './content-geometry';
 import {syncTypographyChoices} from './appearance-choices';
 import {fontCSS,installFont,contrast} from './bundled-fonts';
@@ -107,13 +107,14 @@ function updatePosition(){
   nativePosition=contentPosition(pages,left===0);
   emit('position',{position:nativePosition});
  }
- const reference=bookPages({counts:contentIndex,chapter:input.readingOrder.findIndex(link=>link.href===lastLocator.href),lower:nativePosition?.lower,upper:nativePosition?.upper,progression:lastLocator.locations?.progression,atEnd:left===0,columns:effectiveColumns()});
- const label=reference?pageLabel(reference):contentIndexFailed?'Book progress unavailable':'Calculating book pages…';
+ // Screen totals are measured for this chapter; unmounted chapters have no
+ // reliable laid-out screen denominator. Text coordinates still track the book.
+ const label=pages?`${pageLabel(pages)} · Chapter ${input.readingOrder.findIndex(link=>link.href===lastLocator.href)+1}`:'Calculating chapter pages…';
  if($('position-label').textContent!==label)$('position-label').textContent=label;
- $('position-label').title='Book pages use fixed text units and remain stable across text size and window changes; they are not printed pages.';
- const remaining=reference?`${reference.remaining} ${reference.remaining===1?'page':'pages'} left in chapter`:'';
+ $('position-label').title=heading+' · One page is one full reading screen. Counts update with layout.';
+ const remaining=left===null?'':`${left} ${left===1?'page':'pages'} left in chapter`;
  if($('chapter-label').textContent!==remaining)$('chapter-label').textContent=remaining;
- $('chapter-label').title=heading+' · Remaining reference pages use the same fixed text units as book progress.';
+ $('chapter-label').title=heading+' · Remaining reading screens in this chapter.';
  const saved=state.bookmarks.some(x=>samePlace(x.locator,lastLocator));
  $('save-bookmark').setAttribute('aria-pressed',String(saved));$('save-bookmark').setAttribute('aria-label',saved?'Remove bookmark':'Add bookmark');$('save-bookmark').title=saved?'Remove bookmark':'Add bookmark';
 }
@@ -142,7 +143,7 @@ async function indexContent(owner,generation,edition,order){
 }
 
 function contentPosition(pages,atEnd=false){
- const result={href:lastLocator.href,page:pages.first,totalPages:pages.total,visiblePages:pages.last-pages.first+1};
+ const result={href:lastLocator.href,page:pages.first,totalPages:pages.total,visiblePages:1,pageUnit:'screen'};
  const entry=navigator?.kind==='continuous'?navigator.entries.find(e=>e.link.href===lastLocator.href):null;
  const frame=entry?.frame??[...$('reader').querySelectorAll('iframe')].find(f=>getComputedStyle(f).visibility!=='hidden');
  const doc=frame?.contentDocument;if(!doc?.body)return result;
@@ -437,8 +438,8 @@ async function jumpNow(value,recordHistory){
 // (contents, search, links, bookmarks), restores, reflow and resizes never are. Each
 // layout gets its own key; native content identity remains independent of reflow.
 let layoutGeneration=0,announcedLayout=null,quietUntil=0,scrollState=new WeakMap(),continuousNet=0,continuousPosition=null;
-const pagesPerTurn=()=>state?.preferences.scroll?1:effectiveColumns();
-const layoutKey=()=>(state?.preferences.scroll?'s':'p')+pagesPerTurn()+'-'+layoutGeneration;
+const pagesPerTurn=()=>1;
+const layoutKey=()=>(state?.preferences.scroll?'s':'p')+effectiveColumns()+'-'+layoutGeneration;
 function announceLayout(){if(!state||opening)return;const layout=layoutKey();if(layout===announcedLayout)return;announcedLayout=layout;emit('pageLayout',{layout,pages:pagesPerTurn()})}
 function relayout(){layoutGeneration++;quietUntil=performance.now()+800;scrollState=new WeakMap();continuousNet=0;continuousPosition=null;announceLayout()}
 function pageTurned(direction,departure=nativePosition){if(!state)return;announceLayout();emit('pageTurn',{direction,pages:pagesPerTurn(),layout:layoutKey(),departure})}

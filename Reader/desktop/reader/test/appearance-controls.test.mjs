@@ -55,7 +55,7 @@ test('typography choices support keyboard, saved custom values, and compact foot
     if (output) await page.screenshot({path: path.join(output, `typography-${theme}.png`)});
   }
   await page.keyboard.press('Escape');
-  await page.waitForFunction(() => /^Pages? \d+(?:–\d+)? of \d+$/.test(document.querySelector('#position-label').textContent));
+  await page.waitForFunction(() => /^Page \d+ of \d+ · Chapter \d+$/.test(document.querySelector('#position-label').textContent));
   for (const width of [1000, 520, 360]) {
     await page.setViewportSize({width, height: 700});
     await page.waitForTimeout(300);

@@ -20,7 +20,14 @@ export function visibleTextBounds(node, visible) {
     return intersects(start, middle)
       ? boundary(start, middle, false) : boundary(middle, end, false);
   };
-  return {first: boundary(0, node.length, false), last: boundary(0, node.length, true)};
+  const first=boundary(0,node.length,false);
+  let last=boundary(0,node.length,true);
+  // Chromium can omit a wrapped trailing space from a multi-character range
+  // while its one-character fragment still occupies visible line-end width.
+  // Refine only adjacent whitespace, keeping the offscreen search logarithmic.
+  const limit=Math.min(node.length,last+32);
+  while(last<limit&&/\s/u.test(node.textContent[last])&&intersects(last,last+1))last++;
+  return {first,last};
 }
 
 // Appearance reflow retains the first fully contained glyph, rather than a

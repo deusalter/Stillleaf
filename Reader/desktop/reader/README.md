@@ -98,10 +98,19 @@ The Mac host now passes `experimentalContinuous:true`, so Continuous is one scro
 
 ## Page evidence
 
-The renderer reports `pageLayout` (a key per layout, and pages per turn: 1, or 2 for facing pages) and `pageTurn` (direction, pages, layout). Only deliberate sequential movement is a turn: paginated next/previous that actually moved, or one full screen of net scrolling in scroll mode. Contents, search, links, bookmarks, restores, reflow, resizes and multi-screen scrubbing never are. The Mac host receives actual chapter position and departure text ranges directly. It deduplicates text coverage per session independently of external Apple Books observation. Native `position` events carry chapter screen geometry; with `contentProgress:true`, background markup indexing adds measured `bookOffset` / `bookTotal` text coordinates for a content-weighted book fraction. These are position, not reading-credit events. See `docs/reading-progress.md` at repository root for coverage and compatibility semantics. `test/page-evidence.test.mjs` covers these cases.
+The renderer reports `pageLayout` (a key per layout, and pages per turn: always 1 full screen, including a facing spread) and `pageTurn` (direction, pages, layout). Only deliberate sequential movement is a turn: paginated next/previous that actually moved, or one full screen of net scrolling in scroll mode. Contents, search, links, bookmarks, restores, reflow, resizes and multi-screen scrubbing never are. The Mac host receives actual chapter position and departure text ranges directly. It deduplicates text coverage per session independently of external Apple Books observation. Native `position` events carry chapter screen geometry; with `contentProgress:true`, background markup indexing adds measured `bookOffset` / `bookTotal` text coordinates for a content-weighted book fraction. These are position, not reading-credit events. See `docs/reading-progress.md` at repository root for coverage and compatibility semantics. `test/page-evidence.test.mjs` covers these cases.
 
 ## Integrated appearance controls
 
 The existing theme/typeface/margin choices remain compatible with saved books. Additional palettes, custom hex background/text colours, page-width and side-margin sliders, one-percent size controls, and Focus reading are integrated. Focus hides chrome and retains an explicit Show controls button and Escape route. Selecting a margin preset clears the custom side-margin override.
 
 Eight pinned Fontsource families ship locally with OFL notices in `public/font-licenses`: Literata, Source Serif 4, Lora, Libre Baskerville, Atkinson Hyperlegible, Inter, Nunito Sans and Source Sans 3. Latin WOFF2 faces load on demand from the application bundle; they require no online font request. Other scripts fall back to publication/system fonts. Publisher remains the default.
+
+
+### Full-screen pagination
+
+The footer displays measured **chapter-local** screen pages. One facing spread is one page; single and continuous views also use one full viewport. Current/total pages and remaining screens recalculate after font, width, height, or mode changes. No whole-book screen total is inferred from text length or unmounted chapter placeholders. Content-weighted book progress remains in `bookOffset`/`bookTotal` and does not change its canonical coordinates.
+
+New position/departure payloads include `pageUnit:"screen"` and `visiblePages:1`. The native bridge converts them to one-page `stillleaf-screen-v2` evidence with the full departure text interval. Older payloads retain their legacy interpretation. Layout changes announce layout only and add no traversal credit; journal events are never rewritten on toggle.
+
+Continuous geometry invalidation is scoped to dirty chapters. Body resize observations converge on dimension changes; mutation, image load/error, and font completion still invalidate internal geometry even at identical chapter height. The anchor fallback shares the indexed text candidates with visible-page evidence instead of rescanning offscreen paragraph prefixes.

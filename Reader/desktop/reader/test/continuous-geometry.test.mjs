@@ -46,11 +46,12 @@ test('continuous progress measures visible text only and coalesces host updates'
  await compare();
  const total=Number(metrics.label.match(/of (\d+)/)[1]);
  await page.evaluate(()=>StillleafReader.setPreferences({fontSize:1.3}));await page.waitForTimeout(400);await compare();
- assert.equal(Number((await page.locator('#position-label').textContent()).match(/of (\d+)/)[1]),total,'reference page total survives font reflow');
+ assert.ok(Number((await page.locator('#position-label').textContent()).match(/of (\d+)/)[1])>total,'screen page total recalculates after larger type');
  await page.setViewportSize({width:850,height:720});await page.waitForTimeout(600);await compare();
- assert.equal(Number((await page.locator('#position-label').textContent()).match(/of (\d+)/)[1]),total,'reference page total survives viewport reflow');
+ assert.ok(Number((await page.locator('#position-label').textContent()).match(/of (\d+)/)[1])>total,'screen pages reflect the new viewport');
  await page.evaluate(()=>{const flow=document.querySelector('#reader');flow.scrollTop=flow.scrollHeight-flow.clientHeight});await page.waitForTimeout(250);
  assert.equal(await page.locator('#chapter-label').textContent(),'0 pages left in chapter');
+ const endLabel=await page.locator('#position-label').textContent();assert.equal(endLabel.match(/^Page (\d+)/)[1],endLabel.match(/of (\d+)/)[1],'continuous final viewport displays the final screen number');
  await page.evaluate(()=>StillleafReader.go({href:'c.html',type:'text/html',locations:{progression:0}}));
  const closePosition=await page.evaluate(async()=>{
   let saved;window.addEventListener('stillleaf-reader-event',event=>{if(event.detail.type==='state')saved=event.detail.state.position});

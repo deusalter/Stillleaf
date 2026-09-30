@@ -87,4 +87,38 @@ final class ReadingCoverageTests: XCTestCase {
         XCTAssertEqual(position.forwardCoverage(spine: ["one.xhtml"])?.content?.lower, 120)
         XCTAssertNil(position.observation(bookID: "b", spine: ["other.xhtml"]))
     }
+    func testNewScreenEvidenceCreditsOneSpreadAndPreservesLegacyEvidence() throws {
+        let legacyJSON = Data(#"{"href":"one.xhtml","page":3,"totalPages":7,"visiblePages":2,"lower":0,"upper":200}"#.utf8)
+        let legacy = try JSONDecoder().decode(NativeReaderPosition.self, from: legacyJSON)
+        XCTAssertEqual(legacy.forwardCoverage(spine: ["one.xhtml"])?.pagesRead, 2)
+        var screen = legacy
+        screen.pageUnit = "screen"; screen.visiblePages = 1; screen.totalPages = 4; screen.page = 2
+        let evidence = try XCTUnwrap(screen.forwardCoverage(spine: ["one.xhtml"]))
+        XCTAssertEqual(evidence.pagesRead, 1)
+        XCTAssertEqual(evidence.visiblePages, 1)
+        XCTAssertEqual(evidence.layoutSignature, "stillleaf-screen-v2")
+        XCTAssertEqual(evidence.content, legacy.content)
+        let date = Date(timeIntervalSince1970: 1_700_000_000)
+        let interval = ReadingInterval(sessionID: "s", bookID: "b", start: date, end: date.addingTimeInterval(20), duration: 20, timezoneID: "UTC", mode: .automatic)
+        func event(_ evidence: PageTurnEvidence, at seconds: Double) -> AuditEvent {
+            AuditEvent(date: date.addingTimeInterval(seconds), kind: "pageTurn", bookID: "b", sessionID: "s", detail: "Screen traversal", pageTurn: evidence)
+        }
+        // Goals/history use the same coverage-derived count. Reflowing coordinates
+        // does not let another turn over the same content earn a phantom page.
+        let original = [event(evidence, at: 1)]
+        screen.page = 3; screen.totalPages = 8
+        let reflowed = try XCTUnwrap(screen.forwardCoverage(spine: ["one.xhtml"]))
+        let events = original + [event(reflowed, at: 2)]
+        XCTAssertEqual(PageStatistics.pages(events: events, effectiveIntervals: [interval], merges: []), 1)
+        XCTAssertEqual(PageStatistics.snapshot(events: events, effectiveIntervals: [interval], merges: []).pages(), 1)
+        let encoded = try JSONEncoder().encode(events)
+        XCTAssertEqual(try JSONDecoder().decode([AuditEvent].self, from: encoded), events)
+        let legacyEvidence = try XCTUnwrap(legacy.forwardCoverage(spine: ["one.xhtml"]))
+        XCTAssertEqual(try JSONDecoder().decode(PageTurnEvidence.self, from: JSONEncoder().encode(legacyEvidence)), legacyEvidence)
+        let mixed = [event(legacyEvidence, at: 1), event(evidence, at: 2)]
+        XCTAssertEqual(PageStatistics.pages(events: mixed, effectiveIntervals: [interval], merges: []), 2, "Legacy audit credit stays unchanged; a unit toggle cannot recredit its text")
+        screen.visiblePages = 2
+        XCTAssertFalse(screen.isValid(spine: ["one.xhtml"]), "New screen payloads cannot inflate credit to two")
+    }
+
 }
