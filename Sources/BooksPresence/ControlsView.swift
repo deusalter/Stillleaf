@@ -56,8 +56,8 @@ struct ManualAdditionView: View {
             }.readingPanel()
             VStack(alignment: .leading, spacing: 14) {
                 Text("When you read").font(.headline)
-                DatePicker("Started", selection: $start).datePickerStyle(.compact)
-                DatePicker("Finished", selection: $end, in: start...).datePickerStyle(.compact)
+                ReadingDatePicker("Started", selection: $start)
+                ReadingDatePicker("Finished", selection: $end, minimumDate: start)
                 Text("Saved as manual time. This does not add pages or Apple Books activity.")
                     .font(.caption).foregroundStyle(ReadingPalette.fadedInk)
             }.readingPanel()
@@ -539,9 +539,7 @@ struct SettingsView: View {
                         Menu("Export…") {
                             Button("Full archive (JSON)") { model.exportJSON() }
                             Button("Spreadsheet tables (CSV)") { model.exportCSV() }
-                        }.menuStyle(.borderlessButton).fixedSize()
-                            .padding(.horizontal, 10).padding(.vertical, 7)
-                            .background(ReadingPalette.accent.opacity(0.075), in: RoundedRectangle(cornerRadius: 9))
+                        }.menuStyle(ReadingMenuStyle())
                         Button("Import archive…") { model.importJSON() }
                     }.controlSize(.small)
                     Text("Import adds records without duplicating them. Restore replaces your local history.")

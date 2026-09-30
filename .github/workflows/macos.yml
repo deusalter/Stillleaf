@@ -29,7 +29,11 @@ jobs:
         working-directory: Reader/desktop/reader
         run: |
           npx playwright install webkit
-          READER_TEST_BROWSER=webkit node --test test/visible-text.test.mjs test/render-stability.test.mjs
+          READER_TEST_BROWSER=webkit SLIDE_BROWSER=webkit node --test --test-concurrency=1 test/visible-text.test.mjs test/visible-anchor.test.mjs test/render-stability.test.mjs test/page-slide.test.mjs test/continuous-geometry.test.mjs test/preference-burst.test.mjs test/appearance-controls.test.mjs
+      - name: Native date-field semantics (offscreen)
+        run: |
+          swiftc -parse-as-library Sources/BooksPresence/ReadingDatePicker.swift scripts/native-date-field-smoke.swift -o "$RUNNER_TEMP/native-date-field-smoke"
+          "$RUNNER_TEMP/native-date-field-smoke"
       # Native checks still run when renderer tests fail, so one red step never hides another.
       - name: Native model and view self-check
         if: ${{ !cancelled() && steps.reader-assets.outcome == 'success' }}

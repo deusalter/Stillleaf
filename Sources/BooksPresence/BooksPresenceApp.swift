@@ -264,7 +264,9 @@ struct BooksPresenceMain {
     @MainActor
     static func main() {
         let application = NSApplication.shared
-        application.setActivationPolicy(.accessory)
+        // Screenshot fixtures can render native views without joining the window list or taking focus.
+        let offscreenPreview = CommandLine.arguments.contains("--render-ui") && CommandLine.arguments.contains("--offscreen")
+        application.setActivationPolicy(offscreenPreview ? .prohibited : .accessory)
         if CommandLine.arguments.contains("--preview-library") {
             do { try runInteractiveLibraryPreview(); exit(0) }
             catch { fputs("library-preview failed: \(error)\n", stderr); exit(1) }

@@ -105,10 +105,9 @@ private struct ReadingDateField: View {
             }
             if expanded {
                 if let value = date {
-                    DatePicker("Time", selection: Binding(get: { date ?? value }, set: { date = $0 }),
-                               displayedComponents: .hourAndMinute)
+                    ReadingDatePicker("Time", selection: Binding(get: { date ?? value }, set: { date = $0 }),
+                                      includesDate: false)
                         .environment(\.timeZone, calendar.timeZone)
-                        .datePickerStyle(.field)
                 }
                 ReadingDateCalendar(selection: $date, timezoneID: timezoneID)
                     .transition(reduceMotion ? .identity : .opacity.combined(with: .scale(scale: 0.98, anchor: .top)))
