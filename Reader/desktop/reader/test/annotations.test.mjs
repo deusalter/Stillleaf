@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {createServer} from 'node:http';
 import {readFile,mkdir} from 'node:fs/promises';
 import path from 'node:path';
-import {chromium} from 'playwright';
+import {chromium,webkit} from 'playwright';
 const root=path.resolve(import.meta.dirname,'../dist'),artifacts=path.resolve(import.meta.dirname,'../artifacts/annotations');
 function fixture(){
  const paragraph='A repeated sentence worth keeping. The garden held the last of the rain and she returned to the book.';
@@ -28,12 +28,16 @@ async function activate(page,id){
 test('anchored annotation interaction, autosave, margins, reflow and restart',{timeout:90000},async t=>{
  const server=createServer(async(req,res)=>{try{const file=path.resolve(root,'.'+new URL(req.url,'http://localhost').pathname);if(!file.startsWith(root+path.sep))throw Error();res.setHeader('Content-Type',{'.html':'text/html','.js':'text/javascript','.css':'text/css'}[path.extname(file)]??'application/octet-stream');res.end(await readFile(file))}catch{res.writeHead(404).end()}});
  await new Promise(done=>server.listen(0,'127.0.0.1',done));t.after(()=>new Promise(done=>server.close(done)));
- const browser=await chromium.launch({...(process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:{}),headless:true});t.after(()=>browser.close());
+ const browser=await (process.env.READER_TEST_BROWSER==='webkit'?webkit.launch():chromium.launch({...(process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:{}),headless:true}));t.after(()=>browser.close());
  const page=await browser.newPage({viewport:{width:1420,height:900},reducedMotion:'reduce'}),errors=[];page.on('pageerror',e=>errors.push(e.message));
  const url=`http://127.0.0.1:${server.address().port}/index.html`;await page.goto(url);await page.waitForFunction(()=>window.StillleafReader);const book=fixture();await page.evaluate(book=>window.StillleafReader.open(book),book);
+ // Deliberately hold the host's next paint: the first visible popup must already
+ // be positioned, even when background work delays requestAnimationFrame.
+ await page.evaluate(()=>{window.realAnimationFrame=window.requestAnimationFrame;window.requestAnimationFrame=()=>0});
  await select(page);
  const geometry=await page.evaluate(()=>{const popup=document.getElementById('selection-tools').getBoundingClientRect(),frame=document.querySelector('#reader iframe'),r=frame.contentWindow.getSelection().getRangeAt(0).getClientRects()[0],f=frame.getBoundingClientRect();return {top:popup.top,bottom:popup.bottom,passageTop:f.top+r.top,passageBottom:f.top+r.bottom,left:popup.left,right:popup.right}});
- assert.ok(geometry.top>=0&&geometry.right<=1420);assert.ok(Math.abs(geometry.bottom-geometry.passageTop)<100||Math.abs(geometry.top-geometry.passageBottom)<100,'popup is beside the selection');
+ assert.ok(geometry.top>=0&&geometry.right<=1420);assert.ok(Math.abs(geometry.bottom-geometry.passageTop)<100||Math.abs(geometry.top-geometry.passageBottom)<100,'popup is beside the selection before the next animation frame');
+ await page.evaluate(()=>{window.requestAnimationFrame=window.realAnimationFrame});
  await mkdir(artifacts,{recursive:true});await page.screenshot({path:path.join(artifacts,'selection-paper.png')});assert.equal(await page.locator('#selection-tools').evaluate(el=>getComputedStyle(el).animationName),'none');
  await page.getByRole('button',{name:'Sage highlight',exact:true}).click();let saved=await page.evaluate(()=>window.StillleafReader.exportState());assert.equal(saved.annotations.length,1);assert.equal(saved.annotations[0].color,'sage');assert.ok(saved.annotations[0].locator.locations.domRange);assert.ok(saved.annotations[0].locator.text.before);const original=saved.annotations[0];
  await activate(page,original.id);await page.getByRole('button',{name:'Rose highlight',exact:true}).click();saved=await page.evaluate(()=>window.StillleafReader.exportState());assert.equal(saved.annotations[0].id,original.id);assert.deepEqual(saved.annotations[0].locator,original.locator);assert.equal(saved.annotations[0].createdAt,original.createdAt);

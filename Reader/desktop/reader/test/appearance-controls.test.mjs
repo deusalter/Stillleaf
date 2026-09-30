@@ -60,6 +60,8 @@ test('typography choices support keyboard, saved custom values, and compact foot
     await page.setViewportSize({width, height: 700});
     await page.waitForTimeout(300);
     const bounds = await page.evaluate(() => {
+      // Slow background pagination can retain the longest label at every width.
+      document.querySelector('#position-label').textContent='Page 1234 of 99999 · Chapter 123 · Calculating book pages…';
       const rect = selector => {
         const r = document.querySelector(selector).getBoundingClientRect();
         return {left: r.left, right: r.right, top: r.top, bottom: r.bottom};

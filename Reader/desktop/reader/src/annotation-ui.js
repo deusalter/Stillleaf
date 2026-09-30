@@ -61,7 +61,10 @@ export class AnnotationUI {
   for(const b of this.popup.querySelectorAll('[data-highlight-color]'))b.setAttribute('aria-pressed',String(item.color===b.dataset.highlightColor));
   this.popup.querySelector('#remove-selection').hidden=!item.id;
   this.popup.querySelector('#note-selection').textContent=item.note?'Edit note':'Add note';
-  this.popup.hidden=false;this.schedule();
+  // The popup must have its selection geometry before it can paint. A busy
+  // host may delay the scheduled frame; never expose the default CSS position.
+  this.popup.style.visibility='hidden';this.popup.hidden=false;
+  this.layout();this.popup.style.removeProperty('visibility');this.schedule();
  }
  dismiss(restoreFocus=false){
   const frame=this.active?.frame;this.active=null;this.popup.hidden=true;
