@@ -2,6 +2,7 @@ import {EpubNavigator,EpubPreferences,DecorationStyleType} from '@readium/naviga
 import {Manifest,Publication,Locator} from '@readium/shared';
 import {PublicationResources,PublicationFetcher} from './resources';
 import {ContinuousNavigator} from './continuous';
+import {AnnotationUI} from './annotation-ui';
 import {PageSlide} from './page-slide';
 import {visibleTextBounds,firstFullyVisibleOffset} from './visible-text';
 import {installPageTurnWheel} from './page-turn-input';
@@ -25,6 +26,13 @@ const colors={gold:'#e4c778',sage:'#a7cbb0',rose:'#d7a9b4'};
 let navigator,pool,input,state,lastLocator,selection,editingNote,activeTab='contents',searchGeneration=0,searchTimer,stateTimer,noticeTimer,lastFocus,opening=false;
 let lifecycle=0;let preferenceQueue=Promise.resolve(),preferenceRevision=0,preferenceRestore=false;let jumpHistory=[];let stableAnchor=null,reflowCount=0,resizeTimer,resizing=false;
 const frames=new WeakSet();let headingCache=new Map();
+const annotationUI=new AnnotationUI({popup:$('selection-tools'),layer:$('annotation-margins'),viewport:$('reader'),
+ frames:()=>navigator?.kind==='continuous'?navigator.entries.filter(e=>e.frame).map(e=>({frame:e.frame,href:e.link.href})):[...$('reader').querySelectorAll('iframe')].filter(f=>getComputedStyle(f).visibility!=='hidden').map(frame=>({frame,href:lastLocator?.href})),
+ annotations:()=>state?.annotations??[],continuous:()=>navigator?.kind==='continuous',onDismiss:()=>{selection=null},
+ onEdit:id=>{const item=state?.annotations.find(x=>x.id===id);if(item)editNote(item)},onList:openAnnotations});
+function openAnnotations(){if(!state)return;annotationUI.dismiss();renderPanel('notes');showDialog('library-panel','tab-notes')}
+function removeAnnotation(id){state.annotations=state.annotations.filter(x=>x.id!==id);applyAnnotations();changed();annotationUI.dismiss();if($('library-panel').open)renderPanel('notes');notice('Highlight and note removed.')}
+
 const icons={contents:'<path d="M4 5h16M4 12h16M4 19h11"/>',search:'<circle cx="10" cy="10" r="6.5"/><path d="m15 15 5 5"/>',bookmark:'<path d="M6 3h12v18l-6-4-6 4z"/>',previous:'<path d="m14 5-7 7 7 7"/>',next:'<path d="m10 5 7 7-7 7"/>'};
 for(const [id,key]of [['contents','contents'],['search','search'],['save-bookmark','bookmark'],['previous','previous'],['next','next']])$(id).innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true">'+icons[key]+'</svg>';
 let eventSequence=0;
@@ -314,26 +322,32 @@ async function setPreferences(value,retained){
  // own intermediate layout was skipped while a slider continued moving.
  try{let pending;do{pending=preferenceQueue;await pending}while(generation===lifecycle&&pending!==preferenceQueue)}finally{reflowCount=Math.max(0,reflowCount-1)}
 }
-function dismissSelection(){selection=null;$('selection-tools').hidden=true;for(const f of document.querySelectorAll('#reader iframe'))f.contentWindow?.getSelection()?.removeAllRanges()}
+function dismissSelection(){annotationUI.dismiss();for(const f of document.querySelectorAll('#reader iframe'))f.contentWindow?.getSelection()?.removeAllRanges()}
 function selected(value){
  if(!value.text?.trim()||!value.locator){$('selection-tools').hidden=true;return}
  const locator=validLocator(value.locator.serialize?.()??value.locator);if(!locator)return;
- for(const frame of document.querySelectorAll('#reader iframe')){
+ let selectedRange;
+ for(const {frame,href} of annotationUI.frames()){
+  if(href!==locator.href)continue;
   const sel=frame.contentWindow?.getSelection();
   if(sel?.rangeCount&&sel.toString()===value.text){
-   const range=sel.getRangeAt(0);locator.locations={...locator.locations,domRange:{start:rangePoint(range.startContainer,range.startOffset),end:rangePoint(range.endContainer,range.endOffset)}};break;
+   const range=sel.getRangeAt(0);selectedRange={frame,range};locator.locations={...locator.locations,domRange:{start:rangePoint(range.startContainer,range.startOffset),end:rangePoint(range.endContainer,range.endOffset)}};
+   const before=range.cloneRange(),after=range.cloneRange();before.selectNodeContents(frame.contentDocument.body);before.setEnd(range.startContainer,range.startOffset);after.selectNodeContents(frame.contentDocument.body);after.setStart(range.endContainer,range.endOffset);
+   locator.text={...locator.text,highlight:value.text,before:before.toString().slice(-80),after:after.toString().slice(0,80)};break;
   }
  }
- selection={locator,quote:value.text.slice(0,5000)};$('selection-tools').hidden=false;
+ selection={locator,quote:value.text.slice(0,32768)};annotationUI.show(selection,selectedRange);
  emit('selection',{selection:{text:selection.quote,locator}});
 }
 function applyAnnotations(){
+ annotationUI.invalidate();
  if(navigator?.decorationsAvailable===false)return;
  navigator?.applyDecorations(state.annotations.filter(item=>input.readingOrder.some(link=>link.href===item.locator.href)).map(item=>({id:item.id,locator:Locator.deserialize(item.locator),style:{type:DecorationStyleType.Highlight,tint:colors[item.color]??colors.gold,isActive:true}})),'personal');
 }
 function annotate(value){
- const locator=validLocator(value.locator);if(!locator||!String(value.quote??'').trim())throw Error('Select a passage to annotate.');
- const prior=state.annotations.find(x=>x.id===value.id);if(!prior&&state.annotations.length>=1000)throw Error('This book has reached the annotation limit.');
+ const prior=state.annotations.find(x=>x.id===value.id);
+ const locator=validLocator(prior?.locator??value.locator);if(!locator||!String(value.quote??'').trim())throw Error('Select a passage to annotate.');
+ if(!prior&&state.annotations.length>=1000)throw Error('This book has reached the annotation limit.');
  const now=new Date().toISOString();const item={id:prior?.id??crypto.randomUUID(),locator,quote:String(value.quote).slice(0,32768),note:String(value.note??'').slice(0,65536),color:colors[value.color]?value.color:'gold',createdAt:prior?.createdAt??now,updatedAt:now};
  const annotations=prior?state.annotations.map(existing=>existing===prior?item:existing):[...state.annotations,item];
  requireSaveBudget({...state,annotations});state.annotations=annotations;
@@ -351,15 +365,27 @@ function addBookmark(){
  changed();updatePosition();
 }
 function showDialog(id,focus){
+ annotationUI.dismiss();
  for(const dialog of document.querySelectorAll('dialog[open]'))dialog.close();
  lastFocus=document.activeElement;$(id).showModal();if(focus)$(focus).focus();
 }
 let draftDecision;
 function hasPendingDraft(){return Boolean(editingNote&&$('note-panel').open&&($('note-text').value!==(editingNote.note??'')||document.querySelector('input[name="note-color"]:checked').value!==(colors[editingNote.color]?editingNote.color:'gold')))}
+let noteSaveTimer;
+function persistNote(){
+ clearTimeout(noteSaveTimer);
+ if(!editingNote)return true;
+ try{
+  const color=document.querySelector('input[name="note-color"]:checked').value;
+  const note=$('note-text').value;
+  if(editingNote.id&&note===(editingNote.note??'')&&color===(colors[editingNote.color]?editingNote.color:'gold'))return true;
+  editingNote=annotate({...editingNote,note,color});$('note-error').hidden=true;$('note-status').textContent='Saved automatically';return true;
+ }catch(error){$('note-status').textContent='Changes not saved';$('note-error').textContent=(error.message||'The note could not be saved.')+' Your draft is still here.';$('note-error').hidden=false;return false}
+}
 function saveNote(){
  if(!editingNote)return true;
  try{
-  annotate({...editingNote,note:$('note-text').value,color:document.querySelector('input[name="note-color"]:checked').value});
+  if(!persistNote())return false;
   editingNote=undefined;$('note-error').hidden=true;$('note-panel').close();dismissSelection();notice('Note updated in this reader.');return true;
  }catch(error){
   $('note-error').textContent=(error.message||'The note could not be applied.')+' Your draft is still here. You can keep editing or discard it.';$('note-error').hidden=false;$('note-error').focus();return false;
@@ -367,6 +393,7 @@ function saveNote(){
 }
 function prepareClose(){
  if(draftDecision)return draftDecision.promise;
+ if(hasPendingDraft()&&persistNote())return Promise.resolve(true);
  if(!hasPendingDraft())return Promise.resolve(true);
  const focus=document.activeElement;let resolve;const promise=new Promise(done=>resolve=done);draftDecision={promise,resolve,focus};$('draft-panel').showModal();$('keep-draft').focus();return promise;
 }
@@ -391,7 +418,7 @@ for(const dialog of document.querySelectorAll('dialog')){
 function button(text,cls,action){const node=document.createElement('button');node.type='button';node.className=cls;node.textContent=text;node.onclick=action;return node}
 function empty(parent,text){const p=document.createElement('p');p.className='empty-panel';p.textContent=text;parent.append(p)}
 function renderPanel(tab=activeTab){
- activeTab=tab;const body=$('panel-body');body.replaceChildren();body.setAttribute('aria-labelledby','tab-'+tab);
+ activeTab=tab;$('panel-title').textContent=tab==='notes'?'Highlights and notes':'Your place in the book';const body=$('panel-body');body.replaceChildren();body.setAttribute('aria-labelledby','tab-'+tab);
  for(const key of ['contents','bookmarks','notes']){$('tab-'+key).setAttribute('aria-selected',String(key===tab));$('tab-'+key).tabIndex=key===tab?0:-1}
  if(tab==='contents'){
   const renderLinks=(links,parent,depth=0)=>{
@@ -414,13 +441,13 @@ function renderPanel(tab=activeTab){
   for(const item of state.bookmarks){const article=document.createElement('article');article.className='saved-item';const jump=button(item.label,'saved-link',()=>{closeDialog($('library-panel'));void go(item.locator)});const date=document.createElement('small');date.textContent=new Date(item.createdAt).toLocaleDateString(undefined,{month:'short',day:'numeric'});jump.append(date);const remove=button('×','remove-saved',()=>{state.bookmarks=state.bookmarks.filter(x=>x.id!==item.id);changed();updatePosition();renderPanel()});remove.setAttribute('aria-label','Remove bookmark: '+item.label);article.append(jump,remove);body.append(article)}
  }else{
   if(!state.annotations.length)empty(body,'Select a passage in the book to highlight it or leave yourself a note.');
-  for(const item of state.annotations){const article=document.createElement('article');article.className='saved-item';const jump=button('“'+item.quote+'”','saved-link',()=>{closeDialog($('library-panel'));void go(item.locator)});article.append(jump);if(item.note){const note=document.createElement('p');note.className='note-excerpt';note.textContent=item.note;article.append(note)}article.append(button(item.note?'Edit note':'Add a note','edit-note',()=>editNote(item)));body.append(article)}
+  for(const item of state.annotations){const article=document.createElement('article');article.className='saved-item annotation-item';article.style.setProperty('--note-color',colors[item.color]??colors.gold);const jump=button('“'+item.quote+'”','saved-link',()=>{closeDialog($('library-panel'));void go(item.locator)});article.append(jump);if(item.note){const note=document.createElement('p');note.className='note-excerpt';note.textContent=item.note;article.append(note)}article.append(button(item.note?'Edit note':'Add a note','edit-note',()=>editNote(item)));body.append(article)}
  }
 }
 function editNote(item=selection){
- if(!item)return;$('note-error').hidden=true;editingNote=clone(item);$('note-title').textContent=item.id?'Your note':'A note in the margin';$('note-quote').textContent=item.quote;$('note-text').value=item.note??'';$('delete-note').hidden=!item.id;
+ if(!item)return;clearTimeout(noteSaveTimer);$('note-status').textContent='Saved automatically';$('note-error').hidden=true;editingNote=clone(item);$('note-title').textContent=item.id?'Your note':'A note in the margin';$('note-quote').textContent=item.quote;$('note-text').value=item.note??'';$('delete-note').hidden=!item.id;
  document.querySelector(`input[name="note-color"][value="${colors[item.color]?item.color:'gold'}"]`).checked=true;
- showDialog('note-panel','note-text');
+ showDialog('note-panel','note-text');persistNote();
 }
 async function jumpNow(value,recordHistory){
  const locator=validLocator(value);if(!navigator||!locator)return false;quietUntil=performance.now()+800;
@@ -501,7 +528,7 @@ async function crossScrollBoundary(wnd,delta,event){
 function keyboard(event){
  if(event.defaultPrevented||event.altKey||event.metaKey||event.ctrlKey||event.shiftKey)return;
  const tag=event.target?.tagName;if(['INPUT','TEXTAREA','SELECT'].includes(tag)||event.target?.isContentEditable)return;
- if(event.key==='Escape'){$('selection-tools').hidden=true;if(state?.preferences.immersive&&!document.querySelector('dialog[open]')){event.preventDefault();void setPreferences({immersive:false})}return}
+ if(event.key==='Escape'){if(! $('selection-tools').hidden){event.preventDefault();annotationUI.dismiss(true);return;}if(state?.preferences.immersive&&!document.querySelector('dialog[open]')){event.preventDefault();void setPreferences({immersive:false})}return}
  if(document.querySelector('dialog[open]'))return;
  if(event.key==='ArrowRight'||event.key==='ArrowLeft'){
   const rtl=input?.readingProgression==='rtl'||navigator?.readingProgression==='rtl';
@@ -565,7 +592,7 @@ async function installNavigator(location,settings=readiumPreferences()){
    error:error=>{notice(error.message);emit('error',{message:error.message})}
   };
   navigator=input.experimentalContinuous&&settings.scroll?new ContinuousNavigator($('reader'),input,pool,listeners,location,settings):new EpubNavigator($('reader'),publication,listeners,positions,location?engineLocator(location):undefined,{preferences:settings,defaults:{}});
-  navigator.registerDecorationObserver('personal',{onDecorationActivated:event=>{const item=state.annotations.find(x=>x.id===event.decoration.id);if(item)editNote(item);return true}});
+  navigator.registerDecorationObserver('personal',{onDecorationActivated:event=>{const item=state.annotations.find(x=>x.id===event.decoration.id);if(item){selection=clone(item);annotationUI.show(item,annotationUI.locate(item));}return true}});
   const installed=navigator;
   try{await installed.load()}catch(error){
    if(installed.kind!=='continuous'||generation!==lifecycle)throw error;
@@ -592,16 +619,17 @@ async function open(value){
 async function close(){
  if(!await prepareClose())return false;
  if(navigator?.kind==='continuous')navigator.report();
- pageSlide.cancel();lifecycle++;searchGeneration++;cancelAnimationFrame(positionFrame);clearTimeout(resizeTimer);resizing=false;clearTimeout(searchTimer);clearTimeout(stateTimer);clearTimeout(noticeTimer);
+ clearTimeout(noteSaveTimer);annotationUI.reset();pageSlide.cancel();lifecycle++;searchGeneration++;cancelAnimationFrame(positionFrame);clearTimeout(resizeTimer);resizing=false;clearTimeout(searchTimer);clearTimeout(stateTimer);clearTimeout(noticeTimer);
  nativePosition=null;contentIndex=null;contentIndexFailed=false;preferenceRestore=false;
  if(state)emit('state',{state:snapshot()});
  for(const dialog of document.querySelectorAll('dialog[open]'))dialog.close();
  const current=navigator;navigator=undefined;navigationCompletion.dispose(current);await preferenceQueue.catch(()=>{});await destroyNavigator(current);pool?.close();pool=undefined;state=undefined;lastLocator=undefined;selection=undefined;$('selection-tools').hidden=true;$('notice').hidden=true;editingNote=undefined;return true;
 }
-const api={open,close,prepareClose,hasPendingDraft,returnFromJump,next:()=>turn('next'),previous:()=>turn('previous'),go,setPreferences,bookmark:()=>lastLocator?clone(lastLocator):null,restore:go,exportState:()=>{if(navigator?.kind==='continuous')navigator.report();return snapshot()},addBookmark,annotate};
+const api={open,close,prepareClose,hasPendingDraft,returnFromJump,next:()=>turn('next'),previous:()=>turn('previous'),go,setPreferences,bookmark:()=>lastLocator?clone(lastLocator):null,restore:go,exportState:()=>{if(hasPendingDraft())persistNote();if(navigator?.kind==='continuous')navigator.report();return snapshot()},addBookmark,annotate};
 window.StillleafReader=Object.freeze(api);
 $('return-jump').onclick=()=>void returnFromJump();
 $('back').onclick=async()=>{if(await prepareClose())emit('close-request')};$('next').onclick=api.next;$('previous').onclick=api.previous;$('save-bookmark').onclick=addBookmark;
+$('saved-passages').onclick=openAnnotations;
 $('contents').onclick=()=>{if(!state)return;renderPanel();showDialog('library-panel','tab-'+activeTab)};
 $('appearance').onclick=()=>{if(state){syncAppearance();showDialog('appearance-panel')}};
 $('search').onclick=()=>{if(state)showDialog('search-panel','search-query')};
@@ -622,11 +650,17 @@ for(const [id,key]of [['letter-spacing','letterSpacing'],['word-spacing','wordSp
 window.addEventListener('resize',()=>{pageSlide.cancel();if(!state)return;resizing=true;relayout();const anchor=stableAnchor?clone(stableAnchor):lastLocator?clone(lastLocator):null;clearTimeout(resizeTimer);resizeTimer=setTimeout(()=>{void setPreferences({},anchor).finally(()=>{resizing=false})},100)});
 $('reset-appearance').onclick=()=>void setPreferences(DEFAULT_PREFERENCES);
 $('search-form').onsubmit=event=>{event.preventDefault();void searchBook()};$('search-query').oninput=()=>{clearTimeout(searchTimer);searchTimer=setTimeout(()=>void searchBook(),180)};
-$('highlight-selection').onclick=()=>{if(selection){annotate({...selection,color:'gold'});dismissSelection();notice('Passage highlighted.')}};
+for(const b of document.querySelectorAll('[data-highlight-color]'))b.onclick=()=>{
+ if(!selection)return;
+ try{annotate({...selection,color:b.dataset.highlightColor});dismissSelection();notice('Passage highlighted.')}catch(error){notice(error.message)}
+};
+$('remove-selection').onclick=()=>{if(selection?.id)removeAnnotation(selection.id)};
+$('note-text').oninput=()=>{clearTimeout(noteSaveTimer);$('note-status').textContent='Saving…';noteSaveTimer=setTimeout(persistNote,180)};
+for(const radio of document.querySelectorAll('input[name="note-color"]'))radio.onchange=persistNote;
 $('note-selection').onclick=()=>editNote();$('dismiss-selection').onclick=dismissSelection;
 $('save-note').onclick=saveNote;
 $('keep-draft').onclick=()=>decideDraft('keep');$('discard-draft').onclick=()=>decideDraft('discard');$('save-draft').onclick=()=>decideDraft('save');
-$('delete-note').onclick=()=>{if(!editingNote?.id)return;state.annotations=state.annotations.filter(x=>x.id!==editingNote.id);applyAnnotations();changed();editingNote=undefined;closeDialog($('note-panel'));dismissSelection();notice('Highlight and note removed.');};
+$('delete-note').onclick=()=>{if(!editingNote?.id)return;clearTimeout(noteSaveTimer);removeAnnotation(editingNote.id);editingNote=undefined;closeDialog($('note-panel'));dismissSelection();notice('Highlight and note removed.');};
 media.addEventListener('change',()=>{if(state?.preferences.theme==='system')void setPreferences({})});
 emit('available');
 
