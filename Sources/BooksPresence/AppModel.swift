@@ -252,6 +252,13 @@ final class AppModel: ObservableObject {
         } else { refresh(); refreshDiscordStatus() }
         epubReaders.didFocusReader = { [weak self] in self?.cancelExternalCoverLookups(); self?.tick() }
         epubReaders.positionChanged = { [weak self] in self?.tick() }
+        epubReaders.positionFinalized = { [weak self] progress in
+            guard let self, self.ready, self.trackingEnabled, self.manualBook == nil else { return }
+            do {
+                try self.engine.recordPosition(progress)
+                self.requestHistoryRefresh()
+            } catch { self.trackingFailure(error) }
+        }
         epubReaders.traversedContent = { [weak self] bookID, evidence in self?.recordNativeCoverage(bookID: bookID, evidence: evidence) }
         epubReaders.libraryRequested = { [weak self] in self?.showDashboard(section: .library) }
         epubLibrary.register = { [weak self] publication, directory in

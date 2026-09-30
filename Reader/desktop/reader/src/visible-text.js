@@ -22,3 +22,17 @@ export function visibleTextBounds(node, visible) {
   };
   return {first: boundary(0, node.length, false), last: boundary(0, node.length, true)};
 }
+
+// Appearance reflow retains the first fully contained glyph, rather than a
+// partially clipped line. Narrow to intersecting fragments before inspecting
+// individual glyphs; a long paragraph can begin thousands of characters offscreen.
+export function firstFullyVisibleOffset(node,{width,height}){
+ const candidates=visibleTextBounds(node,r=>r.right>=0&&r.left<width&&r.bottom>=0&&r.top<=height);
+ if(!candidates)return null;
+ const range=node.ownerDocument.createRange(),text=node.textContent;
+ for(let i=candidates.first;i<candidates.last&&i<candidates.first+30000;i++){
+  range.setStart(node,i);range.setEnd(node,i+1);const rect=range.getBoundingClientRect();
+  if(rect.left>=0&&rect.left<width&&rect.top>=0&&rect.bottom<=height&&text.slice(i).trim())return i;
+ }
+ return null;
+}

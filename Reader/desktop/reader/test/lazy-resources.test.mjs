@@ -6,7 +6,8 @@ import path from 'node:path';
 import {chromium} from 'playwright';
 
 // Host-served resources: the reader receives URLs and declared sizes, never the
-// publication bytes, and fetches each resource only when a chapter needs it.
+// publication bytes. The reference-page index reads chapter markup; referenced
+// images, fonts and styles stay lazy until a displayed chapter needs them.
 // Readium preloads the current chapter and two either side, so the late image
 // sits in chapter six.
 const root=path.resolve(import.meta.dirname,'../dist');
@@ -62,10 +63,12 @@ test('host-served resources load on demand and render',{timeout:90000},async t=>
  assert.ok(parseFloat(first.border)>5,'nested @import stylesheet applied: '+first.border);
  assert.match(first.background,/blob:/,'stylesheet url() rewritten to a fetched asset');
  for(const href of ['text/one.html','styles/book.css','styles/base.css','images/one.png','images/tile.png'])assert.ok(requested.includes(href),href+' fetched for the open chapter');
- for(const href of ['text/four.html','text/five.html','text/six.html','images/three.png','images/unused.png','images/vector.svg'])assert.ok(!requested.includes(href),href+' not fetched before it is needed: '+requested.join(', '));
+ for(const href of ['images/three.png','images/unused.png','images/vector.svg'])assert.ok(!requested.includes(href),href+' not fetched before it is needed: '+requested.join(', '));
  assert.equal(new Set(requested).size,requested.length,'each resource fetched at most once: '+requested.join(', '));
 
- // Native content indexing reads future chapter markup without loading their assets.
+ // Whole-book reference pages index future markup without loading its assets.
+ await page.waitForFunction(()=>/^Pages? .+ of \d+$/.test(document.querySelector('#position-label').textContent));
+ assert.equal(requested.filter(href=>href==='text/one.html').length,1,'index reuses the displayed chapter instead of fetching its released bytes again');
  await page.evaluate(()=>{window.indexedPositions=[];window.addEventListener('stillleaf-reader-event',e=>{if(e.detail.type==='position')window.indexedPositions.push(e.detail.position)})});
  await page.evaluate(input=>window.StillleafReader.open({...input,contentProgress:true}),input());
  await page.waitForFunction(()=>window.indexedPositions.some(p=>p.bookTotal>0));
@@ -79,7 +82,7 @@ test('host-served resources load on demand and render',{timeout:90000},async t=>
  // Calibre-style SVG cover wrapper becomes a plain image instead of being stripped to a blank page.
  const cover=await page.evaluate(()=>{const d=[...document.querySelectorAll('#reader iframe')].map(f=>f.contentDocument).find(d=>d?.getElementById('cover-page'));const box=d.getElementById('cover-page');return {svg:Boolean(box.querySelector('svg')),src:box.querySelector('img')?.getAttribute('src')??''}});
  assert.equal(cover.svg,false);assert.match(cover.src,/^blob:/,'SVG-wrapped cover rendered as an image');
- assert.equal(await page.evaluate(()=>document.getElementById('chapter-label').title),'Chapter 6','untitled chapter falls back while its heading is empty');
+ assert.match(await page.evaluate(()=>document.getElementById('chapter-label').title),/^Chapter 6 · Remaining reference pages/,'untitled chapter falls back while its heading is empty');
 
  await page.getByRole('button',{name:'Search book',exact:true}).click();
  await page.getByRole('searchbox',{name:'Words or phrase'}).fill('heron');await page.locator('.result-link').waitFor();

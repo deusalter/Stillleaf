@@ -47,6 +47,10 @@ private final class LibraryPreviewWindowDelegate: NSObject, NSWindowDelegate {
 /// Renders only app-owned views with synthetic history; never captures the screen or the user's database.
 @MainActor
 func renderUIPreviews(to destination: URL) throws {
+    let arguments = CommandLine.arguments
+    let filter = arguments.firstIndex(of: "--preview-filter").flatMap { index in
+        index + 1 < arguments.count ? Set(arguments[index + 1].split(separator: ",").map(String.init)) : nil
+    }
     if CommandLine.arguments.contains("--history-atlas") {
         try renderHistoryAtlasPreviews(to: destination)
         return
@@ -106,6 +110,7 @@ func renderUIPreviews(to destination: URL) throws {
         for scale in CalendarScale.allCases {
             previews.append(("history-\(scale.rawValue)", AnyView(DashboardView(model: model, initialSection: .history, initialCalendarScale: scale))))
         }
+        previews.append(("history-content-compact", AnyView(HistoryView(model: model))))
         for category in SettingsCategory.allCases {
             previews.append(("settings-\(category.rawValue.lowercased())", AnyView(DashboardView(model: model, initialSection: .settings, initialSettingsCategory: category))))
         }
@@ -143,17 +148,30 @@ func renderUIPreviews(to destination: URL) throws {
         previews.append(("rating-quarter", AnyView(RatingPreview(value: 4.25))))
         previews.append(("rating-zero", AnyView(RatingPreview(value: 0))))
         previews.append(("rating-empty", AnyView(RatingPreview(value: nil))))
+        for format in BookFormat.allCases {
+            let book = BookRecord(id: "preview-format", title: "The Waves", author: "Virginia Woolf", format: format)
+            previews.append(("book-format-\(format.rawValue)", AnyView(AudiobookSection(model: model, book: book, player: model.audiobookPlayer)
+                .padding(24).background(ReadingPalette.paper).foregroundStyle(ReadingPalette.ink)
+                .tint(ReadingPalette.accent).buttonStyle(ReadingButtonStyle()))))
+        }
+        previews.append(("audio-log", AnyView(AudiobookLogView(model: model))))
+        previews.append(("audio-playback", AnyView(AudiobookPlaybackControls(player: model.audiobookPlayer)
+            .padding(24).frame(width: 550).background(ReadingPalette.paper)
+            .foregroundStyle(ReadingPalette.ink).tint(ReadingPalette.accent).buttonStyle(ReadingButtonStyle()))))
         previews.append(("manual-start", AnyView(ManualStartView(model: model))))
         previews.append(("manual-add", AnyView(ManualAdditionView(model: model))))
         if let interval = model.displayIntervals.first {
             previews.append(("review-editor", AnyView(IntervalReviewEditor(model: model, interval: interval))))
         }
         for (name, view) in previews {
+            if let filter, !filter.contains(name) { continue }
             let view = view.environment(\.colorScheme, scheme)
-            let sizes: [String: NSSize] = ["reading-calendar": NSSize(width: 450, height: 410),
+            let sizes: [String: NSSize] = ["history-content-compact": NSSize(width: 694, height: 660), "reading-calendar": NSSize(width: 450, height: 410),
                 "reading-dates": NSSize(width: 540, height: 500),
                 "reading-dates-expanded": NSSize(width: 540, height: 760),
 "manual-start": NSSize(width: 470, height: 350),
+                "book-format-text": NSSize(width: 680, height: 120), "book-format-audiobook": NSSize(width: 680, height: 310),
+                "audio-log": NSSize(width: 602, height: 690), "audio-playback": NSSize(width: 550, height: 190),
                 "manual-add": NSSize(width: 500, height: 510), "review-editor": NSSize(width: 560, height: 600),
                 "book-detail": NSSize(width: 760, height: 720), "troubleshooting": NSSize(width: 740, height: 650),
                 "rating-quarter": NSSize(width: 320, height: 200), "rating-zero": NSSize(width: 320, height: 200), "rating-empty": NSSize(width: 320, height: 200),
@@ -163,16 +181,23 @@ func renderUIPreviews(to destination: URL) throws {
             try renderNativeView(AnyView(view), size: name.hasPrefix("onboarding-") ? OnboardingView.size : sizes[name] ?? NSSize(width: 1180, height: 820), appearance: appearance,
                                  to: destination.appendingPathComponent("\(name)-\(dark ? "dark" : "light").png"))
         }
-        let compact = DashboardView(model: model, initialSection: .history).environment(\.colorScheme, scheme)
-        try renderNativeView(AnyView(compact), size: NSSize(width: 920, height: 660), appearance: appearance,
-                             to: destination.appendingPathComponent("history-compact-\(dark ? "dark" : "light").png"))
-        let compactTimeline = DashboardView(model: model, initialSection: .timeline).environment(\.colorScheme, scheme)
-        try renderNativeView(AnyView(compactTimeline), size: NSSize(width: 920, height: 660), appearance: appearance,
-                             to: destination.appendingPathComponent("timeline-compact-\(dark ? "dark" : "light").png"))
-        let compactToday = DashboardView(model: exceededModel).environment(\.colorScheme, scheme)
-        try renderNativeView(AnyView(compactToday), size: NSSize(width: 920, height: 660), appearance: appearance,
-                             to: destination.appendingPathComponent("today-compact-\(dark ? "dark" : "light").png"))
+        if filter?.contains("history-compact") != false {
+            let compact = DashboardView(model: model, initialSection: .history).environment(\.colorScheme, scheme)
+            try renderNativeView(AnyView(compact), size: NSSize(width: 920, height: 660), appearance: appearance,
+                                 to: destination.appendingPathComponent("history-compact-\(dark ? "dark" : "light").png"))
+        }
+        if filter?.contains("timeline-compact") != false {
+            let compactTimeline = DashboardView(model: model, initialSection: .timeline).environment(\.colorScheme, scheme)
+            try renderNativeView(AnyView(compactTimeline), size: NSSize(width: 920, height: 660), appearance: appearance,
+                                 to: destination.appendingPathComponent("timeline-compact-\(dark ? "dark" : "light").png"))
+        }
+        if filter?.contains("today-compact") != false {
+            let compactToday = DashboardView(model: exceededModel).environment(\.colorScheme, scheme)
+            try renderNativeView(AnyView(compactToday), size: NSSize(width: 920, height: 660), appearance: appearance,
+                                 to: destination.appendingPathComponent("today-compact-\(dark ? "dark" : "light").png"))
+        }
     }
+    if filter != nil { return }
     if CommandLine.arguments.contains("--all-themes") {
         try renderThemePreviews(model: model, to: destination.appendingPathComponent("themes", isDirectory: true))
     }
@@ -187,16 +212,39 @@ func renderNativeView(_ view: AnyView, size: NSSize, appearance: NSAppearance?, 
     let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless], backing: .buffered, defer: false)
     window.isReleasedWhenClosed = false
     window.appearance = appearance
-    let hosting = NSHostingView(rootView: view)
+    // Match the installed dashboard's controller hierarchy even when no window is ordered.
+    // Hidden windows do not drive entrance animations like visible windows do;
+    // static captures must not interpolate the initial responsive layout.
+    let still = view.transaction { transaction in
+        if CommandLine.arguments.contains("--offscreen") {
+            transaction.animation = nil
+            transaction.disablesAnimations = true
+        }
+    }
+    let controller = NSHostingController(rootView: still)
+    // A screenshot has an explicit viewport; intrinsic sizing must not resize its hidden window.
+    controller.sizingOptions = []
+    window.contentViewController = controller
+    window.setContentSize(size)
+    let hosting = controller.view
+    hosting.frame = NSRect(origin: .zero, size: size)
     hosting.appearance = appearance
-    window.contentView = hosting
-    window.orderBack(nil)
+    if !CommandLine.arguments.contains("--offscreen") { window.orderBack(nil) }
     hosting.layoutSubtreeIfNeeded()
     RunLoop.current.run(until: Date().addingTimeInterval(settle))
     hosting.layoutSubtreeIfNeeded()
     hosting.displayIfNeeded()
+    if CommandLine.arguments.contains("--layout-report") {
+        func report(_ view: NSView) {
+            if let scroll = view as? NSScrollView {
+                print("ui-layout: \(output.lastPathComponent) frame=\(scroll.frame) root=\(scroll.convert(scroll.bounds, to: hosting)) clip=\(scroll.contentView.bounds) document=\(scroll.documentView?.frame ?? .zero) flipped=\(scroll.documentView?.isFlipped ?? false)")
+            }
+            for child in view.subviews { report(child) }
+        }
+        report(hosting)
+    }
     // Detach the SwiftUI tree so closed previews stop observing the model and theme store.
-    defer { window.contentView = nil; window.close() }
+    defer { window.contentViewController = nil; window.contentView = nil; window.close() }
     guard let bitmap = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) else {
         throw UIPreviewError.renderFailed
     }
@@ -290,7 +338,7 @@ private func renderThemePreviews(model: AppModel, to destination: URL) throws {
         let hosting = NSHostingView(rootView: DashboardView(model: model, initialSection: section, initialSettingsCategory: category)
             .environment(\.colorScheme, .light))
         window.contentView = hosting
-        window.orderBack(nil)
+        if !CommandLine.arguments.contains("--offscreen") { window.orderBack(nil) }
         hosting.layoutSubtreeIfNeeded()
         RunLoop.current.run(until: Date().addingTimeInterval(0.6))
         store.select(theme: "plum")
@@ -350,7 +398,7 @@ private func renderProgressMotion(model: AppModel, to destination: URL) throws {
         .environment(\.colorScheme, .light).foregroundStyle(ReadingPalette.ink)
         .padding(6).frame(width: 850, height: 310).background(ReadingPalette.paper))
     window.contentView = hosting
-    window.orderBack(nil)
+    if !CommandLine.arguments.contains("--offscreen") { window.orderBack(nil) }
     let started = Date()
     hosting.layoutSubtreeIfNeeded()
     defer { window.close() }
@@ -395,7 +443,7 @@ private func renderRatingMotion(to destination: URL) throws {
         let hosting = NSHostingView(rootView: RatingMotionPreview(state: state)
             .environment(\.colorScheme, .light))
         window.contentView = hosting
-        window.orderBack(nil)
+        if !CommandLine.arguments.contains("--offscreen") { window.orderBack(nil) }
         hosting.layoutSubtreeIfNeeded()
         RunLoop.current.run(until: Date().addingTimeInterval(0.2))
         state.rating = 4.25
@@ -429,7 +477,7 @@ private func renderCompletionMotion(to destination: URL) throws {
         window.isReleasedWhenClosed = false
         let hosting = NSHostingView(rootView: badge)
         window.contentView = hosting
-        window.orderBack(nil)
+        if !CommandLine.arguments.contains("--offscreen") { window.orderBack(nil) }
         hosting.layoutSubtreeIfNeeded()
         let started = Date()
         for (name, time) in [("start", 0.02), ("middle", 0.25), ("end", 0.9)] {

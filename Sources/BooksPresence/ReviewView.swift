@@ -153,8 +153,8 @@ struct IntervalReviewEditor: View {
                         ReadingMenuPicker(label: "Book", options: model.books.map(\.id), selection: $bookID) { id in
                             model.books.first { $0.id == id }?.title ?? "Choose a book"
                         }
-                        DatePicker("Started", selection: $start).datePickerStyle(.compact)
-                        DatePicker("Finished", selection: $end, in: start...).datePickerStyle(.compact)
+                        ReadingDatePicker("Started", selection: $start)
+                        ReadingDatePicker("Finished", selection: $end, minimumDate: start)
                         ReadingSegmentedControl(label: "Treatment", options: [IntervalDisposition.credited, .uncertain, .excluded], selection: $disposition) { value in
                             switch value {
                             case .credited: return "Count this time"
@@ -173,7 +173,7 @@ struct IntervalReviewEditor: View {
                     }.readingPanel()
                     VStack(alignment: .leading, spacing: 12) {
                         Text("Split this reading span").font(.headline)
-                        DatePicker("Split at", selection: $splitAt, in: interval.start...interval.end).datePickerStyle(.compact)
+                        ReadingDatePicker("Split at", selection: $splitAt, minimumDate: interval.start, maximumDate: interval.end)
                         Button("Split reading") { model.splitInterval(interval, at: splitAt); dismiss() }
                             .disabled(splitAt <= interval.start || splitAt >= interval.end)
                     }.readingPanel()

@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "build": "vite build --config vite.config.mjs",
-    "test": "node --test test/*.test.mjs"
+    "test": "node --test --test-concurrency=1 test/*.test.mjs"
   },
   "dependencies": {
     "@readium/navigator": "2.10.3",

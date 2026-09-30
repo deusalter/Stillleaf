@@ -33,10 +33,12 @@ struct AudiobookSection: View {
             HStack {
                 Label("Book format", systemImage: "headphones").font(.headline)
                 Spacer()
-                Picker("Format", selection: Binding(get: { book.resolvedFormat }, set: { model.setBookFormat($0, for: book) })) {
-                    Text("Text").tag(BookFormat.text)
-                    Text("Audiobook").tag(BookFormat.audiobook)
-                }.labelsHidden().frame(width: 155)
+                ReadingSegmentedControl(label: "Book format", options: BookFormat.allCases,
+                    selection: Binding(get: { book.resolvedFormat }, set: { model.setBookFormat($0, for: book) }),
+                    title: { $0 == .text ? "Text" : "Audiobook" },
+                    systemImage: { $0 == .text ? "book.closed" : "headphones" })
+                    .frame(width: 260)
+                    .accessibilityIdentifier("book-format")
             }
             if book.resolvedFormat == .audiobook {
                 if let audio = model.audiobookProgress(for: book.id) {
@@ -99,11 +101,10 @@ struct AudiobookPlaybackControls: View {
                 Button { player.seek(to: player.position + 30) } label: { Image(systemName: "goforward.30") }
                     .accessibilityLabel("Forward 30 seconds")
                 Spacer()
-                Picker("Speed", selection: $player.rate) {
-                    ForEach([Float(0.5), 0.75, 1, 1.25, 1.5, 1.75, 2], id: \.self) { rate in
-                        Text("\(rate.formatted())×").tag(rate)
-                    }
-                }.frame(width: 140)
+                ReadingMenuPicker(label: "Playback speed", options: [Float(0.5), 0.75, 1, 1.25, 1.5, 1.75, 2],
+                    selection: $player.rate) { "\($0.formatted())×" }
+                    .frame(width: 100)
+                    .accessibilityIdentifier("playback-speed")
             }
             HStack {
                 Image(systemName: "speaker.wave.2").accessibilityHidden(true)
@@ -139,9 +140,10 @@ struct AudiobookLogView: View {
             VStack(alignment: .leading, spacing: 12) {
                 if let book { Text(book.title).font(ReadingType.bookTitle(20)) }
                 else {
-                    Picker("Book", selection: $selectedID) {
-                        Text("New audiobook").tag("")
-                        ForEach(model.books.filter { model.canonicalLibraryBook($0)?.id == $0.id }.sorted { $0.title < $1.title }) { Text($0.title).tag($0.id) }
+                    let books = model.books.filter { model.canonicalLibraryBook($0)?.id == $0.id }
+                        .sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+                    ReadingMenuPicker(label: "Book", options: [""] + books.map(\.id), selection: $selectedID) { id in
+                        books.first { $0.id == id }?.title ?? "New audiobook"
                     }.onChange(of: selectedID) { _ in loadPosition() }
                     if selectedID.isEmpty {
                         TextField("Title", text: $title)
@@ -156,10 +158,10 @@ struct AudiobookLogView: View {
                     .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
             }.readingPanel()
             VStack(alignment: .leading, spacing: 12) {
-                Toggle("Also log a listening session", isOn: $includeSession)
+                ReadingSwitchRow(title: "Also log a listening session", isOn: $includeSession)
                 if includeSession {
-                    DatePicker("Started listening", selection: $start)
-                    DatePicker("Stopped listening", selection: $end)
+                    ReadingDatePicker("Started listening", selection: $start)
+                    ReadingDatePicker("Stopped listening", selection: $end)
                     Text("Actual listening: \(ReadingFormat.duration(max(0, end.timeIntervalSince(start))))")
                         .font(.callout.monospacedDigit())
                 }

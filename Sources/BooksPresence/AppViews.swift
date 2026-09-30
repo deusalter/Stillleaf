@@ -157,8 +157,8 @@ struct PopoverView: View {
                 Button("Settings") { model.showDashboard(section: .settings) }.controlSize(.small)
                 Menu {
                     Button("Quit Stillleaf") { model.quit() }
-                } label: { Image(systemName: "ellipsis") }
-                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+                } label: { Image(systemName: "ellipsis").frame(width: 12, height: 18) }
+                .menuStyle(ReadingMenuStyle()).menuIndicator(.hidden)
                 .accessibilityLabel("More actions")
             }
         }

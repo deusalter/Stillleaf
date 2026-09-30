@@ -65,13 +65,7 @@ public final class TrackingEngine {
 
     public func process(_ input: TrackingInput) throws {
         if let book = input.book { try store.saveBook(book) }
-        if let progress = input.progress {
-            let signature = storedProgressSignature(progress)
-            if lastStoredProgress[progress.bookID] != signature {
-                try store.appendProgress(progress)
-                lastStoredProgress[progress.bookID] = signature
-            }
-        }
+        if let progress = input.progress { try recordPosition(progress) }
 
         let eligible = input.book != nil && input.pauseReason == nil
         if var current = active {
@@ -272,6 +266,15 @@ public final class TrackingEngine {
         guard input.progress?.source != "stillleaf-epub-location",
               input.progress?.reliable == true, let signature = navigationSignature(input.progress) else { return false }
         return signature != state.lastProgressSignature
+    }
+
+    /// A final reader position is useful even after its window loses focus.
+    /// Persist it without advancing a tracking session or treating it as activity.
+    public func recordPosition(_ progress: ProgressObservation) throws {
+        let signature = storedProgressSignature(progress)
+        guard lastStoredProgress[progress.bookID] != signature else { return }
+        try store.appendProgress(progress)
+        lastStoredProgress[progress.bookID] = signature
     }
 
     private func navigationSignature(_ progress: ProgressObservation?) -> String? {

@@ -35,7 +35,9 @@ export class ContinuousNavigator {
   this.container=container;this.input=input;this.pool=pool;this.listeners=listeners;this.initial=serial(initial);this.settings=settings;this.entries=[];this.destroyed=false;this.epoch=0;this.queue=Promise.resolve();this.suppress=0;this.decorations=[];this.decorationObserver=null;this.current=null;this.lastAnchor=null;this.lastInput=0;this.currentIndex=0;this.ownTop=0;this.readerAnchor=null;
   this.evidenceTop=0;
   // Every programmatic scroll goes through setTop, which moves evidenceTop too, so the delta seen here is the reader's.
-  this.onScroll=()=>{if(this.destroyed)return;const top=this.container.scrollTop,delta=top-this.evidenceTop;this.evidenceTop=top;if(!delta)return;if(this.suppress){if(this.moved()){this.noteReaderScroll();this.listeners.readerScrolled?.(delta,this.container.clientHeight)}return}this.listeners.readerScrolled?.(delta,this.container.clientHeight);this.lastInput=performance.now();cancelAnimationFrame(this.scrollFrame);this.scrollFrame=requestAnimationFrame(()=>{const locator=this.report();if(locator)this.listeners.readerAnchorChanged?.(locator);void this.updateWindow()})};
+  // Native scrolling stays immediate; location serialization and host updates run
+  // at most once per 80ms, with screen-crossing evidence reported synchronously.
+  this.onScroll=()=>{if(this.destroyed)return;const top=this.container.scrollTop,delta=top-this.evidenceTop;this.evidenceTop=top;if(!delta)return;if(this.suppress){if(this.moved()){this.noteReaderScroll();this.listeners.readerScrolled?.(delta,this.container.clientHeight)}return}this.listeners.readerScrolled?.(delta,this.container.clientHeight);this.lastInput=performance.now();if(!this.scrollTimer)this.scrollTimer=setTimeout(()=>{this.scrollTimer=0;const locator=this.report();if(locator)this.listeners.readerAnchorChanged?.(locator);void this.updateWindow()},80)};
   this.onResize=()=>{if(this.destroyed)return;clearTimeout(this.resizeTimer);this.resizeTimer=setTimeout(()=>void this.remeasure(),60)};
  }
  async load(){
@@ -92,7 +94,7 @@ export class ContinuousNavigator {
   while((element=walk.nextNode())){if(++count>20000)throw Error('This section is too complex for continuous view. Use a paginated mode.');bottom=Math.max(bottom,element.getBoundingClientRect().bottom)}
   const height=Math.ceil(Math.max(120,bottom));
   if(!Number.isFinite(height)||height>MAX_CHAPTER_HEIGHT)throw Error('This section exceeds continuous-view layout limits. Use a paginated mode.');
-  entry.height=height;entry.frame.style.height=height+'px';entry.section.style.height=height+'px';
+  entry.geometryRevision=(entry.geometryRevision??0)+1;entry.height=height;entry.frame.style.height=height+'px';entry.section.style.height=height+'px';
   if(this.entries.reduce((sum,item)=>sum+item.height,0)>MAX_BOOK_HEIGHT)throw Error('This book exceeds continuous-view layout limits. Use a paginated mode.');
  }
  unmount(entry){
@@ -202,5 +204,5 @@ export class ContinuousNavigator {
   const rules=[];let index=0;for(const decoration of this.decorations){const locator=serial(decoration.locator);if(locator.href!==entry.link.href)continue;const range=locatorRange(doc,locator);if(!range)continue;const name='stillleaf-'+index++;wnd.CSS.highlights.set(name,new wnd.Highlight(range));const tint=/^#[0-9a-f]{6}$/i.test(decoration.style.tint)?decoration.style.tint:'#e4c778';rules.push(`::highlight(${name}){background:${tint};color:#17271f}`);entry.ranges.push({range,decoration});}
   const style=doc.createElement('style');entry.highlightStyle=style;style.textContent=rules.join('\n');doc.head.append(style);
  }
- async destroy(){this.destroyed=true;this.epoch++;clearTimeout(this.resizeTimer);cancelAnimationFrame(this.scrollFrame);this.resizeObserver?.disconnect();this.container.removeEventListener('scroll',this.onScroll);for(const entry of this.entries)this.unmount(entry);this.entries=[];this.container.replaceChildren();this.container.classList.remove('continuous-reader');this.container.removeAttribute('tabindex');}
+ async destroy(){this.destroyed=true;this.epoch++;clearTimeout(this.resizeTimer);clearTimeout(this.scrollTimer);this.resizeObserver?.disconnect();this.container.removeEventListener('scroll',this.onScroll);for(const entry of this.entries)this.unmount(entry);this.entries=[];this.container.replaceChildren();this.container.classList.remove('continuous-reader');this.container.removeAttribute('tabindex');}
 }

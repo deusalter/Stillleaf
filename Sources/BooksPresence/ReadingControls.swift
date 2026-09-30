@@ -82,6 +82,10 @@ struct ReadingMenuPicker<Value: Hashable>: View {
     let options: [Value]
     @Binding var selection: Value
     let title: (Value) -> String
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.isFocused) private var isFocused
+    @State private var hovering = false
+
     var body: some View {
         Menu {
             ForEach(options, id: \.self) { option in
@@ -91,17 +95,21 @@ struct ReadingMenuPicker<Value: Hashable>: View {
                 }
             }
         } label: {
-            HStack {
-                Text(title(selection)).lineLimit(1)
-                Spacer(minLength: 8)
-                Image(systemName: "chevron.down").font(.system(size: 10, weight: .semibold))
-            }
-            .font(.callout).foregroundStyle(ReadingPalette.ink)
-            .padding(.horizontal, 12).padding(.vertical, 10)
-            .background(ReadingPalette.paper, in: RoundedRectangle(cornerRadius: 11))
+            Text(title(selection)).lineLimit(1)
         }
-        .menuStyle(.borderlessButton).menuIndicator(.hidden)
-        .padding(10).background(ReadingPalette.paper, in: RoundedRectangle(cornerRadius: 11))
+        // macOS flattens Menu labels into a native button. Keep field geometry on
+        // the menu itself so its padding and hit area survive that conversion.
+        .menuStyle(.borderlessButton).menuIndicator(.visible)
+        .font(ReadingType.controlLabel).foregroundStyle(ReadingPalette.ink).tint(ReadingPalette.ink)
+        .padding(.horizontal, 12).padding(.vertical, 10)
+        .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
+        .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .background(ReadingPalette.surface.opacity(hovering && isEnabled ? 1 : 0.7),
+                    in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous)
+            .stroke(isFocused ? ReadingPalette.accent : ReadingPalette.border, lineWidth: isFocused ? 2 : 1))
+        .opacity(isEnabled ? 1 : 0.42)
+        .onHover { hovering = $0 }
         .accessibilityLabel(label).accessibilityValue(title(selection))
     }
 }
