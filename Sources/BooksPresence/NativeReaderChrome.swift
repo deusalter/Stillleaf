@@ -14,10 +14,43 @@ struct ReaderControlDefinition: Decodable, Identifiable {
     var id: String { key }
 }
 
+/// Deterministic transport delay: reset must follow an in-flight batch and discard a later pending patch.
+@MainActor func runNativeReaderQueueSmoke() async throws {
+    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 500), styleMask: [.titled], backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false
+    defer { window.close() }
+    let chrome = NativeReaderChrome(window: window)
+    var commands: [String] = [], value = 1.2
+    var release: CheckedContinuation<Void, Never>?
+    chrome.send = { command, payload in
+        commands.append(command)
+        if command == "preferences" {
+            await withCheckedContinuation { release = $0 }
+            value = payload?["fontSize"] as? Double ?? value
+        }
+        if command == "reset" { value = 1.2 }
+        return ["preferences": ["fontSize": value], "definitions": []]
+    }
+    await chrome.connect()
+    chrome.model.change?("fontSize", 1.8)
+    let deadline = Date().addingTimeInterval(2)
+    while release == nil && Date() < deadline { try await Task.sleep(nanoseconds: 5_000_000) }
+    guard let resume = release else { throw NSError(domain: "Stillleaf.ReaderControls", code: 3) }
+    chrome.model.change?("fontSize", 2.1)
+    chrome.model.reset?()
+    resume.resume()
+    try await chrome.flush()
+    guard commands.filter({ $0 == "preferences" || $0 == "reset" }) == ["preferences", "reset"],
+          chrome.model.preferences["fontSize"] as? Double == 1.2 else { throw NSError(domain: "Stillleaf.ReaderControls", code: 4) }
+    chrome.disconnect()
+    print("native-reader-queue: delayed slider, superseded pending patch and Reset ordering passed")
+}
+
 @MainActor final class ReaderChromeModel: ObservableObject {
     @Published var preferences: [String: Any] = [:]
     @Published var definitions: [ReaderControlDefinition] = []
     @Published var error: String?
+    @Published var resetting = false
     var change: ((String, Any) -> Void)?
     var reset: (() -> Void)?
     func accept(_ value: [String: Any]) {
@@ -39,7 +72,7 @@ private struct ReaderAppearanceView: View {
                 ForEach(model.definitions) { definition in control(definition) }
                 Button("Reset appearance") { model.reset?() }
                 if let error = model.error { Text(error).foregroundStyle(.red).accessibilityAddTraits(.isStaticText) }
-            }.formStyle(.grouped).padding(8)
+            }.formStyle(.grouped).disabled(model.resetting).padding(8)
         }
         .frame(width: 340, height: 440)
         .readingMotionAccessibility()
@@ -99,6 +132,9 @@ private struct ReaderAppearanceView: View {
     private var dialogOpen = false
     private var failedPreference = false
     private var bookmarked = false
+    private var connectionGeneration = 0
+    private var preferenceGeneration = 0
+    private var resetTask: Task<Void, Never>?
     var isConnected: Bool { active }
     private var pending: [String: Any] = [:]
     private var preferenceTask: Task<Void, Never>?
@@ -119,14 +155,23 @@ private struct ReaderAppearanceView: View {
         appearance.behavior = .transient; appearance.delegate = self
         appearance.contentViewController = NSHostingController(rootView: ReaderAppearanceView(model: model))
         model.change = { [weak self] key, value in self?.updatePreference(key, value) }
-        model.reset = { [weak self] in self?.command("reset") }
+        model.reset = { [weak self] in self?.resetAppearance() }
         displayObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in Task { @MainActor [weak self] in self?.sendPolicy() } }
         updateEnabled()
     }
     func connect() async {
         guard let send else { return }
-        do { let value = try await send("activate", nil); active = true; accept(value); updateEnabled(); sendPolicy() }
-        catch { model.error = "Native controls could not connect. The book controls remain available."; active = false; updateEnabled() }
+        let generation = connectionGeneration
+        do {
+            let value = try await send("activate", nil)
+            guard generation == connectionGeneration, !closing else { return }
+            active = true; accept(value); updateEnabled(); sendPolicy()
+        } catch {
+            guard generation == connectionGeneration else { return }
+            active = false; updateEnabled()
+            _ = try? await send("deactivate", nil)
+            model.error = "Native controls could not connect. The book controls remain available."
+        }
     }
     func accept(_ value: [String: Any]) {
         model.accept(value); dialogOpen = value["dialogOpen"] as? Bool ?? false
@@ -139,7 +184,7 @@ private struct ReaderAppearanceView: View {
         }
         updateEnabled()
     }
-    func disconnect() { active = false; preferenceTask?.cancel(); pending.removeAll(); appearance.close(); updateEnabled() }
+    func disconnect() { connectionGeneration += 1; active = false; resetTask?.cancel(); preferenceTask?.cancel(); pending.removeAll(); appearance.close(); updateEnabled() }
     func command(_ name: String) {
         guard active, !closing else { return }
         Task { [weak self] in
@@ -149,7 +194,7 @@ private struct ReaderAppearanceView: View {
         }
     }
     private func updatePreference(_ key: String, _ value: Any) {
-        guard active, !closing else { return }
+        guard active, !closing, !model.resetting else { return }
         model.preferences[key] = value; pending[key] = value
         guard preferenceTask == nil else { return }
         preferenceTask = Task { [weak self] in
@@ -157,15 +202,29 @@ private struct ReaderAppearanceView: View {
             while !pending.isEmpty && active && !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 60_000_000)
                 guard active, !Task.isCancelled, let send else { break }
-                let patch = pending; pending.removeAll()
-                do { let value = try await send("preferences", patch); guard active else { break }; accept(value); failedPreference = false; for (key, value) in pending { model.preferences[key] = value }; model.error = nil }
+                let patch = pending, generation = preferenceGeneration; pending.removeAll()
+                do { let value = try await send("preferences", patch); guard active else { break }; if generation != preferenceGeneration { continue }; accept(value); failedPreference = false; for (key, value) in pending { model.preferences[key] = value }; model.error = nil }
                 catch { failedPreference = true; model.error = "Appearance could not be saved. Try again." }
             }
             preferenceTask = nil
         }
     }
+    private func resetAppearance() {
+        guard active, !closing, !model.resetting else { return }
+        preferenceGeneration += 1; pending.removeAll(); model.resetting = true
+        let previous = preferenceTask
+        resetTask = Task { [weak self] in
+            guard let self else { return }
+            await previous?.value
+            defer { model.resetting = false; resetTask = nil }
+            guard active, !Task.isCancelled, let send else { return }
+            do { let value = try await send("reset", nil); guard active else { return }; accept(value); failedPreference = false; model.error = nil }
+            catch { failedPreference = true; model.error = "Appearance could not be reset. Try again." }
+        }
+    }
     func setClosing(_ value: Bool) { closing = value; updateEnabled() }
     func flush() async throws {
+        if let resetTask { await resetTask.value }
         if let preferenceTask { await preferenceTask.value }
         if failedPreference { throw NSError(domain: "Stillleaf.ReaderControls", code: 1, userInfo: [NSLocalizedDescriptionKey: "The latest appearance change did not finish."]) }
     }

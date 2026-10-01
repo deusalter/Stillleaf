@@ -652,7 +652,7 @@ function turn(direction){
   dismissSelection();
   refreshPosition();const departure=nativePosition;
   const current=navigator,generation=lifecycle;
-  return pageSlide.run(direction,{enabled:!state.preferences.scroll,rtl:input?.readingProgression==='rtl'||current.readingProgression==='rtl',hurried:()=>queuedTurns>1},()=>{
+  return pageSlide.run(direction,{enabled:!state.preferences.scroll&&!document.body.classList.contains('native-reduceMotion'),rtl:input?.readingProgression==='rtl'||current.readingProgression==='rtl',hurried:()=>queuedTurns>1},()=>{
    if(generation!==lifecycle||current!==navigator||reflowCount||resizing)return false;
    return navigationCompletion.wait(current,done=>(direction==='next'?current.goForward.bind(current):current.goBackward.bind(current))(false,done),moved=>{
     if(generation!==lifecycle||current!==navigator)return;
@@ -783,7 +783,7 @@ let nativeDefinitionCache;
 function nativeDefinitions(){
  if(nativeDefinitionCache)return nativeDefinitionCache;
  const choice=(key,label,items)=>({key,label,kind:'choice',options:items.map(([value,label])=>({value:JSON.stringify(value),label}))});
- const result=[choice('theme','Page theme',[['system','System'],...THEMES.map(x=>[x.id,x.label])]),choice('fontFamily','Typeface',FONTS.map(x=>[x.id,x.label])),choice('margins','Margins',Object.entries(MARGINS).map(([key,value])=>[key,value.label])),choice('columns','Pages',[['one','Single page'],['two','Facing pages']]),choice('fontWeight','Text weight',[[null,'Original'],[400,'Regular'],[700,'Bold']]),choice('textAlign','Alignment',[['publisher','Original'],['start','Start'],['justify','Justified']]),choice('hyphens','Hyphenation',[[null,'Original'],[true,'On'],[false,'Off']])];
+ const result=[choice('theme','Page theme',[['system','System'],['custom','Custom'],...THEMES.map(x=>[x.id,x.label])]),choice('fontFamily','Typeface',FONTS.map(x=>[x.id,x.label])),choice('margins','Margins',Object.entries(MARGINS).map(([key,value])=>[key,value.label])),choice('columns','Pages',[['one','Single page'],['two','Facing pages']]),choice('fontWeight','Text weight',[[null,'Original'],[400,'Regular'],[700,'Bold']]),choice('textAlign','Alignment',[['publisher','Original'],['start','Start'],['justify','Justified']]),choice('hyphens','Hyphenation',[[null,'Original'],[true,'On'],[false,'Off']])];
  for(const [id,key,label]of [['font-size','fontSize','Text size'],['line-height','lineHeight','Line spacing'],['measure','measure','Line width'],['content-width','contentWidth','Page width'],['side-margin','sideMargin','Side margins'],['letter-spacing','letterSpacing','Letter spacing'],['word-spacing','wordSpacing','Word spacing']]){const e=$(id);result.push({key,label,kind:'number',min:Number(e.min),max:Number(e.max),step:Number(e.step),nullable:key==='sideMargin'})}
  for(const [key,label]of [['scroll','Continuous scrolling'],['immersive','Focus reading']])result.push({key,label,kind:'toggle'});
  for(const [key,label]of [['backgroundColor','Page color'],['textColor','Text color']])result.push({key,label,kind:'color'});
@@ -793,7 +793,12 @@ const nativeChrome=nativeChromeAdapter({edition:()=>input?.editionId,ready:()=>B
  status:()=>({bookmarked:Boolean(lastLocator&&state?.bookmarks.some(x=>samePlace(x.locator,lastLocator))),dialogOpen:Boolean(document.querySelector('dialog[open]'))}),
  visibility:(active,closing=false)=>{document.body.classList.toggle('native-chrome',active);if(state&&!closing)return setPreferences({})},
  perform:async(command,payload)=>{
-  if(command==='preferences')return setPreferences(payload);
+  if(command==='preferences'){
+   if(typeof payload.backgroundColor==='string'||typeof payload.textColor==='string'){
+    const base=currentTheme();payload={backgroundColor:base.background,textColor:base.text,...payload,theme:'custom'};
+   }
+   return setPreferences(payload);
+  }
   if(command==='reset')return setPreferences(DEFAULT_PREFERENCES);
   if(document.querySelector('dialog[open]')&&!['policy'].includes(command))throw Error('Finish the open reader panel before using this control.');
   if(command==='next'||command==='previous')return turn(command);

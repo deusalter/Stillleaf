@@ -424,6 +424,7 @@ private final class EPUBReaderBridge: NSObject, WKScriptMessageHandler {
 /// Fixture-only CLI check. Never uses the app's production store or preferences.
 @MainActor
 func runEPUBReaderSmoke(fixture: URL) async throws {
+    try await runNativeReaderQueueSmoke()
     let temporary = FileManager.default.temporaryDirectory.appendingPathComponent("Stillleaf-reader-smoke-" + UUID().uuidString)
     try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: temporary) }

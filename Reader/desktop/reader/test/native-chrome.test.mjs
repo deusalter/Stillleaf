@@ -18,3 +18,15 @@ test('native commands negotiate one owner and reject stale or malformed requests
  ready=false;await assert.rejects(adapter.dispatch(request(4,'next')));assert.deepEqual(calls,['preferences']);
  adapter.disconnect();assert.equal(visible,false);
 });
+
+test('timed-out and cancelled activation restore web ownership despite late completion',async()=>{
+ let visible=false,release;
+ const pending=new Promise(resolve=>release=resolve);
+ const adapter=nativeChromeAdapter({edition:()=> 'fixture',ready:()=>true,current:()=>({}),definitions:()=>[],activationTimeoutMs:20,visibility:(v)=>{visible=v;return v?pending:undefined},perform:()=>{}});
+ const request=(id,command)=>({version:1,editionId:'fixture',id,command});
+ const activation=adapter.dispatch(request(1,'activate'));
+ assert.equal(visible,true);
+ await assert.rejects(activation,/timed out/);assert.equal(visible,false);
+ await adapter.dispatch(request(2,'deactivate'));release();await Promise.resolve();assert.equal(visible,false);
+ await assert.rejects(adapter.dispatch(request(3,'next')),/not connected/);
+});

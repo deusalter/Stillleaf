@@ -1,6 +1,8 @@
 import AppKit
 import SwiftUI
 
+private enum NativeChromeCaptureError: Error { case renderFailed }
+
 /// Synthetic decorated-window captures; no production stores or Mac permissions.
 @MainActor func renderNativeChromePreviews(directory: URL) throws {
     let temporary = FileManager.default.temporaryDirectory.appendingPathComponent("Stillleaf-native-preview-" + UUID().uuidString)
@@ -15,15 +17,15 @@ import SwiftUI
             let window = DashboardWindow(contentRect: NSRect(x: 100, y: 100, width: 1060, height: 760), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false; window.title = "Stillleaf — synthetic preview"
             window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
-            window.contentViewController = NSHostingController(rootView: DashboardView(model: model).environment(\.accessibilityReduceTransparency, opaque).environment(\.accessibilityReduceMotion, true))
+            window.contentViewController = NSHostingController(rootView: DashboardView(model: model).environment(\.nativePreviewOpaque, opaque))
             window.orderBack(nil)
             RunLoop.main.run(until: Date().addingTimeInterval(0.4))
-            guard let toolbar = window.toolbar, toolbar.items.filter({ $0.itemIdentifier.rawValue.contains("toggleSidebar") }).count == 1 else { throw UIPreviewError.renderFailed }
+            guard let toolbar = window.toolbar, toolbar.items.filter({ $0.itemIdentifier.rawValue.contains("toggleSidebar") }).count == 1 else { throw NativeChromeCaptureError.renderFailed }
             try captureNativeWindow(window, to: directory.appendingPathComponent("dashboard-\(dark ? "dark" : "light")-\(opaque ? "opaque" : "system").png"))
             window.contentViewController = nil; window.close()
             let panel = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 350, height: 500), styleMask: [.titled], backing: .buffered, defer: false)
             panel.isReleasedWhenClosed = false; panel.title = "Stillleaf — synthetic menu panel"; panel.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
-            panel.contentViewController = NSHostingController(rootView: PopoverView(model: model).environment(\.accessibilityReduceTransparency, opaque).environment(\.accessibilityReduceMotion, true))
+            panel.contentViewController = NSHostingController(rootView: PopoverView(model: model).environment(\.nativePreviewOpaque, opaque))
             panel.orderBack(nil); RunLoop.main.run(until: Date().addingTimeInterval(0.3))
             try captureNativeWindow(panel, to: directory.appendingPathComponent("panel-\(dark ? "dark" : "light")-\(opaque ? "opaque" : "system").png"))
             panel.contentViewController = nil; panel.close()
@@ -39,10 +41,10 @@ import SwiftUI
 
 @MainActor func captureNativeWindow(_ window: NSWindow, to url: URL) throws {
     try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-    guard let frame = window.contentView?.superview else { throw UIPreviewError.renderFailed }
+    guard let frame = window.contentView?.superview else { throw NativeChromeCaptureError.renderFailed }
     frame.layoutSubtreeIfNeeded(); frame.displayIfNeeded()
-    guard let bitmap = frame.bitmapImageRepForCachingDisplay(in: frame.bounds) else { throw UIPreviewError.renderFailed }
+    guard let bitmap = frame.bitmapImageRepForCachingDisplay(in: frame.bounds) else { throw NativeChromeCaptureError.renderFailed }
     frame.cacheDisplay(in: frame.bounds, to: bitmap)
-    guard let data = bitmap.representation(using: .png, properties: [:]) else { throw UIPreviewError.renderFailed }
+    guard let data = bitmap.representation(using: .png, properties: [:]) else { throw NativeChromeCaptureError.renderFailed }
     try data.write(to: url)
 }
