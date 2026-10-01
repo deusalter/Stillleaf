@@ -27,7 +27,7 @@ public struct AtlasDay: Identifiable, Equatable {
 }
 
 public enum HistoryAtlas {
-    private struct MergeResolver {
+    struct MergeResolver {
         var targets: [String: String] = [:]
         init(merges: [BookMerge]) {
             var latest: [String: Int] = [:]
@@ -60,27 +60,43 @@ public enum HistoryAtlas {
     /// records remain reviewable via slices but never color a time chart or a ring.
     public static func days(intervals: [ReadingInterval], merges: [BookMerge], period: DateInterval,
                             timezoneID: String) -> [AtlasDay] {
+        days(slices: slices(intervals: intervals, merges: merges, period: period), period: period, timezoneID: timezoneID)
+    }
+
+    /// Reuse the period's clipping for summaries, charts and session details.
+    public static func days(slices: [AtlasTimeSlice], period: DateInterval, timezoneID: String) -> [AtlasDay] {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: timezoneID) ?? .current
-        var dates: [Date] = [], cursor = calendar.startOfDay(for: period.start)
+        var dates: [Date] = [], ends: [Date] = [], cursor = calendar.startOfDay(for: period.start)
         while cursor < period.end {
             dates.append(cursor)
-            guard let next = calendar.date(byAdding: .day, value: 1, to: cursor), next > cursor else { break }
+            guard let next = calendar.date(byAdding: .day, value: 1, to: cursor), next > cursor else {
+                ends.append(period.end); break
+            }
+            ends.append(next)
             cursor = next
         }
         var bins: [Date: [String: AtlasBookTime]] = [:]
-        for slice in slices(intervals: intervals, merges: merges, period: period) where slice.interval.disposition != .excluded {
+        for slice in slices where slice.interval.disposition != .excluded {
             var start = slice.start
-            while start < slice.end {
-                let day = calendar.startOfDay(for: start)
-                guard let next = calendar.date(byAdding: .day, value: 1, to: day), next > start else { break }
-                let end = min(next, slice.end)
+            // Calendar boundaries are shared by every interval. Binary search also
+            // handles overlapping/unsorted slices without assuming monotonic ends.
+            var low = 0, high = dates.count
+            while low < high {
+                let middle = low + (high - low) / 2
+                if dates[middle] <= start { low = middle + 1 } else { high = middle }
+            }
+            var index = low - 1
+            while start < slice.end, index >= 0, index < dates.count {
+                let day = dates[index]
+                let end = min(ends[index], slice.end)
                 let seconds = slice.seconds * end.timeIntervalSince(start) / slice.end.timeIntervalSince(slice.start)
                 var entry = bins[day]?[slice.bookID] ?? AtlasBookTime(bookID: slice.bookID)
                 if slice.interval.disposition == .credited { entry.creditedSeconds += seconds }
                 else { entry.uncertainSeconds += seconds }
                 bins[day, default: [:]][slice.bookID] = entry
                 start = end
+                index += 1
             }
         }
         return dates.map { date in

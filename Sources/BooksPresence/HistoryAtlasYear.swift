@@ -3,41 +3,19 @@ import BooksCore
 
 @MainActor
 struct AtlasYearView: View {
-    @ObservedObject var model: AppModel
     let navigation: CalendarNavigation
-    let days: [AtlasDay]
+    let presentation: HistoryAtlasPeriod
+    private var days: [AtlasDay] { presentation.days }
     let select: (Date) -> Void
     let selectMonth: (Date) -> Void
     @Environment(\.colorScheme) private var scheme
     private var dark: Bool { scheme == .dark }
-    private func completions(in period: DateInterval) -> [(id: String, date: Date)] {
-        let resolver = BookMergeResolver(merges: model.merges)
-        let now = Date()
-        return model.finishedBooks.compactMap { entry in
-            guard let date = entry.finishedAt, date >= period.start, date < period.end, date <= now else { return nil }
-            return (resolver.resolvedID(for: entry.id), date)
-        }
-    }
-    private func bookIDs(completions: [(id: String, date: Date)]) -> [String] {
-        var firstDates: [String: Date] = [:]
-        for day in days {
-            for book in day.books { firstDates[book.bookID] = min(firstDates[book.bookID] ?? .distantFuture, day.date) }
-        }
-        for entry in completions { firstDates[entry.id] = min(firstDates[entry.id] ?? .distantFuture, entry.date) }
-        return firstDates.keys.sorted { lhs, rhs in
-            let left = firstDates[lhs]!, right = firstDates[rhs]!
-            if left != right { return left < right }
-            return title(lhs).localizedStandardCompare(title(rhs)) == .orderedAscending
-        }
-    }
     var body: some View {
         let period = navigation.period
         let calendar = navigation.calendar
-        let months = navigation.yearMonths
-        let finished = completions(in: period)
-        let bookIDs = bookIDs(completions: finished)
+        let rows = presentation.yearRows
         return AtlasPanel(title: "Your year in books", note: "Recorded days and finishes") {
-            if bookIDs.isEmpty {
+            if rows.isEmpty {
                 Text("No reading or finished books recorded in this year.").font(.callout).foregroundStyle(AtlasStyle.muted(dark))
                 monthLinks
             } else {
@@ -51,10 +29,10 @@ struct AtlasYearView: View {
                             monthLinks.frame(minWidth: 440)
                             Color.clear.frame(width: 74, height: 28)
                         }
-                        ForEach(bookIDs, id: \.self) { id in yearRow(id, period: period, calendar: calendar, months: months, completions: finished) }
+                        ForEach(rows) { row in yearRow(row, period: period, calendar: calendar) }
                     }.frame(width: max(730, geometry.size.width))
                   }
-                }.frame(height: CGFloat(bookIDs.count) * 76 + 32)
+                }.frame(height: CGFloat(rows.count) * 76 + 32)
                 ViewThatFits(in: .horizontal) {
                     HStack(spacing: 20) { legend }
                     VStack(alignment: .leading, spacing: 9) { legend }
@@ -72,25 +50,21 @@ struct AtlasYearView: View {
         HStack(spacing: 0) {
             ForEach(navigation.yearMonths, id: \.self) { month in
                 Button { selectMonth(month) } label: {
-                    Text(AtlasStyle.date(month, zone: model.timezoneID, pattern: "MMM"))
+                    Text(AtlasStyle.date(month, zone: navigation.timezoneID, pattern: "MMM"))
                         .font(.system(size: 10)).frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 8)
                 }.buttonStyle(.plain).disabled(month > Date())
-                    .accessibilityLabel("Open \(AtlasStyle.date(month, zone: model.timezoneID, pattern: "MMMM yyyy"))")
+                    .accessibilityLabel("Open \(AtlasStyle.date(month, zone: navigation.timezoneID, pattern: "MMMM yyyy"))")
             }
         }.foregroundStyle(AtlasStyle.muted(dark))
     }
-    private func yearRow(_ id: String, period: DateInterval, calendar: Calendar, months: [Date], completions: [(id: String, date: Date)]) -> some View {
-        let activity = days.filter { day in day.books.contains { $0.bookID == id && $0.creditedSeconds > 0 } }
-        let pending = days.filter { day in day.books.contains { $0.bookID == id && $0.uncertainSeconds > 0 } }
-        let times = days.flatMap(\.books).filter { $0.bookID == id }
-        let seconds = times.reduce(0) { $0 + $1.creditedSeconds }
-        let pages = model.pages(forBookID: id, from: period.start, through: period.end)
-        let finished = completions.filter { $0.id == id }.map(\.date)
-        let target = activity.last?.date ?? pending.last?.date ?? finished.first.map { calendar.startOfDay(for: $0) } ?? navigation.periodStart
+    private func yearRow(_ row: AtlasYearRow, period: DateInterval, calendar: Calendar) -> some View {
+        let id = row.id, activity = row.activity, pending = row.pending
+        let seconds = row.creditedSeconds, pages = row.pages, finished = row.finishes
+        let target = row.target
         return HStack(spacing: 16) {
             Button { select(target) } label: {
                 HStack(spacing: 10) {
-                    BookCoverView(book: model.books.first { $0.id == id }, size: .compact)
+                    BookCoverView(book: presentation.booksByID[id], size: .compact)
                         .scaleEffect(0.62).frame(width: 33, height: 46)
                     VStack(alignment: .leading, spacing: 5) {
                         Text(title(id)).font(.system(size: 13, weight: .medium)).lineLimit(3)
@@ -101,27 +75,26 @@ struct AtlasYearView: View {
                 .accessibilityLabel("\(title(id)), \(activity.count) recorded days, \(pages) pages, \(ReadingFormat.duration(seconds)) recorded. \(finished.isEmpty ? "" : "Finished this year.") Open latest day.")
             GeometryReader { geometry in
                 Canvas { context, size in
-                    for month in months {
-                        let x = position(month, width: size.width, period: period)
+                    for fraction in presentation.monthPositions {
+                        let x = CGFloat(fraction) * size.width
                         var path = Path(); path.move(to: CGPoint(x: x, y: 0)); path.addLine(to: CGPoint(x: x, y: size.height))
                         context.stroke(path, with: .color(AtlasStyle.rule(dark)), lineWidth: 0.6)
                     }
                     let color = AtlasStyle.book(id, dark: dark)
                     if let first = activity.first, let last = activity.last {
-                        let start = position(first.date, width: size.width, period: period), end = position(last.date, width: size.width, period: period)
+                        let start = CGFloat(first.start) * size.width, end = CGFloat(last.start) * size.width
                         context.fill(Path(roundedRect: CGRect(x: start, y: 37, width: max(2, end - start), height: 7), cornerRadius: 3), with: .color(color.opacity(0.18)))
                     }
-                    for day in activity {
-                        let next = calendar.date(byAdding: .day, value: 1, to: day.date) ?? day.date
-                        let start = position(day.date, width: size.width, period: period)
-                        context.fill(Path(CGRect(x: start, y: 30, width: max(1, position(next, width: size.width, period: period) - start - 0.3), height: 21)), with: .color(color))
+                    for mark in activity {
+                        let start = CGFloat(mark.start) * size.width
+                        context.fill(Path(CGRect(x: start, y: 30, width: max(1, CGFloat(mark.end - mark.start) * size.width - 0.3), height: 21)), with: .color(color))
                     }
-                    for day in pending where !activity.contains(where: { $0.key == day.key }) {
-                        let x = position(day.date, width: size.width, period: period)
+                    for fraction in pending {
+                        let x = CGFloat(fraction) * size.width
                         context.stroke(Path(CGRect(x: x, y: 32, width: 2, height: 17)), with: .color(color.opacity(0.7)), lineWidth: 0.7)
                     }
-                    for date in finished {
-                        let x = position(date, width: size.width, period: period)
+                    for fraction in finished {
+                        let x = CGFloat(fraction) * size.width
                         var diamond = Path(); diamond.move(to: CGPoint(x: x, y: 17)); diamond.addLine(to: CGPoint(x: x + 5, y: 22))
                         diamond.addLine(to: CGPoint(x: x, y: 27)); diamond.addLine(to: CGPoint(x: x - 5, y: 22)); diamond.closeSubpath()
                         context.fill(diamond, with: .color(color))
@@ -145,8 +118,5 @@ struct AtlasYearView: View {
             }.foregroundStyle(AtlasStyle.muted(dark)).frame(width: 74, alignment: .trailing)
         }.frame(height: 76)
     }
-    private func position(_ date: Date, width: CGFloat, period: DateInterval) -> CGFloat {
-        CGFloat(date.timeIntervalSince(period.start) / max(1, period.duration)) * width
-    }
-    private func title(_ id: String) -> String { model.books.first { $0.id == id }?.title ?? "Unknown book" }
+    private func title(_ id: String) -> String { presentation.booksByID[id]?.title ?? "Unknown book" }
 }

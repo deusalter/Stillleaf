@@ -4,6 +4,7 @@ import CoreFoundation
 /// Schema 1 bounds shared with Reader/desktop/src/reader-state.cjs.
 /// fontSize is a 0.5...3 multiplier, not a percentage.
 public enum ReaderStateValidation {
+    public static let maximumLocatorText = 16_384
     public static let maximumBytes = 2 * 1_024 * 1_024
     public enum Failure: Error { case invalidState, staleRevision }
     private static let safeInteger = 9_007_199_254_740_991.0
@@ -86,6 +87,7 @@ public enum ReaderStateValidation {
                 if let fragments = locations["fragments"] {
                     guard let fragments = fragments as? [String], fragments.count <= 20, fragments.allSatisfy({ text($0, maximum: 8192) }) else { return false }
                 }
+                if let indexing = locations["domRangeIndexing"] { guard indexing as? String == "text-nodes" else { return false } }
                 if let range = locations["domRange"] {
                     guard let range = range as? [String: Any], Set(range.keys).isSubset(of: ["start", "end"]) else { return false }
                     for key in ["start", "end"] {
@@ -99,7 +101,7 @@ public enum ReaderStateValidation {
             }
             if let context = raw["text"] {
                 guard let context = context as? [String: Any] else { return false }
-                for key in ["before", "highlight", "after"] { if let value = context[key], !text(value, maximum: 16384) { return false } }
+                for key in ["before", "highlight", "after"] { if let value = context[key], !text(value, maximum: maximumLocatorText) { return false } }
             }
             return true
         }

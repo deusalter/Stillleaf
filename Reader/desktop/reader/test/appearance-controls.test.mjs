@@ -55,11 +55,13 @@ test('typography choices support keyboard, saved custom values, and compact foot
     if (output) await page.screenshot({path: path.join(output, `typography-${theme}.png`)});
   }
   await page.keyboard.press('Escape');
-  await page.waitForFunction(() => /^Pages? \d+(?:–\d+)? of \d+$/.test(document.querySelector('#position-label').textContent));
+  await page.waitForFunction(() => /^Page \d+ of \d+(?: · Chapter \d+ · Calculating book pages…)?$/.test(document.querySelector('#position-label').textContent));
   for (const width of [1000, 520, 360]) {
     await page.setViewportSize({width, height: 700});
     await page.waitForTimeout(300);
     const bounds = await page.evaluate(() => {
+      // Slow background pagination can retain the longest label at every width.
+      document.querySelector('#position-label').textContent='Page 1234 of 99999 · Chapter 123 · Calculating book pages…';
       const rect = selector => {
         const r = document.querySelector(selector).getBoundingClientRect();
         return {left: r.left, right: r.right, top: r.top, bottom: r.bottom};

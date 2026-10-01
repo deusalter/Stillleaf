@@ -475,11 +475,9 @@ func runEPUBReaderSmoke(fixture: URL) async throws {
     try await second.testChooseDraft("keep-draft")
     guard !(await cancelledClose.value) else { throw EPUBImportError.invalid("Keep editing did not cancel native close.") }
     guard !manager.isTerminating else { throw EPUBImportError.invalid("Cancelled Quit left the reader manager locked.") }
+    try await second.testRestoreDraftSaving()
     let savedClose = Task { await manager.closeAll() }
-    let saveDeadline = Date().addingTimeInterval(5)
-    while !(try await second.testDraftPrompt()) && Date() < saveDeadline { try await Task.sleep(nanoseconds: 50_000_000) }
-    try await second.testChooseDraft("save-draft")
-    guard await savedClose.value else { throw EPUBImportError.invalid("Save draft did not complete native close.") }
+    guard await savedClose.value else { throw EPUBImportError.invalid("Autosaving the recovered draft did not complete native close.") }
     let draftSaved = try JSONSerialization.jsonObject(with: Data(contentsOf: locationURL)) as? [String: Any]
     guard (draftSaved?["annotations"] as? [[String: Any]])?.last?["note"] as? String == "Native draft preserved" else {
         throw EPUBImportError.invalid("Native close did not durably save the note draft.")
@@ -500,7 +498,7 @@ func runEPUBReaderSmoke(fixture: URL) async throws {
         guard await reopened.requestClose() else { throw EPUBImportError.invalid("Restored continuous reader close failed.") }
         print("epub-reader-smoke: experimental continuous co-visibility, bounded eviction, DOM-range selection note/remount, mode handoff and native reopen passed")
     }
-    print("epub-reader-smoke: Library-first import, scoped rendering, three reading modes, narrow fallback, long-note/bookmark/preferences reopen, native draft cancel/save and durable close passed (synthetic; no activity credit)")
+    print("epub-reader-smoke: Library-first import, scoped rendering, three reading modes, narrow fallback, long-note/bookmark/preferences reopen, native failed-save draft cancel and autosaved durable close passed (synthetic; no activity credit)")
 }
 
 private extension EPUBReaderWindows {
@@ -841,6 +839,13 @@ private extension EPUBReaderWindow {
     }
     func testEditDraft() async throws {
         _ = try await webView.evaluateJavaScript("document.getElementById('contents').click(); document.getElementById('tab-notes').click(); document.querySelector('.edit-note').click(); document.getElementById('note-text').value='Native draft preserved'; true")
+        // Successful drafts now autosave during close. Exercise the remaining
+        // decision path with a synthetic storage-budget refusal, without growing
+        // the fixture or changing any production bridge/persistence behavior.
+        _ = try await webView.evaluateJavaScript("window.stillleafTestEncode=TextEncoder.prototype.encode; TextEncoder.prototype.encode=function(value){return value.includes('Native draft preserved')?new Uint8Array(2*1024*1024):window.stillleafTestEncode.call(this,value)}; true")
+    }
+    func testRestoreDraftSaving() async throws {
+        _ = try await webView.evaluateJavaScript("TextEncoder.prototype.encode=window.stillleafTestEncode; delete window.stillleafTestEncode; true")
     }
     func testDraftPrompt() async throws -> Bool {
         try await webView.evaluateJavaScript("document.getElementById('draft-panel').open") as? Bool ?? false

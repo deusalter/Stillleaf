@@ -15,6 +15,8 @@ func runUISmoke() throws {
     try checkHistoryRefreshPerformance(at: root.appendingPathComponent("performance"))
     try seedUISmokeHistory(at: root)
     let model = try AppModel(support: root, defaults: defaults, startTracking: false)
+    guard let atlasSource = model.historyAtlasSource else { throw BooksAccessErrorForUI.failed("History source was not published") }
+    try runHistoryAtlasNavigationSmoke(source: atlasSource)
     guard model.manualPages(forBookID: "smoke-pages-a") == 7 else {
         throw BooksAccessErrorForUI.failed("Manual page corrections were not exposed to the journal")
     }
@@ -433,17 +435,30 @@ private func checkOnboarding(root: URL) throws {
     model.markOnboardingComplete()
     guard !model.needsOnboarding else { throw BooksAccessErrorForUI.failed("A finished tour would show again") }
 
-    for dark in [false, true] {
-        NSApp.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
-        for step in OnboardingStep.allCases {
-            let view = OnboardingView(model: model, flow: OnboardingFlow(model: model, step: step), finish: { _ in })
-            let hosting = NSHostingView(rootView: view.environment(\.colorScheme, dark ? .dark : .light))
-            hosting.frame = NSRect(origin: .zero, size: OnboardingView.size)
-            hosting.layoutSubtreeIfNeeded()
-            guard hosting.fittingSize.width.isFinite else { throw BooksAccessErrorForUI.failed("Invalid onboarding \(step.title) layout") }
+    for granted in [false, true] {
+        // Inject the reported status; this check never requests or changes OS permission.
+        let stateModel = try AppModel(support: root.appendingPathComponent(granted ? "allowed" : "denied"),
+            defaults: defaults, startTracking: false, accessibilityStatus: { granted })
+        defer { stateModel.shutdown() }
+        stateModel.refreshAccessibilityStatus()
+        guard stateModel.accessibilityGranted == granted else { throw BooksAccessErrorForUI.failed("Onboarding lost its supplied permission state") }
+        for dark in [false, true] {
+            NSApp.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+            for step in OnboardingStep.allCases {
+                for expanded in step == .access ? [false, true] : [false] {
+                    let view = OnboardingView(model: stateModel, flow: OnboardingFlow(model: stateModel, step: step),
+                        finish: { _ in }, appleBooksSetupExpanded: expanded)
+                    let hosting = NSHostingView(rootView: view.environment(\.colorScheme, dark ? .dark : .light))
+                    hosting.frame = NSRect(origin: .zero, size: OnboardingView.size)
+                    hosting.layoutSubtreeIfNeeded()
+                    guard hosting.fittingSize.width.isFinite, hosting.fittingSize.height.isFinite else {
+                        throw BooksAccessErrorForUI.failed("Invalid onboarding \(step.title) layout (access=\(granted), expanded=\(expanded))")
+                    }
+                }
+            }
         }
     }
-    print("ui-smoke: welcome tour routed, clamped goals, saved them like Settings and laid out \(OnboardingStep.allCases.count) steps")
+    print("ui-smoke: welcome tour routed, goals saved, all steps laid out in light/dark with allowed/denied access and collapsed/expanded Apple Books setup")
 }
 
 @MainActor

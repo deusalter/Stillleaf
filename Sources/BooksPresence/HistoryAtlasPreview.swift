@@ -82,7 +82,7 @@ func renderHistoryAtlasPreviews(to destination: URL) throws {
         for dark in [false, true] {
             NSApp.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
             for scale in fixture == "standard" ? CalendarScale.allCases : [.day] {
-                for width in fixture == "standard" && scale == .day ? [1120, 700] : [1120] {
+                for width in fixture == "standard" ? [1120, 700] : [1120] {
                     let height = fixture == "dense" ? 1600 : scale == .year ? 1120 : 950
                     let view = HistoryView(model: model, initialScale: scale, anchor: anchor)
                         .environment(\.colorScheme, dark ? .dark : .light)

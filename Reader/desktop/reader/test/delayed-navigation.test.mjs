@@ -29,7 +29,9 @@ test('chapter readiness beyond four seconds retains queued turns and jumps; disp
   // reader API. Its _isNavigating flag remains true until this message completes.
   // This also avoids prefetch hiding a network-only delay before the turn starts.
   await page.addInitScript(() => {
-    if (window === top) return;
+    // Only the live navigator owns the held activation. Background pagination
+    // can activate the same chapter independently and must not consume this gate.
+    if (window === top || !window.frameElement?.closest('#reader')) return;
     const replayed = new WeakSet();
     window.addEventListener('message', event => {
       if (replayed.has(event) || !event.data?._readium) return;

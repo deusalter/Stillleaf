@@ -33,11 +33,21 @@ export function unwrapSvgImages(source){
  return changed?'<!DOCTYPE html>'+doc.documentElement.outerHTML:source;
 }
 const MAX_RESOURCE_BYTES=32*1024*1024,MAX_PUBLICATION_BYTES=256*1024*1024,CHAPTER_CACHE=12,MAX_PRELOAD_ROUNDS=8;
+function abortable(promise,signal){
+ if(!signal)return promise;
+ if(signal.aborted)return Promise.reject(new DOMException('Resource work cancelled','AbortError'));
+ return new Promise((resolve,reject)=>{
+  const abort=()=>reject(new DOMException('Resource work cancelled','AbortError'));
+  signal.addEventListener('abort',abort,{once:true});
+  promise.then(resolve,reject).finally(()=>signal.removeEventListener('abort',abort));
+ });
+}
 export class PublicationResources {
  /** Resources are either eager (`dataBase64`) or host-served (`url` plus declared `size`).
   *  Host-served bytes are fetched on first use, so opening a book never copies the whole publication. */
- constructor(resources,{fetch:load=globalThis.fetch?.bind(globalThis)}={}){
+ constructor(resources,{fetch:load=globalThis.fetch?.bind(globalThis),signal}={}){
   this.map=new Map();this.urls=new Map();this.active=new Set();this.warnings=new Set();this.chapters=new Map();this.loading=new Map();this.load=load;this.pending=null;
+  this.signal=signal;this.closed=false;
   let size=0;
   for(const item of resources){
    if(typeof item.href!=='string'||/[:\\?#%\x00-\x1f]/.test(item.href)||item.href.split('/').some(x=>!x||x==='.'||x==='..')||this.map.has(item.href))throw Error('Invalid resource identity');
@@ -51,16 +61,26 @@ export class PublicationResources {
    if(size>MAX_PUBLICATION_BYTES)throw Error('Publication exceeds reader memory budget');
   }
  }
+ checkOpen(){if(this.closed||this.signal?.aborted)throw new DOMException('Resource work cancelled','AbortError')}
+ /** Independent probe ownership: borrow immutable bytes, never live URLs,
+  * pending requests, chapter caches or the live owner's lifecycle. */
+ fork(signal){
+  this.checkOpen();const fork=new PublicationResources([],{fetch:this.load,signal});
+  fork.map=new Map([...this.map].map(([href,item])=>[href,{...item}]));
+  fork.trustedFontCSS=this.trustedFontCSS;return fork;
+ }
  size(href){return this.map.get(href)?.size??0}
  /** Loads one resource's bytes once; concurrent callers share the request. */
  async read(href){
+  this.checkOpen();
   const item=this.map.get(href);if(!item)throw Error('Missing local resource: '+href);
   if(item.bytes)return item.bytes;
   if(!this.loading.has(href))this.loading.set(href,(async()=>{
    if(!this.load)throw Error('This reader cannot load book resources.');
-   const response=await this.load(item.url,{cache:'no-store',credentials:'omit',redirect:'error'});
+   const response=await abortable(this.load(item.url,{cache:'no-store',credentials:'omit',redirect:'error',signal:this.signal}),this.signal);
+   this.checkOpen();
    if(!response.ok&&response.status!==0)throw Error('Missing local resource: '+href);
-   const bytes=new Uint8Array(await response.arrayBuffer());
+   const bytes=new Uint8Array(await abortable(response.arrayBuffer(),this.signal));this.checkOpen();
    if(bytes.length!==item.size)throw Error('Book resource changed on disk: '+href);
    return bytes;
   })().finally(()=>this.loading.delete(href)));
@@ -116,6 +136,7 @@ export class PublicationResources {
  /** Sanitized chapter HTML. Referenced images, fonts and stylesheets are fetched
   *  before the final rewrite, which then runs synchronously as before. */
  async chapter(href){
+  this.checkOpen();
   const item=this.map.get(href);if(!item||!htmlTypes.has(item.type))throw Error('Only HTML EPUB chapters are supported in this build');
   if(this.chapters.has(href)){const html=this.chapters.get(href);this.chapters.delete(href);this.chapters.set(href,html);return html}
   const source=unwrapSvgImages(htmlSource(new TextDecoder().decode(await this.read(href)),item.type));
@@ -126,6 +147,7 @@ export class PublicationResources {
    // Nothing left to fetch: this pass already produced the final document.
    if(!needed.length){for(const warning of result.warnings)this.warnings.add(warning);html=result.html;break}
    await Promise.all(needed.map(ref=>this.read(ref).catch(error=>this.warnings.add(error.message))));
+   this.checkOpen();
   }
   html??=this.rewrite(source,href,false).html;
   this.release(item);this.chapters.set(href,html);
@@ -166,7 +188,7 @@ export class PublicationResources {
   const flow=doc.createElement('style');flow.textContent=':where(h1,h2,h3,h4,h5,h6){break-after:avoid;page-break-after:avoid;}';doc.head.insertBefore(flow,doc.head.firstChild);
   return {html:'<!doctype html>'+doc.documentElement.outerHTML,warnings};
  }
- close(){for(const url of this.urls.values())URL.revokeObjectURL(url);this.urls.clear();this.chapters.clear();}
+ close(){this.closed=true;for(const url of this.urls.values())URL.revokeObjectURL(url);this.urls.clear();this.chapters.clear();}
 }
 class ChapterResource extends Resource{
  constructor(link,pool){super();this.item=link;this.pool=pool}

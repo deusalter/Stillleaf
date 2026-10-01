@@ -86,12 +86,24 @@ test('only deliberate page movement is reported as page evidence',{timeout:12000
  assert.notEqual(events.at(-1).layout,single);
  assert.equal(await page.evaluate(()=>window.positions.at(-1).position.bookTotal),indexCheck.position.bookTotal,'font reflow keeps the content denominator');
 
- // Facing pages: a turn moves two pages.
+ // Facing pages: a full spread is one screen page, including native departure evidence.
  await page.setViewportSize({width:1300,height:850});await page.evaluate(()=>window.StillleafReader.setPreferences({columns:'two'}));await settle();
  events=await take();assert.ok(events.every(e=>e.type==='pageLayout'),'resizing and switching to facing pages turn nothing');
- const facing=events.at(-1);assert.equal(facing.pages,2);
+ const facing=events.at(-1);assert.equal(facing.pages,1);
  await page.evaluate(()=>window.StillleafReader.next());await page.waitForTimeout(150);
- events=await take();assert.deepEqual(events.map(e=>[e.type,e.direction,e.pages,e.layout]),[['pageTurn','forward',2,facing.layout]]);
+ events=await take();assert.deepEqual(events.map(e=>[e.type,e.direction,e.pages,e.layout]),[['pageTurn','forward',1,facing.layout]]);
+ assert.equal(events[0].departure.visiblePages,1);assert.equal(events[0].departure.pageUnit,'screen');
+ assert.ok(events[0].departure.upper>events[0].departure.lower,'both columns retain actual content coordinates');
+ assert.match(await page.locator('#position-label').textContent(),/^Page \d+ of \d+(?: · Chapter \d+ · Calculating book pages…)?$/);
+ await page.evaluate(()=>window.StillleafReader.previous());await page.waitForTimeout(150);
+ assert.deepEqual((await take()).map(e=>[e.direction,e.pages]),[['backward',1]]);
+ await page.evaluate(()=>window.StillleafReader.setPreferences({columns:'one'}));await settle();
+ assert.ok((await take()).every(e=>e.type==='pageLayout'),'switching back awards no pages');
+ await page.setViewportSize({width:520,height:800});await page.evaluate(()=>window.StillleafReader.setPreferences({columns:'two'}));await settle();
+ assert.ok((await take()).every(e=>e.type==='pageLayout'),'narrow facing fallback awards no pages');
+ await page.evaluate(()=>window.StillleafReader.next());await page.waitForTimeout(150);
+ assert.equal((await take()).find(e=>e.type==='pageTurn').departure.visiblePages,1);
+
 
  // Scroll mode: full screens scrolled by the reader count; scrubbing and jumps do not.
  await page.evaluate(()=>window.StillleafReader.setPreferences({scroll:true}));await settle();

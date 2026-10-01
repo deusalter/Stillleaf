@@ -53,7 +53,7 @@ struct AtlasButtonStyle: ButtonStyle {
 
 @MainActor
 struct AtlasLegend: View {
-    let model: AppModel
+    let booksByID: [String: BookRecord]
     let bookIDs: [String]
     @Environment(\.colorScheme) private var scheme
     var body: some View {
@@ -61,7 +61,7 @@ struct AtlasLegend: View {
             ForEach(bookIDs, id: \.self) { id in
                 HStack(spacing: 7) {
                     Circle().fill(AtlasStyle.book(id, dark: scheme == .dark)).frame(width: 8, height: 8)
-                    let book = model.books.first { $0.id == id }
+                    let book = booksByID[id]
                     Text((book?.title ?? "Unknown book") + (book?.resolvedFormat == .audiobook ? " (audio)" : ""))
                         .font(.caption).fixedSize(horizontal: false, vertical: true)
                 }.accessibilityElement(children: .combine)
@@ -72,13 +72,13 @@ struct AtlasLegend: View {
 
 @MainActor
 struct AtlasBookLabel: View {
-    let model: AppModel
+    let booksByID: [String: BookRecord]
     let id: String
     var detail: String = ""
     var small = false
     @Environment(\.colorScheme) private var scheme
     var body: some View {
-        let book = model.books.first { $0.id == id }
+        let book = booksByID[id]
         HStack(alignment: .center, spacing: 14) {
             BookCoverView(book: book, size: .compact)
             VStack(alignment: .leading, spacing: 5) {

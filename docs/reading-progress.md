@@ -96,3 +96,10 @@ version for analysis; do not round-trip new content evidence through old builds.
 Audiobook integration is independent: no BookRecord or ProgressObservation schema
 changes here. Optional audio positions and listening creditedSeconds can be added
 by the audiobook branch without conflating text screen pages and audio seconds.
+
+
+## Native full-screen unit (renderer screen v2)
+
+New renderer position/departure payloads explicitly carry `pageUnit: "screen"` and `visiblePages: 1`. A full facing spread, single-page screen, or continuous viewport is one reading unit. The native bridge's `NativeReaderPosition.forwardCoverage` produces one raw page with `layoutSignature: "stillleaf-screen-v2"`; its text interval covers all visible columns. Coverage-derived history/goals still award only the novel fraction of that one screen. Layout toggles generate no turns and do not modify audit records. Legacy positions without the marker and durable events preserve their previous interpretation. Text-range union remains shared across layouts and across the unit transition, preventing reread credit merely from a toggle.
+
+The renderer footer now uses measured chapter-local screen geometry, explicitly labeled with the chapter number. Screen totals recalculate on reflow; a whole-book screen denominator is not available without measuring every chapter and is not approximated from text counts or unloaded placeholders. Book content fraction and canonical locators are independent of this display.

@@ -1,0 +1,127 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {createServer} from 'node:http';
+import {readFile,mkdir} from 'node:fs/promises';
+import path from 'node:path';
+import {chromium,webkit} from 'playwright';
+const root=path.resolve(import.meta.dirname,'../dist'),artifacts=path.resolve(import.meta.dirname,'../artifacts/annotations');
+function fixture(){
+ const paragraph='A repeated sentence worth keeping. The garden held the last of the rain and she returned to the book.';
+ const chapters=Array.from({length:10},(_,i)=>`<html lang="en"><body><h1>Chapter ${i+1}</h1>${Array.from({length:18},(_,j)=>`<p id="p${j}">${i}.${j} ${paragraph}<em> A quiet thought.</em> The end.</p>`).join('')}</body></html>`);
+ return {editionId:'annotations-fixture',title:'A garden of notes',experimentalContinuous:true,readingOrder:chapters.map((_,i)=>({href:`ch${i}.html`,type:'text/html'})),resources:chapters.map((text,i)=>({href:`ch${i}.html`,type:'text/html',dataBase64:Buffer.from(text).toString('base64')})),state:{schemaVersion:1,editionId:'annotations-fixture',revision:0,preferences:{scroll:true,theme:'paper',measure:48},bookmarks:[],annotations:[]}};
+}
+async function select(page,id='p1',href='ch0.html'){
+ await page.evaluate(({id,href})=>{
+  const frames=[...document.querySelectorAll('#reader iframe')];const frame=frames.find(f=>f.parentElement.dataset.href===href)??frames.find(f=>getComputedStyle(f).visibility!=='hidden');
+  const node=frame.contentDocument.getElementById(id),range=frame.contentDocument.createRange();range.setStart(node.firstChild,4);range.setEnd(node.lastChild,5);
+  const selection=frame.contentWindow.getSelection();selection.removeAllRanges();selection.addRange(range);frame.contentDocument.dispatchEvent(new frame.contentWindow.PointerEvent('pointerup',{bubbles:true}));frame.contentDocument.dispatchEvent(new frame.contentWindow.KeyboardEvent('keyup',{bubbles:true,key:'Shift'}));
+ },{id,href});
+ await page.locator('#selection-tools').waitFor({state:'visible'});
+}
+async function activate(page,id){
+ await page.evaluate(id=>{
+  const state=window.StillleafReader.exportState(),item=state.annotations.find(x=>x.id===id);const frame=[...document.querySelectorAll('#reader iframe')].find(f=>f.parentElement.dataset.href===item.locator.href);
+  frame.contentWindow.getSelection().removeAllRanges();const range=[...frame.contentWindow.CSS.highlights.values()].flatMap(x=>[...x]).find(r=>r.toString()===item.quote),rect=range.getClientRects()[0];
+  frame.contentDocument.dispatchEvent(new frame.contentWindow.MouseEvent('click',{bubbles:true,clientX:rect.left+1,clientY:rect.top+1}));
+ },id);await page.locator('#selection-tools').waitFor({state:'visible'});
+}
+test('anchored annotation interaction, autosave, margins, reflow and restart',{timeout:90000},async t=>{
+ const server=createServer(async(req,res)=>{try{const file=path.resolve(root,'.'+new URL(req.url,'http://localhost').pathname);if(!file.startsWith(root+path.sep))throw Error();res.setHeader('Content-Type',{'.html':'text/html','.js':'text/javascript','.css':'text/css'}[path.extname(file)]??'application/octet-stream');res.end(await readFile(file))}catch{res.writeHead(404).end()}});
+ await new Promise(done=>server.listen(0,'127.0.0.1',done));t.after(()=>new Promise(done=>server.close(done)));
+ const browser=await (process.env.READER_TEST_BROWSER==='webkit'?webkit.launch():chromium.launch({...(process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:{}),headless:true}));t.after(()=>browser.close());
+ const page=await browser.newPage({viewport:{width:1420,height:900},reducedMotion:'reduce'}),errors=[];page.on('pageerror',e=>errors.push(e.message));
+ const url=`http://127.0.0.1:${server.address().port}/index.html`;await page.goto(url);await page.waitForFunction(()=>window.StillleafReader);const book=fixture();await page.evaluate(book=>window.StillleafReader.open(book),book);
+ // Deliberately hold the host's next paint: the first visible popup must already
+ // be positioned, even when background work delays requestAnimationFrame.
+ await page.evaluate(()=>{window.realAnimationFrame=window.requestAnimationFrame;window.requestAnimationFrame=()=>0});
+ await select(page);
+ const geometry=await page.evaluate(()=>{const popup=document.getElementById('selection-tools').getBoundingClientRect(),frame=document.querySelector('#reader iframe'),r=frame.contentWindow.getSelection().getRangeAt(0).getClientRects()[0],f=frame.getBoundingClientRect();return {top:popup.top,bottom:popup.bottom,passageTop:f.top+r.top,passageBottom:f.top+r.bottom,left:popup.left,right:popup.right}});
+ assert.ok(geometry.top>=0&&geometry.right<=1420);assert.ok(Math.abs(geometry.bottom-geometry.passageTop)<100||Math.abs(geometry.top-geometry.passageBottom)<100,'popup is beside the selection before the next animation frame');
+ await page.evaluate(()=>{window.requestAnimationFrame=window.realAnimationFrame});
+ await mkdir(artifacts,{recursive:true});await page.screenshot({path:path.join(artifacts,'selection-paper.png')});assert.equal(await page.locator('#selection-tools').evaluate(el=>getComputedStyle(el).animationName),'none');
+ await page.getByRole('button',{name:'Sage highlight',exact:true}).click();let saved=await page.evaluate(()=>window.StillleafReader.exportState());assert.equal(saved.annotations.length,1);assert.equal(saved.annotations[0].color,'sage');assert.ok(saved.annotations[0].locator.locations.domRange);assert.ok(saved.annotations[0].locator.text.before);const original=saved.annotations[0];
+ await activate(page,original.id);await page.getByRole('button',{name:'Rose highlight',exact:true}).click();saved=await page.evaluate(()=>window.StillleafReader.exportState());assert.equal(saved.annotations[0].id,original.id);assert.deepEqual(saved.annotations[0].locator,original.locator);assert.equal(saved.annotations[0].createdAt,original.createdAt);
+ await activate(page,original.id);await page.getByRole('button',{name:'Add note',exact:true}).click();const note='A note with <img src=x onerror="window.injection=true"> & a thought.';await page.getByRole('textbox',{name:'Your note'}).fill(note);
+ await page.waitForFunction(note=>window.StillleafReader.exportState().annotations[0].note===note,note);assert.equal(await page.locator('#note-status').textContent(),'Saved automatically');
+ const rangesBefore=await page.evaluate(()=>{window.savedRanges=[...document.querySelector('#reader iframe').contentWindow.CSS.highlights.values()].flatMap(x=>[...x]);return window.savedRanges.length});
+ await page.getByRole('textbox',{name:'Your note'}).fill(note+' More.');await page.waitForTimeout(300);
+ assert.equal(await page.evaluate(()=>{const ranges=[...document.querySelector('#reader iframe').contentWindow.CSS.highlights.values()].flatMap(x=>[...x]);return ranges.length===window.savedRanges.length&&ranges.every((range,i)=>range===window.savedRanges[i])}),true,'note autosave retains every highlight range');assert.ok(rangesBefore>0);
+ // Revert before the debounce settles: the already-saved value is still saved.
+ await page.getByRole('textbox',{name:'Your note'}).fill(note);await page.waitForTimeout(300);
+ await page.getByRole('textbox',{name:'Your note'}).fill(note+' unsaved');await page.getByRole('textbox',{name:'Your note'}).fill(note);await page.waitForTimeout(300);
+ assert.equal(await page.locator('#note-status').textContent(),'Saved automatically');
+ await page.getByRole('button',{name:'Close note',exact:true}).click();assert.equal(await page.locator('#draft-panel').isVisible(),false);
+ await page.locator('.margin-note').waitFor({state:'visible'});assert.equal(await page.locator('.margin-note').textContent(),note);assert.equal(await page.locator('.margin-note img').count(),0);
+ const margin=await page.locator('.margin-note').boundingBox(),viewport=await page.locator('#reader').boundingBox();assert.ok(margin.x+margin.width<=viewport.x||margin.x>=viewport.x+viewport.width,'margin does not obscure publication text');await page.screenshot({path:path.join(artifacts,'margin-paper.png')});
+ await select(page,'p2');await page.getByRole('button',{name:'Add note',exact:true}).click();await page.getByRole('textbox',{name:'Your note'}).fill('Another thought beside the next passage.');await page.locator('#delete-note').waitFor({state:'visible'});await page.getByRole('button',{name:'Close note',exact:true}).click();await page.waitForFunction(()=>document.querySelectorAll('.margin-note:not([hidden])').length===2);
+ const cards=await page.locator('.margin-note').all();const boxes=await Promise.all(cards.map(card=>card.boundingBox()));assert.ok(boxes[0].x+boxes[0].width<=viewport.x);assert.ok(boxes[1].x>=viewport.x+viewport.width);await page.screenshot({path:path.join(artifacts,'both-margins-paper.png')});await cards[1].click();await page.getByRole('button',{name:'Remove highlight & note',exact:true}).click();
+
+ await page.evaluate(()=>window.StillleafReader.setPreferences({theme:'dark',fontSize:1.35}));await page.locator('.margin-note').waitFor({state:'visible'});await page.screenshot({path:path.join(artifacts,'margin-dark.png')});
+ await page.setViewportSize({width:430,height:760});await page.waitForTimeout(250);await page.evaluate(()=>window.StillleafReader.setPreferences({}));await page.locator('.compact-notes').waitFor({state:'visible'});assert.equal(await page.locator('.margin-note').isVisible(),false);const compact=await page.locator('.compact-notes').boundingBox(),narrow=await page.locator('#reader').boundingBox();assert.ok(compact.y+compact.height<=narrow.y,'compact fallback stays above text');await page.screenshot({path:path.join(artifacts,'narrow-dark.png')});
+ await page.locator('.compact-notes').click();await page.screenshot({path:path.join(artifacts,'saved-notes-narrow-dark.png')});await page.getByRole('button',{name:'Edit note',exact:true}).click();assert.equal(await page.getByRole('textbox',{name:'Your note'}).inputValue(),note);await page.getByRole('textbox',{name:'Your note'}).fill('Edited automatically');await page.keyboard.press('Escape');assert.equal(await page.locator('#note-panel').isVisible(),false);saved=await page.evaluate(()=>window.StillleafReader.exportState());assert.equal(saved.annotations[0].note,'Edited automatically');
+ await page.setViewportSize({width:1420,height:900});await page.waitForTimeout(250);await page.evaluate(()=>window.StillleafReader.setPreferences({}));await page.evaluate(()=>window.StillleafReader.go({href:'ch8.html',type:'text/html',locations:{progression:0}}));await page.getByRole('button',{name:'Highlights and notes',exact:true}).click();await page.locator('.saved-link').click();await page.waitForFunction(()=>window.StillleafReader.bookmark()?.href==='ch0.html');
+ await page.locator('.margin-note').waitFor({state:'visible'});await select(page);await page.evaluate(()=>{const frame=document.querySelector('#reader iframe');frame.contentDocument.dispatchEvent(new frame.contentWindow.KeyboardEvent('keydown',{key:'Tab',bubbles:true,cancelable:true}))});assert.equal(await page.evaluate(()=>document.activeElement?.id),'highlight-selection');await page.keyboard.press('ArrowRight');assert.equal(await page.evaluate(()=>document.activeElement?.dataset.highlightColor),'sage');await page.keyboard.press('Escape');assert.equal(await page.locator('#selection-tools').isVisible(),false);
+ await page.emulateMedia({reducedMotion:'no-preference'});await select(page);assert.equal(await page.locator('#selection-tools').evaluate(el=>getComputedStyle(el).animationDuration),'0.12s');await page.screenshot({path:path.join(artifacts,'selection-dark.png')});await page.locator('#book-title').click();assert.equal(await page.locator('#selection-tools').isVisible(),false);
+ // Both paginator and continuous navigator consume the same text locator after reflow.
+ await page.evaluate(()=>window.StillleafReader.setPreferences({scroll:false,columns:'two'}));await page.getByRole('button',{name:'Highlights and notes',exact:true}).click();await page.locator('.saved-link').click();saved=await page.evaluate(()=>window.StillleafReader.exportState());assert.deepEqual(saved.annotations[0].locator,original.locator);assert.equal(saved.annotations[0].note,'Edited automatically');await page.screenshot({path:path.join(artifacts,'facing-dark.png')});
+ await page.reload();await page.waitForFunction(()=>window.StillleafReader);await page.evaluate(({book,state})=>window.StillleafReader.open({...book,state}),{book,state:saved});assert.deepEqual((await page.evaluate(()=>window.StillleafReader.exportState())).annotations,saved.annotations);
+ await page.evaluate(()=>window.StillleafReader.setPreferences({scroll:true}));await page.getByRole('button',{name:'Highlights and notes',exact:true}).click();await page.getByRole('button',{name:'Edit note',exact:true}).click();await page.getByRole('button',{name:'Remove highlight & note',exact:true}).click();assert.equal((await page.evaluate(()=>window.StillleafReader.exportState())).annotations.length,0);assert.deepEqual(errors,[]);
+});
+
+test('long selections autosave a bounded preview and retain their complete range',{timeout:60000},async t=>{
+ const server=createServer(async(req,res)=>{try{const file=path.resolve(root,'.'+new URL(req.url,'http://localhost').pathname);if(!file.startsWith(root+path.sep))throw Error();res.setHeader('Content-Type',{'.html':'text/html','.js':'text/javascript','.css':'text/css'}[path.extname(file)]??'application/octet-stream');res.end(await readFile(file))}catch{res.writeHead(404).end()}});
+ await new Promise(done=>server.listen(0,'127.0.0.1',done));t.after(()=>new Promise(done=>server.close(done)));
+ const browser=await (process.env.READER_TEST_BROWSER==='webkit'?webkit.launch():chromium.launch({...(process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:{}),headless:true}));t.after(()=>browser.close());
+ const page=await browser.newPage({viewport:{width:1200,height:800},reducedMotion:'reduce'}),errors=[];page.on('pageerror',e=>errors.push(e.message));
+ await page.goto(`http://127.0.0.1:${server.address().port}/index.html`);await page.waitForFunction(()=>window.StillleafReader);
+ const passage='A passage to remember. '.repeat(780).slice(0,16383)+'😀'+ 'The full passage continues. '.repeat(90),id='a'.repeat(64),html=`<html><body><p id="long"><em>${passage.slice(0,9000)}</em>${passage.slice(9000)}</p><p id="short">A later passage.</p></body></html>`;
+ const book={editionId:id,title:'Long selection',experimentalContinuous:true,readingOrder:[{href:'chapter.xhtml',type:'application/xhtml+xml'}],resources:[{href:'chapter.xhtml',type:'application/xhtml+xml',dataBase64:Buffer.from(html).toString('base64')}],state:{schemaVersion:1,editionId:id,revision:0,preferences:{scroll:true},bookmarks:[],annotations:[]}};
+ await page.evaluate(book=>window.StillleafReader.open(book),book);
+ await page.evaluate(()=>{const frame=document.querySelector('#reader iframe'),node=frame.contentDocument.getElementById('long').firstChild,range=frame.contentDocument.createRange();range.setStart(node.firstChild,0);range.setEnd(node.parentElement,node.parentElement.childNodes.length);const selection=frame.contentWindow.getSelection();selection.removeAllRanges();selection.addRange(range);frame.contentDocument.dispatchEvent(new frame.contentWindow.PointerEvent('pointerup',{bubbles:true}))});
+ await page.locator('#selection-tools').waitFor({state:'visible'});await page.getByRole('button',{name:'Add note',exact:true}).click();await page.getByRole('textbox',{name:'Your note'}).fill('Long passage note');
+ await page.waitForFunction(()=>window.StillleafReader.exportState().annotations[0]?.note==='Long passage note');
+ assert.equal(await page.locator('#note-status').textContent(),'Saved automatically');await page.getByRole('button',{name:'Close note',exact:true}).click();
+ let saved=await page.evaluate(()=>window.StillleafReader.exportState()),item=saved.annotations[0];assert.ok(passage.length>16384);assert.equal(item.quote,passage.slice(0,16383));assert.equal(item.locator.text,undefined);assert.equal(item.locator.locations.domRange.end.charOffset,passage.length-9000);assert.equal(item.locator.locations.domRange.end.textNodeIndex,0);assert.equal(item.locator.locations.domRangeIndexing,'text-nodes');
+ const {validateState}=await import('../../src/reader-state.cjs');assert.deepEqual(validateState(saved,id,{manifest:[{path:'chapter.xhtml'}]}).annotations,saved.annotations);
+ const highlighted=()=>page.evaluate(()=>[...document.querySelector('#reader iframe').contentWindow.CSS.highlights.values()].flatMap(x=>[...x]).map(r=>r.toString()));
+ const expectHighlights=async expected=>{const result=await page.waitForFunction(expected=>{const values=[...document.querySelector('#reader iframe').contentWindow.CSS.highlights.values()].flatMap(x=>[...x]).map(r=>r.toString());return JSON.stringify(values)===JSON.stringify(expected)?values:false},expected);assert.deepEqual(await result.jsonValue(),expected);await result.dispose()};
+ assert.deepEqual(await highlighted(),[passage]);await page.evaluate(()=>window.StillleafReader.setPreferences({scroll:false,columns:'two'}));await expectHighlights([passage]);await page.evaluate(()=>window.StillleafReader.setPreferences({scroll:true}));
+ await page.evaluate(()=>window.StillleafReader.close());await page.evaluate(book=>window.StillleafReader.open(book),{...book,state:saved});assert.deepEqual(await highlighted(),[passage],'reopening highlights the full passage, not its preview');
+ const facing={...saved,preferences:{...saved.preferences,scroll:false,columns:'two'}};await page.evaluate(book=>window.StillleafReader.open(book),{...book,state:facing});await expectHighlights([passage]);assert.deepEqual((await page.evaluate(()=>window.StillleafReader.exportState())).annotations,saved.annotations);await page.evaluate(book=>window.StillleafReader.open(book),{...book,state:saved});
+ // Missing endpoints must not fall back to highlighting a prefix or containing element.
+ const damaged=structuredClone(saved);damaged.annotations[0].locator.locations.domRange.end.cssSelector='#missing';await page.evaluate(book=>window.StillleafReader.open(book),{...book,state:damaged});assert.deepEqual(await highlighted(),[]);await page.evaluate(book=>window.StillleafReader.open(book),{...book,state:{...damaged,preferences:{...damaged.preferences,scroll:false,columns:'two'}}});assert.deepEqual(await highlighted(),[],'invalid endpoints do not fall back in facing mode');
+ await page.evaluate(book=>window.StillleafReader.open(book),{...book,state:saved});
+ await page.evaluate(book=>window.StillleafReader.open(book),{...book,state:{...saved,annotations:[]}});
+ // A separate fixture for the opposite mixed boundary: an element start and a text-node end.
+ await page.evaluate(()=>{const frame=document.querySelector('#reader iframe'),p=frame.contentDocument.getElementById('long'),range=frame.contentDocument.createRange();range.setStart(p,0);range.setEnd(p.lastChild,p.lastChild.length);const selection=frame.contentWindow.getSelection();selection.removeAllRanges();selection.addRange(range);frame.contentDocument.dispatchEvent(new frame.contentWindow.PointerEvent('pointerup',{bubbles:true}))});
+ await page.locator('#selection-tools').waitFor({state:'visible'});await page.getByRole('button',{name:'Add note',exact:true}).click();await page.getByRole('textbox',{name:'Your note'}).fill('Element-start note');await page.waitForFunction(()=>window.StillleafReader.exportState().annotations.length===1);await page.getByRole('button',{name:'Close note',exact:true}).click();assert.deepEqual(await highlighted(),[passage]);
+ await page.evaluate(()=>window.StillleafReader.setPreferences({scroll:false,columns:'two'}));await expectHighlights([passage]);const both=await page.evaluate(()=>window.StillleafReader.exportState());await page.evaluate(()=>window.StillleafReader.close());await page.evaluate(book=>window.StillleafReader.open(book),{...book,state:both});await expectHighlights([passage]);await page.evaluate(book=>window.StillleafReader.open(book),{...book,state:{...both,preferences:{...both.preferences,scroll:true}}});await expectHighlights([passage]);
+ await page.evaluate(()=>{const reader=window.StillleafReader;reader.annotate({locator:{href:'chapter.xhtml',type:'application/xhtml+xml',text:{highlight:'A later passage.'}},quote:'A later passage.',note:'Later note',color:'sage'})});
+ saved=await page.evaluate(()=>window.StillleafReader.exportState());assert.equal(saved.annotations.length,2);assert.doesNotThrow(()=>validateState(saved,id,{manifest:[{path:'chapter.xhtml'}]}));
+ assert.equal(await page.evaluate(()=>{try{window.StillleafReader.annotate({locator:{href:'chapter.xhtml',type:'application/xhtml+xml',text:{highlight:'x'.repeat(17000)}},quote:'x'.repeat(17000),note:'Invalid'});return false}catch{return true}}),true,'oversized text without complete endpoints is rejected before saving');
+ assert.deepEqual(errors,[]);
+});
+
+test('accepted legacy DOM-only annotations defer until their chapter mounts',{timeout:60000},async t=>{
+ const server=createServer(async(req,res)=>{try{const file=path.resolve(root,'.'+new URL(req.url,'http://localhost').pathname);if(!file.startsWith(root+path.sep))throw Error();res.setHeader('Content-Type',{'.html':'text/html','.js':'text/javascript','.css':'text/css'}[path.extname(file)]??'application/octet-stream');res.end(await readFile(file))}catch{res.writeHead(404).end()}});
+ await new Promise(done=>server.listen(0,'127.0.0.1',done));t.after(()=>new Promise(done=>server.close(done)));
+ const browser=await (process.env.READER_TEST_BROWSER==='webkit'?webkit.launch():chromium.launch({...(process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:{}),headless:true}));t.after(()=>browser.close());
+ const page=await browser.newPage({viewport:{width:1200,height:800},reducedMotion:'reduce'}),errors=[];page.on('pageerror',e=>errors.push(e.message));
+ await page.goto(`http://127.0.0.1:${server.address().port}/index.html`);await page.waitForFunction(()=>window.StillleafReader);
+ const passage='Legacy mixed-inline passage. '.repeat(620),id='b'.repeat(64),prefix=9000;
+ const chapters=[`<html><body><p id="long"><em>${'Wrong chapter A. '.repeat(600)}</em>${'Other text. '.repeat(900)}</p></body></html>`,`<html><body><p id="long"><em>${passage.slice(0,prefix)}</em>${passage.slice(prefix)}</p></body></html>`];
+ const item={id:'legacy',locator:{href:'b.xhtml',type:'application/xhtml+xml',locations:{domRange:{start:{cssSelector:'#long > em',textNodeIndex:0,charOffset:0},end:{cssSelector:'#long',textNodeIndex:1,charOffset:passage.length-prefix}}}},quote:passage.slice(0,16384),note:'Existing note',color:'gold',createdAt:'2026-09-24T12:00:00Z',updatedAt:'2026-09-24T12:00:00Z'};
+ const state={schemaVersion:1,editionId:id,revision:1,position:{href:'a.xhtml',type:'application/xhtml+xml'},preferences:{scroll:false,columns:'two',theme:'system',fontFamily:'publisher',fontSize:1.2,lineHeight:1.6,measure:65},bookmarks:[],annotations:[item]};
+ const book={editionId:id,title:'Legacy state',readingOrder:['a.xhtml','b.xhtml'].map(href=>({href,type:'application/xhtml+xml'})),resources:chapters.map((html,i)=>({href:i?'b.xhtml':'a.xhtml',type:'application/xhtml+xml',dataBase64:Buffer.from(html).toString('base64')})),state};
+ const {validateState}=await import('../../src/reader-state.cjs');assert.deepEqual(validateState(state,id,{manifest:[{path:'a.xhtml'},{path:'b.xhtml'}]}).annotations,[item],'the legacy snapshot is accepted without normalization');
+ for(let reopen=0;reopen<2;reopen++){
+  await page.evaluate(book=>window.StillleafReader.open(book),book);
+  assert.equal(await page.evaluate(()=>window.StillleafReader.exportState().position.href),'a.xhtml');
+  assert.equal(await page.evaluate(()=>[...document.querySelectorAll('#reader iframe')].filter(f=>getComputedStyle(f).visibility!=='hidden').flatMap(f=>[...f.contentWindow.CSS.highlights.values()].flatMap(highlight=>[...highlight])).length),0,'unmounted legacy annotation cannot decorate chapter A');
+  await page.evaluate(()=>window.StillleafReader.go({href:'b.xhtml',type:'application/xhtml+xml',locations:{progression:0}}));
+  const result=await page.waitForFunction(passage=>{const frame=[...document.querySelectorAll('#reader iframe')].find(f=>getComputedStyle(f).visibility!=='hidden'&&f.contentDocument?.getElementById('long'));if(!frame||window.StillleafReader.exportState().position.href!=='b.xhtml')return false;const ranges=[...frame.contentWindow.CSS.highlights.values()].flatMap(highlight=>[...highlight]).map(range=>range.toString());return ranges.length===1&&ranges[0]===passage?ranges:false},passage);assert.deepEqual(await result.jsonValue(),[passage]);await result.dispose();
+  assert.deepEqual((await page.evaluate(()=>window.StillleafReader.exportState())).annotations,[item],'wire conversion never rewrites legacy annotation data');
+  await page.evaluate(()=>window.StillleafReader.close());
+ }
+ assert.deepEqual(errors,[]);
+});

@@ -58,6 +58,10 @@ function validateLocator(value, paths) {
         text(v, 8192, "fragment"),
       );
     }
+    if (p.domRangeIndexing !== undefined) {
+      if (p.domRangeIndexing !== "text-nodes") throw Error("Invalid DOM range indexing");
+      locator.locations.domRangeIndexing = p.domRangeIndexing;
+    }
     if (p.domRange !== undefined) {
       if (!p.domRange || typeof p.domRange !== "object")
         throw Error("Invalid DOM range");

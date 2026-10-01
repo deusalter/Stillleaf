@@ -3,22 +3,16 @@ import BooksCore
 
 @MainActor
 struct AtlasDayView: View {
-    @ObservedObject var model: AppModel
     let navigation: CalendarNavigation
+    let presentation: HistoryAtlasPeriod
     let review: (ReadingInterval) -> Void
     @State private var selectedBook: String?
     @Environment(\.colorScheme) private var scheme
     private var dark: Bool { scheme == .dark }
     private var period: DateInterval { navigation.period }
-    private var slices: [AtlasTimeSlice] { HistoryAtlas.slices(intervals: model.intervals, merges: model.merges, period: period) }
-    private var sessions: [ReadingSessionGroup] {
-        model.readingSessions.filter { $0.end > period.start && $0.start < period.end }.sorted { $0.start < $1.start }
-    }
     var body: some View {
-        let evidence = slices
-        let bookIDs = Array(Set(evidence.filter { $0.interval.disposition != .excluded }.map(\.bookID))).sorted {
-            title($0).localizedStandardCompare(title($1)) == .orderedAscending
-        }
+        let evidence = presentation.slices
+        let bookIDs = presentation.dayBookIDs
         VStack(alignment: .leading, spacing: 26) {
             if bookIDs.isEmpty {
                 AtlasPanel(title: "No reading recorded") {
@@ -26,7 +20,8 @@ struct AtlasDayView: View {
                 }
             } else {
                 AtlasPanel(title: "Session map", note: "Local time") {
-                    AtlasDayLanes(model: model, navigation: navigation, slices: HistoryAtlas.slices(intervals: model.displayIntervals, merges: model.merges, period: period), bookIDs: bookIDs) { selectedBook = $0 }
+                    AtlasDayLanes(booksByID: presentation.booksByID, navigation: navigation, slicesByBook: presentation.displaySlicesByBook,
+                        firstSliceStart: presentation.displayStart, bookIDs: bookIDs) { selectedBook = $0 }
                     if evidence.contains(where: { $0.interval.disposition == .uncertain }) {
                         Text("Outlined spans await review and are excluded from recorded-time totals.")
                             .font(.caption).foregroundStyle(AtlasStyle.muted(dark))
@@ -38,8 +33,8 @@ struct AtlasDayView: View {
                     if selectedBook != nil { Button("All books") { selectedBook = nil }.buttonStyle(AtlasButtonStyle()) }
                 }
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 24, alignment: .top)], alignment: .leading, spacing: 24) {
-                    ForEach(sessions.filter { selectedBook == nil || $0.bookID == selectedBook }) { session in
-                        AtlasSessionCard(model: model, session: session, period: period, review: review)
+                    ForEach(presentation.sessions.filter { selectedBook == nil || $0.session.bookID == selectedBook }) { session in
+                        AtlasSessionCard(booksByID: presentation.booksByID, timezoneID: navigation.timezoneID, presentation: session, period: period, review: review)
                     }
                 }
             }
@@ -57,22 +52,26 @@ struct AtlasDayView: View {
                 }.font(.caption).foregroundStyle(AtlasStyle.muted(dark))
             }
         }
+        .onChange(of: presentation.key.revision) { _ in
+            if let selectedBook, !presentation.dayBookIDs.contains(selectedBook) { self.selectedBook = nil }
+        }
     }
-    private func title(_ id: String) -> String { model.books.first { $0.id == id }?.title ?? "Unknown book" }
+    private func title(_ id: String) -> String { presentation.booksByID[id]?.title ?? "Unknown book" }
 }
 
 @MainActor
 private struct AtlasDayLanes: View {
-    let model: AppModel
+    let booksByID: [String: BookRecord]
     let navigation: CalendarNavigation
-    let slices: [AtlasTimeSlice]
+    let slicesByBook: [String: [AtlasTimeSlice]]
+    let firstSliceStart: Date?
     let bookIDs: [String]
     let select: (String) -> Void
     @Environment(\.colorScheme) private var scheme
     private var dark: Bool { scheme == .dark }
     private var plot: DateInterval {
         let six = navigation.calendar.date(bySettingHour: 6, minute: 0, second: 0, of: navigation.periodStart) ?? navigation.periodStart
-        let first = slices.map(\.start).min() ?? six
+        let first = firstSliceStart ?? six
         return DateInterval(start: first < six ? navigation.period.start : six, end: navigation.period.end)
     }
     private var ticks: [Date] {
@@ -90,7 +89,7 @@ private struct AtlasDayLanes: View {
                 Color.clear.frame(width: 130, height: 24)
                 GeometryReader { geo in
                     ForEach(Array(ticks.enumerated()), id: \.offset) { index, date in
-                        Text(AtlasStyle.date(date, zone: model.timezoneID, pattern: "ha"))
+                        Text(AtlasStyle.date(date, zone: navigation.timezoneID, pattern: "ha"))
                             .font(.system(size: 10)).foregroundStyle(AtlasStyle.muted(dark))
                             .position(x: min(geo.size.width - 18, max(18, x(date, width: geo.size.width))), y: 10)
                             .opacity(geo.size.width < 420 && index % 2 == 1 ? 0 : 1)
@@ -98,13 +97,13 @@ private struct AtlasDayLanes: View {
                 }.frame(height: 24).accessibilityHidden(true)
             }
             ForEach(bookIDs, id: \.self) { id in
-                let row = slices.filter { $0.bookID == id && $0.interval.disposition != .excluded }
+                let row = slicesByBook[id] ?? []
                 let credited = row.filter { $0.interval.disposition == .credited }.reduce(0) { $0 + $1.seconds }
                 let awaiting = row.filter { $0.interval.disposition == .uncertain }.reduce(0) { $0 + $1.seconds }
                 Button { select(id) } label: {
                     HStack(spacing: 16) {
                         VStack(alignment: .leading, spacing: 6) {
-                            Text(model.books.first { $0.id == id }?.title ?? "Unknown book")
+                            Text(booksByID[id]?.title ?? "Unknown book")
                                 .font(.callout.weight(.medium)).lineLimit(3)
                             Text(ReadingFormat.duration(credited)).font(.caption).foregroundStyle(AtlasStyle.muted(dark))
                         }.frame(width: 130, alignment: .leading)
@@ -127,7 +126,7 @@ private struct AtlasDayLanes: View {
                         }.frame(height: 76).accessibilityHidden(true)
                     }.contentShape(Rectangle())
                 }.buttonStyle(.plain)
-                .accessibilityLabel("\(model.books.first { $0.id == id }?.title ?? "Unknown book"), \(ReadingFormat.duration(credited)) recorded, \(ReadingFormat.duration(awaiting)) awaiting review. Show sessions.")
+                .accessibilityLabel("\(booksByID[id]?.title ?? "Unknown book"), \(ReadingFormat.duration(credited)) recorded, \(ReadingFormat.duration(awaiting)) awaiting review. Show sessions.")
                 .help("Show sessions for this book. Short spans have a minimum two-point hit mark; session detail shows exact time.")
             }
         }
@@ -137,33 +136,34 @@ private struct AtlasDayLanes: View {
 
 @MainActor
 private struct AtlasSessionCard: View {
-    @ObservedObject var model: AppModel
-    let session: ReadingSessionGroup
+    let booksByID: [String: BookRecord]
+    let timezoneID: String
+    let presentation: AtlasSessionPresentation
+    private var session: ReadingSessionGroup { presentation.session }
     let period: DateInterval
     let review: (ReadingInterval) -> Void
     @Environment(\.colorScheme) private var scheme
     private var dark: Bool { scheme == .dark }
-    private var evidence: [AtlasTimeSlice] { HistoryAtlas.slices(intervals: session.intervals, merges: model.merges, period: period) }
     var body: some View {
-        let parts = evidence
-        let credited = parts.filter { $0.interval.disposition == .credited }.reduce(0) { $0 + $1.seconds }
-        let uncertain = parts.filter { $0.interval.disposition == .uncertain }.reduce(0) { $0 + $1.seconds }
-        let pages = model.pages(in: session, from: period.start, through: period.end)
-        let listening = session.intervals.contains { model.isListening($0) }
+        let parts = presentation.slices
+        let credited = presentation.creditedSeconds
+        let uncertain = presentation.uncertainSeconds
+        let pages = presentation.pages
+        let listening = presentation.listening
         VStack(alignment: .leading, spacing: 15) {
             Rectangle().fill(AtlasStyle.rule(dark)).frame(height: 1).accessibilityHidden(true)
             Text("\(time(max(session.start, period.start))) – \(time(min(session.end, period.end)))")
                 .font(.caption).foregroundStyle(AtlasStyle.muted(dark))
-            AtlasBookLabel(model: model, id: session.bookID)
+            AtlasBookLabel(booksByID: booksByID, id: session.bookID)
             HStack(spacing: 12) {
                 if pages > 0 { Text("\(pages) pages").font(.callout.weight(.medium)) }
                 Text("\(ReadingFormat.duration(credited)) \(listening ? "listening" : "recorded")").font(.caption)
             }
             if uncertain > 0 { Text("\(ReadingFormat.duration(uncertain)) awaiting review").font(.caption).foregroundStyle(AtlasStyle.muted(dark)) }
-            if let position = HistoryAtlas.audioPosition(in: session, observations: model.progress, during: period) {
+            if let position = presentation.position {
                 Text("Position \(position.description)").font(.caption).foregroundStyle(AtlasStyle.muted(dark))
             }
-            let manual = model.manualPages(in: session, from: period.start, through: period.end)
+            let manual = presentation.manualPages
             if manual > 0 { Text("Includes \(manual) manually added pages").font(.caption).foregroundStyle(AtlasStyle.muted(dark)) }
             DisclosureGroup("Session details") {
                 VStack(alignment: .leading, spacing: 10) {
@@ -181,5 +181,5 @@ private struct AtlasSessionCard: View {
             }.font(.caption).tint(AtlasStyle.accent(dark))
         }.frame(maxWidth: .infinity, alignment: .topLeading)
     }
-    private func time(_ date: Date) -> String { AtlasStyle.date(date, zone: model.timezoneID, pattern: "h:mm a z") }
+    private func time(_ date: Date) -> String { AtlasStyle.date(date, zone: timezoneID, pattern: "h:mm a z") }
 }

@@ -106,6 +106,10 @@ final class ReaderStateValidationTests: XCTestCase {
         var value = state
         value["position"] = ["href": "chapter.xhtml", "locations": ["domRange": ["start": point, "end": point]]] as [String: Any]
         XCTAssertNoThrow(try validate(value))
+        value["position"] = ["href": "chapter.xhtml", "locations": ["domRange": ["start": point, "end": point], "domRangeIndexing": "text-nodes"] as [String: Any]]
+        XCTAssertNoThrow(try validate(value))
+        value["position"] = ["href": "chapter.xhtml", "locations": ["domRange": ["start": point, "end": point], "domRangeIndexing": "unknown"] as [String: Any]]
+        XCTAssertThrowsError(try validate(value))
         for invalid in [["cssSelector": "p", "charOffset": true], ["cssSelector": "p", "textNodeIndex": 10_000_001], ["cssSelector": "p", "unknown": 1]] as [[String: Any]] {
             value["position"] = ["href": "chapter.xhtml", "locations": ["domRange": ["start": invalid, "end": point]]] as [String: Any]
             XCTAssertThrowsError(try validate(value))
@@ -119,5 +123,19 @@ final class ReaderStateValidationTests: XCTestCase {
         XCTAssertThrowsError(try validate(value))
         value = state; value["extra"] = String(repeating: "x", count: ReaderStateValidation.maximumBytes)
         XCTAssertThrowsError(try validate(value))
+    }
+}
+
+extension ReaderStateValidationTests {
+    func testLocatorTextLimitMatchesRendererUTF16Contract() throws {
+        let source = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Reader/desktop/reader/src/annotation-anchor.js")
+        XCTAssertTrue(try String(contentsOf: source, encoding: .utf8).contains("MAX_LOCATOR_TEXT=\(ReaderStateValidation.maximumLocatorText)"))
+        for key in ["before", "highlight", "after"] {
+            var value = state
+            value["position"] = ["href": "chapter.xhtml", "text": [key: String(repeating: "😀", count: ReaderStateValidation.maximumLocatorText / 2)]]
+            XCTAssertNoThrow(try validate(value))
+            value["position"] = ["href": "chapter.xhtml", "text": [key: String(repeating: "😀", count: ReaderStateValidation.maximumLocatorText / 2) + "x"]]
+            XCTAssertThrowsError(try validate(value))
+        }
     }
 }

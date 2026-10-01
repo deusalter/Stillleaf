@@ -6,54 +6,58 @@ struct HistoryView: View {
     @ObservedObject var model: AppModel
     @State private var navigation: CalendarNavigation
     @State private var reviewInterval: ReadingInterval?
+    @StateObject private var atlas = HistoryAtlasController()
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(model: AppModel, initialScale: CalendarScale = .month, anchor: Date = Date()) {
         self.model = model
         _navigation = State(initialValue: CalendarNavigation(timezoneID: model.timezoneID, anchor: anchor, scale: initialScale))
     }
     private var dark: Bool { scheme == .dark }
+    private var requestKey: HistoryAtlasKey? {
+        model.historyAtlasSource.map { HistoryAtlasKey(source: $0, navigation: navigation) }
+    }
+    private var presentation: HistoryAtlasPeriod? {
+        guard let prepared = atlas.presentation, let requested = requestKey,
+              prepared.key.timezoneID == requested.timezoneID, prepared.key.scale == requested.scale,
+              prepared.key.period == requested.period, prepared.key.today == requested.today,
+              prepared.key.localeID == requested.localeID else { return nil }
+        // Keep this period's last committed snapshot during an archive refresh so
+        // month/day selection survives. A different period never displays old data.
+        return prepared
+    }
     var body: some View {
-        let days = HistoryAtlas.days(intervals: model.intervals, merges: model.merges, period: navigation.period, timezoneID: model.timezoneID)
-        let pages = model.pages(from: navigation.period.start, through: navigation.period.end)
-        let seconds = days.reduce(0) { $0 + $1.creditedSeconds }
-        let activeDays = days.filter { $0.creditedSeconds > 0 || model.pages(on: $0.key) > 0 }.count
         ScrollView {
             VStack(alignment: .leading, spacing: 26) {
-                HStack {
-                    Text("History").font(.system(size: 17, weight: .semibold)).accessibilityAddTraits(.isHeader)
-                    Spacer()
-                    HStack(spacing: 3) {
-                        ForEach(CalendarScale.allCases) { scale in
-                            Button { navigation.setScale(scale) } label: {
-                                Text(scale.title).font(.system(size: 12, weight: navigation.scale == scale ? .semibold : .regular))
-                                    .padding(.horizontal, 17).padding(.vertical, 8)
-                                    .background(navigation.scale == scale ? AtlasStyle.surface(dark) : .clear, in: RoundedRectangle(cornerRadius: 7))
-                            }.buttonStyle(.plain).accessibilityAddTraits(navigation.scale == scale ? .isSelected : [])
-                        }
-                    }.padding(3).background(AtlasStyle.rule(dark).opacity(0.45), in: RoundedRectangle(cornerRadius: 10))
-                    .accessibilityLabel("History timescale")
-                }
+                Text("History").font(.system(size: 17, weight: .semibold)).accessibilityAddTraits(.isHeader)
                 ViewThatFits(in: .horizontal) {
                     HStack(alignment: .firstTextBaseline) { periodTitle; Spacer(minLength: 16); navigationButtons }
                     VStack(alignment: .leading, spacing: 14) { periodTitle; navigationButtons }
                 }
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 25) { summary(pages: pages, seconds: seconds, activeDays: activeDays); Spacer(minLength: 0); goal }
-                    VStack(alignment: .leading, spacing: 12) { HStack(spacing: 22) { summary(pages: pages, seconds: seconds, activeDays: activeDays) }; goal }
-                }
-                Group {
-                    switch navigation.scale {
-                    case .day:
-                        AtlasDayView(model: model, navigation: navigation, review: { reviewInterval = $0 })
-                    case .week:
-                        AtlasWeekView(model: model, navigation: navigation, days: days, select: { selectDay($0) })
-                    case .month:
-                        AtlasMonthView(model: model, navigation: navigation, days: days, select: { selectDay($0) })
-                    case .year:
-                        AtlasYearView(model: model, navigation: navigation, days: days, select: { selectDay($0) }, selectMonth: { navigation.select($0, scale: .month) })
+                if let prepared = presentation {
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 25) { summary(pages: prepared.pages, seconds: prepared.creditedSeconds, activeDays: prepared.activeDays); Spacer(minLength: 0); goal }
+                        VStack(alignment: .leading, spacing: 12) { HStack(spacing: 22) { summary(pages: prepared.pages, seconds: prepared.creditedSeconds, activeDays: prepared.activeDays) }; goal }
                     }
-                }.id("\(navigation.scale.rawValue)-\(navigation.periodStart)-\(model.timezoneID)")
+                    Group {
+                        switch navigation.scale {
+                        case .day:
+                            AtlasDayView(navigation: navigation, presentation: prepared, review: { reviewInterval = $0 })
+                        case .week:
+                            AtlasWeekView(navigation: navigation, presentation: prepared, select: { selectDay($0) })
+                        case .month:
+                            AtlasMonthView(navigation: navigation, presentation: prepared, select: { selectDay($0) })
+                        case .year:
+                            AtlasYearView(navigation: navigation, presentation: prepared, select: { selectDay($0) }, selectMonth: { navigation.select($0, scale: .month) })
+                        }
+                    }.id("\(navigation.scale.rawValue)-\(navigation.periodStart)-\(model.timezoneID)")
+                        .transition(reduceMotion ? .identity : .opacity)
+                } else {
+                    ProgressView("Preparing history…").controlSize(.small)
+                        .frame(maxWidth: .infinity, minHeight: 260, alignment: .topLeading)
+                        .padding(.top, 20)
+                }
                 Text(model.timezoneID.replacingOccurrences(of: "_", with: " "))
                     .font(.caption2).foregroundStyle(AtlasStyle.muted(dark)).help("History dates and times use this timezone.")
             }
@@ -62,6 +66,10 @@ struct HistoryView: View {
         }
         .background(AtlasStyle.canvas(dark)).foregroundStyle(AtlasStyle.ink(dark)).tint(AtlasStyle.accent(dark))
         .onChange(of: model.timezoneID) { navigation.timezoneID = $0 }
+        .task(id: requestKey) {
+            guard let source = model.historyAtlasSource else { return }
+            await atlas.load(source: source, navigation: navigation, reduceMotion: reduceMotion)
+        }
         .sheet(item: $reviewInterval) { interval in IntervalReviewEditor(model: model, interval: interval) }
     }
     private var periodTitle: some View {
@@ -71,6 +79,17 @@ struct HistoryView: View {
     }
     private var navigationButtons: some View {
         HStack(spacing: 7) {
+            Menu {
+                Picker("Timescale", selection: Binding(get: { navigation.scale }, set: { navigation.setScale($0) })) {
+                    ForEach(CalendarScale.allCases) { scale in Text(scale.title).tag(scale) }
+                }.pickerStyle(.inline)
+            } label: {
+                Text(navigation.scale.title).font(.system(size: 12, weight: .medium))
+            }.menuStyle(.borderlessButton).fixedSize()
+                .accessibilityLabel("History timescale").accessibilityValue(navigation.scale.title)
+                .help("Choose day, week, month, or year")
+            Rectangle().fill(AtlasStyle.rule(dark)).frame(width: 1, height: 16).padding(.horizontal, 4)
+                .accessibilityHidden(true)
             Button { navigation.move(by: -1) } label: { Image(systemName: "chevron.left") }
                 .accessibilityLabel("Previous \(navigation.scale.title.lowercased())")
             Button { if canMoveForward { navigation.move(by: 1) } } label: { Image(systemName: "chevron.right") }

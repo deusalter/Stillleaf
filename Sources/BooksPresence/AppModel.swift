@@ -39,6 +39,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var pageStreak = StreakSummary(current: 0, longest: 0, todayPending: true, provisional: false)
     @Published private(set) var pageDays: [DailyPageTotal] = []
     @Published private(set) var finishedBooks: [FinishedBookEntry] = []
+    @Published private(set) var historyAtlasSource: HistoryAtlasSource?
     @Published private(set) var pendingCompletion: FinishedBookEntry?
     @Published private(set) var pendingCompletionEventID: String?
     @Published private(set) var appleHistoryStatus = "Reading Apple Books history…"
@@ -48,8 +49,15 @@ final class AppModel: ObservableObject {
     @Published var errorMessage: String?
     @Published private(set) var discordStatus = "Discord sharing is off."
     @Published private(set) var lastDiscordResult: String?
-    @Published private(set) var accessibilityGranted = BooksCapture.isTrusted
-    var automaticTrackingNeedsAccess: Bool { trackingEnabled && !manualActive && epubReaders.focusedPublicationID == nil && !accessibilityGranted }
+    @Published private(set) var accessibilityGranted = false
+    private var readingTrackingSource: ReadingTrackingSource {
+        ReadingTrackingSource.resolve(manualReading: manualActive,
+            nativeReaderFocused: epubReaders.focusedPublicationID != nil,
+            appleBooksForeground: SystemEligibility.booksForeground, accessibilityGranted: accessibilityGranted)
+    }
+    var appleBooksTrackingNeedsAccess: Bool {
+        trackingEnabled && !audiobookPlayer.isPlaying && readingTrackingSource == .appleBooksNeedsAccess
+    }
     var discordNeedsSetup: Bool { discordEnabled && discordApplicationID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     @Published var trackingEnabled = true { willSet { if newValue != trackingEnabled { audiobookPlayer.pauseReportingErrors() } } didSet { if ready { defaults.set(trackingEnabled, forKey: "trackingEnabled"); if !trackingEnabled { pause(.disabled) } else { perform { try ensureCurrentPageGoal() } }; tick() } } }
     @Published var discordEnabled = false { didSet { if ready { defaults.set(discordEnabled, forKey: "discordEnabled"); publishPresence() } } }
@@ -128,6 +136,7 @@ final class AppModel: ObservableObject {
     private let support: URL
     private let store: ReadingStore
     private let historyReader: (URL) throws -> (archive: HistoryArchive, intervals: [ReadingInterval])
+    private let accessibilityStatus: () -> Bool
     private var engine: TrackingEngine
     private let captures: BooksCapture
     private let covers: CoverCache
@@ -198,8 +207,10 @@ final class AppModel: ObservableObject {
     }
 
     init(support: URL, defaults: UserDefaults = .standard, startTracking: Bool = true,
+         accessibilityStatus: @escaping () -> Bool = { BooksCapture.isTrusted },
          historyReader: @escaping (URL) throws -> (archive: HistoryArchive, intervals: [ReadingInterval]) = ReadingStore.readSnapshot) throws {
         self.historyReader = historyReader
+        self.accessibilityStatus = accessibilityStatus
         self.support = support
         self.defaults = defaults
         epubLibrary = EPUBLibraryController(directory: support.appendingPathComponent("Publications", isDirectory: true))
@@ -212,6 +223,7 @@ final class AppModel: ObservableObject {
         engine = try TrackingEngine(store: store, timezoneID: zone, uncertaintyThreshold: max(1, uncertain) * 60)
         covers = try CoverCache(directory: support.appendingPathComponent("Covers"))
         captures = BooksCapture(covers: covers)
+        accessibilityGranted = accessibilityStatus()
         timezoneID = zone
         uncertaintyMinutes = max(1, uncertain)
         trackingEnabled = defaults.object(forKey: "trackingEnabled") as? Bool ?? true
@@ -549,7 +561,7 @@ final class AppModel: ObservableObject {
         guard ready else { return }
         if Date().timeIntervalSince(lastHistorySync) > 30 { syncAppleBooksHistory() }
         if Date().timeIntervalSince(lastStorePurchaseCheck) > 60 { refreshStorePurchases() }
-        let trusted = BooksCapture.isTrusted
+        let trusted = accessibilityStatus()
         if accessibilityGranted != trusted { accessibilityGranted = trusted }
         windowObserver?.refresh()
         if audiobookPlayer.isPlaying {
@@ -558,20 +570,31 @@ final class AppModel: ObservableObject {
         }
         if let reason = commonPauseReason() { pause(reason); return }
         if epubReaders.focusedPublicationID != nil { cancelExternalCoverLookups() }
-        if let book = manualBook { apply(book: book, progress: nil, mode: .manual, reason: book.trackingExcluded ? .excludedBook : nil, health: "Manual reading is active. Time is inferred until you stop or pause."); return }
-        if let edition = epubReaders.focusedPublicationID, let book = books.first(where: { $0.id == "epub:" + edition }) {
+        switch readingTrackingSource {
+        case .manual:
+            guard let book = manualBook else { return }
+            apply(book: book, progress: nil, mode: .manual, reason: book.trackingExcluded ? .excludedBook : nil, health: "Manual reading is active. Time is inferred until you stop or pause.")
+            return
+        case .nativeReader:
+            guard let edition = epubReaders.focusedPublicationID, let book = books.first(where: { $0.id == "epub:" + edition }) else {
+                pause(.noReadingWindow); return
+            }
             cancelExternalCoverLookups()
             captureGeneration += 1
             readerWindow = nil
             apply(book: book, progress: epubReaders.focusedProgress, mode: .automatic, reason: book.trackingExcluded ? .excludedBook : nil,
                   health: "Reading in Stillleaf. Position comes from the reader; sequential content coverage and active time are recorded separately.")
             return
-        }
-        guard accessibilityGranted else { health = "Automatic tracking needs Accessibility access. Manual reading is available."; pause(.permissionLost); return }
-        guard SystemEligibility.booksForeground else {
+        case .appleBooksNeedsAccess:
+            health = "Apple Books tracking needs Accessibility access. Import an EPUB into Stillleaf to record reading progress and time without it."
+            pause(.permissionLost); return
+        case .idle:
+            health = "Ready to read in Stillleaf. Import an EPUB to record progress and active reading time without Accessibility access."
             // Input in Discord or another app is not evidence of reading.
             lastInputUptime = ProcessInfo.processInfo.systemUptime - SystemEligibility.secondsSinceInput
             pause(.background); return
+        case .appleBooks:
+            break
         }
         if captureInFlight {
             if Date().timeIntervalSince(captureStarted) > 2 { health = "Books capture is delayed; tracking is paused until fresh evidence arrives."; pause(.captureFailure) }
@@ -877,6 +900,7 @@ final class AppModel: ObservableObject {
         annualBookGoal = prepared.annualBookGoal
         annualBooksFinished = prepared.annualBooksFinished
         finishedBooks = prepared.finishedBooks
+        historyAtlasSource = prepared.atlasSource
         sessionPages = snapshot.sessionID.map { pages(forSessionID: $0) } ?? 0
         if let pending = pendingCompletion { pendingCompletion = finishedBooks.first { $0.id == pending.id } }
         lastRefresh = Date()
@@ -1342,10 +1366,10 @@ final class AppModel: ObservableObject {
         try encoder.encode(archive).write(to: url, options: .atomic)
         try store.importJSON(from: url)
     }
-    func requestAccessibility() { BooksCapture.requestAccess(); accessibilityGranted = BooksCapture.isTrusted; openAccessibilitySettings() }
+    func requestAccessibility() { BooksCapture.requestAccess(); refreshAccessibilityStatus(); openAccessibilitySettings() }
     /// Access is granted in System Settings, outside the app; views that wait on it poll here.
     func refreshAccessibilityStatus() {
-        let trusted = BooksCapture.isTrusted
+        let trusted = accessibilityStatus()
         if accessibilityGranted != trusted { accessibilityGranted = trusted }
     }
 

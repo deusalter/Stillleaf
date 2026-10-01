@@ -64,10 +64,12 @@ test('host-served resources load on demand and render',{timeout:90000},async t=>
  assert.match(first.background,/blob:/,'stylesheet url() rewritten to a fetched asset');
  for(const href of ['text/one.html','styles/book.css','styles/base.css','images/one.png','images/tile.png'])assert.ok(requested.includes(href),href+' fetched for the open chapter');
  for(const href of ['images/three.png','images/unused.png','images/vector.svg'])assert.ok(!requested.includes(href),href+' not fetched before it is needed: '+requested.join(', '));
- assert.equal(new Set(requested).size,requested.length,'each resource fetched at most once: '+requested.join(', '));
+ // The cancellable pagination view owns its requests/URLs independently; a
+ // released resource can be read once by each view without coupling lifetimes.
+ for(const href of new Set(requested))assert.ok(requested.filter(item=>item===href).length<=2,'resource is not repeatedly fetched within a view: '+href);
 
- // Whole-book reference pages index future markup without loading its assets.
- await page.waitForFunction(()=>/^Pages? .+ of \d+$/.test(document.querySelector('#position-label').textContent));
+ // Chapter screen pages render without eager whole-book layout or assets.
+ await page.waitForFunction(()=>/^Page \d+ of \d+(?: · Chapter \d+ · Calculating book pages…)?$/.test(document.querySelector('#position-label').textContent));
  assert.equal(requested.filter(href=>href==='text/one.html').length,1,'index reuses the displayed chapter instead of fetching its released bytes again');
  await page.evaluate(()=>{window.indexedPositions=[];window.addEventListener('stillleaf-reader-event',e=>{if(e.detail.type==='position')window.indexedPositions.push(e.detail.position)})});
  await page.evaluate(input=>window.StillleafReader.open({...input,contentProgress:true}),input());
@@ -82,7 +84,7 @@ test('host-served resources load on demand and render',{timeout:90000},async t=>
  // Calibre-style SVG cover wrapper becomes a plain image instead of being stripped to a blank page.
  const cover=await page.evaluate(()=>{const d=[...document.querySelectorAll('#reader iframe')].map(f=>f.contentDocument).find(d=>d?.getElementById('cover-page'));const box=d.getElementById('cover-page');return {svg:Boolean(box.querySelector('svg')),src:box.querySelector('img')?.getAttribute('src')??''}});
  assert.equal(cover.svg,false);assert.match(cover.src,/^blob:/,'SVG-wrapped cover rendered as an image');
- assert.match(await page.evaluate(()=>document.getElementById('chapter-label').title),/^Chapter 6 · Remaining reference pages/,'untitled chapter falls back while its heading is empty');
+ assert.match(await page.evaluate(()=>document.getElementById('chapter-label').title),/^Chapter 6 · Remaining reading screens/,'untitled chapter falls back while its heading is empty');
 
  await page.getByRole('button',{name:'Search book',exact:true}).click();
  await page.getByRole('searchbox',{name:'Words or phrase'}).fill('heron');await page.locator('.result-link').waitFor();

@@ -1,12 +1,15 @@
 import {EpubNavigator,EpubPreferences,DecorationStyleType} from '@readium/navigator';
 import {Manifest,Publication,Locator} from '@readium/shared';
 import {PublicationResources,PublicationFetcher} from './resources';
-import {ContinuousNavigator} from './continuous';
+import {ContinuousNavigator,locatorRange} from './continuous';
+import {AnnotationUI} from './annotation-ui';
+import {annotationLocator,quotePreview,longSelectionRange,MAX_LOCATOR_TEXT} from './annotation-anchor';
 import {PageSlide} from './page-slide';
 import {visibleTextBounds,firstFullyVisibleOffset} from './visible-text';
 import {installPageTurnWheel} from './page-turn-input';
 import {NavigationCompletion} from './navigation-completion';
-import {screenPages,pageLabel,bookPages,chapterPagesLeft} from './page-progress';
+import {screenPages,pageLabel,chapterPagesLeft} from './page-progress';
+import {ScreenPaginationIndex} from './screen-pagination-index';
 import {continuousTextCandidates} from './content-geometry';
 import {syncTypographyChoices} from './appearance-choices';
 import {fontCSS,installFont,contrast} from './bundled-fonts';
@@ -25,6 +28,109 @@ const colors={gold:'#e4c778',sage:'#a7cbb0',rose:'#d7a9b4'};
 let navigator,pool,input,state,lastLocator,selection,editingNote,activeTab='contents',searchGeneration=0,searchTimer,stateTimer,noticeTimer,lastFocus,opening=false;
 let lifecycle=0;let preferenceQueue=Promise.resolve(),preferenceRevision=0,preferenceRestore=false;let jumpHistory=[];let stableAnchor=null,reflowCount=0,resizeTimer,resizing=false;
 const frames=new WeakSet();let headingCache=new Map();
+const pageLayoutObservers=new WeakMap();
+let screenIndex,backgroundQuietUntil=0;
+const deferredAnnotationHrefs=new Set();
+let deferredAnnotationDocuments=new WeakSet();
+const backgroundActivity=()=>{backgroundQuietUntil=performance.now()+350};
+for(const type of ['wheel','scroll','pointerdown','keydown','input'])window.addEventListener(type,backgroundActivity,{capture:true,passive:true});
+const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+async function paginationIdle(signal){
+ // Yield between chapters and pause while the reader scrolls or changes layout.
+ await new Promise(requestAnimationFrame);
+ while(!signal.aborted&&(opening||reflowCount||resizing||performance.now()<backgroundQuietUntil))await delay(80);
+}
+function paginationLayout(){
+ return JSON.stringify({edition:input.editionId,width:$('reading-viewport').clientWidth,height:$('reader').clientHeight,
+  continuous:Boolean(input.experimentalContinuous&&state.preferences.scroll),settings:readiumPreferences(),renderer:'screen-v1'});
+}
+function assetsSettled(doc){return doc?.body&&doc.fonts.status!=='loading'&&[...doc.images].every(image=>image.complete)}
+async function measureChapterScreens(book,owner,chapter,signal,key){
+ const layout=JSON.parse(key),link=book.readingOrder[chapter];
+ const resourcesController=new AbortController(),resources=owner.fork(resourcesController.signal);
+ const host=document.createElement('div');host.className='pagination-probe';host.inert=true;host.setAttribute('aria-hidden','true');
+ host.style.width=layout.width+'px';host.style.height=layout.height+'px';
+ const container=document.createElement('div');container.style.height='100%';host.append(container);document.body.append(host);
+ let probe,timer;
+ let rejectAbort;const onAbort=()=>{resourcesController.abort();rejectAbort(new DOMException('Stale pagination','AbortError'))};
+ const aborted=new Promise((_,reject)=>{rejectAbort=reject;signal.addEventListener('abort',onAbort,{once:true});timer=setTimeout(()=>{resourcesController.abort();reject(Error('Chapter layout did not settle'))},12000)});
+ try{
+  if(signal.aborted)throw new DOMException('Stale pagination','AbortError');
+  const measuring=(async()=>{
+   if(layout.continuous){
+    probe=new ContinuousNavigator(container,{...book,readingOrder:[link]},resources,{},null,layout.settings);
+   }else{
+    const manifest=Manifest.deserialize({metadata:{title:book.title??'Untitled',language:book.languages??book.language??'en',readingProgression:book.readingProgression,conformsTo:['https://readium.org/webpub-manifest/profiles/epub']},readingOrder:[{...link,type:'text/html'}]});
+    const publication=new Publication({manifest,fetcher:new PublicationFetcher(resources)});
+    const locator=Locator.deserialize({...link,type:'text/html',locations:{position:1,progression:0,totalProgression:0}});
+    probe=new EpubNavigator(container,publication,{},[locator],undefined,{preferences:layout.settings,defaults:{}});
+   }
+   await probe.load();
+   if(signal.aborted)return;
+   const frame=[...container.querySelectorAll('iframe')].find(f=>getComputedStyle(f).visibility!=='hidden');
+   const wnd=frame?.contentWindow,doc=frame?.contentDocument;
+   if(!doc?.body)throw Error('Missing chapter layout');
+   await doc.fonts.ready;
+   // Image load/error both settle geometry. A pending resource leaves the
+   // denominator calculating rather than claiming a provisional exact count.
+   await Promise.all([...doc.images].filter(image=>!image.complete).map(image=>new Promise(resolve=>{image.addEventListener('load',resolve,{once:true});image.addEventListener('error',resolve,{once:true})})));
+   await delay(120);
+   if(signal.aborted)return;
+   let extent,viewport;
+   if(layout.continuous){probe.measure(probe.entries[0]);extent=probe.entries[0].height;viewport=layout.height;}
+   else{const root=doc.scrollingElement;extent=layout.settings.scroll?root.scrollHeight:root.scrollWidth;viewport=layout.settings.scroll?wnd.innerHeight:wnd.innerWidth;}
+   return screenPages({extent,viewport})?.total;
+  })();
+  return await Promise.race([measuring,aborted]);
+ }finally{
+  clearTimeout(timer);
+  signal.removeEventListener('abort',onAbort);
+  resourcesController.abort();
+  // Disconnect resize before the frame handshake, as for live navigators.
+  // Readium may await an in-progress frame handshake indefinitely. Its cleanup
+  // starts immediately, but cannot hold close hostage. The independent resource
+  // view is aborted/closed, so a late continuation cannot access the live owner.
+  try{await Promise.race([Promise.resolve(destroyNavigator(probe)).catch(()=>{}),delay(400)])}finally{host.remove();resources.close()}
+ }
+}
+function observeChapterPages(wnd,generation){
+ if(navigator?.kind==='continuous')return;
+ const href=navigator?.currentLocator?.href??lastLocator?.href;
+ const chapter=input.readingOrder.findIndex(link=>link.href===href);
+ let previous,previousExtent,pending=0,invalidated=false;const doc=wnd.document;
+ const live=()=>generation===lifecycle&&state&&[...$('reader').querySelectorAll('iframe')].some(frame=>frame.contentWindow===wnd);
+ const extent=()=>state.preferences.scroll?doc.scrollingElement.scrollHeight:doc.scrollingElement.scrollWidth;
+ const invalidate=()=>{if(!live()||invalidated)return;invalidated=true;quietUntil=performance.now()+800;screenIndex?.invalidate(chapter)};
+ const measure=()=>{
+  pending=0;if(!live()||reflowCount||resizing)return;
+  const root=doc.scrollingElement;if(!root)return;
+  if(!assetsSettled(doc)){invalidate();return;}
+  const count=screenPages(state.preferences.scroll?{extent:root.scrollHeight,viewport:wnd.innerHeight}:{extent:root.scrollWidth,viewport:wnd.innerWidth})?.total;
+  if(previous!==undefined&&count!==previous){quietUntil=performance.now()+800;screenIndex?.record(chapter,count);refreshPosition()}
+  previous=count;previousExtent=extent();invalidated=false;refreshPosition();
+ };
+ const schedule=()=>{if(!pending)pending=requestAnimationFrame(measure)};
+ const loading=()=>{invalidate();schedule()};
+ const resource=event=>{if(['IMG','LINK'].includes(event.target?.tagName))loading()};
+ // Readium decoration changes can touch the body; compare the constant-cost
+ // screen extent before updating counts, rather than rescanning its text.
+ const observer=new MutationObserver(()=>{if(!live())return;if(!assetsSettled(doc)||previousExtent!==extent())invalidate();schedule()});observer.observe(doc.body,{subtree:true,childList:true,attributes:true,characterData:true});
+ doc.fonts.addEventListener('loading',loading);doc.fonts.addEventListener('loadingdone',schedule);doc.fonts.addEventListener('loadingerror',schedule);doc.addEventListener('load',resource,true);doc.addEventListener('error',resource,true);schedule();
+ pageLayoutObservers.set(wnd,()=>{observer.disconnect();cancelAnimationFrame(pending);doc.fonts.removeEventListener('loading',loading);doc.fonts.removeEventListener('loadingdone',schedule);doc.fonts.removeEventListener('loadingerror',schedule);doc.removeEventListener('load',resource,true);doc.removeEventListener('error',resource,true)});
+}
+const annotationUI=new AnnotationUI({popup:$('selection-tools'),layer:$('annotation-margins'),viewport:$('reader'),
+ frames:()=>{
+  if(navigator?.kind==='continuous')return navigator.entries.filter(e=>e.frame).map(e=>({frame:e.frame,href:e.link.href}));
+  // Use Readium's public current-frame/viewport pair, not the last reported
+  // locator: a chapter transition can report its new href before old paint ends.
+  const hrefs=navigator?.viewport?.readingOrder??[];
+  return (navigator?._cframes??[]).filter(Boolean).map((manager,index)=>({frame:manager.iframe,href:hrefs[index]})).filter(({frame,href})=>href&&$('reader').contains(frame)&&getComputedStyle(frame).visibility!=='hidden');
+ },
+ annotations:()=>state?.annotations??[],continuous:()=>navigator?.kind==='continuous',onDismiss:()=>{selection=null},
+ onEdit:id=>{const item=state?.annotations.find(x=>x.id===id);if(item)editNote(item)},onList:openAnnotations});
+function openAnnotations(){if(!state)return;annotationUI.dismiss();renderPanel('notes');showDialog('library-panel','tab-notes')}
+function removeAnnotation(id){state.annotations=state.annotations.filter(x=>x.id!==id);applyAnnotations();changed();annotationUI.dismiss();if($('library-panel').open)renderPanel('notes');notice('Highlight and note removed.')}
+
 const icons={contents:'<path d="M4 5h16M4 12h16M4 19h11"/>',search:'<circle cx="10" cy="10" r="6.5"/><path d="m15 15 5 5"/>',bookmark:'<path d="M6 3h12v18l-6-4-6 4z"/>',previous:'<path d="m14 5-7 7 7 7"/>',next:'<path d="m10 5 7 7-7 7"/>'};
 for(const [id,key]of [['contents','contents'],['search','search'],['save-bookmark','bookmark'],['previous','previous'],['next','next']])$(id).innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true">'+icons[key]+'</svg>';
 let eventSequence=0;
@@ -103,17 +209,30 @@ function updatePosition(){
    :{extent:doc.scrollWidth,viewport:wnd.innerWidth,offset:Math.abs(wnd.scrollX),columns:effectiveColumns()};pages=screenPages(metrics);}
  }
  const left=chapterPagesLeft(metrics??{});
+ const chapter=input.readingOrder.findIndex(link=>link.href===lastLocator.href);
+ if(screenIndex&&!opening){
+  screenIndex.configure(paginationLayout(),input.readingOrder.length);
+  if(!reflowCount&&!resizing&&navigator?.kind==='continuous'){
+   for(const entry of navigator.entries)if(entry.frame&&!navigator.dirtyEntries.has(entry)&&assetsSettled(entry.frame.contentDocument)){
+    screenIndex.record(entry.index,screenPages({extent:entry.height,viewport:$('reader').clientHeight})?.total);
+   }
+  }else if(!reflowCount&&!resizing){
+   const frame=[...$('reader').querySelectorAll('iframe')].find(f=>getComputedStyle(f).visibility!=='hidden');
+   if(pages&&assetsSettled(frame?.contentDocument))screenIndex.record(chapter,pages.total);
+  }
+ }
  if(pages&&!opening){
   nativePosition=contentPosition(pages,left===0);
   emit('position',{position:nativePosition});
  }
- const reference=bookPages({counts:contentIndex,chapter:input.readingOrder.findIndex(link=>link.href===lastLocator.href),lower:nativePosition?.lower,upper:nativePosition?.upper,progression:lastLocator.locations?.progression,atEnd:left===0,columns:effectiveColumns()});
- const label=reference?pageLabel(reference):contentIndexFailed?'Book progress unavailable':'Calculating book pages…';
+ const displayFrame=navigator?.kind==='continuous'?navigator.entries.find(entry=>entry.index===chapter)?.frame:[...$('reader').querySelectorAll('iframe')].find(frame=>getComputedStyle(frame).visibility!=='hidden');
+ const bookScreens=!reflowCount&&!resizing&&assetsSettled(displayFrame?.contentDocument)?screenIndex?.pages(chapter,pages):null;
+ const label=bookScreens?pageLabel(bookScreens):pages?`${pageLabel(pages)} · Chapter ${chapter+1} · Calculating book pages…`:'Calculating book pages…';
  if($('position-label').textContent!==label)$('position-label').textContent=label;
- $('position-label').title='Book pages use fixed text units and remain stable across text size and window changes; they are not printed pages.';
- const remaining=reference?`${reference.remaining} ${reference.remaining===1?'page':'pages'} left in chapter`:'';
+ $('position-label').title=heading+' · One page is one full reading screen. Whole-book counts update with layout.';
+ const remaining=left===null?'':`${left} ${left===1?'page':'pages'} left in chapter`;
  if($('chapter-label').textContent!==remaining)$('chapter-label').textContent=remaining;
- $('chapter-label').title=heading+' · Remaining reference pages use the same fixed text units as book progress.';
+ $('chapter-label').title=heading+' · Remaining reading screens in this chapter.';
  const saved=state.bookmarks.some(x=>samePlace(x.locator,lastLocator));
  $('save-bookmark').setAttribute('aria-pressed',String(saved));$('save-bookmark').setAttribute('aria-label',saved?'Remove bookmark':'Add bookmark');$('save-bookmark').title=saved?'Remove bookmark':'Add bookmark';
 }
@@ -142,7 +261,7 @@ async function indexContent(owner,generation,edition,order){
 }
 
 function contentPosition(pages,atEnd=false){
- const result={href:lastLocator.href,page:pages.first,totalPages:pages.total,visiblePages:pages.last-pages.first+1};
+ const result={href:lastLocator.href,page:pages.first,totalPages:pages.total,visiblePages:1,pageUnit:'screen'};
  const entry=navigator?.kind==='continuous'?navigator.entries.find(e=>e.link.href===lastLocator.href):null;
  const frame=entry?.frame??[...$('reader').querySelectorAll('iframe')].find(f=>getComputedStyle(f).visibility!=='hidden');
  const doc=frame?.contentDocument;if(!doc?.body)return result;
@@ -287,6 +406,7 @@ async function setPreferences(value,retained){
  pageSlide.cancel();
  await navigation;
  if(!state||requestedLifecycle!==lifecycle)return;
+ screenIndex?.cancel();
  const location=retained??stableAnchor??visibleAnchor();if(location)stableAnchor=clone(location);reflowCount++;
  const restore=Object.keys(value).some(key=>!['theme'].includes(key))||Object.keys(value).length===0;
  state.preferences=preferences({...state.preferences,...value});syncAppearance();changed(false);
@@ -311,32 +431,72 @@ async function setPreferences(value,retained){
  });
  // Every caller settles after the final coalesced job, including callers whose
  // own intermediate layout was skipped while a slider continued moving.
- try{let pending;do{pending=preferenceQueue;await pending}while(generation===lifecycle&&pending!==preferenceQueue)}finally{reflowCount=Math.max(0,reflowCount-1)}
+ try{let pending;do{pending=preferenceQueue;await pending}while(generation===lifecycle&&pending!==preferenceQueue)}finally{reflowCount=Math.max(0,reflowCount-1);if(generation===lifecycle&&state)refreshPosition()}
 }
-function dismissSelection(){selection=null;$('selection-tools').hidden=true;for(const f of document.querySelectorAll('#reader iframe'))f.contentWindow?.getSelection()?.removeAllRanges()}
+function dismissSelection(){annotationUI.dismiss();for(const f of document.querySelectorAll('#reader iframe'))f.contentWindow?.getSelection()?.removeAllRanges()}
 function selected(value){
  if(!value.text?.trim()||!value.locator){$('selection-tools').hidden=true;return}
  const locator=validLocator(value.locator.serialize?.()??value.locator);if(!locator)return;
- for(const frame of document.querySelectorAll('#reader iframe')){
+ let selectedRange;
+ for(const {frame,href} of annotationUI.frames()){
+  if(href!==locator.href)continue;
   const sel=frame.contentWindow?.getSelection();
   if(sel?.rangeCount&&sel.toString()===value.text){
-   const range=sel.getRangeAt(0);locator.locations={...locator.locations,domRange:{start:rangePoint(range.startContainer,range.startOffset),end:rangePoint(range.endContainer,range.endOffset)}};break;
+   const range=sel.getRangeAt(0);selectedRange={frame,range};locator.locations={...locator.locations,domRange:{start:rangePoint(range.startContainer,range.startOffset),end:rangePoint(range.endContainer,range.endOffset)}};
+   const before=range.cloneRange(),after=range.cloneRange();before.selectNodeContents(frame.contentDocument.body);before.setEnd(range.startContainer,range.startOffset);after.selectNodeContents(frame.contentDocument.body);after.setStart(range.endContainer,range.endOffset);
+   if(value.text.length>MAX_LOCATOR_TEXT){locator.locations.domRange=longSelectionRange(range);locator.locations.domRangeIndexing='text-nodes'}
+   locator.text={...locator.text,highlight:value.text,before:before.toString().slice(-80),after:after.toString().slice(0,80)};break;
   }
  }
- selection={locator,quote:value.text.slice(0,5000)};$('selection-tools').hidden=false;
- emit('selection',{selection:{text:selection.quote,locator}});
+ locator.text={...locator.text,highlight:value.text};
+ try{selection={locator:annotationLocator(locator),quote:quotePreview(value.text)}}catch(error){notice(error.message);return}
+ annotationUI.show(selection,selectedRange);
+ emit('selection',{selection:{text:selection.quote,locator:selection.locator}});
+}
+function decorationLocator(item){
+ const locator=clone(item.locator);
+ // Readium sends decoration locators as JSON. Passing a Locator instance loses
+ // locations.otherLocations (a Map), including domRange, on the wire.
+ // Convert legacy all-child coordinates only for that wire representation.
+ if(locator.locations?.domRange&&locator.locations.domRangeIndexing!=='text-nodes'){
+  const frame=annotationUI.frames().find(value=>value.href===locator.href)?.frame;
+  const anchor=locator.text?.highlight?locator:{...locator,locations:{domRange:locator.locations.domRange}};
+  const range=frame&&locatorRange(frame.contentDocument,anchor);
+  if(range){locator.locations.domRange=longSelectionRange(range);locator.locations.domRangeIndexing='text-nodes'}
+  else if(locator.text?.highlight)delete locator.locations.domRange;
+  else return null;
+ }
+ return locator;
+}
+function retryDeferredAnnotations(){
+ if(navigator?.kind==='continuous'||!deferredAnnotationHrefs.has(lastLocator?.href))return;
+ const frame=annotationUI.frames().find(value=>value.href===lastLocator.href)?.frame,doc=frame?.contentDocument;
+ // Readium announces position after its frame-ready pong. Retry once per
+ // mounted document; unresolved saved endpoints must not rebuild on scroll.
+ if(doc&&!deferredAnnotationDocuments.has(doc)){deferredAnnotationDocuments.add(doc);applyAnnotations()}
 }
 function applyAnnotations(){
+ annotationUI.invalidate();
  if(navigator?.decorationsAvailable===false)return;
- navigator?.applyDecorations(state.annotations.filter(item=>input.readingOrder.some(link=>link.href===item.locator.href)).map(item=>({id:item.id,locator:Locator.deserialize(item.locator),style:{type:DecorationStyleType.Highlight,tint:colors[item.color]??colors.gold,isActive:true}})),'personal');
+ deferredAnnotationHrefs.clear();
+ const decorations=state.annotations.filter(item=>input.readingOrder.some(link=>link.href===item.locator.href)).flatMap(item=>{
+  const locator=navigator?.kind==='continuous'?clone(item.locator):decorationLocator(item);
+  if(!locator){deferredAnnotationHrefs.add(item.locator.href);return []}
+  return [{id:item.id,locator,style:{type:DecorationStyleType.Highlight,tint:colors[item.color]??colors.gold,isActive:true}}];
+ });
+ navigator?.applyDecorations(decorations,'personal');
 }
 function annotate(value){
- const locator=validLocator(value.locator);if(!locator||!String(value.quote??'').trim())throw Error('Select a passage to annotate.');
- const prior=state.annotations.find(x=>x.id===value.id);if(!prior&&state.annotations.length>=1000)throw Error('This book has reached the annotation limit.');
- const now=new Date().toISOString();const item={id:prior?.id??crypto.randomUUID(),locator,quote:String(value.quote).slice(0,32768),note:String(value.note??'').slice(0,65536),color:colors[value.color]?value.color:'gold',createdAt:prior?.createdAt??now,updatedAt:now};
+ const prior=state.annotations.find(x=>x.id===value.id);
+ const locator=validLocator(prior?.locator??annotationLocator(value.locator));if(!locator||!String(value.quote??'').trim())throw Error('Select a passage to annotate.');
+ if(!prior&&state.annotations.length>=1000)throw Error('This book has reached the annotation limit.');
+ const now=new Date().toISOString();const item={id:prior?.id??crypto.randomUUID(),locator,quote:prior?.quote??quotePreview(value.quote),note:String(value.note??'').slice(0,65536),color:colors[value.color]?value.color:'gold',createdAt:prior?.createdAt??now,updatedAt:now};
  const annotations=prior?state.annotations.map(existing=>existing===prior?item:existing):[...state.annotations,item];
  requireSaveBudget({...state,annotations});state.annotations=annotations;
- applyAnnotations();changed();return clone(item);
+ // Notes change the margin cards and stored state, not the highlight ranges.
+ // Retain resolved ranges while typing, even across hundreds of highlights.
+ if(!prior||prior.color!==item.color)applyAnnotations();else annotationUI.schedule();
+ changed();return clone(item);
 }
 function addBookmark(){
  if(!lastLocator)return;
@@ -350,15 +510,27 @@ function addBookmark(){
  changed();updatePosition();
 }
 function showDialog(id,focus){
+ annotationUI.dismiss();
  for(const dialog of document.querySelectorAll('dialog[open]'))dialog.close();
  lastFocus=document.activeElement;$(id).showModal();if(focus)$(focus).focus();
 }
 let draftDecision;
 function hasPendingDraft(){return Boolean(editingNote&&$('note-panel').open&&($('note-text').value!==(editingNote.note??'')||document.querySelector('input[name="note-color"]:checked').value!==(colors[editingNote.color]?editingNote.color:'gold')))}
+let noteSaveTimer;
+function persistNote(){
+ clearTimeout(noteSaveTimer);
+ if(!editingNote)return true;
+ try{
+  const color=document.querySelector('input[name="note-color"]:checked').value;
+  const note=$('note-text').value;
+  if(!(editingNote.id&&note===(editingNote.note??'')&&color===(colors[editingNote.color]?editingNote.color:'gold')))editingNote=annotate({...editingNote,note,color});
+  $('delete-note').hidden=!editingNote.id;$('note-error').hidden=true;$('note-status').textContent='Saved automatically';return true;
+ }catch(error){$('note-status').textContent='Changes not saved';$('note-error').textContent=(error.message||'The note could not be saved.')+' Your draft is still here.';$('note-error').hidden=false;return false}
+}
 function saveNote(){
  if(!editingNote)return true;
  try{
-  annotate({...editingNote,note:$('note-text').value,color:document.querySelector('input[name="note-color"]:checked').value});
+  if(!persistNote())return false;
   editingNote=undefined;$('note-error').hidden=true;$('note-panel').close();dismissSelection();notice('Note updated in this reader.');return true;
  }catch(error){
   $('note-error').textContent=(error.message||'The note could not be applied.')+' Your draft is still here. You can keep editing or discard it.';$('note-error').hidden=false;$('note-error').focus();return false;
@@ -366,6 +538,7 @@ function saveNote(){
 }
 function prepareClose(){
  if(draftDecision)return draftDecision.promise;
+ if(hasPendingDraft()&&persistNote())return Promise.resolve(true);
  if(!hasPendingDraft())return Promise.resolve(true);
  const focus=document.activeElement;let resolve;const promise=new Promise(done=>resolve=done);draftDecision={promise,resolve,focus};$('draft-panel').showModal();$('keep-draft').focus();return promise;
 }
@@ -390,7 +563,7 @@ for(const dialog of document.querySelectorAll('dialog')){
 function button(text,cls,action){const node=document.createElement('button');node.type='button';node.className=cls;node.textContent=text;node.onclick=action;return node}
 function empty(parent,text){const p=document.createElement('p');p.className='empty-panel';p.textContent=text;parent.append(p)}
 function renderPanel(tab=activeTab){
- activeTab=tab;const body=$('panel-body');body.replaceChildren();body.setAttribute('aria-labelledby','tab-'+tab);
+ activeTab=tab;$('panel-title').textContent=tab==='notes'?'Highlights and notes':'Your place in the book';const body=$('panel-body');body.replaceChildren();body.setAttribute('aria-labelledby','tab-'+tab);
  for(const key of ['contents','bookmarks','notes']){$('tab-'+key).setAttribute('aria-selected',String(key===tab));$('tab-'+key).tabIndex=key===tab?0:-1}
  if(tab==='contents'){
   const renderLinks=(links,parent,depth=0)=>{
@@ -413,13 +586,13 @@ function renderPanel(tab=activeTab){
   for(const item of state.bookmarks){const article=document.createElement('article');article.className='saved-item';const jump=button(item.label,'saved-link',()=>{closeDialog($('library-panel'));void go(item.locator)});const date=document.createElement('small');date.textContent=new Date(item.createdAt).toLocaleDateString(undefined,{month:'short',day:'numeric'});jump.append(date);const remove=button('×','remove-saved',()=>{state.bookmarks=state.bookmarks.filter(x=>x.id!==item.id);changed();updatePosition();renderPanel()});remove.setAttribute('aria-label','Remove bookmark: '+item.label);article.append(jump,remove);body.append(article)}
  }else{
   if(!state.annotations.length)empty(body,'Select a passage in the book to highlight it or leave yourself a note.');
-  for(const item of state.annotations){const article=document.createElement('article');article.className='saved-item';const jump=button('“'+item.quote+'”','saved-link',()=>{closeDialog($('library-panel'));void go(item.locator)});article.append(jump);if(item.note){const note=document.createElement('p');note.className='note-excerpt';note.textContent=item.note;article.append(note)}article.append(button(item.note?'Edit note':'Add a note','edit-note',()=>editNote(item)));body.append(article)}
+  for(const item of state.annotations){const article=document.createElement('article');article.className='saved-item annotation-item';article.style.setProperty('--note-color',colors[item.color]??colors.gold);const jump=button('“'+item.quote+'”','saved-link',()=>{closeDialog($('library-panel'));void go(item.locator)});article.append(jump);if(item.note){const note=document.createElement('p');note.className='note-excerpt';note.textContent=item.note;article.append(note)}article.append(button(item.note?'Edit note':'Add a note','edit-note',()=>editNote(item)));body.append(article)}
  }
 }
 function editNote(item=selection){
- if(!item)return;$('note-error').hidden=true;editingNote=clone(item);$('note-title').textContent=item.id?'Your note':'A note in the margin';$('note-quote').textContent=item.quote;$('note-text').value=item.note??'';$('delete-note').hidden=!item.id;
+ if(!item)return;clearTimeout(noteSaveTimer);$('note-status').textContent='Saved automatically';$('note-error').hidden=true;editingNote=clone(item);$('note-title').textContent=item.id?'Your note':'A note in the margin';$('note-quote').textContent=item.quote;$('note-text').value=item.note??'';$('delete-note').hidden=!item.id;
  document.querySelector(`input[name="note-color"][value="${colors[item.color]?item.color:'gold'}"]`).checked=true;
- showDialog('note-panel','note-text');
+ showDialog('note-panel','note-text');persistNote();
 }
 async function jumpNow(value,recordHistory){
  const locator=validLocator(value);if(!navigator||!locator)return false;quietUntil=performance.now()+800;
@@ -437,8 +610,8 @@ async function jumpNow(value,recordHistory){
 // (contents, search, links, bookmarks), restores, reflow and resizes never are. Each
 // layout gets its own key; native content identity remains independent of reflow.
 let layoutGeneration=0,announcedLayout=null,quietUntil=0,scrollState=new WeakMap(),continuousNet=0,continuousPosition=null;
-const pagesPerTurn=()=>state?.preferences.scroll?1:effectiveColumns();
-const layoutKey=()=>(state?.preferences.scroll?'s':'p')+pagesPerTurn()+'-'+layoutGeneration;
+const pagesPerTurn=()=>1;
+const layoutKey=()=>(state?.preferences.scroll?'s':'p')+effectiveColumns()+'-'+layoutGeneration;
 function announceLayout(){if(!state||opening)return;const layout=layoutKey();if(layout===announcedLayout)return;announcedLayout=layout;emit('pageLayout',{layout,pages:pagesPerTurn()})}
 function relayout(){layoutGeneration++;quietUntil=performance.now()+800;scrollState=new WeakMap();continuousNet=0;continuousPosition=null;announceLayout()}
 function pageTurned(direction,departure=nativePosition){if(!state)return;announceLayout();emit('pageTurn',{direction,pages:pagesPerTurn(),layout:layoutKey(),departure})}
@@ -500,7 +673,7 @@ async function crossScrollBoundary(wnd,delta,event){
 function keyboard(event){
  if(event.defaultPrevented||event.altKey||event.metaKey||event.ctrlKey||event.shiftKey)return;
  const tag=event.target?.tagName;if(['INPUT','TEXTAREA','SELECT'].includes(tag)||event.target?.isContentEditable)return;
- if(event.key==='Escape'){$('selection-tools').hidden=true;if(state?.preferences.immersive&&!document.querySelector('dialog[open]')){event.preventDefault();void setPreferences({immersive:false})}return}
+ if(event.key==='Escape'){if(! $('selection-tools').hidden){event.preventDefault();annotationUI.dismiss(true);return;}if(state?.preferences.immersive&&!document.querySelector('dialog[open]')){event.preventDefault();void setPreferences({immersive:false})}return}
  if(document.querySelector('dialog[open]'))return;
  if(event.key==='ArrowRight'||event.key==='ArrowLeft'){
   const rtl=input?.readingProgression==='rtl'||navigator?.readingProgression==='rtl';
@@ -549,22 +722,24 @@ function pageEdgeTap(event){
  return true;
 }
 async function installNavigator(location,settings=readiumPreferences()){
+  deferredAnnotationHrefs.clear();deferredAnnotationDocuments=new WeakSet();
   const generation=lifecycle;
   const manifest=Manifest.deserialize({metadata:{title:input.title??'Untitled',language:input.languages??input.language??'en',readingProgression:input.readingProgression,conformsTo:['https://readium.org/webpub-manifest/profiles/epub']},readingOrder:input.readingOrder.map(x=>({...x,type:'text/html'}))});
   const publication=new Publication({manifest,fetcher:new PublicationFetcher(pool)});
   const positions=input.readingOrder.map((link,i)=>Locator.deserialize({...link,type:'text/html',locations:{position:i+1,progression:0,totalProgression:i/input.readingOrder.length}}));
   const listeners={
+   chapterInvalidated:index=>screenIndex?.invalidate(index),
    click:pageEdgeTap,tap:pageEdgeTap,
-   positionChanged:locator=>{if(generation!==lifecycle||!state)return;lastLocator=locator.serialize();if(opening&&state.position){refreshPosition();return;}state.position=clone(lastLocator);refreshPosition();changed(false);emit('relocated',{locator:lastLocator,cause:'unknown',eligibleForProgress:false})},
-   frameUnloaded:wnd=>frames.delete(wnd),
+   positionChanged:locator=>{if(generation!==lifecycle||!state)return;lastLocator=locator.serialize();retryDeferredAnnotations();if(opening&&state.position){refreshPosition();return;}state.position=clone(lastLocator);refreshPosition();changed(false);emit('relocated',{locator:lastLocator,cause:'unknown',eligibleForProgress:false})},
+   frameUnloaded:wnd=>{pageLayoutObservers.get(wnd)?.();pageLayoutObservers.delete(wnd);frames.delete(wnd)},
    readerScrolled:(delta,height)=>{if(generation===lifecycle)trackContinuousScroll(delta,height)},
    readerAnchorChanged:locator=>{if(generation===lifecycle&&performance.now()>=quietUntil&&!reflowCount&&!resizing)stableAnchor=clone(locator)},
    textSelected:value=>{if(generation===lifecycle)selected(value)},
-   frameLoaded:wnd=>{if(!wnd.CSS?.highlights&&navigator)navigator.decorationsAvailable=false;if(!frames.has(wnd)){frames.add(wnd);installPageTurnWheel(wnd,{gesture:pageTurnGesture,enabled:()=>Boolean(state&&!state.preferences.scroll&&!document.querySelector('dialog[open]')),rtl:()=>input?.readingProgression==='rtl'||navigator?.readingProgression==='rtl',turn});wnd.document.addEventListener('keydown',keyboard);if(navigator?.kind!=='continuous'){let anchorTimer;wnd.addEventListener('wheel',event=>{void crossScrollBoundary(wnd,event.deltaY,event);clearTimeout(anchorTimer);if(!boundaryBusy)anchorTimer=setTimeout(()=>{if(!reflowCount&&!resizing)stableAnchor=visibleAnchor()},100)},{passive:false});}wnd.document.addEventListener('keydown',event=>{if(navigator?.kind!=='continuous'&&['ArrowDown','PageDown','ArrowUp','PageUp'].includes(event.key)&&!['INPUT','TEXTAREA','SELECT'].includes(event.target?.tagName)){void crossScrollBoundary(wnd,['ArrowDown','PageDown'].includes(event.key)?1:-1,event);setTimeout(()=>{if(!boundaryBusy&&!reflowCount&&!resizing)stableAnchor=visibleAnchor()},100)}});wnd.document.addEventListener('pointerup',followPublicationLink,true);wnd.addEventListener('scroll',()=>trackScroll(wnd),{passive:true});wnd.document.addEventListener('click',followPublicationLink,true);wnd.document.addEventListener('keyup',()=>{const text=wnd.getSelection()?.toString();if(text&&lastLocator&&navigator?.kind!=='continuous')selected({text,locator:Locator.deserialize({...lastLocator,text:{highlight:text}})});});}},
+   frameLoaded:wnd=>{if(!wnd.CSS?.highlights&&navigator)navigator.decorationsAvailable=false;if(!frames.has(wnd)){frames.add(wnd);observeChapterPages(wnd,generation);for(const type of ["wheel","scroll","keydown","pointerdown"])wnd.addEventListener(type,backgroundActivity,{capture:true,passive:true});installPageTurnWheel(wnd,{gesture:pageTurnGesture,enabled:()=>Boolean(state&&!state.preferences.scroll&&!document.querySelector('dialog[open]')),rtl:()=>input?.readingProgression==='rtl'||navigator?.readingProgression==='rtl',turn});wnd.document.addEventListener('keydown',keyboard);if(navigator?.kind!=='continuous'){let anchorTimer;wnd.addEventListener('wheel',event=>{void crossScrollBoundary(wnd,event.deltaY,event);clearTimeout(anchorTimer);if(!boundaryBusy)anchorTimer=setTimeout(()=>{if(!reflowCount&&!resizing)stableAnchor=visibleAnchor()},100)},{passive:false});}wnd.document.addEventListener('keydown',event=>{if(navigator?.kind!=='continuous'&&['ArrowDown','PageDown','ArrowUp','PageUp'].includes(event.key)&&!['INPUT','TEXTAREA','SELECT'].includes(event.target?.tagName)){void crossScrollBoundary(wnd,['ArrowDown','PageDown'].includes(event.key)?1:-1,event);setTimeout(()=>{if(!boundaryBusy&&!reflowCount&&!resizing)stableAnchor=visibleAnchor()},100)}});wnd.document.addEventListener('pointerup',followPublicationLink,true);wnd.addEventListener('scroll',()=>trackScroll(wnd),{passive:true});wnd.document.addEventListener('click',followPublicationLink,true);wnd.document.addEventListener('keyup',()=>{const text=wnd.getSelection()?.toString();if(text&&lastLocator&&navigator?.kind!=='continuous')selected({text,locator:Locator.deserialize({...lastLocator,text:{highlight:text}})});});}},
    error:error=>{notice(error.message);emit('error',{message:error.message})}
   };
   navigator=input.experimentalContinuous&&settings.scroll?new ContinuousNavigator($('reader'),input,pool,listeners,location,settings):new EpubNavigator($('reader'),publication,listeners,positions,location?engineLocator(location):undefined,{preferences:settings,defaults:{}});
-  navigator.registerDecorationObserver('personal',{onDecorationActivated:event=>{const item=state.annotations.find(x=>x.id===event.decoration.id);if(item)editNote(item);return true}});
+  navigator.registerDecorationObserver('personal',{onDecorationActivated:event=>{const item=state.annotations.find(x=>x.id===event.decoration.id);if(item){selection=clone(item);annotationUI.show(item,annotationUI.locate(item));}return true}});
   const installed=navigator;
   try{await installed.load()}catch(error){
    if(installed.kind!=='continuous'||generation!==lifecycle)throw error;
@@ -583,6 +758,9 @@ async function open(value){
   const override=validLocator(value.locator);if(override)state.position=override;
   $('reader').replaceChildren();$('book-title').textContent=value.title??'Untitled';$('book-author').textContent=value.creators?.join(', ')??'';document.title=(value.title??'Book')+' · Stillleaf';$('back').hidden=!value.canReturnToLibrary;
   syncAppearance();await prepareFont(state.preferences.fontFamily,lifecycle);
+  const owner=pool,book=input;
+  screenIndex=new ScreenPaginationIndex({measure:(chapter,signal,key)=>measureChapterScreens(book,owner,chapter,signal,key),idle:paginationIdle,
+   changed:()=>{if(owner===pool&&!opening){cancelAnimationFrame(positionFrame);positionFrame=requestAnimationFrame(()=>{if(owner===pool)refreshPosition()})}}});
   await installNavigator(state.position);opening=false;refreshPosition();emit('ready',{warnings:[...pool.warnings]});announcedLayout=null;relayout();changed();
   void indexContent(pool,lifecycle,input.editionId,input.readingOrder);
   if(pool.warnings.size&&$('notice').hidden)notice('Some original styling or illustrations could not be displayed.');
@@ -591,16 +769,18 @@ async function open(value){
 async function close(){
  if(!await prepareClose())return false;
  if(navigator?.kind==='continuous')navigator.report();
- pageSlide.cancel();lifecycle++;searchGeneration++;cancelAnimationFrame(positionFrame);clearTimeout(resizeTimer);resizing=false;clearTimeout(searchTimer);clearTimeout(stateTimer);clearTimeout(noticeTimer);
+ clearTimeout(noteSaveTimer);annotationUI.reset();pageSlide.cancel();lifecycle++;searchGeneration++;cancelAnimationFrame(positionFrame);clearTimeout(resizeTimer);resizing=false;clearTimeout(searchTimer);clearTimeout(stateTimer);clearTimeout(noticeTimer);
+ const paginationClosed=screenIndex?.queue;screenIndex?.close();screenIndex=undefined;
  nativePosition=null;contentIndex=null;contentIndexFailed=false;preferenceRestore=false;
  if(state)emit('state',{state:snapshot()});
  for(const dialog of document.querySelectorAll('dialog[open]'))dialog.close();
- const current=navigator;navigator=undefined;navigationCompletion.dispose(current);await preferenceQueue.catch(()=>{});await destroyNavigator(current);pool?.close();pool=undefined;state=undefined;lastLocator=undefined;selection=undefined;$('selection-tools').hidden=true;$('notice').hidden=true;editingNote=undefined;return true;
+ const current=navigator;navigator=undefined;navigationCompletion.dispose(current);await preferenceQueue.catch(()=>{});await destroyNavigator(current);await paginationClosed?.catch(()=>{});pool?.close();pool=undefined;state=undefined;lastLocator=undefined;selection=undefined;$('selection-tools').hidden=true;$('notice').hidden=true;editingNote=undefined;return true;
 }
-const api={open,close,prepareClose,hasPendingDraft,returnFromJump,next:()=>turn('next'),previous:()=>turn('previous'),go,setPreferences,bookmark:()=>lastLocator?clone(lastLocator):null,restore:go,exportState:()=>{if(navigator?.kind==='continuous')navigator.report();return snapshot()},addBookmark,annotate};
+const api={open,close,prepareClose,hasPendingDraft,returnFromJump,next:()=>turn('next'),previous:()=>turn('previous'),go,setPreferences,bookmark:()=>lastLocator?clone(lastLocator):null,restore:go,exportState:()=>{if(hasPendingDraft())persistNote();if(navigator?.kind==='continuous')navigator.report();return snapshot()},addBookmark,annotate};
 window.StillleafReader=Object.freeze(api);
 $('return-jump').onclick=()=>void returnFromJump();
 $('back').onclick=async()=>{if(await prepareClose())emit('close-request')};$('next').onclick=api.next;$('previous').onclick=api.previous;$('save-bookmark').onclick=addBookmark;
+$('saved-passages').onclick=openAnnotations;
 $('contents').onclick=()=>{if(!state)return;renderPanel();showDialog('library-panel','tab-'+activeTab)};
 $('appearance').onclick=()=>{if(state){syncAppearance();showDialog('appearance-panel')}};
 $('search').onclick=()=>{if(state)showDialog('search-panel','search-query')};
@@ -618,14 +798,20 @@ $('font-weight').onchange=()=>void setPreferences({fontWeight:$('font-weight').v
 $('text-align').onchange=()=>void setPreferences({textAlign:$('text-align').value});
 $('hyphens').onchange=()=>void setPreferences({hyphens:$('hyphens').value==='publisher'?null:$('hyphens').value==='true'});
 for(const [id,key]of [['letter-spacing','letterSpacing'],['word-spacing','wordSpacing']])$(id).oninput=()=>void setPreferences({[key]:Number($(id).value)});
-window.addEventListener('resize',()=>{pageSlide.cancel();if(!state)return;resizing=true;relayout();const anchor=stableAnchor?clone(stableAnchor):lastLocator?clone(lastLocator):null;clearTimeout(resizeTimer);resizeTimer=setTimeout(()=>{void setPreferences({},anchor).finally(()=>{resizing=false})},100)});
+window.addEventListener('resize',()=>{pageSlide.cancel();if(!state)return;screenIndex?.cancel();resizing=true;relayout();const anchor=stableAnchor?clone(stableAnchor):lastLocator?clone(lastLocator):null;clearTimeout(resizeTimer);resizeTimer=setTimeout(()=>{void setPreferences({},anchor).finally(()=>{resizing=false;refreshPosition()})},100)});
 $('reset-appearance').onclick=()=>void setPreferences(DEFAULT_PREFERENCES);
 $('search-form').onsubmit=event=>{event.preventDefault();void searchBook()};$('search-query').oninput=()=>{clearTimeout(searchTimer);searchTimer=setTimeout(()=>void searchBook(),180)};
-$('highlight-selection').onclick=()=>{if(selection){annotate({...selection,color:'gold'});dismissSelection();notice('Passage highlighted.')}};
+for(const b of document.querySelectorAll('[data-highlight-color]'))b.onclick=()=>{
+ if(!selection)return;
+ try{annotate({...selection,color:b.dataset.highlightColor});dismissSelection();notice('Passage highlighted.')}catch(error){notice(error.message)}
+};
+$('remove-selection').onclick=()=>{if(selection?.id)removeAnnotation(selection.id)};
+$('note-text').oninput=()=>{clearTimeout(noteSaveTimer);$('note-status').textContent='Saving…';noteSaveTimer=setTimeout(persistNote,180)};
+for(const radio of document.querySelectorAll('input[name="note-color"]'))radio.onchange=persistNote;
 $('note-selection').onclick=()=>editNote();$('dismiss-selection').onclick=dismissSelection;
 $('save-note').onclick=saveNote;
 $('keep-draft').onclick=()=>decideDraft('keep');$('discard-draft').onclick=()=>decideDraft('discard');$('save-draft').onclick=()=>decideDraft('save');
-$('delete-note').onclick=()=>{if(!editingNote?.id)return;state.annotations=state.annotations.filter(x=>x.id!==editingNote.id);applyAnnotations();changed();editingNote=undefined;closeDialog($('note-panel'));dismissSelection();notice('Highlight and note removed.');};
+$('delete-note').onclick=()=>{if(!editingNote?.id)return;clearTimeout(noteSaveTimer);removeAnnotation(editingNote.id);editingNote=undefined;closeDialog($('note-panel'));dismissSelection();notice('Highlight and note removed.');};
 media.addEventListener('change',()=>{if(state?.preferences.theme==='system')void setPreferences({})});
 emit('available');
 

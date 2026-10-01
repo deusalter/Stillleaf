@@ -7,6 +7,8 @@ public struct NativeReaderPosition: Codable, Equatable {
     public var page: Int
     public var totalPages: Int
     public var visiblePages: Int
+    /// Missing in legacy leaf-based events. New renderer events name the full-screen unit.
+    public var pageUnit: String?
     public var bookOffset: Int?
     public var bookTotal: Int?
     public var lower: Int?
@@ -15,6 +17,7 @@ public struct NativeReaderPosition: Codable, Equatable {
     public func isValid(spine: [String]) -> Bool {
         spine.contains(href) && page > 0 && page <= totalPages && totalPages <= 10_000_000
             && (1...2).contains(visiblePages)
+            && (pageUnit == nil || (pageUnit == "screen" && visiblePages == 1))
             && ((bookOffset == nil && bookTotal == nil) ||
                 (bookOffset.map { $0 >= 0 && $0 <= (bookTotal ?? -1) } == true &&
                  bookTotal.map { $0 > 0 && $0 <= 268_435_456 } == true))
@@ -33,8 +36,8 @@ public struct NativeReaderPosition: Codable, Equatable {
     }
     public func forwardCoverage(spine: [String]) -> PageTurnEvidence? {
         guard isValid(spine: spine), let content else { return nil }
-        let pages = min(visiblePages, totalPages - page + 1)
+        let pages = pageUnit == "screen" ? 1 : min(visiblePages, totalPages - page + 1)
         return PageTurnEvidence(fromPage: page, toPage: page + pages, pagesRead: pages,
-                                visiblePages: visiblePages, layoutSignature: "stillleaf-content-v1", content: content)
+                                visiblePages: visiblePages, layoutSignature: pageUnit == "screen" ? "stillleaf-screen-v2" : "stillleaf-content-v1", content: content)
     }
 }

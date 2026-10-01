@@ -17,6 +17,14 @@ test('rapid preferences coalesce to the final merged layout and retain the readi
  await page.goto(`http://127.0.0.1:${server.address().port}/index.html`);await page.waitForFunction(()=>window.StillleafReader);
  const html='<html><body>'+Array.from({length:200},(_,i)=>`<p id="p${i}">The river ${i} crossed the valley. She opened the book beneath the shade and began reading.</p>`).join('')+'</body></html>';
  await page.evaluate(input=>StillleafReader.open(input),{editionId:'preferences',title:'The River',experimentalContinuous:true,readingOrder:[{href:'c.html',type:'text/html'}],resources:[{href:'c.html',type:'text/html',dataBase64:Buffer.from(html).toString('base64')}]});
+ // A frame being replaced may temporarily have no head. Font preparation
+ // must skip it while still applying the selected face to the live chapter.
+ await page.evaluate(async()=>{
+  const frame=document.createElement('iframe');document.querySelector('#reader').append(frame);
+  frame.contentDocument.head.remove();
+  try{await StillleafReader.setPreferences({fontFamily:'literata'})}finally{frame.remove()}
+ });
+ assert.match(await page.evaluate(()=>[...document.querySelectorAll('#reader iframe')].find(f=>getComputedStyle(f).visibility!=='hidden').contentDocument.head.textContent),/Stillleaf Literata/);
  for(const scroll of [true,false]){
   await page.evaluate(scroll=>StillleafReader.setPreferences({scroll,fontSize:1}),scroll);
   await page.evaluate(()=>StillleafReader.go({href:'c.html',type:'text/html',locations:{fragments:['p80']}}));

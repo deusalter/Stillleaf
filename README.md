@@ -4,7 +4,7 @@ A native macOS menu-bar reading journal with a built-in offline EPUB reader, opt
 
 The native app, shared reader, separate Electron development host, and website live in this repository. See [consolidation status](docs/CONSOLIDATION.md) for the verified baseline, remaining work, and test commands. The Electron host is not a validated Windows release.
 
-**Integration status:** the diagnostic has matched a live local EPUB in Books 8.0 and rejected its Library window. This reader omits `AXDocument`, so a version-scoped structural inference supplements exact document-path matching. Automatic tracking still requires Accessibility access for the packaged app itself and pauses for unsupported or ambiguous windows. Manual reading works independently. See [capabilities](docs/CAPABILITIES.md) and [verification](docs/VERIFICATION.md).
+**Integration status:** the diagnostic has matched a live local EPUB in Books 8.0 and rejected its Library window. This reader omits `AXDocument`, so a version-scoped structural inference supplements exact document-path matching. Apple Books tracking requires Accessibility access for the packaged app and pauses for unsupported or ambiguous Apple Books windows. Stillleaf’s built-in reader records progress, sequential page coverage and active reading time independently of that permission. See [capabilities](docs/CAPABILITIES.md) and [verification](docs/VERIFICATION.md).
 
 The 1.5 interface brings a mint/green light and dark theme, animated daily goals in pages or minutes, and an optional yearly books goal. Library holds your saved books; Timeline follows confirmed finish dates; History shows daily reading activity; Reviews contains your private written book reviews. Mark any unfinished book as finished from its Library actions or details; Stillleaf records the current date and time, then offers an optional review and quarter-star rating. Library removal explicitly confirms deletion of its journal records and leaves original Apple Books files untouched. Tracking corrections live under Settings → Data & privacy → Troubleshooting → Reading records. Motion respects the macOS Reduce Motion setting.
 
@@ -38,15 +38,15 @@ Move the app to `~/Applications` or `/Applications` before configuring permissio
 
 ## First use
 
-On a first launch (no existing history), a short welcome tour opens: what Stillleaf does, a daily goal in pages or minutes with an optional yearly books goal, Accessibility access for automatic tracking (the step updates live when access is granted), Open at login, and a theme. Every step can be skipped; closing the window counts as finished. Upgrades with existing history skip it. Replay it from Settings → Data & privacy → Help → Welcome tour. Motion follows the macOS Reduce Motion setting.
+On a first launch (no existing history), a short welcome tour introduces importing and reading EPUBs in Stillleaf, a daily goal in pages or minutes with an optional yearly books goal, Open at login, and a theme. Apple Books permission setup is a collapsed optional disclosure; granting it is unnecessary for reading and tracking inside Stillleaf. The primary final action imports EPUBs. Every step can be skipped; closing the window counts as finished. Upgrades with existing history skip it. Replay it from Settings → Data & privacy → Help → Welcome tour. Motion follows the macOS Reduce Motion setting.
 
 After the tour, or to set things up by hand:
 
-1. Click the book icon in the menu bar. A Dock icon and standard Mac menu bar appear while the dashboard or reader is open.
-2. Open Dashboard → Settings. The daily goal starts at 20 reading pages, using this Mac's initial timezone.
-3. For Apple Books tracking, use Request Accessibility / Open Accessibility Settings and enable **Stillleaf**. macOS may require reopening the app. Granting access to Codex or Terminal does not necessarily grant the packaged tracker access.
-4. Open a real reading window in Books. If its focused document cannot be matched exactly to one catalog asset, the Health screen explains why automatic tracking is paused. Use **Start manual reading** for an unsupported reader, paper book, or deliberate side-by-side reading.
-5. Check **Launch at login**. The app attempts main-app login registration once on first packaged launch, subject to macOS approval. You can disable it in Settings or System Settings → General → Login Items.
+1. Choose **Import EPUBs…** at the end of the tour, or import from Library. Open an imported book to record progress and active time without Accessibility access.
+2. Click the book icon in the menu bar to open your journal. A Dock icon and standard Mac menu bar appear while the dashboard or reader is open.
+3. Open Dashboard → Settings to adjust reading goals or **Track reading**, which controls tracking across Stillleaf and supported readers. The daily goal starts at 20 reading pages, using this Mac's initial timezone.
+4. If you want Apple Books tracking, expand **Optional Apple Books integration** in reading settings, allow access and enable **Stillleaf** in macOS Accessibility settings. Then open a reading window in Apple Books. macOS may require reopening Stillleaf. Unsupported or ambiguous Apple Books windows pause that integration; its troubleshooting panel explains why. You can also use **Start manual reading** for a paper book or unsupported reader.
+5. Check **Open at login**. The app attempts main-app login registration once on first packaged launch, subject to macOS approval. You can disable it in Settings or System Settings → General → Login Items.
 
 Closing all dashboard/reader windows returns Stillleaf to the menu bar and leaves tracking running. Quit stops the tracker. A per-user file lock prevents duplicate instances. Pause tracking and Share with Discord are independent controls; each book also has separate tracking and sharing exclusions.
 
@@ -54,7 +54,9 @@ Import a DRM-free EPUB from Library to read directly in Stillleaf without Apple 
 
 ## What counts
 
-Automatic eligibility requires Books foreground, a focused reader matched to one stable Books asset, an awake display, an unlocked user session, permission, and enabled tracking. Library/store, unidentified windows and background Books do not count. Workspace and Accessibility notifications supplement a one-second eligibility poll. Books 8.0 EPUB windows without a document path use a bounded structural check, followed by one exact unique catalog-title match. Duplicate titles, library navigation, minimized/modal windows and incomplete scans are rejected. History continues to use stable asset IDs.
+Native reading records active time and sequential content coverage while its Stillleaf reader is focused, with tracking enabled and the Mac awake and unlocked. Position is saved independently of Apple Books Accessibility permission.
+
+Apple Books automatic eligibility requires Books foreground, a focused reader matched to one stable Books asset, an awake display, an unlocked user session, permission, and enabled tracking. Library/store, unidentified windows and background Books do not count. Workspace and Accessibility notifications supplement a one-second eligibility poll. Books 8.0 EPUB windows without a document path use a bounded structural check, followed by one exact unique catalog-title match. Duplicate titles, library navigation, minimized/modal windows and incomplete scans are rejected. History continues to use stable asset IDs.
 
 After the configurable conservative threshold (20 minutes by default) without reading activity, subsequent intervals are **uncertain** and excluded. In the observed English Books 8.0 EPUB footer layout, small forward page movement with stable outer reader-host and window bounds provides activity evidence; moving the pointer does not renew it. The capture does not read words or prose, measure gaze, or prove attention. Readers without that metadata use foreground reading interaction as a fallback. A review badge and grouped spans allow confirmation, trimming or discard without notification spam. Returning does not retroactively confirm uncertain time.
 
