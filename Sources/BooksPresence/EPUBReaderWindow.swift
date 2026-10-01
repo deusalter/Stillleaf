@@ -471,6 +471,7 @@ func runEPUBReaderSmoke(fixture: URL) async throws {
     guard try await reader.testFixtureAssets() else {
         throw EPUBImportError.invalid("Chapter stylesheet or image did not load through the reader scheme.")
     }
+    try await reader.testNativeChrome()
     try await reader.testRenderStability()
     try await reader.testPageEvidence()
     try reader.testProgressDeliveryBurst()
@@ -614,6 +615,31 @@ private extension EPUBReaderWindow {
         print("reader-progress-burst: 120 positions coalesced; focus-loss and late background final positions retained once without activity")
     }
 
+    func testNativeChrome() async throws {
+        let deadline = Date().addingTimeInterval(15)
+        while !chrome.isConnected && Date() < deadline { try await Task.sleep(nanoseconds: 50_000_000) }
+        guard chrome.isConnected, window?.toolbar === chrome.toolbar else { throw EPUBImportError.invalid("Native toolbar handshake did not finish") }
+        guard chrome.model.definitions.count == chrome.model.preferences.count else { throw EPUBImportError.invalid("Native appearance omits a preference") }
+        let before = try await webView.evaluateJavaScript("JSON.stringify(window.StillleafReader.exportState())") as? String ?? ""
+        try chrome.testClick("bookmark")
+        let bookmarkDeadline = Date().addingTimeInterval(3)
+        while Date() < bookmarkDeadline {
+            if let count = try await webView.evaluateJavaScript("window.StillleafReader.exportState().bookmarks.length") as? Int, count > 0 { break }
+            try await Task.sleep(nanoseconds: 25_000_000)
+        }
+        guard let count = try await webView.evaluateJavaScript("window.StillleafReader.exportState().bookmarks.length") as? Int, count > 0 else { throw EPUBImportError.invalid("Actual native bookmark button did not dispatch") }
+        try chrome.testClick("bookmark")
+        let restoreDeadline = Date().addingTimeInterval(3)
+        while Date() < restoreDeadline {
+            if let count = try await webView.evaluateJavaScript("window.StillleafReader.exportState().bookmarks.length") as? Int, count == 0 { break }
+            try await Task.sleep(nanoseconds: 25_000_000)
+        }
+        if let index = CommandLine.arguments.firstIndex(of: "--reader-artifacts"), index + 1 < CommandLine.arguments.count, let window {
+            try captureNativeWindow(window, to: URL(fileURLWithPath: CommandLine.arguments[index + 1]).appendingPathComponent("native-reader-toolbar.png"))
+        }
+        guard before.contains("schemaVersion") else { throw EPUBImportError.invalid("Missing canonical state") }
+        print("native-reader-chrome: actual AppKit toolbar, complete appearance definitions and durable renderer dispatch passed")
+    }
     func testWaitUntilReady() async throws {
         let deadline = Date().addingTimeInterval(20)
         while Date() < deadline {

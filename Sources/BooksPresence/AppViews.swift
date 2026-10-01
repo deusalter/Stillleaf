@@ -57,10 +57,10 @@ struct DashboardView: View {
         .onChange(of: model.dashboardSectionRequest) { _ in acceptNavigationRequest() }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                Button { model.showDashboard(section: .library) } label: { Label("Library", systemImage: "books.vertical") }
+                Button { model.showDashboard(section: .library) } label: { Label("Library", systemImage: "books.vertical") }.buttonStyle(.borderless)
             }
             ToolbarItem(placement: .primaryAction) {
-                Button { model.showDashboard(section: .settings) } label: { Label("Settings", systemImage: "gearshape") }
+                Button { model.showDashboard(section: .settings) } label: { Label("Settings", systemImage: "gearshape") }.buttonStyle(.borderless)
             }
         }
         .navigationSplitViewStyle(.balanced)

@@ -8,6 +8,7 @@ permissions:
 jobs:
   sdk-probe:
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: macos-14
@@ -30,4 +31,22 @@ jobs:
           swiftc -parse-as-library -target "$(uname -m)-apple-macosx13.0" scripts/native-chrome-probe.swift -o "$RUNNER_TEMP/native-chrome-probe"
           "$RUNNER_TEMP/native-chrome-probe"
       - name: Native implementation build
-        run: swift build
+        run: swift build -c release
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Reader assets and native synthetic smoke
+        run: |
+          scripts/build-reader-assets.sh .build/release
+          .build/release/BooksPresence --self-test-ui
+          .build/release/BooksPresence --render-native-chrome "$RUNNER_TEMP/native-chrome"
+          python3 scripts/reader-review-fixture.py "$RUNNER_TEMP/native-chrome.epub" --chapters 3
+          mkdir -p "$RUNNER_TEMP/native-reader"
+          .build/release/BooksPresence --self-test-epub "$RUNNER_TEMP/native-chrome.epub" --reader-artifacts "$RUNNER_TEMP/native-reader"
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: Stillleaf-native-chrome-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/native-chrome
+            ${{ runner.temp }}/native-reader

@@ -779,13 +779,15 @@ async function close(){
  for(const dialog of document.querySelectorAll('dialog[open]'))dialog.close();
  const current=navigator;navigator=undefined;navigationCompletion.dispose(current);await preferenceQueue.catch(()=>{});await destroyNavigator(current);await paginationClosed?.catch(()=>{});pool?.close();pool=undefined;state=undefined;lastLocator=undefined;selection=undefined;$('selection-tools').hidden=true;$('notice').hidden=true;editingNote=undefined;return true;
 }
+let nativeDefinitionCache;
 function nativeDefinitions(){
+ if(nativeDefinitionCache)return nativeDefinitionCache;
  const choice=(key,label,items)=>({key,label,kind:'choice',options:items.map(([value,label])=>({value:JSON.stringify(value),label}))});
  const result=[choice('theme','Page theme',[['system','System'],...THEMES.map(x=>[x.id,x.label])]),choice('fontFamily','Typeface',FONTS.map(x=>[x.id,x.label])),choice('margins','Margins',Object.entries(MARGINS).map(([key,value])=>[key,value.label])),choice('columns','Pages',[['one','Single page'],['two','Facing pages']]),choice('fontWeight','Text weight',[[null,'Original'],[400,'Regular'],[700,'Bold']]),choice('textAlign','Alignment',[['publisher','Original'],['start','Start'],['justify','Justified']]),choice('hyphens','Hyphenation',[[null,'Original'],[true,'On'],[false,'Off']])];
  for(const [id,key,label]of [['font-size','fontSize','Text size'],['line-height','lineHeight','Line spacing'],['measure','measure','Line width'],['content-width','contentWidth','Page width'],['side-margin','sideMargin','Side margins'],['letter-spacing','letterSpacing','Letter spacing'],['word-spacing','wordSpacing','Word spacing']]){const e=$(id);result.push({key,label,kind:'number',min:Number(e.min),max:Number(e.max),step:Number(e.step),nullable:key==='sideMargin'})}
  for(const [key,label]of [['scroll','Continuous scrolling'],['immersive','Focus reading']])result.push({key,label,kind:'toggle'});
  for(const [key,label]of [['backgroundColor','Page color'],['textColor','Text color']])result.push({key,label,kind:'color'});
- return result;
+ return nativeDefinitionCache=result;
 }
 const nativeChrome=nativeChromeAdapter({edition:()=>input?.editionId,ready:()=>Boolean(state&&navigator&&!opening),current:()=>clone(state?.preferences??{}),definitions:nativeDefinitions,
  status:()=>({bookmarked:Boolean(lastLocator&&state?.bookmarks.some(x=>samePlace(x.locator,lastLocator))),dialogOpen:Boolean(document.querySelector('dialog[open]'))}),

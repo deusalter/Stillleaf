@@ -1,0 +1,36 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {createServer} from 'node:http';
+import {readFile} from 'node:fs/promises';
+import path from 'node:path';
+import {chromium,webkit} from 'playwright';
+
+test('native host retains complete preferences, modal ownership and backwards-compatible reopen',{timeout:90000},async t=>{
+ const root=path.resolve(import.meta.dirname,'../dist');
+ const server=createServer(async(req,res)=>{try{const file=path.resolve(root,'.'+new URL(req.url,'http://localhost').pathname);if(!file.startsWith(root+path.sep))throw Error();res.setHeader('Content-Type',{'.html':'text/html','.js':'text/javascript','.css':'text/css'}[path.extname(file)]??'application/octet-stream');res.end(await readFile(file))}catch{res.writeHead(404).end()}});
+ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+ const engine=process.env.READER_TEST_BROWSER==='webkit'?webkit:chromium;
+ const browser=await engine.launch({...engine===chromium?{executablePath:process.env.CHROME_PATH||(process.platform==='darwin'?'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome':undefined)}:{},headless:true});
+ t.after(async()=>{await browser.close();await new Promise(resolve=>server.close(resolve))});
+ const page=await browser.newPage({viewport:{width:1000,height:800},reducedMotion:'reduce'});
+ await page.goto(`http://127.0.0.1:${server.address().port}/index.html`);
+ const chapter='<html><body><h1>Native fixture</h1>'+('<p>A quiet passage with room to read and return.</p>'.repeat(100))+'</body></html>';
+ const book={editionId:'native-fixture',title:'Native fixture',readingOrder:[{href:'one.html',type:'text/html'}],resources:[{href:'one.html',type:'text/html',dataBase64:Buffer.from(chapter).toString('base64')}]};
+ await page.evaluate(async book=>{window.events=[];window.addEventListener('stillleaf-reader-event',e=>events.push(e.detail));await StillleafReader.open(book)},book);
+ const dispatch=(id,command,payload)=>page.evaluate(async request=>StillleafReader.nativeControl(request),{version:1,editionId:book.editionId,id,command,...(payload===undefined?{}:{payload})});
+ const connected=await dispatch(1,'activate');
+ assert.deepEqual(connected.definitions.map(x=>x.key).sort(),Object.keys(connected.preferences).sort());
+ assert.equal(await page.locator('.reader-bar').isVisible(),false);
+ assert.equal(await page.locator('#next').isVisible(),false);
+ await dispatch(2,'preferences',{fontSize:1.37,scroll:true,columns:'two',backgroundColor:'#f6f1e3'});
+ const persisted=await page.evaluate(()=>StillleafReader.exportState());assert.equal(persisted.preferences.fontSize,1.37);assert.equal(persisted.preferences.scroll,true);
+ await dispatch(3,'notes');assert.equal(await page.locator('#library-panel').isVisible(),true);
+ await assert.rejects(dispatch(4,'next'),/Finish the open/);
+ await page.locator('#library-panel [data-close]').click();
+ await dispatch(5,'policy',{reduceMotion:true,reduceTransparency:true,increaseContrast:true});
+ assert.equal(await page.evaluate(()=>events.some(x=>x.type==='pageTurn')),false,'chrome and reflow do not manufacture turns');
+ await dispatch(6,'deactivate');assert.equal(await page.locator('.reader-bar').isVisible(),true);
+ await page.evaluate(async book=>{await StillleafReader.close();await StillleafReader.open(book)},{...book,state:persisted});
+ assert.equal(await page.locator('.reader-bar').isVisible(),true,'standalone reopen does not inherit host capability');
+ const reopened=await page.evaluate(()=>StillleafReader.exportState());assert.deepEqual(reopened.preferences,persisted.preferences);assert.equal('nativeChrome' in reopened,false);
+});

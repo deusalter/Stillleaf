@@ -46,10 +46,18 @@ private struct ReaderAppearanceView: View {
     }
     @ViewBuilder private func control(_ d: ReaderControlDefinition) -> some View {
         switch d.kind {
+        case "choice" where d.key == "columns": EmptyView() // Combined Reading mode picker owns both values.
         case "choice":
             Picker(d.label, selection: Binding(get: { model.encoded(d.key) }, set: { value in
                 if let data = value.data(using: .utf8), let decoded = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) { model.change?(d.key, decoded) }
             })) { ForEach(d.options ?? []) { Text($0.label).tag($0.value) } }
+        case "toggle" where d.key == "scroll":
+            Picker("Reading mode", selection: Binding(get: { model.preferences["scroll"] as? Bool == true ? "continuous" : (model.preferences["columns"] as? String == "two" ? "facing" : "single") }, set: { mode in
+                model.change?("scroll", mode == "continuous")
+                if mode != "continuous" { model.change?("columns", mode == "facing" ? "two" : "one") }
+            })) {
+                Text("Continuous").tag("continuous"); Text("Single page").tag("single"); Text("Facing pages").tag("facing")
+            }
         case "toggle":
             Toggle(d.label, isOn: Binding(get: { model.preferences[d.key] as? Bool ?? false }, set: { model.change?(d.key, $0) }))
         case "number":
@@ -90,6 +98,8 @@ private struct ReaderAppearanceView: View {
     private var closing = false
     private var dialogOpen = false
     private var failedPreference = false
+    private var bookmarked = false
+    var isConnected: Bool { active }
     private var pending: [String: Any] = [:]
     private var preferenceTask: Task<Void, Never>?
     private var displayObserver: NSObjectProtocol?
@@ -110,7 +120,7 @@ private struct ReaderAppearanceView: View {
         appearance.contentViewController = NSHostingController(rootView: ReaderAppearanceView(model: model))
         model.change = { [weak self] key, value in self?.updatePreference(key, value) }
         model.reset = { [weak self] in self?.command("reset") }
-        displayObserver = NotificationCenter.default.addObserver(forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in Task { @MainActor [weak self] in self?.sendPolicy() } }
+        displayObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in Task { @MainActor [weak self] in self?.sendPolicy() } }
         updateEnabled()
     }
     func connect() async {
@@ -120,9 +130,10 @@ private struct ReaderAppearanceView: View {
     }
     func accept(_ value: [String: Any]) {
         model.accept(value); dialogOpen = value["dialogOpen"] as? Bool ?? false
+        bookmarked = value["bookmarked"] as? Bool ?? false
         for item in toolbar.items {
             if let button = item.view as? NSButton {
-                if item.itemIdentifier.rawValue == "bookmark" { button.state = value["bookmarked"] as? Bool == true ? .on : .off }
+                if item.itemIdentifier.rawValue == "bookmark" { button.state = bookmarked ? .on : .off }
                 if item.itemIdentifier.rawValue == "focus" { button.state = model.preferences["immersive"] as? Bool == true ? .on : .off }
             }
         }
@@ -191,9 +202,22 @@ private struct ReaderAppearanceView: View {
     @objc private func invokeButton(_ sender: NSButton) { invoke(sender.identifier?.rawValue ?? "") }
     @objc private func invokeMenu(_ sender: NSMenuItem) { invoke(sender.representedObject as? String ?? "") }
     private func invoke(_ name: String) {
+        // A toggle reflects acknowledged reader state rather than an optimistic click.
+        for item in toolbar.items {
+            if let button = item.view as? NSButton {
+                if item.itemIdentifier.rawValue == "bookmark" { button.state = bookmarked ? .on : .off }
+                if item.itemIdentifier.rawValue == "focus" { button.state = model.preferences["immersive"] as? Bool == true ? .on : .off }
+            }
+        }
         if name == "appearance" { openAppearance() }
         else { appearance.close(); command(name) }
     }
     func popoverDidClose(_ notification: Notification) { returnFocus?() }
-    deinit { if let displayObserver { NotificationCenter.default.removeObserver(displayObserver) } }
+    func testClick(_ name: String) throws {
+        guard let item = toolbar.items.first(where: { $0.itemIdentifier.rawValue == name }), let button = item.view as? NSButton, button.isEnabled else {
+            throw NSError(domain: "Stillleaf.ReaderControls", code: 2, userInfo: [NSLocalizedDescriptionKey: "Native toolbar command is not available: \(name)"])
+        }
+        button.performClick(nil)
+    }
+    deinit { if let displayObserver { NSWorkspace.shared.notificationCenter.removeObserver(displayObserver) } }
 }

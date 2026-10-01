@@ -296,6 +296,10 @@ struct BooksPresenceMain {
             application.run()
             return
         }
+        if let index = CommandLine.arguments.firstIndex(of: "--render-native-chrome"), index + 1 < CommandLine.arguments.count {
+            do { try renderNativeChromePreviews(directory: URL(fileURLWithPath: CommandLine.arguments[index + 1])); exit(0) }
+            catch { fputs("native-chrome-preview failed: \(error)\n", stderr); exit(1) }
+        }
         if CommandLine.arguments.contains("--benchmark-ui") {
             do { try runUIBenchmark(); exit(0) }
             catch { fputs("ui-benchmark failed: \(error)\n", stderr); exit(1) }
