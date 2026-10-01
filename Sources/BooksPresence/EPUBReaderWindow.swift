@@ -19,6 +19,16 @@ final class EPUBReaderWindows {
         guard NSApp.isActive else { return nil }
         return windows.values.first(where: { $0.isReady && $0.window?.isKeyWindow == true && $0.window?.isMiniaturized == false })
     }
+    private var commandReader: EPUBReaderWindow? {
+        guard NSApp.isActive, !isTerminating else { return nil }
+        return windows.values.first { $0.isReady && $0.chrome?.canAcceptCommands == true && ($0.window?.isKeyWindow == true || $0.chrome?.owns(NSApp.keyWindow) == true) }
+    }
+    var hasCommandReader: Bool { commandReader != nil }
+    func performControl(_ command: String) {
+        guard let owner = commandReader else { return }
+        if command == "appearance" { owner.chrome.openAppearance() }
+        else { owner.chrome.command(command) }
+    }
     var focusedPublicationID: String? { focusedReader?.publication.id }
     var focusedProgress: ProgressObservation? { focusedReader?.progress }
     init(stateDirectory: URL) { self.stateDirectory = stateDirectory }
@@ -79,6 +89,10 @@ private final class EPUBReaderWindow: NSObject, NSWindowDelegate, WKNavigationDe
     var focused: (() -> Void)?
     var returnToLibrary: (() -> Void)?
     private var webView: WKWebView!
+    fileprivate var chrome: NativeReaderChrome!
+    private var chromeRequest: UInt64 = 0
+    private var chromeGeneration: UInt64 = 0
+    private var lastChromeSequence: UInt64 = 0
     private var guardDelegate: ReaderNavigationGuard!
     private let map: ReaderResourceMap
     private let payload: String
@@ -122,12 +136,18 @@ private final class EPUBReaderWindow: NSObject, NSWindowDelegate, WKNavigationDe
         guardDelegate = ReaderNavigationGuard(resources: map)
         webView.navigationDelegate = self
         let window = NSWindow(contentRect: webView.frame, styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-        window.title = publication.title; window.titlebarAppearsTransparent = true
+        window.title = publication.title; window.titlebarAppearsTransparent = false
         window.minSize = NSSize(width: 520, height: 440)
         // Menu-bar (accessory) apps get no full-screen behavior unless a window opts in.
         window.collectionBehavior.insert(.fullScreenPrimary)
         window.contentView = webView; window.isReleasedWhenClosed = false
         window.delegate = self; window.center(); self.window = window
+        chrome = NativeReaderChrome(window: window)
+        chrome.send = { [weak self] command, payload in
+            guard let self else { throw ReaderStateValidation.Failure.invalidState }
+            return try await self.sendNativeControl(command, payload: payload)
+        }
+        chrome.returnFocus = { [weak self] in guard let self, !self.closing else { return }; self.window?.makeFirstResponder(self.webView) }
         webView.load(URLRequest(url: map.url(for: "index.html")!))
     }
 
@@ -141,8 +161,10 @@ private final class EPUBReaderWindow: NSObject, NSWindowDelegate, WKNavigationDe
     func requestClose() async -> Bool {
         guard !closing else { return false }
         closing = true
-        defer { closing = false; window?.ignoresMouseEvents = false }
+        chrome?.setClosing(true)
+        defer { closing = false; chrome?.setClosing(false); window?.ignoresMouseEvents = false }
         do {
+            try await chrome?.flush()
             if isReady {
                 let mayClose: Any = try await withCheckedThrowingContinuation { continuation in
                     webView.callAsyncJavaScript(
@@ -177,10 +199,12 @@ private final class EPUBReaderWindow: NSObject, NSWindowDelegate, WKNavigationDe
             alert.addButton(withTitle: "Close without saving")
             guard alert.runModal() == .alertSecondButtonReturn else { return false }
         }
+        chromeGeneration += 1; chrome?.disconnect()
         window?.close()
         return true
     }
     func windowWillClose(_ notification: Notification) {
+        chromeGeneration += 1; chrome?.disconnect()
         flushPositionUpdate(final: true)
         stateWorker.sync {}
         webView.stopLoading()
@@ -215,7 +239,14 @@ private final class EPUBReaderWindow: NSObject, NSWindowDelegate, WKNavigationDe
         if event["type"] as? String == "available" { Task { await startWhenAvailable() }; return }
         guard event["editionId"] as? String == publication.id else { return }
         if event["type"] as? String == "close-request" { Task { if await requestClose() { returnToLibrary?() } }; return }
-        if event["type"] as? String == "ready" { isReady = true; if window?.isKeyWindow == true { focused?() }; return }
+        if event["type"] as? String == "ready" { isReady = true; if window?.isKeyWindow == true { focused?() }; Task { await chrome.connect() }; return }
+        if event["type"] as? String == "chrome-focus" { chrome.returnFocus?(); return }
+        if event["type"] as? String == "chrome" {
+            guard event["version"] as? Int == 1, let sequence = event["sequence"] as? NSNumber,
+                  sequence.doubleValue.isFinite, sequence.doubleValue > 0, sequence.doubleValue <= 9_007_199_254_740_991,
+                  sequence.doubleValue.rounded() == sequence.doubleValue, sequence.uint64Value > lastChromeSequence else { return }
+            lastChromeSequence = sequence.uint64Value; chrome.accept(event); return
+        }
         if event["type"] as? String == "error" { isReady = false; return }
         if event["type"] as? String == "position" || event["type"] as? String == "pageTurn" {
             receiveProgress(event); return
@@ -235,6 +266,33 @@ private final class EPUBReaderWindow: NSObject, NSWindowDelegate, WKNavigationDe
                 else { self?.window?.subtitle = "" }
             }
         }
+    }
+
+    private func sendNativeControl(_ command: String, payload: [String: Any]?) async throws -> [String: Any] {
+        // Chrome blocks new interactions at close entry. Its already-queued
+        // preference batch and Reset must drain before exporting durable state.
+        guard isReady, !closing || command == "preferences" || command == "reset" || command == "deactivate" else { throw ReaderStateValidation.Failure.invalidState }
+        chromeRequest += 1
+        let request = chromeRequest, generation = chromeGeneration
+        var envelope: [String: Any] = ["version": 1, "editionId": publication.id, "id": request, "command": command]
+        if let payload { envelope["payload"] = payload }
+        let value: Any = try await withCheckedThrowingContinuation { continuation in
+            var finished = false
+            let timeout = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 12_000_000_000)
+                guard !Task.isCancelled, !finished else { return }
+                finished = true; continuation.resume(throwing: ReaderStateValidation.Failure.invalidState)
+            }
+            webView.callAsyncJavaScript("return await window.StillleafReader.nativeControl(request)", arguments: ["request": envelope], in: nil, in: .page) { result in
+                Task { @MainActor in
+                    guard !finished else { return }; finished = true; timeout.cancel(); continuation.resume(with: result)
+                }
+            }
+        }
+        guard generation == chromeGeneration, let response = value as? [String: Any],
+              (response["requestId"] as? NSNumber)?.uint64Value == request,
+              response["editionId"] as? String == publication.id else { throw ReaderStateValidation.Failure.invalidState }
+        return response
     }
 
     /// The authenticated renderer supplies actual chapter geometry and text ranges.
@@ -370,6 +428,7 @@ private final class EPUBReaderBridge: NSObject, WKScriptMessageHandler {
 /// Fixture-only CLI check. Never uses the app's production store or preferences.
 @MainActor
 func runEPUBReaderSmoke(fixture: URL) async throws {
+    try await runNativeReaderQueueSmoke()
     let temporary = FileManager.default.temporaryDirectory.appendingPathComponent("Stillleaf-reader-smoke-" + UUID().uuidString)
     try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: temporary) }
@@ -396,6 +455,22 @@ func runEPUBReaderSmoke(fixture: URL) async throws {
           model.epubEditions(for: canonical).map(\.id) == [imported.publication.id], model.intervals.isEmpty else {
         throw EPUBImportError.invalid("Merging an imported edition hid its EPUB actions or created reading time.")
     }
+    for terminating in [false, true] {
+        let raceState = temporary.appendingPathComponent(terminating ? "QueuedResetQuit" : "QueuedResetClose")
+        let raceReader = try await EPUBReaderWindow(publication: imported.publication, directory: imported.directory, stateDirectory: raceState)
+        raceReader.window?.setFrameOrigin(NSPoint(x: -20_000, y: -20_000)); raceReader.window?.orderBack(nil)
+        try await raceReader.testWaitUntilReady()
+        try await raceReader.testCloseWithQueuedReset(terminating: terminating, stateDirectory: raceState)
+        let saved = try JSONSerialization.jsonObject(with: Data(contentsOf: raceState.appendingPathComponent(imported.publication.id + ".json"))) as? [String: Any]
+        guard (saved?["preferences"] as? [String: Any])?["fontSize"] as? Double == 1.2 else {
+            throw EPUBImportError.invalid("Close/Quit did not durably save queued Reset.")
+        }
+    }
+    let activationState = temporary.appendingPathComponent("ActivationCloseKeepOpen")
+    let activationReader = try await EPUBReaderWindow(publication: imported.publication, directory: imported.directory, stateDirectory: activationState)
+    activationReader.window?.setFrameOrigin(NSPoint(x: -20_000, y: -20_000)); activationReader.window?.orderBack(nil)
+    try await activationReader.testWaitUntilReady()
+    try await activationReader.testActivationDuringFailedClose(stateDirectory: activationState)
     let state = temporary.appendingPathComponent("ReaderState")
     let reader = try await EPUBReaderWindow(publication: imported.publication, directory: imported.directory, stateDirectory: state)
     defer { reader.window?.close() }
@@ -417,6 +492,7 @@ func runEPUBReaderSmoke(fixture: URL) async throws {
     guard try await reader.testFixtureAssets() else {
         throw EPUBImportError.invalid("Chapter stylesheet or image did not load through the reader scheme.")
     }
+    try await reader.testNativeChrome()
     try await reader.testRenderStability()
     try await reader.testPageEvidence()
     try reader.testProgressDeliveryBurst()
@@ -560,6 +636,144 @@ private extension EPUBReaderWindow {
         print("reader-progress-burst: 120 positions coalesced; focus-loss and late background final positions retained once without activity")
     }
 
+    func testNativeChrome() async throws {
+        let deadline = Date().addingTimeInterval(15)
+        while !chrome.isConnected && Date() < deadline { try await Task.sleep(nanoseconds: 50_000_000) }
+        guard chrome.isConnected, window?.toolbar === chrome.toolbar else { throw EPUBImportError.invalid("Native toolbar handshake did not finish") }
+        guard chrome.model.definitions.count == chrome.model.preferences.count else { throw EPUBImportError.invalid("Native appearance omits a preference") }
+        try await chrome.testPendingFeedback()
+        let before = try await webView.evaluateJavaScript("JSON.stringify(window.StillleafReader.exportState())") as? String ?? ""
+        try chrome.testClick("bookmark")
+        let bookmarkDeadline = Date().addingTimeInterval(3)
+        while Date() < bookmarkDeadline {
+            if let count = try await webView.evaluateJavaScript("window.StillleafReader.exportState().bookmarks.length") as? Int, count > 0 { break }
+            try await Task.sleep(nanoseconds: 25_000_000)
+        }
+        guard let count = try await webView.evaluateJavaScript("window.StillleafReader.exportState().bookmarks.length") as? Int, count > 0 else { throw EPUBImportError.invalid("Actual native bookmark button did not dispatch") }
+        try chrome.testClick("bookmark")
+        let restoreDeadline = Date().addingTimeInterval(3)
+        while Date() < restoreDeadline {
+            if let count = try await webView.evaluateJavaScript("window.StillleafReader.exportState().bookmarks.length") as? Int, count == 0 { break }
+            try await Task.sleep(nanoseconds: 25_000_000)
+        }
+        if let index = CommandLine.arguments.firstIndex(of: "--reader-artifacts"), index + 1 < CommandLine.arguments.count, let window {
+            let directory = URL(fileURLWithPath: CommandLine.arguments[index + 1])
+            show() // Match the normal reader presentation path for active chrome captures.
+            try await captureNativeWindow(window, to: directory.appendingPathComponent("native-reader-toolbar.png"))
+            print("native-reader-capture-focus: appActive=\(NSApp.isActive) key=\(window.isKeyWindow)")
+            try await chrome.testCaptureAppearance(to: directory.appendingPathComponent("native-reader-appearance.png"))
+            try await chrome.benchmarkFeedback(output: directory.appendingPathComponent("native-feedback.json"))
+            let originalFrame = window.frame, originalAppearance = window.appearance, originalPreferences = chrome.model.preferences
+            for dark in [false, true] {
+                window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+                window.setFrame(NSRect(origin: originalFrame.origin, size: NSSize(width: 520, height: 440)), display: true)
+                _ = try await sendNativeControl("preferences", payload: ["theme": dark ? "dark" : "paper"])
+                let prefix = dark ? "native-compact-dark" : "native-compact-light"
+                try await captureNativeWindow(window, to: directory.appendingPathComponent(prefix + "-toolbar.png"))
+                try await chrome.testCaptureAppearance(to: directory.appendingPathComponent(prefix + "-appearance.png"), includeBottom: true)
+            }
+            window.appearance = originalAppearance; window.setFrame(originalFrame, display: true)
+            _ = try await sendNativeControl("preferences", payload: originalPreferences)
+        }
+        guard before.contains("schemaVersion") else { throw EPUBImportError.invalid("Missing canonical state") }
+        print("native-reader-chrome: actual AppKit toolbar, complete appearance definitions and durable renderer dispatch passed")
+    }
+    func testCloseWithQueuedReset(terminating: Bool, stateDirectory: URL) async throws {
+        let deadline = Date().addingTimeInterval(15)
+        while !chrome.isConnected && Date() < deadline { try await Task.sleep(nanoseconds: 10_000_000) }
+        guard chrome.isConnected, let originalSend = chrome.send else { throw EPUBImportError.invalid("Queued Reset test requires connected chrome.") }
+        var release: CheckedContinuation<Void, Never>?
+        chrome.send = { command, payload in
+            if command == "preferences" { await withCheckedContinuation { release = $0 } }
+            return try await originalSend(command, payload)
+        }
+        defer { chrome.send = originalSend; release?.resume() }
+        chrome.model.change?("fontSize", 1.8)
+        let batchDeadline = Date().addingTimeInterval(3)
+        while release == nil && Date() < batchDeadline { try await Task.sleep(nanoseconds: 5_000_000) }
+        guard release != nil else { throw EPUBImportError.invalid("Appearance batch did not reach delayed transport.") }
+        chrome.model.reset?()
+        let manager = EPUBReaderWindows(stateDirectory: stateDirectory)
+        if terminating { manager.testAdopt(self) }
+        // Fail this synthetic regression rather than leave CI in a modal alert
+        // if draining unexpectedly fails. Production alerts remain unchanged.
+        let modalWatch = Task { @MainActor in
+            while !Task.isCancelled {
+                if NSApp.modalWindow != nil { NSApp.abortModal(); return }
+                try? await Task.sleep(nanoseconds: 10_000_000)
+            }
+        }
+        defer { modalWatch.cancel() }
+        let close = Task { @MainActor in terminating ? await manager.closeAll() : await requestClose() }
+        let closeDeadline = Date().addingTimeInterval(3)
+        while !closing && Date() < closeDeadline { try await Task.sleep(nanoseconds: 5_000_000) }
+        guard closing, !chrome.canAcceptCommands else { throw EPUBImportError.invalid("Close did not block new native interactions.") }
+        chrome.model.change?("fontSize", 2.7); chrome.model.reset?()
+        release?.resume(); release = nil
+        guard await close.value, chrome.model.preferences["fontSize"] as? Double == 1.2 else {
+            throw EPUBImportError.invalid("Queued Reset failed while closing or terminating.")
+        }
+        print("native-reader-queue: delayed batch + queued Reset + \(terminating ? "Quit" : "Close") durably drained; new interactions blocked")
+    }
+    func testActivationDuringFailedClose(stateDirectory: URL) async throws {
+        let deadline = Date().addingTimeInterval(15)
+        while !chrome.isConnected && Date() < deadline { try await Task.sleep(nanoseconds: 10_000_000) }
+        guard chrome.isConnected, let originalSend = chrome.send else { throw EPUBImportError.invalid("Activation recovery test requires connected chrome.") }
+        chrome.disconnect()
+        _ = try await originalSend("deactivate", nil)
+        var release: CheckedContinuation<Void, Never>?
+        chrome.send = { command, payload in
+            let value = try await originalSend(command, payload)
+            if command == "activate" { await withCheckedContinuation { release = $0 } }
+            return value
+        }
+        defer { chrome.send = originalSend; release?.resume() }
+        let connect = Task { @MainActor in await chrome.connect() }
+        let activationDeadline = Date().addingTimeInterval(5)
+        while release == nil && Date() < activationDeadline { try await Task.sleep(nanoseconds: 5_000_000) }
+        guard release != nil else { throw EPUBImportError.invalid("Activation did not reach delayed acknowledgement.") }
+        // Temporary fixture only: block the real durable-save worker, then make
+        // its directory unwritable by replacing it with a file. No mock close.
+        stateWorker.sync {}
+        let backup = stateDirectory.appendingPathExtension("backup")
+        try FileManager.default.moveItem(at: stateDirectory, to: backup)
+        try Data("synthetic save failure".utf8).write(to: stateDirectory)
+        let saveGate = DispatchSemaphore(value: 0)
+        stateWorker.async { saveGate.wait() }
+        var gateReleased = false, restoredDirectory = false
+        defer {
+            if !gateReleased { saveGate.signal() }
+            if !restoredDirectory {
+                try? FileManager.default.removeItem(at: stateDirectory)
+                try? FileManager.default.moveItem(at: backup, to: stateDirectory)
+            }
+        }
+        var keptOpen = false
+        let keepOpen = Timer(timeInterval: 0.01, repeats: true) { timer in
+            MainActor.assumeIsolated {
+                guard NSApp.modalWindow != nil else { return }
+                keptOpen = true; NSApp.stopModal(withCode: .alertFirstButtonReturn); timer.invalidate()
+            }
+        }
+        RunLoop.main.add(keepOpen, forMode: .modalPanel)
+        defer { keepOpen.invalidate() }
+        let close = Task { @MainActor in await requestClose() }
+        let closeDeadline = Date().addingTimeInterval(3)
+        while !closing && Date() < closeDeadline { try await Task.sleep(nanoseconds: 5_000_000) }
+        guard closing else { throw EPUBImportError.invalid("Close did not reach save drain.") }
+        release?.resume(); release = nil
+        await connect.value
+        saveGate.signal(); gateReleased = true
+        guard !(await close.value), keptOpen, !closing, !chrome.isConnected, !chrome.toolbar.isVisible,
+              try await webView.evaluateJavaScript("getComputedStyle(document.querySelector('.reader-bar')).display !== 'none'") as? Bool == true else {
+            throw EPUBImportError.invalid("Failed close stranded reader controls after delayed activation.")
+        }
+        try FileManager.default.removeItem(at: stateDirectory)
+        try FileManager.default.moveItem(at: backup, to: stateDirectory)
+        restoredDirectory = true
+        guard await requestClose() else { throw EPUBImportError.invalid("Recovered reader did not close durably.") }
+        print("native-reader-activation: delayed response during real save failure + Keep Open restored exactly one usable web surface")
+    }
     func testWaitUntilReady() async throws {
         let deadline = Date().addingTimeInterval(20)
         while Date() < deadline {

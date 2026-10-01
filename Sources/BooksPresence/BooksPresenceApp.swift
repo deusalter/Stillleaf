@@ -4,7 +4,7 @@ import BooksPlatform
 import BooksCore
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuItemValidation {
     private var instance: SingleInstance?
     private var model: AppModel?
     private var statusItem: NSStatusItem?
@@ -94,7 +94,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         dismissMenuPanel()
         if dashboard == nil {
             let window = DashboardWindow(contentRect: NSRect(x: 0, y: 0, width: 1060, height: 760), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-            window.title = "Stillleaf"; window.titlebarAppearsTransparent = true
+            window.title = "Stillleaf"; window.titlebarAppearsTransparent = false
             // Menu-bar (accessory) apps get no full-screen behavior unless a window opts in.
             window.collectionBehavior.insert(.fullScreenPrimary)
             window.contentViewController = NSHostingController(rootView: DashboardView(model: model))
@@ -104,7 +104,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         AppPresence.willPresentWindow()
         dashboard?.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
     }
+    @objc func readerControl(_ sender: NSMenuItem) { if let command = sender.representedObject as? String { model?.performReaderControl(command) } }
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if menuItem.action == #selector(readerControl(_:)) { return model?.hasNativeReaderCommands == true }
+        return true
+    }
     @objc private func openDashboard() { showDashboard() }
+    @objc func openSettings() { model?.showDashboard(section: .settings) }
+    @objc func openLibrary() { model?.showDashboard(section: .library) }
     /// The welcome tour. Closing it early counts as done; Settings can replay it.
     func showOnboarding() {
         guard let model else { return }
@@ -288,6 +295,20 @@ struct BooksPresenceMain {
             }
             application.run()
             return
+        }
+        if let index = CommandLine.arguments.firstIndex(of: "--render-native-chrome"), index + 1 < CommandLine.arguments.count {
+            Task { @MainActor in
+                do { try await renderNativeChromePreviews(directory: URL(fileURLWithPath: CommandLine.arguments[index + 1])); exit(0) }
+                catch { fputs("native-chrome-preview failed: \(error)\n", stderr); exit(1) }
+            }
+            application.run(); return
+        }
+        if let index = CommandLine.arguments.firstIndex(of: "--benchmark-settled-ui"), index + 1 < CommandLine.arguments.count {
+            Task { @MainActor in
+                do { try await runSettledUIBenchmark(output: URL(fileURLWithPath: CommandLine.arguments[index + 1])); exit(0) }
+                catch { fputs("settled-ui-benchmark failed: \(error)\n", stderr); exit(1) }
+            }
+            application.run(); return
         }
         if CommandLine.arguments.contains("--benchmark-ui") {
             do { try runUIBenchmark(); exit(0) }

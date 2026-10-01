@@ -36,8 +36,9 @@ enum AppPresence {
             return item
         }
         let dashboard = item("Dashboard", dashboardAction, "0"); dashboard.target = dashboardTarget
-        _ = submenu("Stillleaf", [
+        let applicationMenu = submenu("Stillleaf", [
             item("About Stillleaf", #selector(NSApplication.orderFrontStandardAboutPanel(_:))),
+            item("Settings…", #selector(AppDelegate.openSettings), ","),
             .separator(),
             item("Hide Stillleaf", #selector(NSApplication.hide(_:)), "h"),
             item("Hide Others", #selector(NSApplication.hideOtherApplications(_:)), "h", [.command, .option]),
@@ -45,7 +46,9 @@ enum AppPresence {
             .separator(),
             item("Quit Stillleaf", #selector(NSApplication.terminate(_:)), "q"),
         ])
-        _ = submenu("File", [item("Close", #selector(NSWindow.performClose(_:)), "w")])
+        applicationMenu.items.first(where: { $0.title == "Settings…" })?.target = dashboardTarget
+        let library = item("Library", #selector(AppDelegate.openLibrary), "l"); library.target = dashboardTarget
+        _ = submenu("File", [library, item("Close", #selector(NSWindow.performClose(_:)), "w")])
         _ = submenu("Edit", [
             item("Undo", Selector(("undo:")), "z"),
             item("Redo", Selector(("redo:")), "z", [.command, .shift]),
@@ -56,6 +59,11 @@ enum AppPresence {
             item("Select All", #selector(NSText.selectAll(_:)), "a"),
         ])
         _ = submenu("View", [item("Enter Full Screen", #selector(NSWindow.toggleFullScreen(_:)), "f", [.command, .control])])
+        let reading = submenu("Reading", [])
+        for (title, command, key) in [("Search book…", "search", "f"), ("Contents…", "contents", ""), ("Highlights and notes…", "notes", ""), ("Appearance…", "appearance", ""), ("Toggle bookmark", "bookmark", "d"), ("Focus reading", "focus", "")] {
+            let entry = item(title, #selector(AppDelegate.readerControl(_:)), key)
+            entry.target = dashboardTarget; entry.representedObject = command; reading.addItem(entry)
+        }
         let window = submenu("Window", [
             item("Minimize", #selector(NSWindow.performMiniaturize(_:)), "m"),
             item("Zoom", #selector(NSWindow.performZoom(_:))),

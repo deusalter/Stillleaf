@@ -1,3 +1,4 @@
+import {nativeChromeAdapter} from './native-chrome';
 import {EpubNavigator,EpubPreferences,DecorationStyleType} from '@readium/navigator';
 import {Manifest,Publication,Locator} from '@readium/shared';
 import {PublicationResources,PublicationFetcher} from './resources';
@@ -145,6 +146,7 @@ function requireSaveBudget(candidate){
 function changed(immediate=true){
  if(!state)return;
  state.revision++;clearTimeout(stateTimer);
+ nativeChrome.changed(value=>emit('chrome',value));
  if(immediate)emit('state',{state:snapshot()});else stateTimer=setTimeout(()=>emit('state',{state:snapshot()}),120);
 }
 function validLocator(value){
@@ -512,7 +514,7 @@ function addBookmark(){
 function showDialog(id,focus){
  annotationUI.dismiss();
  for(const dialog of document.querySelectorAll('dialog[open]'))dialog.close();
- lastFocus=document.activeElement;$(id).showModal();if(focus)$(focus).focus();
+ lastFocus=document.activeElement;$(id).showModal();nativeChrome.changed(value=>emit('chrome',value));if(focus)$(focus).focus();
 }
 let draftDecision;
 function hasPendingDraft(){return Boolean(editingNote&&$('note-panel').open&&($('note-text').value!==(editingNote.note??'')||document.querySelector('input[name="note-color"]:checked').value!==(colors[editingNote.color]?editingNote.color:'gold')))}
@@ -556,6 +558,7 @@ async function closeDialog(dialog){
  dialog.close();if(dialog.id==='note-panel')editingNote=undefined;if(lastFocus?.isConnected)lastFocus.focus();return true;
 }
 for(const dialog of document.querySelectorAll('dialog')){
+ dialog.addEventListener('close',()=>{nativeChrome.changed(value=>emit('chrome',value));if(document.body.classList.contains('native-chrome'))emit('chrome-focus')});
  dialog.addEventListener('click',event=>{if(event.target===dialog){const r=dialog.getBoundingClientRect();if(event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom)closeDialog(dialog)}});
  dialog.addEventListener('cancel',event=>{event.preventDefault();closeDialog(dialog)});
  const closeButton=dialog.querySelector('[data-close]');if(closeButton)closeButton.onclick=()=>void closeDialog(dialog);
@@ -649,7 +652,7 @@ function turn(direction){
   dismissSelection();
   refreshPosition();const departure=nativePosition;
   const current=navigator,generation=lifecycle;
-  return pageSlide.run(direction,{enabled:!state.preferences.scroll,rtl:input?.readingProgression==='rtl'||current.readingProgression==='rtl',hurried:()=>queuedTurns>1},()=>{
+  return pageSlide.run(direction,{enabled:!state.preferences.scroll&&!document.body.classList.contains('native-reduceMotion'),rtl:input?.readingProgression==='rtl'||current.readingProgression==='rtl',hurried:()=>queuedTurns>1},()=>{
    if(generation!==lifecycle||current!==navigator||reflowCount||resizing)return false;
    return navigationCompletion.wait(current,done=>(direction==='next'?current.goForward.bind(current):current.goBackward.bind(current))(false,done),moved=>{
     if(generation!==lifecycle||current!==navigator)return;
@@ -769,14 +772,44 @@ async function open(value){
 async function close(){
  if(!await prepareClose())return false;
  if(navigator?.kind==='continuous')navigator.report();
- clearTimeout(noteSaveTimer);annotationUI.reset();pageSlide.cancel();lifecycle++;searchGeneration++;cancelAnimationFrame(positionFrame);clearTimeout(resizeTimer);resizing=false;clearTimeout(searchTimer);clearTimeout(stateTimer);clearTimeout(noticeTimer);
+ nativeChrome.disconnect();clearTimeout(noteSaveTimer);annotationUI.reset();pageSlide.cancel();lifecycle++;searchGeneration++;cancelAnimationFrame(positionFrame);clearTimeout(resizeTimer);resizing=false;clearTimeout(searchTimer);clearTimeout(stateTimer);clearTimeout(noticeTimer);
  const paginationClosed=screenIndex?.queue;screenIndex?.close();screenIndex=undefined;
  nativePosition=null;contentIndex=null;contentIndexFailed=false;preferenceRestore=false;
  if(state)emit('state',{state:snapshot()});
  for(const dialog of document.querySelectorAll('dialog[open]'))dialog.close();
  const current=navigator;navigator=undefined;navigationCompletion.dispose(current);await preferenceQueue.catch(()=>{});await destroyNavigator(current);await paginationClosed?.catch(()=>{});pool?.close();pool=undefined;state=undefined;lastLocator=undefined;selection=undefined;$('selection-tools').hidden=true;$('notice').hidden=true;editingNote=undefined;return true;
 }
-const api={open,close,prepareClose,hasPendingDraft,returnFromJump,next:()=>turn('next'),previous:()=>turn('previous'),go,setPreferences,bookmark:()=>lastLocator?clone(lastLocator):null,restore:go,exportState:()=>{if(hasPendingDraft())persistNote();if(navigator?.kind==='continuous')navigator.report();return snapshot()},addBookmark,annotate};
+let nativeDefinitionCache;
+function nativeDefinitions(){
+ if(nativeDefinitionCache)return nativeDefinitionCache;
+ const choice=(key,label,items)=>({key,label,kind:'choice',options:items.map(([value,label])=>({value:JSON.stringify(value),label}))});
+ const result=[choice('theme','Page theme',[['system','System'],['custom','Custom'],...THEMES.map(x=>[x.id,x.label])]),choice('fontFamily','Typeface',FONTS.map(x=>[x.id,x.label])),choice('margins','Margins',Object.entries(MARGINS).map(([key,value])=>[key,value.label])),choice('columns','Pages',[['one','Single page'],['two','Facing pages']]),choice('fontWeight','Text weight',[[null,'Original'],[400,'Regular'],[700,'Bold']]),choice('textAlign','Alignment',[['publisher','Original'],['start','Start'],['justify','Justified']]),choice('hyphens','Hyphenation',[[null,'Original'],[true,'On'],[false,'Off']])];
+ for(const [id,key,label]of [['font-size','fontSize','Text size'],['line-height','lineHeight','Line spacing'],['measure','measure','Line width'],['content-width','contentWidth','Page width'],['side-margin','sideMargin','Side margins'],['letter-spacing','letterSpacing','Letter spacing'],['word-spacing','wordSpacing','Word spacing']]){const e=$(id);result.push({key,label,kind:'number',min:Number(e.min),max:Number(e.max),step:Number(e.step),nullable:key==='sideMargin'})}
+ for(const [key,label]of [['scroll','Continuous scrolling'],['immersive','Focus reading']])result.push({key,label,kind:'toggle'});
+ for(const [key,label]of [['backgroundColor','Page color'],['textColor','Text color']])result.push({key,label,kind:'color'});
+ return nativeDefinitionCache=result;
+}
+const nativeChrome=nativeChromeAdapter({edition:()=>input?.editionId,ready:()=>Boolean(state&&navigator&&!opening),current:()=>clone(state?.preferences??{}),definitions:nativeDefinitions,
+ status:()=>({bookmarked:Boolean(lastLocator&&state?.bookmarks.some(x=>samePlace(x.locator,lastLocator))),dialogOpen:Boolean(document.querySelector('dialog[open]'))}),
+ visibility:(active,closing=false)=>{document.body.classList.toggle('native-chrome',active);if(state&&!closing)return setPreferences({})},
+ perform:async(command,payload)=>{
+  if(command==='preferences'){
+   if(typeof payload.backgroundColor==='string'||typeof payload.textColor==='string'){
+    const base=currentTheme();payload={backgroundColor:base.background,textColor:base.text,...payload,theme:'custom'};
+   }
+   return setPreferences(payload);
+  }
+  if(command==='reset')return setPreferences(DEFAULT_PREFERENCES);
+  if(document.querySelector('dialog[open]')&&!['policy'].includes(command))throw Error('Finish the open reader panel before using this control.');
+  if(command==='next'||command==='previous')return turn(command);
+  if(command==='contents'){renderPanel('contents');showDialog('library-panel','tab-contents')}
+  if(command==='notes')openAnnotations();
+  if(command==='search')showDialog('search-panel','search-query');
+  if(command==='bookmark')addBookmark();
+  if(command==='focus')return setPreferences({immersive:!state.preferences.immersive});
+  if(command==='policy')for(const [key,value]of Object.entries(payload)){document.body.classList.toggle('native-'+key,value);if(key==='reduceMotion'&&value)pageSlide.cancel()}
+ }});
+const api={nativeControl:request=>nativeChrome.dispatch(request),open,close,prepareClose,hasPendingDraft,returnFromJump,next:()=>turn('next'),previous:()=>turn('previous'),go,setPreferences,bookmark:()=>lastLocator?clone(lastLocator):null,restore:go,exportState:()=>{if(hasPendingDraft())persistNote();if(navigator?.kind==='continuous')navigator.report();return snapshot()},addBookmark,annotate};
 window.StillleafReader=Object.freeze(api);
 $('return-jump').onclick=()=>void returnFromJump();
 $('back').onclick=async()=>{if(await prepareClose())emit('close-request')};$('next').onclick=api.next;$('previous').onclick=api.previous;$('save-bookmark').onclick=addBookmark;

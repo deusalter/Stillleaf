@@ -88,3 +88,14 @@ input[type=range]::-moz-range-thumb{width:12px;height:12px;border:2px solid var(
 @media(max-width:640px){.reader-bar{grid-template-columns:auto minmax(0,1fr) auto}.bar-group{gap:0}.icon-button{width:30px}#focus-reading{display:none}#selection-tools{gap:0}#selection-tools button{padding-inline:6px}}
 
 .saved-item.annotation-item{padding-right:0;border-inline-start:2px solid var(--note-color);margin-block:8px;padding-inline-start:3px}.annotation-item .saved-link,.annotation-item .note-excerpt{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:4;overflow:hidden;overflow-wrap:anywhere}
+
+/* Native host owns these commands only after a successful versioned handshake. */
+.native-chrome .reader-bar,.native-chrome #previous,.native-chrome #next,.native-chrome #leave-focus{display:none!important}
+.native-chrome #reading-viewport{height:calc(100dvh - 42px - 2 * var(--page-inset,22px))}
+.native-chrome.immersive #reading-viewport{height:calc(100dvh - 2 * var(--page-inset,22px));margin-block:var(--page-inset,22px)}
+.native-chrome .panel{top:12px;max-height:calc(100dvh - 24px)}
+.native-reduceMotion *, .native-reduceMotion *::before,.native-reduceMotion *::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
+.native-increaseContrast .panel,.native-increaseContrast .note-panel{border:2px solid var(--ink)}
+
+@keyframes reader-panel-enter{from{opacity:0;translate:0 4px}to{opacity:1;translate:0 0}}
+@media(prefers-reduced-motion:no-preference){.native-chrome:not(.native-reduceMotion) .panel[open],.native-chrome:not(.native-reduceMotion) .note-panel[open]{animation:reader-panel-enter 160ms ease-out}}

@@ -51,13 +51,21 @@ struct DashboardView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .background(ReadingPalette.paper)
+            .foregroundStyle(ReadingPalette.ink)
         }
         .readingMotionAccessibility()
         .onAppear { acceptNavigationRequest() }
         .onChange(of: model.dashboardSectionRequest) { _ in acceptNavigationRequest() }
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button { model.showDashboard(section: .library) } label: { Label("Library", systemImage: "books.vertical") }.buttonStyle(.borderless)
+            }
+            ToolbarItem(placement: .primaryAction) {
+                Button { model.showDashboard(section: .settings) } label: { Label("Settings", systemImage: "gearshape") }.buttonStyle(.borderless)
+            }
+        }
         .navigationSplitViewStyle(.balanced)
         .frame(minWidth: 920, minHeight: 660)
-        .foregroundStyle(ReadingPalette.ink)
         .toggleStyle(.switch)
         .tint(ReadingPalette.moss)
         .buttonStyle(ReadingButtonStyle())
@@ -165,7 +173,7 @@ struct PopoverView: View {
         .id(theme.revision)
         .padding(18).frame(width: 350)
         .foregroundStyle(ReadingPalette.ink)
-        .background(ReadingPalette.canvas, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .nativePanelSurface()
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .tint(ReadingPalette.moss).buttonStyle(ReadingButtonStyle())
         .readingMotionAccessibility()
@@ -324,59 +332,16 @@ private struct DashboardSidebar: View {
     @ObservedObject var model: AppModel
     let troubleshoot: () -> Void
     private let destinations: [DashboardSection] = [.today, .library, .timeline, .history, .review, .settings]
-    @FocusState private var focusedSection: DashboardSection?
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 9) {
-                PageleafMark()
-                    .frame(width: 23, height: 23)
-                    .foregroundStyle(ReadingPalette.accent)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Stillleaf").font(.system(size: 21, weight: .regular, design: .serif)).tracking(-0.3)
-                }
-            }
-            .padding(.horizontal, 20).padding(.top, 26).padding(.bottom, 26)
-            VStack(spacing: 2) {
+        VStack(spacing: 0) {
+            List(selection: Binding<DashboardSection?>(get: { selection }, set: { if let value = $0 { selection = value } })) {
                 ForEach(destinations) { item in
-                    Button { selection = item } label: {
-                        HStack(spacing: 10) {
-                            Image(systemName: item.symbol).font(.system(size: 14, weight: .regular)).frame(width: 20)
-                                .foregroundStyle(selection == item ? ReadingPalette.accent : ReadingPalette.secondaryInk)
-                            Text(item.title).font(.system(size: 13, weight: selection == item ? .semibold : .regular))
-                            Spacer(minLength: 0)
-                        }
-                        .foregroundStyle(selection == item ? ReadingPalette.ink : ReadingPalette.secondaryInk)
-                        .padding(.horizontal, 10).padding(.vertical, 8)
-                        .background {
-                            if selection == item {
-                                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                    .fill(ReadingPalette.accent.opacity(0.12))
-                                    .transition(.opacity)
-                            }
-                        }
-                        .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: selection == item)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .focusable()
-                    .focused($focusedSection, equals: item)
-                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(focusedSection == item ? ReadingPalette.accent : .clear, lineWidth: 2))
-                    .accessibilityLabel(item.title)
-                    .accessibilityAddTraits(selection == item ? .isSelected : [])
-                    .accessibilityIdentifier("navigation-\(item.rawValue)")
+                    Label(item.title, systemImage: item.symbol)
+                        .tag(item)
+                        .accessibilityIdentifier("navigation-\(item.rawValue)")
                 }
             }
-            .padding(.horizontal, 10)
-            .onMoveCommand { direction in
-                guard direction == .up || direction == .down,
-                      let index = destinations.firstIndex(of: focusedSection ?? selection) else { return }
-                let next = max(0, min(destinations.count - 1, index + (direction == .down ? 1 : -1)))
-                selection = destinations[next]
-                focusedSection = selection
-            }
-            Spacer(minLength: 28)
+            .listStyle(.sidebar)
             VStack(alignment: .leading, spacing: 6) {
                 if model.appleBooksTrackingNeedsAccess || model.snapshot.pauseReason == .captureFailure {
                     Button(action: troubleshoot) {
@@ -392,12 +357,9 @@ private struct DashboardSidebar: View {
                 Text("History stored on this Mac")
                     .font(.system(size: 10)).foregroundStyle(ReadingPalette.secondaryInk)
             }
-            .padding(.horizontal, 20).padding(.bottom, 18)
+
+            .padding(.horizontal, 16).padding(.bottom, 16)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .foregroundStyle(ReadingPalette.ink)
-        .background(ReadingPalette.canvas)
-        .overlay(alignment: .trailing) { Hairline(axis: .vertical) }
     }
 
     private var trackingStatus: String {

@@ -15,7 +15,15 @@ struct ReadingSegmentedControl<Value: Hashable>: View {
     @FocusState private var focused: Value?
     @Namespace private var highlight
 
-    var body: some View {
+    @ViewBuilder var body: some View {
+        if preservesWalkthroughTreatment { walkthroughBody }
+        else {
+            Picker(label, selection: $selection) {
+                ForEach(options, id: \.self) { option in Text(title(option)).tag(option) }
+            }.pickerStyle(.segmented).accessibilityLabel(label)
+        }
+    }
+    private var walkthroughBody: some View {
         HStack(spacing: 3) {
             ForEach(options, id: \.self) { option in
                 Button { selection = option } label: {
@@ -87,29 +95,10 @@ struct ReadingMenuPicker<Value: Hashable>: View {
     @State private var hovering = false
 
     var body: some View {
-        Menu {
-            ForEach(options, id: \.self) { option in
-                Button { selection = option } label: {
-                    if option == selection { Label(title(option), systemImage: "checkmark") }
-                    else { Text(title(option)) }
-                }
-            }
-        } label: {
-            Text(title(selection)).lineLimit(1)
+        Picker(label, selection: $selection) {
+            ForEach(options, id: \.self) { option in Text(title(option)).tag(option) }
         }
-        // macOS flattens Menu labels into a native button. Keep field geometry on
-        // the menu itself so its padding and hit area survive that conversion.
-        .menuStyle(.borderlessButton).menuIndicator(.visible)
-        .font(ReadingType.controlLabel).foregroundStyle(ReadingPalette.ink).tint(ReadingPalette.ink)
-        .padding(.horizontal, 12).padding(.vertical, 10)
-        .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
-        .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-        .background(ReadingPalette.surface.opacity(hovering && isEnabled ? 1 : 0.7),
-                    in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous)
-            .stroke(isFocused ? ReadingPalette.accent : ReadingPalette.border, lineWidth: isFocused ? 2 : 1))
-        .opacity(isEnabled ? 1 : 0.42)
-        .onHover { hovering = $0 }
+        .pickerStyle(.menu)
         .accessibilityLabel(label).accessibilityValue(title(selection))
     }
 }

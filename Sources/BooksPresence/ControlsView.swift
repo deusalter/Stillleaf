@@ -303,12 +303,12 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 26) {
                     VStack(alignment: .leading, spacing: 26) {
                         PageHeader("Settings", subtitle: nil)
-                        ReadingSegmentedControl(label: "Settings category", options: SettingsCategory.allCases,
+                        ReadingMenuPicker(label: "Settings category", options: SettingsCategory.allCases,
                             selection: $category, title: { item in
                                 item.title + ((item == .reading && readingDirty) || (item == .discord && discordDirty) ? " •" : "")
                             })
                     }
-                    .id(theme.revision)
+                    // Category controls keep focus across live theme changes.
                     // Theme changes re-key inside the entrance so the category never replays its fade.
                     categoryDetail
                         .id(Self.categoryKey(for: category, revision: theme.revision))
@@ -339,7 +339,7 @@ struct SettingsView: View {
         // Drafts live in this view's own state, so only rendered subtrees above are re-keyed.
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(ReadingPalette.paper).foregroundStyle(ReadingPalette.ink)
-        .tint(ReadingPalette.moss).buttonStyle(ReadingButtonStyle())
+        .tint(ReadingPalette.moss).buttonStyle(.bordered)
         .onAppear {
             loadDraftsIfNeeded()
             showDiscordConnection = model.discordNeedsSetup

@@ -5,13 +5,15 @@ import BooksCore
 struct HistoryView: View {
     @ObservedObject var model: AppModel
     @State private var navigation: CalendarNavigation
+    private let benchmarkReady: ((HistoryAtlasKey) -> Void)?
     @State private var reviewInterval: ReadingInterval?
     @StateObject private var atlas = HistoryAtlasController()
     @Environment(\.colorScheme) private var scheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    init(model: AppModel, initialScale: CalendarScale = .month, anchor: Date = Date()) {
+    init(model: AppModel, initialScale: CalendarScale = .month, anchor: Date = Date(), benchmarkReady: ((HistoryAtlasKey) -> Void)? = nil) {
         self.model = model
+        self.benchmarkReady = benchmarkReady
         _navigation = State(initialValue: CalendarNavigation(timezoneID: model.timezoneID, anchor: anchor, scale: initialScale))
     }
     private var dark: Bool { scheme == .dark }
@@ -53,6 +55,7 @@ struct HistoryView: View {
                         }
                     }.id("\(navigation.scale.rawValue)-\(navigation.periodStart)-\(model.timezoneID)")
                         .transition(reduceMotion ? .identity : .opacity)
+                        .onAppear { benchmarkReady?(prepared.key) }
                 } else {
                     ProgressView("Preparing history…").controlSize(.small)
                         .frame(maxWidth: .infinity, minHeight: 260, alignment: .topLeading)

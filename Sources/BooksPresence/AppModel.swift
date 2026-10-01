@@ -425,6 +425,8 @@ final class AppModel: ObservableObject {
         guard alert.runModal() == .alertFirstButtonReturn else { return nil }
         return editions[choice.indexOfSelectedItem]
     }
+    var hasNativeReaderCommands: Bool { epubReaders.hasCommandReader }
+    func performReaderControl(_ command: String) { epubReaders.performControl(command) }
     func readEPUB(_ book: BookRecord) {
         guard let publication = chooseEPUB(book), !epubLibrary.removingIDs.contains(publication.id),
               !transferringReaderState.contains(publication.id) else { return }
