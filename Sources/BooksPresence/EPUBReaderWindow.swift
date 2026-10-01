@@ -79,6 +79,10 @@ private final class EPUBReaderWindow: NSObject, NSWindowDelegate, WKNavigationDe
     var focused: (() -> Void)?
     var returnToLibrary: (() -> Void)?
     private var webView: WKWebView!
+    private var chrome: NativeReaderChrome!
+    private var chromeRequest: UInt64 = 0
+    private var chromeGeneration: UInt64 = 0
+    private var lastChromeSequence: UInt64 = 0
     private var guardDelegate: ReaderNavigationGuard!
     private let map: ReaderResourceMap
     private let payload: String
@@ -122,12 +126,18 @@ private final class EPUBReaderWindow: NSObject, NSWindowDelegate, WKNavigationDe
         guardDelegate = ReaderNavigationGuard(resources: map)
         webView.navigationDelegate = self
         let window = NSWindow(contentRect: webView.frame, styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-        window.title = publication.title; window.titlebarAppearsTransparent = true
+        window.title = publication.title; window.titlebarAppearsTransparent = false
         window.minSize = NSSize(width: 520, height: 440)
         // Menu-bar (accessory) apps get no full-screen behavior unless a window opts in.
         window.collectionBehavior.insert(.fullScreenPrimary)
         window.contentView = webView; window.isReleasedWhenClosed = false
         window.delegate = self; window.center(); self.window = window
+        chrome = NativeReaderChrome(window: window)
+        chrome.send = { [weak self] command, payload in
+            guard let self else { throw ReaderStateValidation.Failure.invalidState }
+            return try await self.sendNativeControl(command, payload: payload)
+        }
+        chrome.returnFocus = { [weak self] in guard let self, !self.closing else { return }; self.window?.makeFirstResponder(self.webView) }
         webView.load(URLRequest(url: map.url(for: "index.html")!))
     }
 
@@ -141,8 +151,10 @@ private final class EPUBReaderWindow: NSObject, NSWindowDelegate, WKNavigationDe
     func requestClose() async -> Bool {
         guard !closing else { return false }
         closing = true
-        defer { closing = false; window?.ignoresMouseEvents = false }
+        chrome?.setClosing(true)
+        defer { closing = false; chrome?.setClosing(false); window?.ignoresMouseEvents = false }
         do {
+            await chrome?.flush()
             if isReady {
                 let mayClose: Any = try await withCheckedThrowingContinuation { continuation in
                     webView.callAsyncJavaScript(
@@ -215,7 +227,11 @@ private final class EPUBReaderWindow: NSObject, NSWindowDelegate, WKNavigationDe
         if event["type"] as? String == "available" { Task { await startWhenAvailable() }; return }
         guard event["editionId"] as? String == publication.id else { return }
         if event["type"] as? String == "close-request" { Task { if await requestClose() { returnToLibrary?() } }; return }
-        if event["type"] as? String == "ready" { isReady = true; if window?.isKeyWindow == true { focused?() }; return }
+        if event["type"] as? String == "ready" { isReady = true; if window?.isKeyWindow == true { focused?() }; Task { await chrome.connect() }; return }
+        if event["type"] as? String == "chrome" {
+            guard event["version"] as? Int == 1, let sequence = event["sequence"] as? NSNumber, sequence.uint64Value > lastChromeSequence else { return }
+            lastChromeSequence = sequence.uint64Value; chrome.accept(event); return
+        }
         if event["type"] as? String == "error" { isReady = false; return }
         if event["type"] as? String == "position" || event["type"] as? String == "pageTurn" {
             receiveProgress(event); return
@@ -235,6 +251,31 @@ private final class EPUBReaderWindow: NSObject, NSWindowDelegate, WKNavigationDe
                 else { self?.window?.subtitle = "" }
             }
         }
+    }
+
+    private func sendNativeControl(_ command: String, payload: [String: Any]?) async throws -> [String: Any] {
+        guard isReady, !closing || command == "preferences" else { throw ReaderStateValidation.Failure.invalidState }
+        chromeRequest += 1
+        let request = chromeRequest, generation = chromeGeneration
+        var envelope: [String: Any] = ["version": 1, "editionId": publication.id, "id": request, "command": command]
+        if let payload { envelope["payload"] = payload }
+        let value: Any = try await withCheckedThrowingContinuation { continuation in
+            var finished = false
+            let timeout = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 12_000_000_000)
+                guard !Task.isCancelled, !finished else { return }
+                finished = true; continuation.resume(throwing: ReaderStateValidation.Failure.invalidState)
+            }
+            webView.callAsyncJavaScript("return await window.StillleafReader.nativeControl(request)", arguments: ["request": envelope], in: nil, in: .page) { result in
+                Task { @MainActor in
+                    guard !finished else { return }; finished = true; timeout.cancel(); continuation.resume(with: result)
+                }
+            }
+        }
+        guard generation == chromeGeneration, let response = value as? [String: Any],
+              (response["requestId"] as? NSNumber)?.uint64Value == request,
+              response["editionId"] as? String == publication.id else { throw ReaderStateValidation.Failure.invalidState }
+        return response
     }
 
     /// The authenticated renderer supplies actual chapter geometry and text ranges.

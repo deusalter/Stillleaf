@@ -29,3 +29,5 @@ jobs:
         run: |
           swiftc -parse-as-library -target "$(uname -m)-apple-macosx13.0" scripts/native-chrome-probe.swift -o "$RUNNER_TEMP/native-chrome-probe"
           "$RUNNER_TEMP/native-chrome-probe"
+      - name: Native implementation build
+        run: swift build

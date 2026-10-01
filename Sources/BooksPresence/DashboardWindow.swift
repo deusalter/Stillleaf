@@ -10,7 +10,7 @@ final class DashboardWindow: NSWindow {
     override init(contentRect: NSRect, styleMask style: NSWindow.StyleMask,
                   backing backingStoreType: NSWindow.BackingStoreType, defer flag: Bool) {
         super.init(contentRect: contentRect, styleMask: style, backing: backingStoreType, defer: flag)
-        titlebarAppearsTransparent = true
+        titlebarAppearsTransparent = false
         titlebarSeparatorStyle = .none
         updateCanvas()
         // Receive on the next main-loop turn: @Published sends before the new

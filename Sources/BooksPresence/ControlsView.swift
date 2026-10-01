@@ -303,7 +303,7 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 26) {
                     VStack(alignment: .leading, spacing: 26) {
                         PageHeader("Settings", subtitle: nil)
-                        ReadingSegmentedControl(label: "Settings category", options: SettingsCategory.allCases,
+                        ReadingMenuPicker(label: "Settings category", options: SettingsCategory.allCases,
                             selection: $category, title: { item in
                                 item.title + ((item == .reading && readingDirty) || (item == .discord && discordDirty) ? " •" : "")
                             })

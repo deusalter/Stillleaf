@@ -95,7 +95,7 @@ struct HistoryView: View {
             Button { if canMoveForward { navigation.move(by: 1) } } label: { Image(systemName: "chevron.right") }
                 .disabled(!canMoveForward).accessibilityLabel("Next \(navigation.scale.title.lowercased())")
             Button("Today") { navigation.goToToday() }
-        }.buttonStyle(AtlasButtonStyle())
+        }.buttonStyle(.borderless)
     }
     @ViewBuilder private func summary(pages: Int, seconds: Double, activeDays: Int) -> some View {
         if pages > 0 { metric(pages.formatted(), "pages") }

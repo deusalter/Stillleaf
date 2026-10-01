@@ -94,7 +94,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         dismissMenuPanel()
         if dashboard == nil {
             let window = DashboardWindow(contentRect: NSRect(x: 0, y: 0, width: 1060, height: 760), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-            window.title = "Stillleaf"; window.titlebarAppearsTransparent = true
+            window.title = "Stillleaf"; window.titlebarAppearsTransparent = false
             // Menu-bar (accessory) apps get no full-screen behavior unless a window opts in.
             window.collectionBehavior.insert(.fullScreenPrimary)
             window.contentViewController = NSHostingController(rootView: DashboardView(model: model))
@@ -105,6 +105,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         dashboard?.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
     }
     @objc private func openDashboard() { showDashboard() }
+    @objc func openSettings() { model?.showDashboard(section: .settings) }
+    @objc func openLibrary() { model?.showDashboard(section: .library) }
     /// The welcome tour. Closing it early counts as done; Settings can replay it.
     func showOnboarding() {
         guard let model else { return }
