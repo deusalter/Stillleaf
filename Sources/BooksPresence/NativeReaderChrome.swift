@@ -138,6 +138,8 @@ private struct ReaderAppearanceView: View {
     private var bookmarked = false
     private var connectionGeneration = 0
     private var preferenceGeneration = 0
+    private var appearanceShows = 0
+    private var appearanceCloses = 0
     private var resetTask: Task<Void, Never>?
     var isConnected: Bool { active }
     var canAcceptCommands: Bool { active && !closing && !dialogOpen && !model.resetting }
@@ -285,7 +287,34 @@ private struct ReaderAppearanceView: View {
         if name == "appearance" { openAppearance() }
         else { appearance.close(); command(name) }
     }
-    func popoverDidClose(_ notification: Notification) { returnFocus?() }
+    func popoverDidShow(_ notification: Notification) { appearanceShows += 1 }
+    func popoverDidClose(_ notification: Notification) { appearanceCloses += 1; returnFocus?() }
+    func benchmarkFeedback(output: URL) async throws {
+        guard let item = toolbar.items.first(where: { $0.itemIdentifier.rawValue == "bookmark" }), let button = item.view as? NSButton else { throw NSError(domain: "Stillleaf.Benchmark", code: 3) }
+        var bookmark: [Double] = [], panel: [Double] = [], framework: [Double] = []
+        for sample in -2..<20 {
+            let previous = button.state, start = ProcessInfo.processInfo.systemUptime
+            guard let action = button.action, NSApp.sendAction(action, to: button.target, from: button) else { throw NSError(domain: "Stillleaf.Benchmark", code: 4) }
+            while button.state == previous && ProcessInfo.processInfo.systemUptime - start < 2 { try await Task.sleep(nanoseconds: 1_000_000) }
+            guard button.state != previous else { throw NSError(domain: "Stillleaf.Benchmark", code: 5) }
+            let layoutStart = ProcessInfo.processInfo.systemUptime
+            button.layoutSubtreeIfNeeded(); button.displayIfNeeded()
+            if sample >= 0 { bookmark.append((ProcessInfo.processInfo.systemUptime - start) * 1000); framework.append((ProcessInfo.processInfo.systemUptime - layoutStart) * 1000) }
+            let shows = appearanceShows, closes = appearanceCloses, panelStart = ProcessInfo.processInfo.systemUptime
+            openAppearance()
+            while appearanceShows == shows && ProcessInfo.processInfo.systemUptime - panelStart < 2 { try await Task.sleep(nanoseconds: 1_000_000) }
+            guard appearanceShows > shows else { throw NSError(domain: "Stillleaf.Benchmark", code: 6) }
+            appearance.contentViewController?.view.layoutSubtreeIfNeeded(); appearance.contentViewController?.view.displayIfNeeded()
+            if sample >= 0 { panel.append((ProcessInfo.processInfo.systemUptime - panelStart) * 1000) }
+            appearance.close()
+            let closeStart = ProcessInfo.processInfo.systemUptime
+            while appearanceCloses == closes && ProcessInfo.processInfo.systemUptime - closeStart < 2 { try await Task.sleep(nanoseconds: 1_000_000) }
+            guard appearanceCloses > closes else { throw NSError(domain: "Stillleaf.Benchmark", code: 7) }
+        }
+        let data = try JSONSerialization.data(withJSONObject: ["method": "20 samples, two warmups; actual AppKit bookmark action to acknowledged button state and display; NSPopover didShow to final layout/display", "bookmarkVisibleMs": bookmark, "popoverVisibleMs": panel, "buttonFrameworkMs": framework], options: [.prettyPrinted, .sortedKeys])
+        try data.write(to: output)
+        print("native-feedback-benchmark: 20 acknowledged bookmark actions and 20 actual popover shows recorded")
+    }
     func testCaptureAppearance(to url: URL) async throws {
         openAppearance()
         let deadline = Date().addingTimeInterval(2)

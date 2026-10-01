@@ -659,6 +659,7 @@ private extension EPUBReaderWindow {
             let directory = URL(fileURLWithPath: CommandLine.arguments[index + 1])
             try await captureNativeWindow(window, to: directory.appendingPathComponent("native-reader-toolbar.png"))
             try await chrome.testCaptureAppearance(to: directory.appendingPathComponent("native-reader-appearance.png"))
+            try await chrome.benchmarkFeedback(output: directory.appendingPathComponent("native-feedback.json"))
         }
         guard before.contains("schemaVersion") else { throw EPUBImportError.invalid("Missing canonical state") }
         print("native-reader-chrome: actual AppKit toolbar, complete appearance definitions and durable renderer dispatch passed")
