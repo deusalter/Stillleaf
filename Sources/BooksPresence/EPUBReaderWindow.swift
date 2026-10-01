@@ -660,6 +660,17 @@ private extension EPUBReaderWindow {
             try await captureNativeWindow(window, to: directory.appendingPathComponent("native-reader-toolbar.png"))
             try await chrome.testCaptureAppearance(to: directory.appendingPathComponent("native-reader-appearance.png"))
             try await chrome.benchmarkFeedback(output: directory.appendingPathComponent("native-feedback.json"))
+            let originalFrame = window.frame, originalAppearance = window.appearance, originalPreferences = chrome.model.preferences
+            for dark in [false, true] {
+                window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+                window.setFrame(NSRect(origin: originalFrame.origin, size: NSSize(width: 520, height: 440)), display: true)
+                _ = try await sendNativeControl("preferences", payload: ["theme": dark ? "dark" : "paper"])
+                let prefix = dark ? "native-compact-dark" : "native-compact-light"
+                try await captureNativeWindow(window, to: directory.appendingPathComponent(prefix + "-toolbar.png"))
+                try await chrome.testCaptureAppearance(to: directory.appendingPathComponent(prefix + "-appearance.png"), includeBottom: true)
+            }
+            window.appearance = originalAppearance; window.setFrame(originalFrame, display: true)
+            _ = try await sendNativeControl("preferences", payload: originalPreferences)
         }
         guard before.contains("schemaVersion") else { throw EPUBImportError.invalid("Missing canonical state") }
         print("native-reader-chrome: actual AppKit toolbar, complete appearance definitions and durable renderer dispatch passed")

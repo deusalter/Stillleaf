@@ -315,13 +315,25 @@ private struct ReaderAppearanceView: View {
         try data.write(to: output)
         print("native-feedback-benchmark: 20 acknowledged bookmark actions and 20 actual popover shows recorded")
     }
-    func testCaptureAppearance(to url: URL) async throws {
+    func testCaptureAppearance(to url: URL, includeBottom: Bool = false) async throws {
         openAppearance()
         let deadline = Date().addingTimeInterval(2)
         while appearance.contentViewController?.view.window == nil && Date() < deadline { try await Task.sleep(nanoseconds: 20_000_000) }
         guard let panel = appearance.contentViewController?.view.window else { throw NSError(domain: "Stillleaf.ReaderControls", code: 5) }
         try await Task.sleep(nanoseconds: 200_000_000)
         try await captureNativeWindow(panel, to: url)
+        if includeBottom, let root = appearance.contentViewController?.view {
+            func scrollView(_ view: NSView) -> NSScrollView? {
+                if let scroll = view as? NSScrollView, let document = scroll.documentView,
+                   document.bounds.height > scroll.contentSize.height + 1 { return scroll }
+                return view.subviews.lazy.compactMap { scrollView($0) }.first
+            }
+            guard let scroll = scrollView(root), let document = scroll.documentView else { throw NSError(domain: "Stillleaf.ReaderControls", code: 8) }
+            let y = document.isFlipped ? max(0, document.bounds.height - scroll.contentSize.height) : 0
+            scroll.contentView.scroll(to: NSPoint(x: 0, y: y)); scroll.reflectScrolledClipView(scroll.contentView)
+            root.layoutSubtreeIfNeeded(); root.displayIfNeeded()
+            try await captureNativeWindow(panel, to: url.deletingPathExtension().appendingPathExtension("bottom.png"))
+        }
         appearance.close()
     }
     func testClick(_ name: String) throws {
