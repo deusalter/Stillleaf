@@ -658,7 +658,9 @@ private extension EPUBReaderWindow {
         }
         if let index = CommandLine.arguments.firstIndex(of: "--reader-artifacts"), index + 1 < CommandLine.arguments.count, let window {
             let directory = URL(fileURLWithPath: CommandLine.arguments[index + 1])
+            show() // Match the normal reader presentation path for active chrome captures.
             try await captureNativeWindow(window, to: directory.appendingPathComponent("native-reader-toolbar.png"))
+            print("native-reader-capture-focus: appActive=\(NSApp.isActive) key=\(window.isKeyWindow)")
             try await chrome.testCaptureAppearance(to: directory.appendingPathComponent("native-reader-appearance.png"))
             try await chrome.benchmarkFeedback(output: directory.appendingPathComponent("native-feedback.json"))
             let originalFrame = window.frame, originalAppearance = window.appearance, originalPreferences = chrome.model.preferences

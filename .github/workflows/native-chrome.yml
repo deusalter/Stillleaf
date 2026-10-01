@@ -48,13 +48,16 @@ jobs:
           python3 scripts/install-native-benchmark-harness.py .native-baseline
           swift build --package-path .native-baseline -c release
           .native-baseline/.build/release/BooksPresence --benchmark-ui | tee "$RUNNER_TEMP/baseline-ui-benchmark.txt"
-          .native-baseline/.build/release/BooksPresence --benchmark-settled-ui "$RUNNER_TEMP/baseline-settled-ui.json"
       - name: Reader assets and native synthetic smoke
         run: |
           scripts/build-reader-assets.sh .build/release
           .build/release/BooksPresence --self-test-ui
           .build/release/BooksPresence --benchmark-ui | tee "$RUNNER_TEMP/native-ui-benchmark.txt"
-          .build/release/BooksPresence --benchmark-settled-ui "$RUNNER_TEMP/candidate-settled-ui.json"
+          if [ "${{ matrix.os }}" = macos-26 ]; then
+            python3 scripts/run-matched-native-benchmark.py .native-baseline/.build/release/BooksPresence .build/release/BooksPresence "$RUNNER_TEMP"
+          else
+            .build/release/BooksPresence --benchmark-settled-ui "$RUNNER_TEMP/candidate-settled-ui.json"
+          fi
           .build/release/BooksPresence --render-native-chrome "$RUNNER_TEMP/native-chrome"
           python3 scripts/reader-review-fixture.py "$RUNNER_TEMP/native-chrome.epub" --chapters 3
           mkdir -p "$RUNNER_TEMP/native-reader"
@@ -83,6 +86,7 @@ jobs:
             ${{ runner.temp }}/baseline-settled-ui.json
             ${{ runner.temp }}/candidate-settled-ui.json
             ${{ runner.temp }}/native-performance-gates.json
+            ${{ runner.temp }}/native-performance-batches
   modern-package-fallback:
     needs: sdk-probe
     runs-on: macos-14

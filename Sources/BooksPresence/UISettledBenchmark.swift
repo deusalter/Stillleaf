@@ -59,9 +59,11 @@ import CoreFoundation
     }!
     CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
     defer { CFRunLoopRemoveObserver(CFRunLoopGetMain(), observer, .commonModes) }
-    var records: [[String: Any]] = []
+    let measuredSamples = ProcessInfo.processInfo.environment["STILLLEAF_UI_BENCHMARK_SAMPLES"].flatMap(Int.init) ?? 20
+    guard [5, 20].contains(measuredSamples) else { throw NSError(domain: "Stillleaf.Benchmark", code: 3) }
+    var records: [[String: Any]] = [], warmups: [[String: Any]] = []
     for scale in CalendarScale.allCases {
-        for sample in -2..<20 {
+        for sample in -2..<measuredSamples {
             host.rootView = AnyView(Text("Ready")); host.layoutSubtreeIfNeeded()
             await Task.yield()
             var ready = false
@@ -82,10 +84,11 @@ import CoreFoundation
             host.layoutSubtreeIfNeeded(); host.displayIfNeeded()
             work.append((ProcessInfo.processInfo.systemUptime - finalStart) * 1000)
             recording = false
-            if sample >= 0 { records.append(["scale": scale.rawValue, "sample": sample, "settledMs": (ProcessInfo.processInfo.systemUptime - start) * 1000, "maxMainWorkMs": work.max() ?? 0]) }
+            let record: [String: Any] = ["scale": scale.rawValue, "sample": sample, "settledMs": (ProcessInfo.processInfo.systemUptime - start) * 1000, "maxMainWorkMs": work.max() ?? 0]
+            if sample >= 0 { records.append(record) } else { warmups.append(record) }
         }
     }
-    let data = try JSONSerialization.data(withJSONObject: ["fixture": "60 books / 2000 intervals / 2000 page events", "method": "20 samples per scale; two warmups; fresh view/controller; actual prepared-content onAppear; animation disabled; run-loop work plus explicit layout/display", "samples": records], options: [.prettyPrinted, .sortedKeys])
+    let data = try JSONSerialization.data(withJSONObject: ["fixture": "60 books / 2000 intervals / 2000 page events", "method": "\(measuredSamples) samples per scale; two warmups; fresh view/controller; actual prepared-content onAppear; animation disabled; run-loop work plus explicit layout/display", "samples": records, "warmups": warmups], options: [.prettyPrinted, .sortedKeys])
     try data.write(to: output)
-    print("settled-ui-benchmark: 80 async History samples written to \(output.path)")
+    print("settled-ui-benchmark: \(records.count) async History samples written to \(output.path)")
 }

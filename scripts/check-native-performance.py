@@ -23,7 +23,7 @@ for scale in ('day', 'week', 'month', 'year'):
 for metric, limit in [('bookmarkVisibleMs', 18.7), ('bookmarkAcknowledgedMs', 250), ('popoverVisibleMs', 250), ('buttonFrameworkMs', 16)]:
     after = p95(feedback[metric])
     checks.append({'metric': metric, 'candidateP95Ms': after, 'limitMs': limit, 'passed': after <= limit})
-result = {'method': '20 samples per metric, two warmups; p95 nearest rank; matched baseline/candidate on same cloud runner; GPU/optical presentation excluded', 'checks': checks, 'passed': all(c['passed'] for c in checks)}
+result = {'method': '20 samples per metric; two warmups per counterbalanced batch; p95 nearest rank; matched baseline/candidate on same cloud runner; GPU/optical presentation excluded', 'checks': checks, 'passed': all(c['passed'] for c in checks)}
 Path(sys.argv[4]).write_text(json.dumps(result, indent=2))
 print(json.dumps(result, indent=2))
 sys.exit(0 if result['passed'] else 1)
