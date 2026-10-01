@@ -1,4 +1,5 @@
 import AppKit
+import Darwin
 import SwiftUI
 
 struct ReaderControlDefinition: Decodable, Identifiable {
@@ -336,18 +337,21 @@ private struct ReaderAppearanceView: View {
     }
     func benchmarkFeedback(output: URL) async throws {
         guard let item = toolbar.items.first(where: { $0.itemIdentifier.rawValue == "bookmark" }), let button = item.view as? NSButton else { throw NSError(domain: "Stillleaf.Benchmark", code: 3) }
-        var bookmark: [Double] = [], acknowledged: [Double] = [], panel: [Double] = [], framework: [Double] = []
+        var bookmark: [Double] = [], acknowledged: [Double] = [], panel: [Double] = [], framework: [Double] = [], dispatchCPU: [Double] = [], frameworkCPU: [Double] = []
         for sample in -2..<20 {
             let previous = button.state, start = ProcessInfo.processInfo.systemUptime
+            let dispatchCPUStart = clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID)
             guard let action = button.action, NSApp.sendAction(action, to: button.target, from: button) else { throw NSError(domain: "Stillleaf.Benchmark", code: 4) }
             guard !button.isEnabled, button.state == previous else { throw NSError(domain: "Stillleaf.Benchmark", code: 9) }
             button.layoutSubtreeIfNeeded(); button.displayIfNeeded()
             let feedbackMs = (ProcessInfo.processInfo.systemUptime - start) * 1000
+            let dispatchCPUMs = Double(clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID) - dispatchCPUStart) / 1_000_000
             while (button.state == previous || !button.isEnabled) && ProcessInfo.processInfo.systemUptime - start < 2 { try await Task.sleep(nanoseconds: 1_000_000) }
             guard button.state != previous else { throw NSError(domain: "Stillleaf.Benchmark", code: 5) }
             let layoutStart = ProcessInfo.processInfo.systemUptime
+            let layoutCPUStart = clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID)
             button.layoutSubtreeIfNeeded(); button.displayIfNeeded()
-            if sample >= 0 { bookmark.append(feedbackMs); acknowledged.append((ProcessInfo.processInfo.systemUptime - start) * 1000); framework.append((ProcessInfo.processInfo.systemUptime - layoutStart) * 1000) }
+            if sample >= 0 { bookmark.append(feedbackMs); acknowledged.append((ProcessInfo.processInfo.systemUptime - start) * 1000); framework.append((ProcessInfo.processInfo.systemUptime - layoutStart) * 1000); dispatchCPU.append(dispatchCPUMs); frameworkCPU.append(Double(clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID) - layoutCPUStart) / 1_000_000) }
             let shows = appearanceShows, closes = appearanceCloses, panelStart = ProcessInfo.processInfo.systemUptime
             openAppearance()
             while appearanceShows == shows && ProcessInfo.processInfo.systemUptime - panelStart < 2 { try await Task.sleep(nanoseconds: 1_000_000) }
@@ -359,7 +363,7 @@ private struct ReaderAppearanceView: View {
             while appearanceCloses == closes && ProcessInfo.processInfo.systemUptime - closeStart < 2 { try await Task.sleep(nanoseconds: 1_000_000) }
             guard appearanceCloses > closes else { throw NSError(domain: "Stillleaf.Benchmark", code: 7) }
         }
-        let data = try JSONSerialization.data(withJSONObject: ["method": "20 samples, two warmups; actual AppKit bookmark action to pending disabled display, then separately acknowledged selection and display; NSPopover didShow to final layout/display", "bookmarkVisibleMs": bookmark, "bookmarkAcknowledgedMs": acknowledged, "popoverVisibleMs": panel, "buttonFrameworkMs": framework], options: [.prettyPrinted, .sortedKeys])
+        let data = try JSONSerialization.data(withJSONObject: ["method": "20 samples, two warmups; actual AppKit bookmark action to pending disabled display, then separately acknowledged selection and display; NSPopover didShow to final layout/display", "bookmarkVisibleMs": bookmark, "bookmarkAcknowledgedMs": acknowledged, "popoverVisibleMs": panel, "buttonFrameworkMs": framework, "dispatchThreadCPUMs": dispatchCPU, "buttonFrameworkThreadCPUMs": frameworkCPU], options: [.prettyPrinted, .sortedKeys])
         try data.write(to: output)
         print("native-feedback-benchmark: 20 acknowledged bookmark actions and 20 actual popover shows recorded")
     }

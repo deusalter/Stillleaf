@@ -12,7 +12,7 @@ def p95(values):
 baseline, candidate, feedback = [json.loads(Path(p).read_text()) for p in sys.argv[1:4]]
 checks = []
 for scale in ('day', 'week', 'month', 'year'):
-    for metric in ('settledMs', 'maxMainWorkMs'):
+    for metric in ('settledMs', 'maxMainWorkMs', 'settledProcessCPUMs', 'maxMainThreadCPUMs'):
         before = p95([s[metric] for s in baseline['samples'] if s['scale'] == scale])
         after = p95([s[metric] for s in candidate['samples'] if s['scale'] == scale])
         # Main-loop readiness has 1 ms sampling and shared cloud scheduling noise.
@@ -20,7 +20,7 @@ for scale in ('day', 'week', 'month', 'year'):
         # most 5 ms absolute variation, never an unconstrained relative waiver.
         limit = max(before * 1.10, before + 5)
         checks.append({'metric': scale + '.' + metric, 'baselineP95Ms': before, 'candidateP95Ms': after, 'limitMs': limit, 'passed': after <= limit})
-for metric, limit in [('bookmarkVisibleMs', 18.7), ('bookmarkAcknowledgedMs', 250), ('popoverVisibleMs', 250), ('buttonFrameworkMs', 16)]:
+for metric, limit in [('bookmarkVisibleMs', 18.7), ('bookmarkAcknowledgedMs', 250), ('popoverVisibleMs', 250), ('buttonFrameworkMs', 16), ('dispatchThreadCPUMs', 16), ('buttonFrameworkThreadCPUMs', 16)]:
     after = p95(feedback[metric])
     checks.append({'metric': metric, 'candidateP95Ms': after, 'limitMs': limit, 'passed': after <= limit})
 result = {'method': '20 samples per metric; two warmups per counterbalanced batch; p95 nearest rank; matched baseline/candidate on same cloud runner; GPU/optical presentation excluded', 'checks': checks, 'passed': all(c['passed'] for c in checks)}

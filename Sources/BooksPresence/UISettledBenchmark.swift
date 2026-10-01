@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import BooksCore
 import CoreFoundation
+import Darwin
 
 /// Cloud main-thread responsiveness gate. Await actual prepared History content
 /// appearance, then force its final layout/display; never infer readiness from a sleep.
@@ -61,13 +62,21 @@ import CoreFoundation
     let sourceDeadline = ProcessInfo.processInfo.systemUptime + 20
     while model.historyAtlasSource == nil && ProcessInfo.processInfo.systemUptime < sourceDeadline { try await Task.sleep(nanoseconds: 1_000_000) }
     guard model.historyAtlasSource != nil else { throw NSError(domain: "Stillleaf.Benchmark", code: 1) }
-    var workStart: Double?, work: [Double] = [], recording = false
+    var workStart: Double?, cpuStart: UInt64?, work: [Double] = [], cpuWork: [Double] = [], recording = false
+    // Darwin CPU clocks exclude sleep, descheduling and WindowServer waits.
+    func threadCPU() -> UInt64 { clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID) }
+    func processCPU() -> UInt64 { clock_gettime_nsec_np(CLOCK_PROCESS_CPUTIME_ID) }
+    func elapsedCPU(_ start: UInt64, _ end: UInt64) -> Double { Double(end - start) / 1_000_000 }
     let activities = CFRunLoopActivity.afterWaiting.rawValue | CFRunLoopActivity.beforeWaiting.rawValue
     let observer = CFRunLoopObserverCreateWithHandler(nil, activities, true, 0) { _, activity in
         MainActor.assumeIsolated {
             guard recording else { return }
-            if activity == .afterWaiting { workStart = ProcessInfo.processInfo.systemUptime }
-            else if let start = workStart { work.append((ProcessInfo.processInfo.systemUptime - start) * 1000); workStart = nil }
+            if activity == .afterWaiting { workStart = ProcessInfo.processInfo.systemUptime; cpuStart = threadCPU() }
+            else if let start = workStart, let cpu = cpuStart {
+                work.append((ProcessInfo.processInfo.systemUptime - start) * 1000)
+                cpuWork.append(elapsedCPU(cpu, threadCPU()))
+                workStart = nil; cpuStart = nil
+            }
         }
     }!
     CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
@@ -80,29 +89,34 @@ import CoreFoundation
             host.rootView = AnyView(Text("Ready")); host.layoutSubtreeIfNeeded()
             await Task.yield()
             var ready = false
-            work.removeAll(); workStart = nil; recording = true
+            work.removeAll(); cpuWork.removeAll(); workStart = nil; cpuStart = nil; recording = true
             let start = ProcessInfo.processInfo.systemUptime
+            let totalCPUStart = processCPU(), assignmentCPUStart = threadCPU()
             host.rootView = AnyView(HistoryView(model: model, initialScale: scale, anchor: end, benchmarkReady: { key in if key.scale == scale { ready = true } }).id(UUID()).transaction { $0.disablesAnimations = true; $0.animation = nil })
             work.append((ProcessInfo.processInfo.systemUptime - start) * 1000)
+            cpuWork.append(elapsedCPU(assignmentCPUStart, threadCPU()))
             let deadline = start + 10
             while !ready && ProcessInfo.processInfo.systemUptime < deadline {
-                let layoutStart = ProcessInfo.processInfo.systemUptime
+                let layoutStart = ProcessInfo.processInfo.systemUptime, layoutCPUStart = threadCPU()
                 host.layoutSubtreeIfNeeded(); host.displayIfNeeded()
                 work.append((ProcessInfo.processInfo.systemUptime - layoutStart) * 1000)
+                cpuWork.append(elapsedCPU(layoutCPUStart, threadCPU()))
                 try await Task.sleep(nanoseconds: 1_000_000)
             }
             guard ready else { throw NSError(domain: "Stillleaf.Benchmark", code: 2) }
             await Task.yield()
-            let finalStart = ProcessInfo.processInfo.systemUptime
+            let finalStart = ProcessInfo.processInfo.systemUptime, finalCPUStart = threadCPU()
             host.layoutSubtreeIfNeeded(); host.displayIfNeeded()
             work.append((ProcessInfo.processInfo.systemUptime - finalStart) * 1000)
+            cpuWork.append(elapsedCPU(finalCPUStart, threadCPU()))
+            let settledCPU = elapsedCPU(totalCPUStart, processCPU())
             recording = false
             guard abs(host.bounds.width - viewport.width) < 0.5, abs(host.bounds.height - viewport.height) < 0.5 else { throw NSError(domain: "Stillleaf.Benchmark", code: 4, userInfo: [NSLocalizedDescriptionKey: "Rendered bounds \(host.bounds) differ from \(viewport); outer frame \(window.frame)"]) }
-            let record: [String: Any] = ["viewportWidth": host.bounds.width, "viewportHeight": host.bounds.height, "appActive": NSApp.isActive, "keyWindow": window.isKeyWindow, "scale": scale.rawValue, "sample": sample, "settledMs": (ProcessInfo.processInfo.systemUptime - start) * 1000, "maxMainWorkMs": work.max() ?? 0]
+            let record: [String: Any] = ["viewportWidth": host.bounds.width, "viewportHeight": host.bounds.height, "appActive": NSApp.isActive, "keyWindow": window.isKeyWindow, "scale": scale.rawValue, "sample": sample, "settledMs": (ProcessInfo.processInfo.systemUptime - start) * 1000, "maxMainWorkMs": work.max() ?? 0, "settledProcessCPUMs": settledCPU, "maxMainThreadCPUMs": cpuWork.max() ?? 0]
             if sample >= 0 { records.append(record) } else { warmups.append(record) }
         }
     }
-    let data = try JSONSerialization.data(withJSONObject: ["fixture": "60 books / 2000 intervals / 2000 page events", "method": "\(measuredSamples) samples per scale; two warmups; fresh view/controller; actual prepared-content onAppear; animation disabled; run-loop work plus explicit layout/display", "samples": records, "warmups": warmups], options: [.prettyPrinted, .sortedKeys])
+    let data = try JSONSerialization.data(withJSONObject: ["fixture": "60 books / 2000 intervals / 2000 page events", "method": "\(measuredSamples) samples per scale; two warmups; fresh view/controller; actual prepared-content onAppear; animation disabled; run-loop wall/thread CPU work plus explicit layout/display; process CPU across settled readiness", "samples": records, "warmups": warmups], options: [.prettyPrinted, .sortedKeys])
     try data.write(to: output)
     print("settled-ui-benchmark: \(records.count) async History samples written to \(output.path)")
 }
