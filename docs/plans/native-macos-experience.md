@@ -45,6 +45,16 @@ Compile modern SDK output with deployment target 13 and run fallback behavior on
 
 ## Architecture and command ownership
 
+| Focus context | Reader command owner | Tracking eligibility |
+| --- | --- | --- |
+| Key reader | That reader after ready handshake | Existing foreground/visibility gates |
+| Dashboard | No reader; Settings/Library target shared dashboard | No reader eligibility inferred from dashboard |
+| Owned native Appearance popover | Explicit owning reader even if popover becomes key | Evaluated independently; never infer reading from control interaction |
+| DOM dialog | Owning web reader; editing retains input shortcuts | Existing renderer/native evidence rules, no dialog-generated credit |
+| No eligible window / closing owner | Reader commands disabled, no deferred replay | No forced eligibility |
+
+Early execution gate: prove SwiftUI toolbar installation under the actual AppKit `NSHostingController`; inspect exactly one toolbar and sidebar toggle. If hosting does not install it, use one explicit AppKit toolbar rather than leaving inert SwiftUI items or adding duplicates. Rollback reference is canonical main `471d297e11fe4efa239af0bb022a2964dee76e52`; baseline package is PR #10 artifact built at `dcd0805d10389f975f04d1f2858b91cb120d9bb0`. Add synthetic backward reopen coverage with the baseline state schema unchanged.
+
 1. Add `Sources/BooksPresence/NativeChrome.swift` for material selection, chrome control roles, system accessibility flags and window-active state. Scope it to navigation, toolbar, menu-panel shell and controls. Native content stays `ReadingPalette.paper/canvas`; standard foregrounds and separators provide contrast in chrome. Preserve theme accents with light/dark variants; increased contrast uses stronger system labels/borders instead of merely changing opacity.
 2. Keep `NavigationSplitView` and replace sidebar row construction with a native selection-bound sidebar List. Use SwiftUI toolbar for dashboard actions to avoid a second AppKit toolbar claiming the same commands. Do not create two sidebar toggles. Retain one source of section selection, draft lifetimes, and command routing. Adapt dashboard minimum toward 760×600 only after validating every destination; below the comfortable split width collapse the sidebar rather than compressing or clipping forms. Preserve current minimum if the content gates cannot yet pass, and report that limitation.
 3. Add `NativeReaderChrome.swift` with an `NSToolbarDelegate`/controller owned by `EPUBReaderWindow`. Native items: contents, search, highlights/notes, previous/next, bookmark, Focus, Appearance; window title remains book title. Standard overflow preserves access at 520×440. Native mode removes duplicate web command buttons from layout, tab order and accessibility tree only after successful capability handshake; standalone/headless pages retain the full controls. Keep the footer's exact/calculating screen labels and return-from-jump behavior; no native copy of the pagination index.
