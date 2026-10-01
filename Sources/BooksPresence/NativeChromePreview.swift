@@ -59,8 +59,12 @@ private enum NativeChromeCaptureError: Error { case renderFailed }
             let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: false)
             guard let owned = content.windows.first(where: { $0.windowID == CGWindowID(window.windowNumber) }) else { throw NativeChromeCaptureError.renderFailed }
             let config = SCStreamConfiguration()
-            config.width = Int(window.frame.width * (window.screen?.backingScaleFactor ?? 1))
-            config.height = Int(window.frame.height * (window.screen?.backingScaleFactor ?? 1))
+            // Window-server capture bounds can differ from AppKit popover
+            // bounds. Match the actual filtered source to avoid scaling a
+            // parent-window capture into a small popup with black padding.
+            config.width = Int(owned.frame.width * (window.screen?.backingScaleFactor ?? 1))
+            config.height = Int(owned.frame.height * (window.screen?.backingScaleFactor ?? 1))
+            print("native-capture-geometry: AppKit=\(window.frame.size) source=\(owned.frame.size) output=\(config.width)x\(config.height)")
             let image = try await SCScreenshotManager.captureImage(contentFilter: SCContentFilter(desktopIndependentWindow: owned), configuration: config)
             guard let data = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else { throw NativeChromeCaptureError.renderFailed }
             try data.write(to: url)
