@@ -151,7 +151,7 @@ private struct ReaderAppearanceView: View {
         self.window = window
         super.init()
         toolbar.delegate = self; toolbar.displayMode = .iconOnly; toolbar.allowsUserCustomization = false
-        window.toolbar = toolbar; window.toolbarStyle = .unified
+        window.toolbar = toolbar; window.toolbarStyle = .unified; toolbar.isVisible = false
         appearance.behavior = .transient; appearance.delegate = self; appearance.contentSize = NSSize(width: 340, height: 440)
         appearance.contentViewController = NSHostingController(rootView: ReaderAppearanceView(model: model))
         model.change = { [weak self] key, value in self?.updatePreference(key, value) }
@@ -242,7 +242,7 @@ private struct ReaderAppearanceView: View {
         let policy = ["reduceMotion": workspace.accessibilityDisplayShouldReduceMotion, "reduceTransparency": workspace.accessibilityDisplayShouldReduceTransparency, "increaseContrast": workspace.accessibilityDisplayShouldIncreaseContrast]
         Task { _ = try? await send("policy", policy) }
     }
-    private func updateEnabled() { for item in toolbar.items { item.isEnabled = active && !closing && !dialogOpen; (item.view as? NSButton)?.isEnabled = active && !closing && !dialogOpen } }
+    private func updateEnabled() { toolbar.isVisible = active; for item in toolbar.items { item.isEnabled = active && !closing && !dialogOpen; (item.view as? NSButton)?.isEnabled = active && !closing && !dialogOpen } }
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] { items.map { .init($0.0) } + [.flexibleSpace] }
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] { [.init("contents"), .init("search"), .init("notes"), .flexibleSpace, .init("previous"), .init("next"), .init("bookmark"), .init("focus"), .init("appearance")] }
     func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier id: NSToolbarItem.Identifier, willBeInsertedIntoToolbar: Bool) -> NSToolbarItem? {

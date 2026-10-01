@@ -242,7 +242,9 @@ private final class EPUBReaderWindow: NSObject, NSWindowDelegate, WKNavigationDe
         if event["type"] as? String == "ready" { isReady = true; if window?.isKeyWindow == true { focused?() }; Task { await chrome.connect() }; return }
         if event["type"] as? String == "chrome-focus" { chrome.returnFocus?(); return }
         if event["type"] as? String == "chrome" {
-            guard event["version"] as? Int == 1, let sequence = event["sequence"] as? NSNumber, sequence.uint64Value > lastChromeSequence else { return }
+            guard event["version"] as? Int == 1, let sequence = event["sequence"] as? NSNumber,
+                  sequence.doubleValue.isFinite, sequence.doubleValue > 0, sequence.doubleValue <= 9_007_199_254_740_991,
+                  sequence.doubleValue.rounded() == sequence.doubleValue, sequence.uint64Value > lastChromeSequence else { return }
             lastChromeSequence = sequence.uint64Value; chrome.accept(event); return
         }
         if event["type"] as? String == "error" { isReady = false; return }
