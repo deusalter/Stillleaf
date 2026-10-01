@@ -639,7 +639,7 @@ private extension EPUBReaderWindow {
         }
         if let index = CommandLine.arguments.firstIndex(of: "--reader-artifacts"), index + 1 < CommandLine.arguments.count, let window {
             let directory = URL(fileURLWithPath: CommandLine.arguments[index + 1])
-            try captureNativeWindow(window, to: directory.appendingPathComponent("native-reader-toolbar.png"))
+            try await captureNativeWindow(window, to: directory.appendingPathComponent("native-reader-toolbar.png"))
             try await chrome.testCaptureAppearance(to: directory.appendingPathComponent("native-reader-appearance.png"))
         }
         guard before.contains("schemaVersion") else { throw EPUBImportError.invalid("Missing canonical state") }

@@ -285,7 +285,7 @@ private struct ReaderAppearanceView: View {
         while appearance.contentViewController?.view.window == nil && Date() < deadline { try await Task.sleep(nanoseconds: 20_000_000) }
         guard let panel = appearance.contentViewController?.view.window else { throw NSError(domain: "Stillleaf.ReaderControls", code: 5) }
         try await Task.sleep(nanoseconds: 200_000_000)
-        try captureNativeWindow(panel, to: url)
+        try await captureNativeWindow(panel, to: url)
         appearance.close()
     }
     func testClick(_ name: String) throws {
