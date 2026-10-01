@@ -19,6 +19,16 @@ final class EPUBReaderWindows {
         guard NSApp.isActive else { return nil }
         return windows.values.first(where: { $0.isReady && $0.window?.isKeyWindow == true && $0.window?.isMiniaturized == false })
     }
+    private var commandReader: EPUBReaderWindow? {
+        guard NSApp.isActive, !isTerminating else { return nil }
+        return windows.values.first { $0.isReady && ($0.window?.isKeyWindow == true || $0.chrome?.owns(NSApp.keyWindow) == true) }
+    }
+    var hasCommandReader: Bool { commandReader != nil }
+    func performControl(_ command: String) {
+        guard let owner = commandReader else { return }
+        if command == "appearance" { owner.chrome.openAppearance() }
+        else { owner.chrome.command(command) }
+    }
     var focusedPublicationID: String? { focusedReader?.publication.id }
     var focusedProgress: ProgressObservation? { focusedReader?.progress }
     init(stateDirectory: URL) { self.stateDirectory = stateDirectory }
@@ -79,7 +89,7 @@ private final class EPUBReaderWindow: NSObject, NSWindowDelegate, WKNavigationDe
     var focused: (() -> Void)?
     var returnToLibrary: (() -> Void)?
     private var webView: WKWebView!
-    private var chrome: NativeReaderChrome!
+    fileprivate var chrome: NativeReaderChrome!
     private var chromeRequest: UInt64 = 0
     private var chromeGeneration: UInt64 = 0
     private var lastChromeSequence: UInt64 = 0
@@ -154,7 +164,7 @@ private final class EPUBReaderWindow: NSObject, NSWindowDelegate, WKNavigationDe
         chrome?.setClosing(true)
         defer { closing = false; chrome?.setClosing(false); window?.ignoresMouseEvents = false }
         do {
-            await chrome?.flush()
+            try await chrome?.flush()
             if isReady {
                 let mayClose: Any = try await withCheckedThrowingContinuation { continuation in
                     webView.callAsyncJavaScript(
@@ -189,10 +199,12 @@ private final class EPUBReaderWindow: NSObject, NSWindowDelegate, WKNavigationDe
             alert.addButton(withTitle: "Close without saving")
             guard alert.runModal() == .alertSecondButtonReturn else { return false }
         }
+        chromeGeneration += 1; chrome?.disconnect()
         window?.close()
         return true
     }
     func windowWillClose(_ notification: Notification) {
+        chromeGeneration += 1; chrome?.disconnect()
         flushPositionUpdate(final: true)
         stateWorker.sync {}
         webView.stopLoading()
@@ -228,6 +240,7 @@ private final class EPUBReaderWindow: NSObject, NSWindowDelegate, WKNavigationDe
         guard event["editionId"] as? String == publication.id else { return }
         if event["type"] as? String == "close-request" { Task { if await requestClose() { returnToLibrary?() } }; return }
         if event["type"] as? String == "ready" { isReady = true; if window?.isKeyWindow == true { focused?() }; Task { await chrome.connect() }; return }
+        if event["type"] as? String == "chrome-focus" { chrome.returnFocus?(); return }
         if event["type"] as? String == "chrome" {
             guard event["version"] as? Int == 1, let sequence = event["sequence"] as? NSNumber, sequence.uint64Value > lastChromeSequence else { return }
             lastChromeSequence = sequence.uint64Value; chrome.accept(event); return

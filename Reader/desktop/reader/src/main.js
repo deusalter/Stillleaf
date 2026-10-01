@@ -514,7 +514,7 @@ function addBookmark(){
 function showDialog(id,focus){
  annotationUI.dismiss();
  for(const dialog of document.querySelectorAll('dialog[open]'))dialog.close();
- lastFocus=document.activeElement;$(id).showModal();if(focus)$(focus).focus();
+ lastFocus=document.activeElement;$(id).showModal();nativeChrome.changed(value=>emit('chrome',value));if(focus)$(focus).focus();
 }
 let draftDecision;
 function hasPendingDraft(){return Boolean(editingNote&&$('note-panel').open&&($('note-text').value!==(editingNote.note??'')||document.querySelector('input[name="note-color"]:checked').value!==(colors[editingNote.color]?editingNote.color:'gold')))}
@@ -558,6 +558,7 @@ async function closeDialog(dialog){
  dialog.close();if(dialog.id==='note-panel')editingNote=undefined;if(lastFocus?.isConnected)lastFocus.focus();return true;
 }
 for(const dialog of document.querySelectorAll('dialog')){
+ dialog.addEventListener('close',()=>{nativeChrome.changed(value=>emit('chrome',value));if(document.body.classList.contains('native-chrome'))emit('chrome-focus')});
  dialog.addEventListener('click',event=>{if(event.target===dialog){const r=dialog.getBoundingClientRect();if(event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom)closeDialog(dialog)}});
  dialog.addEventListener('cancel',event=>{event.preventDefault();closeDialog(dialog)});
  const closeButton=dialog.querySelector('[data-close]');if(closeButton)closeButton.onclick=()=>void closeDialog(dialog);
@@ -787,10 +788,12 @@ function nativeDefinitions(){
  return result;
 }
 const nativeChrome=nativeChromeAdapter({edition:()=>input?.editionId,ready:()=>Boolean(state&&navigator&&!opening),current:()=>clone(state?.preferences??{}),definitions:nativeDefinitions,
- visibility:active=>{document.body.classList.toggle('native-chrome',active);if(state)void setPreferences({})},
+ status:()=>({bookmarked:Boolean(lastLocator&&state?.bookmarks.some(x=>samePlace(x.locator,lastLocator))),dialogOpen:Boolean(document.querySelector('dialog[open]'))}),
+ visibility:(active,closing=false)=>{document.body.classList.toggle('native-chrome',active);if(state&&!closing)return setPreferences({})},
  perform:async(command,payload)=>{
   if(command==='preferences')return setPreferences(payload);
   if(command==='reset')return setPreferences(DEFAULT_PREFERENCES);
+  if(document.querySelector('dialog[open]')&&!['policy'].includes(command))throw Error('Finish the open reader panel before using this control.');
   if(command==='next'||command==='previous')return turn(command);
   if(command==='contents'){renderPanel('contents');showDialog('library-panel','tab-contents')}
   if(command==='notes')openAnnotations();

@@ -4,7 +4,7 @@ import BooksPlatform
 import BooksCore
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuItemValidation {
     private var instance: SingleInstance?
     private var model: AppModel?
     private var statusItem: NSStatusItem?
@@ -103,6 +103,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         AppPresence.willPresentWindow()
         dashboard?.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
+    }
+    @objc func readerControl(_ sender: NSMenuItem) { if let command = sender.representedObject as? String { model?.performReaderControl(command) } }
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if menuItem.action == #selector(readerControl(_:)) { return model?.hasNativeReaderCommands == true }
+        return true
     }
     @objc private func openDashboard() { showDashboard() }
     @objc func openSettings() { model?.showDashboard(section: .settings) }

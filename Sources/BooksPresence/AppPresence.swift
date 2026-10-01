@@ -59,6 +59,11 @@ enum AppPresence {
             item("Select All", #selector(NSText.selectAll(_:)), "a"),
         ])
         _ = submenu("View", [item("Enter Full Screen", #selector(NSWindow.toggleFullScreen(_:)), "f", [.command, .control])])
+        let reading = submenu("Reading", [])
+        for (title, command, key) in [("Search book…", "search", "f"), ("Contents…", "contents", ""), ("Highlights and notes…", "notes", ""), ("Appearance…", "appearance", ""), ("Toggle bookmark", "bookmark", "d"), ("Focus reading", "focus", "")] {
+            let entry = item(title, #selector(AppDelegate.readerControl(_:)), key)
+            entry.target = dashboardTarget; entry.representedObject = command; reading.addItem(entry)
+        }
         let window = submenu("Window", [
             item("Minimize", #selector(NSWindow.performMiniaturize(_:)), "m"),
             item("Zoom", #selector(NSWindow.performZoom(_:))),

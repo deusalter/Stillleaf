@@ -88,6 +88,8 @@ private struct ReaderAppearanceView: View {
     private weak var window: NSWindow?
     private var active = false
     private var closing = false
+    private var dialogOpen = false
+    private var failedPreference = false
     private var pending: [String: Any] = [:]
     private var preferenceTask: Task<Void, Never>?
     private var displayObserver: NSObjectProtocol?
@@ -108,21 +110,30 @@ private struct ReaderAppearanceView: View {
         appearance.contentViewController = NSHostingController(rootView: ReaderAppearanceView(model: model))
         model.change = { [weak self] key, value in self?.updatePreference(key, value) }
         model.reset = { [weak self] in self?.command("reset") }
-        displayObserver = NotificationCenter.default.addObserver(forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in Task { @MainActor in self?.sendPolicy() } }
+        displayObserver = NotificationCenter.default.addObserver(forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in Task { @MainActor [weak self] in self?.sendPolicy() } }
         updateEnabled()
     }
     func connect() async {
         guard let send else { return }
-        do { let value = try await send("activate", nil); active = true; model.accept(value); updateEnabled(); sendPolicy() }
+        do { let value = try await send("activate", nil); active = true; accept(value); updateEnabled(); sendPolicy() }
         catch { model.error = "Native controls could not connect. The book controls remain available."; active = false; updateEnabled() }
     }
-    func accept(_ value: [String: Any]) { model.accept(value) }
+    func accept(_ value: [String: Any]) {
+        model.accept(value); dialogOpen = value["dialogOpen"] as? Bool ?? false
+        for item in toolbar.items {
+            if let button = item.view as? NSButton {
+                if item.itemIdentifier.rawValue == "bookmark" { button.state = value["bookmarked"] as? Bool == true ? .on : .off }
+                if item.itemIdentifier.rawValue == "focus" { button.state = model.preferences["immersive"] as? Bool == true ? .on : .off }
+            }
+        }
+        updateEnabled()
+    }
     func disconnect() { active = false; preferenceTask?.cancel(); pending.removeAll(); appearance.close(); updateEnabled() }
     func command(_ name: String) {
         guard active, !closing else { return }
         Task { [weak self] in
             guard let self, let send, active else { return }
-            do { let value = try await send(name, nil); guard active, !closing else { return }; model.error = nil; model.accept(value) }
+            do { let value = try await send(name, nil); guard active, !closing else { return }; model.error = nil; accept(value) }
             catch { model.error = "The reader command could not finish. Try again." }
         }
     }
@@ -136,15 +147,23 @@ private struct ReaderAppearanceView: View {
                 try? await Task.sleep(nanoseconds: 60_000_000)
                 guard active, !Task.isCancelled, let send else { break }
                 let patch = pending; pending.removeAll()
-                do { let value = try await send("preferences", patch); guard active else { break }; model.accept(value); for (key, value) in pending { model.preferences[key] = value }; model.error = nil }
-                catch { model.error = "Appearance could not be saved. Try again." }
+                do { let value = try await send("preferences", patch); guard active else { break }; accept(value); failedPreference = false; for (key, value) in pending { model.preferences[key] = value }; model.error = nil }
+                catch { failedPreference = true; model.error = "Appearance could not be saved. Try again." }
             }
             preferenceTask = nil
         }
     }
     func setClosing(_ value: Bool) { closing = value; updateEnabled() }
-    func flush() async {
+    func flush() async throws {
         if let preferenceTask { await preferenceTask.value }
+        if failedPreference { throw NSError(domain: "Stillleaf.ReaderControls", code: 1, userInfo: [NSLocalizedDescriptionKey: "The latest appearance change did not finish."]) }
+    }
+    func owns(_ candidate: NSWindow?) -> Bool { appearance.isShown && candidate != nil && appearance.contentViewController?.view.window === candidate }
+    func openAppearance() {
+        guard active, !closing, !dialogOpen, let view = window?.contentView else { return }
+        if appearance.isShown { appearance.close(); return }
+        let y = view.isFlipped ? view.bounds.minY + 8 : view.bounds.maxY - 8
+        appearance.show(relativeTo: NSRect(x: view.bounds.maxX - 40, y: y, width: 1, height: 1), of: view, preferredEdge: .maxY)
     }
     private func sendPolicy() {
         guard active, let send else { return }
@@ -152,22 +171,28 @@ private struct ReaderAppearanceView: View {
         let policy = ["reduceMotion": workspace.accessibilityDisplayShouldReduceMotion, "reduceTransparency": workspace.accessibilityDisplayShouldReduceTransparency, "increaseContrast": workspace.accessibilityDisplayShouldIncreaseContrast]
         Task { _ = try? await send("policy", policy) }
     }
-    private func updateEnabled() { for item in toolbar.items { item.isEnabled = active && !closing; (item.view as? NSButton)?.isEnabled = active && !closing } }
+    private func updateEnabled() { for item in toolbar.items { item.isEnabled = active && !closing && !dialogOpen; (item.view as? NSButton)?.isEnabled = active && !closing && !dialogOpen } }
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] { items.map { .init($0.0) } + [.flexibleSpace] }
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] { [.init("contents"), .init("search"), .init("notes"), .flexibleSpace, .init("previous"), .init("next"), .init("bookmark"), .init("focus"), .init("appearance")] }
     func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier id: NSToolbarItem.Identifier, willBeInsertedIntoToolbar: Bool) -> NSToolbarItem? {
         guard let spec = items.first(where: { $0.0 == id.rawValue }) else { return nil }
         let item = NSToolbarItem(itemIdentifier: id); item.label = spec.1; item.paletteLabel = spec.1; item.toolTip = spec.1
-        item.image = NSImage(systemSymbolName: spec.2, accessibilityDescription: spec.1); item.target = self; item.action = #selector(invoke(_:)); item.isEnabled = active
+        let image = NSImage(systemSymbolName: spec.2, accessibilityDescription: spec.1) ?? NSImage()
+        let button = NSButton(image: image, target: self, action: #selector(invokeButton(_:)))
+        button.identifier = NSUserInterfaceItemIdentifier(spec.0); button.toolTip = spec.1; button.setAccessibilityLabel(spec.1)
+        button.bezelStyle = .texturedRounded
+        if ["bookmark", "focus"].contains(spec.0) { button.setButtonType(.toggle) }
+        item.view = button
+        let menu = NSMenuItem(title: spec.1, action: #selector(invokeMenu(_:)), keyEquivalent: "")
+        menu.target = self; menu.representedObject = spec.0; item.menuFormRepresentation = menu
+        button.isEnabled = active && !closing && !dialogOpen
         return item
     }
-    @objc private func invoke(_ sender: NSToolbarItem) {
-        guard active, !closing else { return }
-        if sender.itemIdentifier.rawValue == "appearance" {
-            if appearance.isShown { appearance.close(); return }
-            guard let view = sender.view ?? window?.contentView else { return }
-            appearance.show(relativeTo: view.bounds, of: view, preferredEdge: .maxY)
-        } else { appearance.close(); command(sender.itemIdentifier.rawValue) }
+    @objc private func invokeButton(_ sender: NSButton) { invoke(sender.identifier?.rawValue ?? "") }
+    @objc private func invokeMenu(_ sender: NSMenuItem) { invoke(sender.representedObject as? String ?? "") }
+    private func invoke(_ name: String) {
+        if name == "appearance" { openAppearance() }
+        else { appearance.close(); command(name) }
     }
     func popoverDidClose(_ notification: Notification) { returnFocus?() }
     deinit { if let displayObserver { NotificationCenter.default.removeObserver(displayObserver) } }
