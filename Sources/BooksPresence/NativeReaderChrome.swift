@@ -42,6 +42,10 @@ struct ReaderControlDefinition: Decodable, Identifiable {
     try await chrome.flush()
     guard commands.filter({ $0 == "preferences" || $0 == "reset" }) == ["preferences", "reset"],
           chrome.model.preferences["fontSize"] as? Double == 1.2 else { throw NSError(domain: "Stillleaf.ReaderControls", code: 4) }
+    chrome.accept(["preferences": ["fontSize": 1.2, "immersive": true]])
+    guard !chrome.toolbar.isVisible else { throw NSError(domain: "Stillleaf.ReaderControls", code: 6) }
+    chrome.accept(["preferences": ["fontSize": 1.2, "immersive": false], "dialogOpen": true])
+    guard chrome.toolbar.isVisible, !chrome.canAcceptCommands else { throw NSError(domain: "Stillleaf.ReaderControls", code: 7) }
     chrome.disconnect()
     print("native-reader-queue: delayed slider, superseded pending patch and Reset ordering passed")
 }
@@ -122,7 +126,7 @@ private struct ReaderAppearanceView: View {
 }
 
 /// Owns UI commands independently of the native tracking foreground gate.
-@MainActor final class NativeReaderChrome: NSObject, NSToolbarDelegate, NSPopoverDelegate {
+@MainActor final class NativeReaderChrome: NSObject, NSToolbarDelegate, NSPopoverDelegate, NSMenuItemValidation {
     let model = ReaderChromeModel()
     let toolbar = NSToolbar(identifier: "Stillleaf.reader")
     private let appearance = NSPopover()
@@ -136,6 +140,7 @@ private struct ReaderAppearanceView: View {
     private var preferenceGeneration = 0
     private var resetTask: Task<Void, Never>?
     var isConnected: Bool { active }
+    var canAcceptCommands: Bool { active && !closing && !dialogOpen && !model.resetting }
     private var pending: [String: Any] = [:]
     private var preferenceTask: Task<Void, Never>?
     private var displayObserver: NSObjectProtocol?
@@ -186,7 +191,7 @@ private struct ReaderAppearanceView: View {
     }
     func disconnect() { connectionGeneration += 1; active = false; resetTask?.cancel(); preferenceTask?.cancel(); pending.removeAll(); appearance.close(); updateEnabled() }
     func command(_ name: String) {
-        guard active, !closing else { return }
+        guard canAcceptCommands else { return }
         Task { [weak self] in
             guard let self, let send, active else { return }
             do { let value = try await send(name, nil); guard active, !closing else { return }; model.error = nil; accept(value) }
@@ -242,7 +247,7 @@ private struct ReaderAppearanceView: View {
         let policy = ["reduceMotion": workspace.accessibilityDisplayShouldReduceMotion, "reduceTransparency": workspace.accessibilityDisplayShouldReduceTransparency, "increaseContrast": workspace.accessibilityDisplayShouldIncreaseContrast]
         Task { _ = try? await send("policy", policy) }
     }
-    private func updateEnabled() { toolbar.isVisible = active; for item in toolbar.items { item.isEnabled = active && !closing && !dialogOpen; (item.view as? NSButton)?.isEnabled = active && !closing && !dialogOpen } }
+    private func updateEnabled() { toolbar.isVisible = active && model.preferences["immersive"] as? Bool != true; for item in toolbar.items { item.isEnabled = active && !closing && !dialogOpen; (item.view as? NSButton)?.isEnabled = active && !closing && !dialogOpen } }
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] { items.map { .init($0.0) } + [.flexibleSpace] }
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] { [.init("contents"), .init("search"), .init("notes"), .flexibleSpace, .init("previous"), .init("next"), .init("bookmark"), .init("focus"), .init("appearance")] }
     func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier id: NSToolbarItem.Identifier, willBeInsertedIntoToolbar: Bool) -> NSToolbarItem? {
@@ -260,6 +265,7 @@ private struct ReaderAppearanceView: View {
         return item
     }
     @objc private func invokeButton(_ sender: NSButton) { invoke(sender.identifier?.rawValue ?? "") }
+    func validateMenuItem(_ item: NSMenuItem) -> Bool { canAcceptCommands }
     @objc private func invokeMenu(_ sender: NSMenuItem) { invoke(sender.representedObject as? String ?? "") }
     private func invoke(_ name: String) {
         // A toggle reflects acknowledged reader state rather than an optimistic click.

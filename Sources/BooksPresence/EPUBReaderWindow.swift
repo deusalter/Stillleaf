@@ -21,7 +21,7 @@ final class EPUBReaderWindows {
     }
     private var commandReader: EPUBReaderWindow? {
         guard NSApp.isActive, !isTerminating else { return nil }
-        return windows.values.first { $0.isReady && ($0.window?.isKeyWindow == true || $0.chrome?.owns(NSApp.keyWindow) == true) }
+        return windows.values.first { $0.isReady && $0.chrome?.canAcceptCommands == true && ($0.window?.isKeyWindow == true || $0.chrome?.owns(NSApp.keyWindow) == true) }
     }
     var hasCommandReader: Bool { commandReader != nil }
     func performControl(_ command: String) {
