@@ -39,10 +39,19 @@ jobs:
         run: |
           scripts/build-reader-assets.sh .build/release
           .build/release/BooksPresence --self-test-ui
+          .build/release/BooksPresence --benchmark-ui | tee "$RUNNER_TEMP/native-ui-benchmark.txt"
           .build/release/BooksPresence --render-native-chrome "$RUNNER_TEMP/native-chrome"
           python3 scripts/reader-review-fixture.py "$RUNNER_TEMP/native-chrome.epub" --chapters 3
           mkdir -p "$RUNNER_TEMP/native-reader"
           .build/release/BooksPresence --self-test-epub "$RUNNER_TEMP/native-chrome.epub" --reader-artifacts "$RUNNER_TEMP/native-reader"
+      - name: Package modern SDK development app
+        if: matrix.os == 'macos-26'
+        run: scripts/package-app.sh
+      - uses: actions/upload-artifact@v4
+        if: matrix.os == 'macos-26'
+        with:
+          name: Stillleaf-native-macOS26-development
+          path: dist/Stillleaf-*.zip
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}
         with:
@@ -50,3 +59,4 @@ jobs:
           path: |
             ${{ runner.temp }}/native-chrome
             ${{ runner.temp }}/native-reader
+            ${{ runner.temp }}/native-ui-benchmark.txt

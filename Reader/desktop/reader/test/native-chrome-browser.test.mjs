@@ -25,7 +25,7 @@ test('native host retains complete preferences, modal ownership and backwards-co
  await dispatch(2,'preferences',{fontSize:1.37,scroll:true,columns:'two',backgroundColor:'#f6f1e3'});
  const persisted=await page.evaluate(()=>StillleafReader.exportState());assert.equal(persisted.preferences.fontSize,1.37);assert.equal(persisted.preferences.scroll,true);
  assert.equal(persisted.preferences.theme,'custom');assert.ok(persisted.preferences.textColor,'complementary color is preserved');
- const pageColor=await page.evaluate(()=>{const f=[...document.querySelectorAll('#reader iframe')].find(f=>f.contentDocument?.body);return f.contentWindow.getComputedStyle(f.contentDocument.body).backgroundColor});
+ const pageColor=await page.evaluate(()=>{const f=[...document.querySelectorAll('#reader iframe')].find(f=>f.contentDocument?.body);return f.contentWindow.getComputedStyle(f.contentDocument.documentElement).backgroundColor});
  assert.equal(pageColor,'rgb(246, 241, 227)','native custom color affects the actual page');
  await dispatch(3,'notes');assert.equal(await page.locator('#library-panel').isVisible(),true);
  await assert.rejects(dispatch(4,'next'),/Finish the open/);
