@@ -79,7 +79,7 @@ Theme changes update chrome in place and preserve the focused control, insertion
 
 ## Delivery sequence after plan review
 
-1. Record baseline synthetic screenshots/timings; establish SDK26 CI inventory and a compile-only API probe with no product behavior change. Resolve toolchain guards and fallback build strategy before committing glass implementation.
+1. Record baseline synthetic screenshots/timings; establish SDK 26 CI inventory and a compile-only API probe with no product behavior change. Resolve toolchain guards and fallback build strategy before committing glass implementation.
 2. Native shell/sidebar/shared control roles and motion/accessibility policy, preserving settings and onboarding behavior. Capture/dashboard smoke before continuing.
 3. Reader adapter tests first, then native toolbar and complete appearance popover; suppress duplicates only under negotiated host mode. Exercise existing standalone renderer suite and native EPUB smoke after each boundary.
 4. History/menu-panel integration and responsive/focus polish. Avoid broad global restyling or adding glass to content. Capture and independently review the integrated release.
@@ -106,9 +106,9 @@ Official API availability is resolved; actual Xcode26 runner selection, compiler
 
 ## Implementation evidence checkpoint
 
-- SDK gate run `36797151646`: Xcode26.0.1 / SDK26.0 / Swift6.2 compiled and instantiated genuine glass; Xcode15.4 / Swift5.10 compiled fallback. Both actual AppKit hosting probes installed one toolbar/sidebar toggle.
-- Native validation run `36798591638` passed on macOS14 and26 at `314e305`; complete preference definitions, actual toolbar dispatch, delayed slider/Reset ordering and synthetic captures passed. Focused renderer regressions cover custom theme semantics, native Reduced Motion independent of media queries, malformed requests and activation rollback despite late completion.
-- PR11 remains draft pending final-head CI and independent code review. Modern SDK app packaging is enabled; a dependent compatibility job runs that same binary on macOS14. Actual13, multiple physical displays and live VoiceOver remain unverified.
+- SDK gate run `36797151646`: Xcode26.0.1 / SDK 26.0 / Swift6.2 compiled and instantiated genuine glass; Xcode15.4 / Swift5.10 compiled fallback. Both actual AppKit hosting probes installed one toolbar/sidebar toggle.
+- Native validation run `36798591638` passed on macOS 14 and26 at `314e305`; complete preference definitions, actual toolbar dispatch, delayed slider/Reset ordering and synthetic captures passed. Focused renderer regressions cover custom theme semantics, native Reduced Motion independent of media queries, malformed requests and activation rollback despite late completion.
+- PR11 remains draft pending final-head CI and independent code review. Modern SDK app packaging is enabled; a dependent compatibility job runs that same binary on macOS 14. Actual13, multiple physical displays and live VoiceOver remain unverified.
 - The dashboard retains its current920×660 minimum rather than clipping existing compact sheets. System toolbar overflow and520×440 reader remain supported. Native view-cache screenshots have compositor limitations; they do not prove optical glass rendering or hardware frame timing.
 
 ## Quantitative cloud gate revision for review
@@ -138,4 +138,11 @@ At `bfcaebb`, both compared builds rendered audited 960×620 active/key windows 
 
 Additive instrumentation now records Darwin `CLOCK_THREAD_CPUTIME_ID` for main-thread work segments and `CLOCK_PROCESS_CPUTIME_ID` over actual settled History readiness. Apple’s public Libc `_time.h` declares these clocks and `clock_gettime_nsec_np` with macOS10.12 availability, covered by the macOS13 deployment target. Both baseline and candidate receive identical probes. Native feedback records dispatch-to-pending and post-ack layout/display thread CPU separately. All prior wall samples and limits remain enforced for this diagnostic execution; no old failure or measured tail is removed.
 
-Proposed next gate revision, pending coordinator/reviewer assessment and execution evidence: retain the existing 10% / 5 ms noise allowance for measured CPU costs and explicitly separate hosted scheduling/WindowServer wall-time latency. This proposal does not automatically waive the existing 250 ms acknowledgement/panel targets. macOS14 native system popover p95 was 392.818 ms; AppKit controls its animation duration through the public `animates` Boolean rather than a public duration setting. That fallback target needs a concrete implementation correction or an explicitly reviewed bounded exception. Neither CPU clocks nor post-ack button layout prove GPU frame presentation or absence of every synchronous main-thread stall.
+Proposed next gate revision, pending coordinator/reviewer assessment and execution evidence: retain the existing 10% / 5 ms noise allowance for measured CPU costs and explicitly separate hosted scheduling/WindowServer wall-time latency. This proposal does not automatically waive the existing 250 ms acknowledgement/panel targets. macOS 14 native system popover p95 was 392.818 ms; AppKit controls its animation duration through the public `animates` Boolean rather than a public duration setting. That fallback target needs a concrete implementation correction or an explicitly reviewed bounded exception. Neither CPU clocks nor post-ack button layout prove GPU frame presentation or absence of every synchronous main-thread stall.
+
+
+### Denser matched-tail execution with thresholds unchanged
+
+At `511b218`, push native run 36810819976 passed every wall/CPU/feedback gate and its SDK 26 development package passed macOS 14 fallback smoke. PR native run 36810823327 still failed Week/Year History comparisons. Week process CPU median was 118.35 ms baseline versus 116.15 ms candidate, while p95 was 134.072 versus 149.457 ms (limit 147.4792 ms). CPU clocks therefore did not support a scheduling-only explanation; their failures remain failures. The raw distributions include substantial within-build batch variation.
+
+The same four counterbalanced batches now retain twenty measured samples per scale/process, yielding 80 samples per scale/build, with all 32 warmups retained per build. At 20 samples, nearest-rank p95 is the second-largest sample; at 80 it is the fifth-largest, reducing dependence on a few isolated tails without trimming any. The checker requires 80 History samples, retains 20 actual native-feedback samples, and preserves every 10%/5ms, 18.7ms, 250ms and 16ms limit. No CPU/wall gate is removed, no prior failure becomes a pass, and no production behavior changes for this denser execution. Physical rendering claims and the macOS 14 system-popover target remain unresolved as stated above.
