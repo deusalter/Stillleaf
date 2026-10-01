@@ -43,15 +43,21 @@ import CoreFoundation
     // Fit the 1024×768 hosted display. Disable hosting-driven intrinsic window
     // resizing so both builds measure exactly the same visible content area.
     let viewport = NSSize(width: 960, height: 660)
+    NSApp.setActivationPolicy(.regular)
     let window = NSWindow(contentRect: NSRect(origin: NSPoint(x: 16, y: 32), size: viewport), styleMask: [.titled, .resizable], backing: .buffered, defer: false)
     window.isReleasedWhenClosed = false
     let host = NSHostingView(rootView: AnyView(Text("Ready")))
     host.sizingOptions = []
-    window.contentView = host; window.setContentSize(viewport)
-    window.minSize = window.frame.size; window.maxSize = window.frame.size
-    NSApp.setActivationPolicy(.regular)
+    window.contentView = host
     window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
     defer { window.close() }
+    let focusDeadline = ProcessInfo.processInfo.systemUptime + 3
+    while (!NSApp.isActive || !window.isKeyWindow) && ProcessInfo.processInfo.systemUptime < focusDeadline { try await Task.sleep(nanoseconds: 1_000_000) }
+    // Activation can change modern titlebar geometry. Lock the content area
+    // after that transition, rather than pinning its earlier outer frame.
+    window.setContentSize(viewport)
+    window.minSize = window.frame.size; window.maxSize = window.frame.size
+    print("settled-ui-geometry: window=\(window.frame) host=\(host.bounds) expected=\(viewport) appActive=\(NSApp.isActive) key=\(window.isKeyWindow)")
     let sourceDeadline = ProcessInfo.processInfo.systemUptime + 20
     while model.historyAtlasSource == nil && ProcessInfo.processInfo.systemUptime < sourceDeadline { try await Task.sleep(nanoseconds: 1_000_000) }
     guard model.historyAtlasSource != nil else { throw NSError(domain: "Stillleaf.Benchmark", code: 1) }
@@ -91,7 +97,7 @@ import CoreFoundation
             host.layoutSubtreeIfNeeded(); host.displayIfNeeded()
             work.append((ProcessInfo.processInfo.systemUptime - finalStart) * 1000)
             recording = false
-            guard abs(host.bounds.width - viewport.width) < 0.5, abs(host.bounds.height - viewport.height) < 0.5 else { throw NSError(domain: "Stillleaf.Benchmark", code: 4) }
+            guard abs(host.bounds.width - viewport.width) < 0.5, abs(host.bounds.height - viewport.height) < 0.5 else { throw NSError(domain: "Stillleaf.Benchmark", code: 4, userInfo: [NSLocalizedDescriptionKey: "Rendered bounds \(host.bounds) differ from \(viewport); outer frame \(window.frame)"]) }
             let record: [String: Any] = ["viewportWidth": host.bounds.width, "viewportHeight": host.bounds.height, "appActive": NSApp.isActive, "keyWindow": window.isKeyWindow, "scale": scale.rawValue, "sample": sample, "settledMs": (ProcessInfo.processInfo.systemUptime - start) * 1000, "maxMainWorkMs": work.max() ?? 0]
             if sample >= 0 { records.append(record) } else { warmups.append(record) }
         }
