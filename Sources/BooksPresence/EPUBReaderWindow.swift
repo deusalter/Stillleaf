@@ -269,7 +269,9 @@ private final class EPUBReaderWindow: NSObject, NSWindowDelegate, WKNavigationDe
     }
 
     private func sendNativeControl(_ command: String, payload: [String: Any]?) async throws -> [String: Any] {
-        guard isReady, !closing || command == "preferences" else { throw ReaderStateValidation.Failure.invalidState }
+        // Chrome blocks new interactions at close entry. Its already-queued
+        // preference batch and Reset must drain before exporting durable state.
+        guard isReady, !closing || command == "preferences" || command == "reset" else { throw ReaderStateValidation.Failure.invalidState }
         chromeRequest += 1
         let request = chromeRequest, generation = chromeGeneration
         var envelope: [String: Any] = ["version": 1, "editionId": publication.id, "id": request, "command": command]
@@ -452,6 +454,17 @@ func runEPUBReaderSmoke(fixture: URL) async throws {
     guard model.errorMessage == nil, model.hasEPUB(canonical), model.hasImportedEPUB(canonical),
           model.epubEditions(for: canonical).map(\.id) == [imported.publication.id], model.intervals.isEmpty else {
         throw EPUBImportError.invalid("Merging an imported edition hid its EPUB actions or created reading time.")
+    }
+    for terminating in [false, true] {
+        let raceState = temporary.appendingPathComponent(terminating ? "QueuedResetQuit" : "QueuedResetClose")
+        let raceReader = try await EPUBReaderWindow(publication: imported.publication, directory: imported.directory, stateDirectory: raceState)
+        raceReader.window?.setFrameOrigin(NSPoint(x: -20_000, y: -20_000)); raceReader.window?.orderBack(nil)
+        try await raceReader.testWaitUntilReady()
+        try await raceReader.testCloseWithQueuedReset(terminating: terminating, stateDirectory: raceState)
+        let saved = try JSONSerialization.jsonObject(with: Data(contentsOf: raceState.appendingPathComponent(imported.publication.id + ".json"))) as? [String: Any]
+        guard (saved?["preferences"] as? [String: Any])?["fontSize"] as? Double == 1.2 else {
+            throw EPUBImportError.invalid("Close/Quit did not durably save queued Reset.")
+        }
     }
     let state = temporary.appendingPathComponent("ReaderState")
     let reader = try await EPUBReaderWindow(publication: imported.publication, directory: imported.directory, stateDirectory: state)
@@ -644,6 +657,43 @@ private extension EPUBReaderWindow {
         }
         guard before.contains("schemaVersion") else { throw EPUBImportError.invalid("Missing canonical state") }
         print("native-reader-chrome: actual AppKit toolbar, complete appearance definitions and durable renderer dispatch passed")
+    }
+    func testCloseWithQueuedReset(terminating: Bool, stateDirectory: URL) async throws {
+        let deadline = Date().addingTimeInterval(15)
+        while !chrome.isConnected && Date() < deadline { try await Task.sleep(nanoseconds: 10_000_000) }
+        guard chrome.isConnected, let originalSend = chrome.send else { throw EPUBImportError.invalid("Queued Reset test requires connected chrome.") }
+        var release: CheckedContinuation<Void, Never>?
+        chrome.send = { command, payload in
+            if command == "preferences" { await withCheckedContinuation { release = $0 } }
+            return try await originalSend(command, payload)
+        }
+        defer { chrome.send = originalSend; release?.resume() }
+        chrome.model.change?("fontSize", 1.8)
+        let batchDeadline = Date().addingTimeInterval(3)
+        while release == nil && Date() < batchDeadline { try await Task.sleep(nanoseconds: 5_000_000) }
+        guard release != nil else { throw EPUBImportError.invalid("Appearance batch did not reach delayed transport.") }
+        chrome.model.reset?()
+        let manager = EPUBReaderWindows(stateDirectory: stateDirectory)
+        if terminating { manager.testAdopt(self) }
+        // Fail this synthetic regression rather than leave CI in a modal alert
+        // if draining unexpectedly fails. Production alerts remain unchanged.
+        let modalWatch = Task { @MainActor in
+            while !Task.isCancelled {
+                if NSApp.modalWindow != nil { NSApp.abortModal(); return }
+                try? await Task.sleep(nanoseconds: 10_000_000)
+            }
+        }
+        defer { modalWatch.cancel() }
+        let close = Task { @MainActor in terminating ? await manager.closeAll() : await requestClose() }
+        let closeDeadline = Date().addingTimeInterval(3)
+        while !closing && Date() < closeDeadline { try await Task.sleep(nanoseconds: 5_000_000) }
+        guard closing, !chrome.canAcceptCommands else { throw EPUBImportError.invalid("Close did not block new native interactions.") }
+        chrome.model.change?("fontSize", 2.7); chrome.model.reset?()
+        release?.resume(); release = nil
+        guard await close.value, chrome.model.preferences["fontSize"] as? Double == 1.2 else {
+            throw EPUBImportError.invalid("Queued Reset failed while closing or terminating.")
+        }
+        print("native-reader-queue: delayed batch + queued Reset + \(terminating ? "Quit" : "Close") durably drained; new interactions blocked")
     }
     func testWaitUntilReady() async throws {
         let deadline = Date().addingTimeInterval(20)
