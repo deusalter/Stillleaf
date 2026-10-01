@@ -33,6 +33,7 @@ codesign --force --sign - --timestamp=none "$app_dir/Contents/Frameworks/libBook
 codesign --force --sign - --timestamp=none "$app_dir/Contents/MacOS/books-diagnostic"
 codesign --force --sign - --timestamp=none "$app_dir/Contents/MacOS/BooksPresence"
 codesign --force --sign - --timestamp=none "$app_dir"
+python3 "$root_dir/scripts/check-package-sdk.py" "$app_dir" "$(xcrun --sdk macosx --show-sdk-version)"
 
 archive_path="$dist_dir/Stillleaf-$(uname -m).zip"
 ditto -c -k --sequesterRsrc --keepParent "$app_dir" "$archive_path"
