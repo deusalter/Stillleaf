@@ -20,7 +20,7 @@ for scale in ('day', 'week', 'month', 'year'):
         # most 5 ms absolute variation, never an unconstrained relative waiver.
         limit = max(before * 1.10, before + 5)
         checks.append({'metric': scale + '.' + metric, 'baselineP95Ms': before, 'candidateP95Ms': after, 'limitMs': limit, 'passed': after <= limit})
-for metric, limit in [('bookmarkVisibleMs', 18.7), ('popoverVisibleMs', 250), ('buttonFrameworkMs', 16)]:
+for metric, limit in [('bookmarkVisibleMs', 18.7), ('bookmarkAcknowledgedMs', 250), ('popoverVisibleMs', 250), ('buttonFrameworkMs', 16)]:
     after = p95(feedback[metric])
     checks.append({'metric': metric, 'candidateP95Ms': after, 'limitMs': limit, 'passed': after <= limit})
 result = {'method': '20 samples per metric, two warmups; p95 nearest rank; matched baseline/candidate on same cloud runner; GPU/optical presentation excluded', 'checks': checks, 'passed': all(c['passed'] for c in checks)}

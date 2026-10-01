@@ -143,6 +143,7 @@ private struct ReaderAppearanceView: View {
     private var resetTask: Task<Void, Never>?
     var isConnected: Bool { active }
     var canAcceptCommands: Bool { active && !closing && !dialogOpen && !model.resetting }
+    private var pendingCommands: Set<String> = []
     private var pending: [String: Any] = [:]
     private var preferenceTask: Task<Void, Never>?
     private var displayObserver: NSObjectProtocol?
@@ -198,13 +199,19 @@ private struct ReaderAppearanceView: View {
         }
         updateEnabled()
     }
-    func disconnect() { connectionGeneration += 1; active = false; resetTask?.cancel(); preferenceTask?.cancel(); pending.removeAll(); appearance.close(); updateEnabled() }
+    func disconnect() { connectionGeneration += 1; active = false; resetTask?.cancel(); preferenceTask?.cancel(); pending.removeAll(); pendingCommands.removeAll(); appearance.close(); updateEnabled() }
     func command(_ name: String) {
-        guard canAcceptCommands else { return }
+        guard canAcceptCommands, !pendingCommands.contains(name), send != nil else { return }
+        // Native feedback is immediate; selection still requires the renderer's
+        // acknowledgement. Disable this command to prevent a duplicate toggle.
+        pendingCommands.insert(name); updateEnabled()
+        let generation = connectionGeneration
         Task { [weak self] in
-            guard let self, let send, active else { return }
-            do { let value = try await send(name, nil); guard active, !closing else { return }; model.error = nil; accept(value) }
-            catch { model.error = "The reader command could not finish. Try again." }
+            guard let self, let send else { return }
+            defer { if generation == connectionGeneration { pendingCommands.remove(name); updateEnabled() } }
+            guard active, generation == connectionGeneration else { return }
+            do { let value = try await send(name, nil); guard active, !closing, generation == connectionGeneration else { return }; model.error = nil; accept(value) }
+            catch { if active, generation == connectionGeneration { model.error = "The reader command could not finish. Try again." } }
         }
     }
     private func updatePreference(_ key: String, _ value: Any) {
@@ -256,7 +263,13 @@ private struct ReaderAppearanceView: View {
         let policy = ["reduceMotion": workspace.accessibilityDisplayShouldReduceMotion, "reduceTransparency": workspace.accessibilityDisplayShouldReduceTransparency, "increaseContrast": workspace.accessibilityDisplayShouldIncreaseContrast]
         Task { _ = try? await send("policy", policy) }
     }
-    private func updateEnabled() { toolbar.isVisible = active && model.preferences["immersive"] as? Bool != true; for item in toolbar.items { item.isEnabled = active && !closing && !dialogOpen; (item.view as? NSButton)?.isEnabled = active && !closing && !dialogOpen } }
+    private func updateEnabled() {
+        toolbar.isVisible = active && model.preferences["immersive"] as? Bool != true
+        for item in toolbar.items {
+            let enabled = canAcceptCommands && !pendingCommands.contains(item.itemIdentifier.rawValue)
+            item.isEnabled = enabled; (item.view as? NSButton)?.isEnabled = enabled
+        }
+    }
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] { items.map { .init($0.0) } + [.flexibleSpace] }
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] { [.init("contents"), .init("search"), .init("notes"), .flexibleSpace, .init("previous"), .init("next"), .init("bookmark"), .init("focus"), .init("appearance")] }
     func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier id: NSToolbarItem.Identifier, willBeInsertedIntoToolbar: Bool) -> NSToolbarItem? {
@@ -274,7 +287,7 @@ private struct ReaderAppearanceView: View {
         return item
     }
     @objc private func invokeButton(_ sender: NSButton) { invoke(sender.identifier?.rawValue ?? "") }
-    func validateMenuItem(_ item: NSMenuItem) -> Bool { canAcceptCommands }
+    func validateMenuItem(_ item: NSMenuItem) -> Bool { canAcceptCommands && !pendingCommands.contains(item.representedObject as? String ?? "") }
     @objc private func invokeMenu(_ sender: NSMenuItem) { invoke(sender.representedObject as? String ?? "") }
     private func invoke(_ name: String) {
         // A toggle reflects acknowledged reader state rather than an optimistic click.
@@ -289,17 +302,49 @@ private struct ReaderAppearanceView: View {
     }
     func popoverDidShow(_ notification: Notification) { appearanceShows += 1 }
     func popoverDidClose(_ notification: Notification) { appearanceCloses += 1; returnFocus?() }
+    func testPendingFeedback() async throws {
+        guard let original = send,
+              let item = toolbar.items.first(where: { $0.itemIdentifier.rawValue == "bookmark" }),
+              let button = item.view as? NSButton else { throw NSError(domain: "Stillleaf.ReaderControls", code: 9) }
+        var release: CheckedContinuation<Void, Never>?, calls = 0
+        let originalState = button.state
+        send = { name, payload in
+            calls += 1
+            await withCheckedContinuation { release = $0 }
+            return try await original(name, payload)
+        }
+        defer { send = original; release?.resume() }
+        try testClick("bookmark")
+        guard !button.isEnabled, button.state == originalState else { throw NSError(domain: "Stillleaf.ReaderControls", code: 10) }
+        command("bookmark")
+        let deadline = Date().addingTimeInterval(3)
+        while release == nil && Date() < deadline { try await Task.sleep(nanoseconds: 1_000_000) }
+        guard calls == 1, release != nil else { throw NSError(domain: "Stillleaf.ReaderControls", code: 11) }
+        release?.resume(); release = nil
+        while !button.isEnabled && Date() < deadline { try await Task.sleep(nanoseconds: 1_000_000) }
+        guard button.isEnabled, button.state != originalState else { throw NSError(domain: "Stillleaf.ReaderControls", code: 12) }
+        accept(try await original("bookmark", nil))
+        send = { _, _ in throw NSError(domain: "Stillleaf.SyntheticFailure", code: 1) }
+        try testClick("bookmark")
+        while !button.isEnabled && Date() < deadline { try await Task.sleep(nanoseconds: 1_000_000) }
+        guard button.isEnabled, button.state == originalState, model.error != nil else { throw NSError(domain: "Stillleaf.ReaderControls", code: 13) }
+        model.error = nil
+        print("native-reader-feedback: immediate pending, duplicate suppression, acknowledged selection and failure cleanup passed")
+    }
     func benchmarkFeedback(output: URL) async throws {
         guard let item = toolbar.items.first(where: { $0.itemIdentifier.rawValue == "bookmark" }), let button = item.view as? NSButton else { throw NSError(domain: "Stillleaf.Benchmark", code: 3) }
-        var bookmark: [Double] = [], panel: [Double] = [], framework: [Double] = []
+        var bookmark: [Double] = [], acknowledged: [Double] = [], panel: [Double] = [], framework: [Double] = []
         for sample in -2..<20 {
             let previous = button.state, start = ProcessInfo.processInfo.systemUptime
             guard let action = button.action, NSApp.sendAction(action, to: button.target, from: button) else { throw NSError(domain: "Stillleaf.Benchmark", code: 4) }
-            while button.state == previous && ProcessInfo.processInfo.systemUptime - start < 2 { try await Task.sleep(nanoseconds: 1_000_000) }
+            guard !button.isEnabled, button.state == previous else { throw NSError(domain: "Stillleaf.Benchmark", code: 9) }
+            button.layoutSubtreeIfNeeded(); button.displayIfNeeded()
+            let feedbackMs = (ProcessInfo.processInfo.systemUptime - start) * 1000
+            while (button.state == previous || !button.isEnabled) && ProcessInfo.processInfo.systemUptime - start < 2 { try await Task.sleep(nanoseconds: 1_000_000) }
             guard button.state != previous else { throw NSError(domain: "Stillleaf.Benchmark", code: 5) }
             let layoutStart = ProcessInfo.processInfo.systemUptime
             button.layoutSubtreeIfNeeded(); button.displayIfNeeded()
-            if sample >= 0 { bookmark.append((ProcessInfo.processInfo.systemUptime - start) * 1000); framework.append((ProcessInfo.processInfo.systemUptime - layoutStart) * 1000) }
+            if sample >= 0 { bookmark.append(feedbackMs); acknowledged.append((ProcessInfo.processInfo.systemUptime - start) * 1000); framework.append((ProcessInfo.processInfo.systemUptime - layoutStart) * 1000) }
             let shows = appearanceShows, closes = appearanceCloses, panelStart = ProcessInfo.processInfo.systemUptime
             openAppearance()
             while appearanceShows == shows && ProcessInfo.processInfo.systemUptime - panelStart < 2 { try await Task.sleep(nanoseconds: 1_000_000) }
@@ -311,7 +356,7 @@ private struct ReaderAppearanceView: View {
             while appearanceCloses == closes && ProcessInfo.processInfo.systemUptime - closeStart < 2 { try await Task.sleep(nanoseconds: 1_000_000) }
             guard appearanceCloses > closes else { throw NSError(domain: "Stillleaf.Benchmark", code: 7) }
         }
-        let data = try JSONSerialization.data(withJSONObject: ["method": "20 samples, two warmups; actual AppKit bookmark action to acknowledged button state and display; NSPopover didShow to final layout/display", "bookmarkVisibleMs": bookmark, "popoverVisibleMs": panel, "buttonFrameworkMs": framework], options: [.prettyPrinted, .sortedKeys])
+        let data = try JSONSerialization.data(withJSONObject: ["method": "20 samples, two warmups; actual AppKit bookmark action to pending disabled display, then separately acknowledged selection and display; NSPopover didShow to final layout/display", "bookmarkVisibleMs": bookmark, "bookmarkAcknowledgedMs": acknowledged, "popoverVisibleMs": panel, "buttonFrameworkMs": framework], options: [.prettyPrinted, .sortedKeys])
         try data.write(to: output)
         print("native-feedback-benchmark: 20 acknowledged bookmark actions and 20 actual popover shows recorded")
     }

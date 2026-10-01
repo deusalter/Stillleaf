@@ -641,6 +641,7 @@ private extension EPUBReaderWindow {
         while !chrome.isConnected && Date() < deadline { try await Task.sleep(nanoseconds: 50_000_000) }
         guard chrome.isConnected, window?.toolbar === chrome.toolbar else { throw EPUBImportError.invalid("Native toolbar handshake did not finish") }
         guard chrome.model.definitions.count == chrome.model.preferences.count else { throw EPUBImportError.invalid("Native appearance omits a preference") }
+        try await chrome.testPendingFeedback()
         let before = try await webView.evaluateJavaScript("JSON.stringify(window.StillleafReader.exportState())") as? String ?? ""
         try chrome.testClick("bookmark")
         let bookmarkDeadline = Date().addingTimeInterval(3)

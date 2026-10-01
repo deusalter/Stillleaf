@@ -51,6 +51,7 @@ struct DashboardView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .background(ReadingPalette.paper)
+            .foregroundStyle(ReadingPalette.ink)
         }
         .readingMotionAccessibility()
         .onAppear { acceptNavigationRequest() }
@@ -65,7 +66,6 @@ struct DashboardView: View {
         }
         .navigationSplitViewStyle(.balanced)
         .frame(minWidth: 920, minHeight: 660)
-        .foregroundStyle(ReadingPalette.ink)
         .toggleStyle(.switch)
         .tint(ReadingPalette.moss)
         .buttonStyle(ReadingButtonStyle())
