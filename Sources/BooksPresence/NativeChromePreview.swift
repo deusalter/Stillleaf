@@ -10,6 +10,7 @@ private enum NativeChromeCaptureError: Error { case renderFailed }
     let defaults = UserDefaults(suiteName: suite)!
     defer { try? FileManager.default.removeItem(at: temporary); defaults.removePersistentDomain(forName: suite) }
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    NSApp.setActivationPolicy(.regular)
     let model = try AppModel(support: temporary, defaults: defaults, startTracking: false)
     defer { model.shutdown() }
     for dark in [false, true] {
@@ -18,7 +19,7 @@ private enum NativeChromeCaptureError: Error { case renderFailed }
             window.isReleasedWhenClosed = false; window.title = "Stillleaf — synthetic preview"
             window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
             window.contentViewController = NSHostingController(rootView: DashboardView(model: model).environment(\.nativePreviewOpaque, opaque))
-            window.orderBack(nil)
+            window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
             RunLoop.main.run(until: Date().addingTimeInterval(0.4))
             guard let toolbar = window.toolbar, toolbar.items.filter({ $0.itemIdentifier.rawValue.contains("toggleSidebar") }).count == 1 else { throw NativeChromeCaptureError.renderFailed }
             try captureNativeWindow(window, to: directory.appendingPathComponent("dashboard-\(dark ? "dark" : "light")-\(opaque ? "opaque" : "system").png"))
@@ -26,7 +27,7 @@ private enum NativeChromeCaptureError: Error { case renderFailed }
             let panel = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 350, height: 500), styleMask: [.titled], backing: .buffered, defer: false)
             panel.isReleasedWhenClosed = false; panel.title = "Stillleaf — synthetic menu panel"; panel.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
             panel.contentViewController = NSHostingController(rootView: PopoverView(model: model).environment(\.nativePreviewOpaque, opaque))
-            panel.orderBack(nil); RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+            panel.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true); RunLoop.main.run(until: Date().addingTimeInterval(0.3))
             try captureNativeWindow(panel, to: directory.appendingPathComponent("panel-\(dark ? "dark" : "light")-\(opaque ? "opaque" : "system").png"))
             panel.contentViewController = nil; panel.close()
         }

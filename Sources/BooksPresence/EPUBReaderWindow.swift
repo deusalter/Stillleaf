@@ -636,7 +636,9 @@ private extension EPUBReaderWindow {
             try await Task.sleep(nanoseconds: 25_000_000)
         }
         if let index = CommandLine.arguments.firstIndex(of: "--reader-artifacts"), index + 1 < CommandLine.arguments.count, let window {
-            try captureNativeWindow(window, to: URL(fileURLWithPath: CommandLine.arguments[index + 1]).appendingPathComponent("native-reader-toolbar.png"))
+            let directory = URL(fileURLWithPath: CommandLine.arguments[index + 1])
+            try captureNativeWindow(window, to: directory.appendingPathComponent("native-reader-toolbar.png"))
+            try await chrome.testCaptureAppearance(to: directory.appendingPathComponent("native-reader-appearance.png"))
         }
         guard before.contains("schemaVersion") else { throw EPUBImportError.invalid("Missing canonical state") }
         print("native-reader-chrome: actual AppKit toolbar, complete appearance definitions and durable renderer dispatch passed")

@@ -152,7 +152,7 @@ private struct ReaderAppearanceView: View {
         super.init()
         toolbar.delegate = self; toolbar.displayMode = .iconOnly; toolbar.allowsUserCustomization = false
         window.toolbar = toolbar; window.toolbarStyle = .unified
-        appearance.behavior = .transient; appearance.delegate = self
+        appearance.behavior = .transient; appearance.delegate = self; appearance.contentSize = NSSize(width: 340, height: 440)
         appearance.contentViewController = NSHostingController(rootView: ReaderAppearanceView(model: model))
         model.change = { [weak self] key, value in self?.updatePreference(key, value) }
         model.reset = { [weak self] in self?.resetAppearance() }
@@ -238,6 +238,7 @@ private struct ReaderAppearanceView: View {
     private func sendPolicy() {
         guard active, let send else { return }
         let workspace = NSWorkspace.shared
+        appearance.animates = !workspace.accessibilityDisplayShouldReduceMotion
         let policy = ["reduceMotion": workspace.accessibilityDisplayShouldReduceMotion, "reduceTransparency": workspace.accessibilityDisplayShouldReduceTransparency, "increaseContrast": workspace.accessibilityDisplayShouldIncreaseContrast]
         Task { _ = try? await send("policy", policy) }
     }
@@ -272,6 +273,15 @@ private struct ReaderAppearanceView: View {
         else { appearance.close(); command(name) }
     }
     func popoverDidClose(_ notification: Notification) { returnFocus?() }
+    func testCaptureAppearance(to url: URL) async throws {
+        openAppearance()
+        let deadline = Date().addingTimeInterval(2)
+        while appearance.contentViewController?.view.window == nil && Date() < deadline { try await Task.sleep(nanoseconds: 20_000_000) }
+        guard let panel = appearance.contentViewController?.view.window else { throw NSError(domain: "Stillleaf.ReaderControls", code: 5) }
+        try await Task.sleep(nanoseconds: 200_000_000)
+        try captureNativeWindow(panel, to: url)
+        appearance.close()
+    }
     func testClick(_ name: String) throws {
         guard let item = toolbar.items.first(where: { $0.itemIdentifier.rawValue == name }), let button = item.view as? NSButton, button.isEnabled else {
             throw NSError(domain: "Stillleaf.ReaderControls", code: 2, userInfo: [NSLocalizedDescriptionKey: "Native toolbar command is not available: \(name)"])
