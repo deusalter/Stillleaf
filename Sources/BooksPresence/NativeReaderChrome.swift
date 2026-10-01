@@ -169,7 +169,14 @@ private struct ReaderAppearanceView: View {
         let generation = connectionGeneration
         do {
             let value = try await send("activate", nil)
-            guard generation == connectionGeneration, !closing else { return }
+            guard generation == connectionGeneration else { return }
+            guard !closing else {
+                // Activation already hid the renderer controls. A failed close
+                // must retain one usable surface even though native ownership
+                // was never accepted. Successful close disposes both surfaces.
+                _ = try? await send("deactivate", nil)
+                return
+            }
             active = true; accept(value); updateEnabled(); sendPolicy()
         } catch {
             guard generation == connectionGeneration else { return }

@@ -271,7 +271,7 @@ private final class EPUBReaderWindow: NSObject, NSWindowDelegate, WKNavigationDe
     private func sendNativeControl(_ command: String, payload: [String: Any]?) async throws -> [String: Any] {
         // Chrome blocks new interactions at close entry. Its already-queued
         // preference batch and Reset must drain before exporting durable state.
-        guard isReady, !closing || command == "preferences" || command == "reset" else { throw ReaderStateValidation.Failure.invalidState }
+        guard isReady, !closing || command == "preferences" || command == "reset" || command == "deactivate" else { throw ReaderStateValidation.Failure.invalidState }
         chromeRequest += 1
         let request = chromeRequest, generation = chromeGeneration
         var envelope: [String: Any] = ["version": 1, "editionId": publication.id, "id": request, "command": command]
@@ -466,6 +466,11 @@ func runEPUBReaderSmoke(fixture: URL) async throws {
             throw EPUBImportError.invalid("Close/Quit did not durably save queued Reset.")
         }
     }
+    let activationState = temporary.appendingPathComponent("ActivationCloseKeepOpen")
+    let activationReader = try await EPUBReaderWindow(publication: imported.publication, directory: imported.directory, stateDirectory: activationState)
+    activationReader.window?.setFrameOrigin(NSPoint(x: -20_000, y: -20_000)); activationReader.window?.orderBack(nil)
+    try await activationReader.testWaitUntilReady()
+    try await activationReader.testActivationDuringFailedClose(stateDirectory: activationState)
     let state = temporary.appendingPathComponent("ReaderState")
     let reader = try await EPUBReaderWindow(publication: imported.publication, directory: imported.directory, stateDirectory: state)
     defer { reader.window?.close() }
@@ -694,6 +699,65 @@ private extension EPUBReaderWindow {
             throw EPUBImportError.invalid("Queued Reset failed while closing or terminating.")
         }
         print("native-reader-queue: delayed batch + queued Reset + \(terminating ? "Quit" : "Close") durably drained; new interactions blocked")
+    }
+    func testActivationDuringFailedClose(stateDirectory: URL) async throws {
+        let deadline = Date().addingTimeInterval(15)
+        while !chrome.isConnected && Date() < deadline { try await Task.sleep(nanoseconds: 10_000_000) }
+        guard chrome.isConnected, let originalSend = chrome.send else { throw EPUBImportError.invalid("Activation recovery test requires connected chrome.") }
+        chrome.disconnect()
+        _ = try await originalSend("deactivate", nil)
+        var release: CheckedContinuation<Void, Never>?
+        chrome.send = { command, payload in
+            let value = try await originalSend(command, payload)
+            if command == "activate" { await withCheckedContinuation { release = $0 } }
+            return value
+        }
+        defer { chrome.send = originalSend; release?.resume() }
+        let connect = Task { @MainActor in await chrome.connect() }
+        let activationDeadline = Date().addingTimeInterval(5)
+        while release == nil && Date() < activationDeadline { try await Task.sleep(nanoseconds: 5_000_000) }
+        guard release != nil else { throw EPUBImportError.invalid("Activation did not reach delayed acknowledgement.") }
+        // Temporary fixture only: block the real durable-save worker, then make
+        // its directory unwritable by replacing it with a file. No mock close.
+        stateWorker.sync {}
+        let backup = stateDirectory.appendingPathExtension("backup")
+        try FileManager.default.moveItem(at: stateDirectory, to: backup)
+        try Data("synthetic save failure".utf8).write(to: stateDirectory)
+        let saveGate = DispatchSemaphore(value: 0)
+        stateWorker.async { saveGate.wait() }
+        var gateReleased = false, restoredDirectory = false
+        defer {
+            if !gateReleased { saveGate.signal() }
+            if !restoredDirectory {
+                try? FileManager.default.removeItem(at: stateDirectory)
+                try? FileManager.default.moveItem(at: backup, to: stateDirectory)
+            }
+        }
+        var keptOpen = false
+        let keepOpen = Timer(timeInterval: 0.01, repeats: true) { timer in
+            MainActor.assumeIsolated {
+                guard NSApp.modalWindow != nil else { return }
+                keptOpen = true; NSApp.stopModal(withCode: .alertFirstButtonReturn); timer.invalidate()
+            }
+        }
+        RunLoop.main.add(keepOpen, forMode: .modalPanel)
+        defer { keepOpen.invalidate() }
+        let close = Task { @MainActor in await requestClose() }
+        let closeDeadline = Date().addingTimeInterval(3)
+        while !closing && Date() < closeDeadline { try await Task.sleep(nanoseconds: 5_000_000) }
+        guard closing else { throw EPUBImportError.invalid("Close did not reach save drain.") }
+        release?.resume(); release = nil
+        await connect.value
+        saveGate.signal(); gateReleased = true
+        guard !(await close.value), keptOpen, !closing, !chrome.isConnected, !chrome.toolbar.isVisible,
+              try await webView.evaluateJavaScript("getComputedStyle(document.querySelector('.reader-bar')).display !== 'none'") as? Bool == true else {
+            throw EPUBImportError.invalid("Failed close stranded reader controls after delayed activation.")
+        }
+        try FileManager.default.removeItem(at: stateDirectory)
+        try FileManager.default.moveItem(at: backup, to: stateDirectory)
+        restoredDirectory = true
+        guard await requestClose() else { throw EPUBImportError.invalid("Recovered reader did not close durably.") }
+        print("native-reader-activation: delayed response during real save failure + Keep Open restored exactly one usable web surface")
     }
     func testWaitUntilReady() async throws {
         let deadline = Date().addingTimeInterval(20)
