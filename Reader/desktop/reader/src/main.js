@@ -30,6 +30,8 @@ let lifecycle=0;let preferenceQueue=Promise.resolve(),preferenceRevision=0,prefe
 const frames=new WeakSet();let headingCache=new Map();
 const pageLayoutObservers=new WeakMap();
 let screenIndex,backgroundQuietUntil=0;
+const deferredAnnotationHrefs=new Set();
+let deferredAnnotationDocuments=new WeakSet();
 const backgroundActivity=()=>{backgroundQuietUntil=performance.now()+350};
 for(const type of ['wheel','scroll','pointerdown','keydown','input'])window.addEventListener(type,backgroundActivity,{capture:true,passive:true});
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
@@ -117,7 +119,13 @@ function observeChapterPages(wnd,generation){
  pageLayoutObservers.set(wnd,()=>{observer.disconnect();cancelAnimationFrame(pending);doc.fonts.removeEventListener('loading',loading);doc.fonts.removeEventListener('loadingdone',schedule);doc.fonts.removeEventListener('loadingerror',schedule);doc.removeEventListener('load',resource,true);doc.removeEventListener('error',resource,true)});
 }
 const annotationUI=new AnnotationUI({popup:$('selection-tools'),layer:$('annotation-margins'),viewport:$('reader'),
- frames:()=>navigator?.kind==='continuous'?navigator.entries.filter(e=>e.frame).map(e=>({frame:e.frame,href:e.link.href})):[...$('reader').querySelectorAll('iframe')].filter(f=>getComputedStyle(f).visibility!=='hidden').map(frame=>({frame,href:lastLocator?.href})),
+ frames:()=>{
+  if(navigator?.kind==='continuous')return navigator.entries.filter(e=>e.frame).map(e=>({frame:e.frame,href:e.link.href}));
+  // Use Readium's public current-frame/viewport pair, not the last reported
+  // locator: a chapter transition can report its new href before old paint ends.
+  const hrefs=navigator?.viewport?.readingOrder??[];
+  return (navigator?._cframes??[]).filter(Boolean).map((manager,index)=>({frame:manager.iframe,href:hrefs[index]})).filter(({frame,href})=>href&&$('reader').contains(frame)&&getComputedStyle(frame).visibility!=='hidden');
+ },
  annotations:()=>state?.annotations??[],continuous:()=>navigator?.kind==='continuous',onDismiss:()=>{selection=null},
  onEdit:id=>{const item=state?.annotations.find(x=>x.id===id);if(item)editNote(item)},onList:openAnnotations});
 function openAnnotations(){if(!state)return;annotationUI.dismiss();renderPanel('notes');showDialog('library-panel','tab-notes')}
@@ -452,16 +460,31 @@ function decorationLocator(item){
  // Convert legacy all-child coordinates only for that wire representation.
  if(locator.locations?.domRange&&locator.locations.domRangeIndexing!=='text-nodes'){
   const frame=annotationUI.frames().find(value=>value.href===locator.href)?.frame;
-  const range=frame&&locatorRange(frame.contentDocument,locator);
+  const anchor=locator.text?.highlight?locator:{...locator,locations:{domRange:locator.locations.domRange}};
+  const range=frame&&locatorRange(frame.contentDocument,anchor);
   if(range){locator.locations.domRange=longSelectionRange(range);locator.locations.domRangeIndexing='text-nodes'}
   else if(locator.text?.highlight)delete locator.locations.domRange;
+  else return null;
  }
  return locator;
+}
+function retryDeferredAnnotations(){
+ if(navigator?.kind==='continuous'||!deferredAnnotationHrefs.has(lastLocator?.href))return;
+ const frame=annotationUI.frames().find(value=>value.href===lastLocator.href)?.frame,doc=frame?.contentDocument;
+ // Readium announces position after its frame-ready pong. Retry once per
+ // mounted document; unresolved saved endpoints must not rebuild on scroll.
+ if(doc&&!deferredAnnotationDocuments.has(doc)){deferredAnnotationDocuments.add(doc);applyAnnotations()}
 }
 function applyAnnotations(){
  annotationUI.invalidate();
  if(navigator?.decorationsAvailable===false)return;
- navigator?.applyDecorations(state.annotations.filter(item=>input.readingOrder.some(link=>link.href===item.locator.href)).map(item=>({id:item.id,locator:navigator?.kind==='continuous'?clone(item.locator):decorationLocator(item),style:{type:DecorationStyleType.Highlight,tint:colors[item.color]??colors.gold,isActive:true}})),'personal');
+ deferredAnnotationHrefs.clear();
+ const decorations=state.annotations.filter(item=>input.readingOrder.some(link=>link.href===item.locator.href)).flatMap(item=>{
+  const locator=navigator?.kind==='continuous'?clone(item.locator):decorationLocator(item);
+  if(!locator){deferredAnnotationHrefs.add(item.locator.href);return []}
+  return [{id:item.id,locator,style:{type:DecorationStyleType.Highlight,tint:colors[item.color]??colors.gold,isActive:true}}];
+ });
+ navigator?.applyDecorations(decorations,'personal');
 }
 function annotate(value){
  const prior=state.annotations.find(x=>x.id===value.id);
@@ -699,6 +722,7 @@ function pageEdgeTap(event){
  return true;
 }
 async function installNavigator(location,settings=readiumPreferences()){
+  deferredAnnotationHrefs.clear();deferredAnnotationDocuments=new WeakSet();
   const generation=lifecycle;
   const manifest=Manifest.deserialize({metadata:{title:input.title??'Untitled',language:input.languages??input.language??'en',readingProgression:input.readingProgression,conformsTo:['https://readium.org/webpub-manifest/profiles/epub']},readingOrder:input.readingOrder.map(x=>({...x,type:'text/html'}))});
   const publication=new Publication({manifest,fetcher:new PublicationFetcher(pool)});
@@ -706,7 +730,7 @@ async function installNavigator(location,settings=readiumPreferences()){
   const listeners={
    chapterInvalidated:index=>screenIndex?.invalidate(index),
    click:pageEdgeTap,tap:pageEdgeTap,
-   positionChanged:locator=>{if(generation!==lifecycle||!state)return;lastLocator=locator.serialize();if(opening&&state.position){refreshPosition();return;}state.position=clone(lastLocator);refreshPosition();changed(false);emit('relocated',{locator:lastLocator,cause:'unknown',eligibleForProgress:false})},
+   positionChanged:locator=>{if(generation!==lifecycle||!state)return;lastLocator=locator.serialize();retryDeferredAnnotations();if(opening&&state.position){refreshPosition();return;}state.position=clone(lastLocator);refreshPosition();changed(false);emit('relocated',{locator:lastLocator,cause:'unknown',eligibleForProgress:false})},
    frameUnloaded:wnd=>{pageLayoutObservers.get(wnd)?.();pageLayoutObservers.delete(wnd);frames.delete(wnd)},
    readerScrolled:(delta,height)=>{if(generation===lifecycle)trackContinuousScroll(delta,height)},
    readerAnchorChanged:locator=>{if(generation===lifecycle&&performance.now()>=quietUntil&&!reflowCount&&!resizing)stableAnchor=clone(locator)},

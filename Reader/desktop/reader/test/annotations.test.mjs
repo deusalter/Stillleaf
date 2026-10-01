@@ -101,3 +101,27 @@ test('long selections autosave a bounded preview and retain their complete range
  assert.equal(await page.evaluate(()=>{try{window.StillleafReader.annotate({locator:{href:'chapter.xhtml',type:'application/xhtml+xml',text:{highlight:'x'.repeat(17000)}},quote:'x'.repeat(17000),note:'Invalid'});return false}catch{return true}}),true,'oversized text without complete endpoints is rejected before saving');
  assert.deepEqual(errors,[]);
 });
+
+test('accepted legacy DOM-only annotations defer until their chapter mounts',{timeout:60000},async t=>{
+ const server=createServer(async(req,res)=>{try{const file=path.resolve(root,'.'+new URL(req.url,'http://localhost').pathname);if(!file.startsWith(root+path.sep))throw Error();res.setHeader('Content-Type',{'.html':'text/html','.js':'text/javascript','.css':'text/css'}[path.extname(file)]??'application/octet-stream');res.end(await readFile(file))}catch{res.writeHead(404).end()}});
+ await new Promise(done=>server.listen(0,'127.0.0.1',done));t.after(()=>new Promise(done=>server.close(done)));
+ const browser=await (process.env.READER_TEST_BROWSER==='webkit'?webkit.launch():chromium.launch({...(process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:{}),headless:true}));t.after(()=>browser.close());
+ const page=await browser.newPage({viewport:{width:1200,height:800},reducedMotion:'reduce'}),errors=[];page.on('pageerror',e=>errors.push(e.message));
+ await page.goto(`http://127.0.0.1:${server.address().port}/index.html`);await page.waitForFunction(()=>window.StillleafReader);
+ const passage='Legacy mixed-inline passage. '.repeat(620),id='b'.repeat(64),prefix=9000;
+ const chapters=[`<html><body><p id="long"><em>${'Wrong chapter A. '.repeat(600)}</em>${'Other text. '.repeat(900)}</p></body></html>`,`<html><body><p id="long"><em>${passage.slice(0,prefix)}</em>${passage.slice(prefix)}</p></body></html>`];
+ const item={id:'legacy',locator:{href:'b.xhtml',type:'application/xhtml+xml',locations:{domRange:{start:{cssSelector:'#long > em',textNodeIndex:0,charOffset:0},end:{cssSelector:'#long',textNodeIndex:1,charOffset:passage.length-prefix}}}},quote:passage.slice(0,16384),note:'Existing note',color:'gold',createdAt:'2026-09-24T12:00:00Z',updatedAt:'2026-09-24T12:00:00Z'};
+ const state={schemaVersion:1,editionId:id,revision:1,position:{href:'a.xhtml',type:'application/xhtml+xml'},preferences:{scroll:false,columns:'two',theme:'system',fontFamily:'publisher',fontSize:1.2,lineHeight:1.6,measure:65},bookmarks:[],annotations:[item]};
+ const book={editionId:id,title:'Legacy state',readingOrder:['a.xhtml','b.xhtml'].map(href=>({href,type:'application/xhtml+xml'})),resources:chapters.map((html,i)=>({href:i?'b.xhtml':'a.xhtml',type:'application/xhtml+xml',dataBase64:Buffer.from(html).toString('base64')})),state};
+ const {validateState}=await import('../../src/reader-state.cjs');assert.deepEqual(validateState(state,id,{manifest:[{path:'a.xhtml'},{path:'b.xhtml'}]}).annotations,[item],'the legacy snapshot is accepted without normalization');
+ for(let reopen=0;reopen<2;reopen++){
+  await page.evaluate(book=>window.StillleafReader.open(book),book);
+  assert.equal(await page.evaluate(()=>window.StillleafReader.exportState().position.href),'a.xhtml');
+  assert.equal(await page.evaluate(()=>[...document.querySelectorAll('#reader iframe')].filter(f=>getComputedStyle(f).visibility!=='hidden').flatMap(f=>[...f.contentWindow.CSS.highlights.values()].flatMap(highlight=>[...highlight])).length),0,'unmounted legacy annotation cannot decorate chapter A');
+  await page.evaluate(()=>window.StillleafReader.go({href:'b.xhtml',type:'application/xhtml+xml',locations:{progression:0}}));
+  const result=await page.waitForFunction(passage=>{const frame=[...document.querySelectorAll('#reader iframe')].find(f=>getComputedStyle(f).visibility!=='hidden'&&f.contentDocument?.getElementById('long'));if(!frame||window.StillleafReader.exportState().position.href!=='b.xhtml')return false;const ranges=[...frame.contentWindow.CSS.highlights.values()].flatMap(highlight=>[...highlight]).map(range=>range.toString());return ranges.length===1&&ranges[0]===passage?ranges:false},passage);assert.deepEqual(await result.jsonValue(),[passage]);await result.dispose();
+  assert.deepEqual((await page.evaluate(()=>window.StillleafReader.exportState())).annotations,[item],'wire conversion never rewrites legacy annotation data');
+  await page.evaluate(()=>window.StillleafReader.close());
+ }
+ assert.deepEqual(errors,[]);
+});

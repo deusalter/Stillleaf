@@ -30,5 +30,13 @@ final class ReaderStateStoreTests: XCTestCase {
         let updated = try JSONSerialization.data(withJSONObject: state)
         try store.save(updated, publication: publication)
         XCTAssertEqual(try store.load(publication: publication), updated)
+        // Pre-marker DOM-only annotations are accepted persisted state too.
+        var legacyEnd = end; legacyEnd["textNodeIndex"] = 1
+        var legacy = annotation
+        legacy["locator"] = ["href": "chapter.xhtml", "locations": ["domRange": ["start": start, "end": legacyEnd]]]
+        state["annotations"] = [legacy]; state["revision"] = 3
+        let legacyData = try JSONSerialization.data(withJSONObject: state)
+        try store.save(legacyData, publication: publication)
+        XCTAssertEqual(try store.load(publication: publication), legacyData, "Unmarked all-child endpoints remain unchanged")
     }
 }
