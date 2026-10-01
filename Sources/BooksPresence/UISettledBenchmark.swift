@@ -42,7 +42,7 @@ import CoreFoundation
     defer { model.shutdown() }
     // Fit the 1024×768 hosted display. Disable hosting-driven intrinsic window
     // resizing so both builds measure exactly the same visible content area.
-    let viewport = NSSize(width: 960, height: 660)
+    let viewport = NSSize(width: 960, height: 620)
     NSApp.setActivationPolicy(.regular)
     let window = NSWindow(contentRect: NSRect(origin: NSPoint(x: 16, y: 32), size: viewport), styleMask: [.titled, .resizable], backing: .buffered, defer: false)
     window.isReleasedWhenClosed = false

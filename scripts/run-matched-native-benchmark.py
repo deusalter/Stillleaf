@@ -22,7 +22,7 @@ for batch in range(4):
         for scale in ('day', 'week', 'month', 'year'):
             assert sum(s['scale'] == scale for s in result['samples']) == 5
             assert sum(s['scale'] == scale for s in result['warmups']) == 2
-        assert all(s['viewportWidth'] == 960 and s['viewportHeight'] == 660 for s in result['samples'] + result['warmups'])
+        assert all(s['viewportWidth'] == 960 and s['viewportHeight'] == 620 for s in result['samples'] + result['warmups'])
         for key in ('samples', 'warmups'):
             combined[label][key].extend(dict(sample, batch=batch, position=position) for sample in result[key])
         combined[label]['batches'].append({'batch': batch, 'position': position, 'file': path.name})
