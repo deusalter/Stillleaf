@@ -1,6 +1,6 @@
 # Native macOS experience: implementation plan
 
-Status: plan only, awaiting coordinator-relayed independent plan review. Product implementation starts after that review; the user has already authorized execution after review. No additional user approval gate is proposed.
+Status: all three independent reviewers cleared exact plan `0bf658d`; the coordinator authorized execution. This document records the reviewed design and execution gates. No additional user approval gate is proposed.
 
 Baseline: canonical `origin/main` at `471d297e11fe4efa239af0bb022a2964dee76e52` (PR #10 merge). Branch: `ui/native-macos-experience`. Preserve `reader/cloud-integration`, recovery refs and artifacts. Work and synthetic validation remain cloud-only; no access to the user's Mac, installed app, books, history or permissions.
 
@@ -103,3 +103,10 @@ Required gates:
 ## Technical decisions still requiring execution evidence
 
 Official API availability is resolved; actual Xcode26 runner selection, compiler guard, modern-to-fallback package loading, native material appearance/performance, and cloud multi-display/VoiceOver automation are not yet verified. These are execution gates, not a request for more user permission. If runner provisioning is unavailable, report that blocker before claiming Liquid Glass delivery. If a full native appearance model cannot preserve a preference or focus behavior, fix its contract before hiding the web fallback; do not ship duplicated or partially functional controls as completed. macOS13 runtime remains explicitly unverified unless exercised on an actual supported cloud host.
+
+## Implementation evidence checkpoint
+
+- SDK gate run `36797151646`: Xcode26.0.1 / SDK26.0 / Swift6.2 compiled and instantiated genuine glass; Xcode15.4 / Swift5.10 compiled fallback. Both actual AppKit hosting probes installed one toolbar/sidebar toggle.
+- Native validation run `36798591638` passed on macOS14 and26 at `314e305`; complete preference definitions, actual toolbar dispatch, delayed slider/Reset ordering and synthetic captures passed. Focused renderer regressions cover custom theme semantics, native Reduced Motion independent of media queries, malformed requests and activation rollback despite late completion.
+- PR11 remains draft pending final-head CI and independent code review. Modern SDK app packaging is enabled; a dependent compatibility job runs that same binary on macOS14. Actual13, multiple physical displays and live VoiceOver remain unverified.
+- The dashboard retains its current920×660 minimum rather than clipping existing compact sheets. System toolbar overflow and520×440 reader remain supported. Native view-cache screenshots have compositor limitations; they do not prove optical glass rendering or hardware frame timing.

@@ -3,6 +3,8 @@ on:
   workflow_dispatch:
   push:
     branches: [ui/native-macos-experience]
+  pull_request:
+    branches: [main]
 permissions:
   contents: read
 jobs:
@@ -35,6 +37,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - uses: actions/checkout@v4
+        if: matrix.os == 'macos-26'
+        with:
+          ref: 471d297e11fe4efa239af0bb022a2964dee76e52
+          path: .native-baseline
+      - name: Matched synthetic baseline layout benchmark
+        if: matrix.os == 'macos-26'
+        run: |
+          swift build --package-path .native-baseline -c release
+          .native-baseline/.build/release/BooksPresence --benchmark-ui | tee "$RUNNER_TEMP/baseline-ui-benchmark.txt"
       - name: Reader assets and native synthetic smoke
         run: |
           scripts/build-reader-assets.sh .build/release
@@ -60,3 +72,28 @@ jobs:
             ${{ runner.temp }}/native-chrome
             ${{ runner.temp }}/native-reader
             ${{ runner.temp }}/native-ui-benchmark.txt
+            ${{ runner.temp }}/baseline-ui-benchmark.txt
+  modern-package-fallback:
+    needs: sdk-probe
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: Stillleaf-native-macOS26-development
+          path: ${{ runner.temp }}/modern-package
+      - name: Run modern SDK app on fallback OS
+        run: |
+          sw_vers
+          test "$(uname -m)" = arm64
+          ditto -x -k "$RUNNER_TEMP/modern-package/Stillleaf-arm64.zip" "$RUNNER_TEMP/modern-fallback"
+          app="$RUNNER_TEMP/modern-fallback/Stillleaf.app/Contents/MacOS/BooksPresence"
+          "$app" --self-test-ui
+          "$app" --render-native-chrome "$RUNNER_TEMP/modern-fallback-captures"
+          python3 scripts/reader-review-fixture.py "$RUNNER_TEMP/modern-fallback.epub" --chapters 3
+          "$app" --self-test-epub "$RUNNER_TEMP/modern-fallback.epub"
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: Stillleaf-modern-package-fallback
+          path: ${{ runner.temp }}/modern-fallback-captures
