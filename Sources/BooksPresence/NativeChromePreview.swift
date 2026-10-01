@@ -48,7 +48,7 @@ private enum NativeChromeCaptureError: Error { case renderFailed }
     #endif
 }
 
-@MainActor func captureNativeWindow(_ window: NSWindow, to url: URL) async throws {
+@MainActor func captureNativeWindow(_ window: NSWindow, to url: URL, contextWindow: NSWindow? = nil) async throws {
     try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
     if #available(macOS 14.0, *) {
         let originalOrigin = window.frame.origin
@@ -63,10 +63,25 @@ private enum NativeChromeCaptureError: Error { case renderFailed }
             // content rectangle can include the parent, unlike SCWindow.frame.
             // Use the filter's native pixel geometry rather than scaling that
             // group into the smaller AppKit popup's dimensions.
-            let filter = SCContentFilter(desktopIndependentWindow: owned)
+            let filter: SCContentFilter
+            let captureSize: CGSize
+            if let contextWindow {
+                // Single-window capture groups a transient popup with its
+                // parent but reports only the popup bounds. Use display-space
+                // capture filtered to these two synthetic owned windows and
+                // crop the actual popup rectangle, without desktop content.
+                guard let parent = content.windows.first(where: { $0.windowID == CGWindowID(contextWindow.windowNumber) }),
+                      let display = content.displays.first(where: { $0.frame.contains(CGPoint(x: owned.frame.midX, y: owned.frame.midY)) }) else { throw NativeChromeCaptureError.renderFailed }
+                filter = SCContentFilter(display: display, including: [parent, owned])
+                config.sourceRect = owned.frame.offsetBy(dx: -display.frame.minX, dy: -display.frame.minY)
+                captureSize = owned.frame.size
+            } else {
+                filter = SCContentFilter(desktopIndependentWindow: owned)
+                captureSize = filter.contentRect.size
+            }
             let scale = CGFloat(filter.pointPixelScale)
-            config.width = Int(filter.contentRect.width * scale)
-            config.height = Int(filter.contentRect.height * scale)
+            config.width = Int(captureSize.width * scale)
+            config.height = Int(captureSize.height * scale)
             print("native-capture-geometry: AppKit=\(window.frame.size) window=\(owned.frame.size) filter=\(filter.contentRect) scale=\(scale) output=\(config.width)x\(config.height)")
             let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
             guard let data = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else { throw NativeChromeCaptureError.renderFailed }

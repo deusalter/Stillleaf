@@ -380,13 +380,13 @@ private struct ReaderAppearanceView: View {
             scroll.contentView.scroll(to: NSPoint(x: 0, y: top)); scroll.reflectScrolledClipView(scroll.contentView)
         }
         root.layoutSubtreeIfNeeded(); root.displayIfNeeded()
-        try await captureNativeWindow(panel, to: url)
+        try await captureNativeWindow(panel, to: url, contextWindow: window)
         if includeBottom {
             guard let scroll, let document = scroll.documentView else { throw NSError(domain: "Stillleaf.ReaderControls", code: 8) }
             let y = document.isFlipped ? max(0, document.bounds.height - scroll.contentSize.height) : 0
             scroll.contentView.scroll(to: NSPoint(x: 0, y: y)); scroll.reflectScrolledClipView(scroll.contentView)
             root.layoutSubtreeIfNeeded(); root.displayIfNeeded()
-            try await captureNativeWindow(panel, to: url.deletingPathExtension().appendingPathExtension("bottom.png"))
+            try await captureNativeWindow(panel, to: url.deletingPathExtension().appendingPathExtension("bottom.png"), contextWindow: window)
         }
         appearance.close()
     }
