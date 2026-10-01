@@ -232,12 +232,12 @@ private struct ReaderAppearanceView: View {
     }
     private func resetAppearance() {
         guard active, !closing, !model.resetting else { return }
-        preferenceGeneration += 1; pending.removeAll(); model.resetting = true
+        preferenceGeneration += 1; pending.removeAll(); model.resetting = true; updateEnabled()
         let previous = preferenceTask
         resetTask = Task { [weak self] in
             guard let self else { return }
             await previous?.value
-            defer { model.resetting = false; resetTask = nil }
+            defer { model.resetting = false; resetTask = nil; updateEnabled() }
             guard active, !Task.isCancelled, let send else { return }
             do { let value = try await send("reset", nil); guard active else { return }; accept(value); failedPreference = false; model.error = nil }
             catch { failedPreference = true; model.error = "Appearance could not be reset. Try again." }
@@ -306,6 +306,9 @@ private struct ReaderAppearanceView: View {
         guard let original = send,
               let item = toolbar.items.first(where: { $0.itemIdentifier.rawValue == "bookmark" }),
               let button = item.view as? NSButton else { throw NSError(domain: "Stillleaf.ReaderControls", code: 9) }
+        model.reset?()
+        try await flush()
+        guard canAcceptCommands, button.isEnabled else { throw NSError(domain: "Stillleaf.ReaderControls", code: 14) }
         var release: CheckedContinuation<Void, Never>?, calls = 0
         let originalState = button.state
         send = { name, payload in
@@ -329,7 +332,7 @@ private struct ReaderAppearanceView: View {
         while !button.isEnabled && Date() < deadline { try await Task.sleep(nanoseconds: 1_000_000) }
         guard button.isEnabled, button.state == originalState, model.error != nil else { throw NSError(domain: "Stillleaf.ReaderControls", code: 13) }
         model.error = nil
-        print("native-reader-feedback: immediate pending, duplicate suppression, acknowledged selection and failure cleanup passed")
+        print("native-reader-feedback: Reset re-enabled toolbar; immediate pending, duplicate suppression, acknowledged selection and failure cleanup passed")
     }
     func benchmarkFeedback(output: URL) async throws {
         guard let item = toolbar.items.first(where: { $0.itemIdentifier.rawValue == "bookmark" }), let button = item.view as? NSButton else { throw NSError(domain: "Stillleaf.Benchmark", code: 3) }
