@@ -80,8 +80,10 @@ test('themes, typefaces and margins apply to the page and persist',{timeout:1200
  state=await frame();assert.equal(state.prefs.margins,'wide');assert.equal(state.inset,48);assert.ok(state.width>normalWidth,'wider gutters widen the page');
  await page.getByRole('radio',{name:'Wide',exact:true}).focus();await page.keyboard.press('ArrowRight');await settle();
  state=await frame();assert.equal(state.prefs.margins,'narrow','arrow keys wrap to the first margin');assert.equal(state.inset,16);assert.ok(state.width<normalWidth);
- await page.setViewportSize({width:520,height:800});await settle();assert.equal((await frame()).inset,12,'compact windows use the compact narrow inset');
- await page.setViewportSize({width:1100,height:820});await settle();
+ // Delay resize work beyond the old fixed pause; wait for the actual compact inset.
+ await page.evaluate(()=>{window.originalTimeout=window.setTimeout;window.setTimeout=(callback,delay,...args)=>window.originalTimeout(callback,delay===100?600:delay,...args)});
+ await page.setViewportSize({width:520,height:800});await page.waitForFunction(()=>parseFloat(getComputedStyle(document.getElementById('reading-viewport')).marginTop)===12);await page.evaluate(()=>{window.setTimeout=window.originalTimeout});assert.equal((await frame()).inset,12,'compact windows use the compact narrow inset');
+ await page.setViewportSize({width:1100,height:820});await page.waitForFunction(()=>parseFloat(getComputedStyle(document.getElementById('reading-viewport')).marginTop)===16);
 
  // Everything survives a reopen.
  await page.getByRole('button',{name:'Night',exact:true}).click();await settle();

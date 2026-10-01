@@ -87,6 +87,7 @@ public enum ReaderStateValidation {
                 if let fragments = locations["fragments"] {
                     guard let fragments = fragments as? [String], fragments.count <= 20, fragments.allSatisfy({ text($0, maximum: 8192) }) else { return false }
                 }
+                if let indexing = locations["domRangeIndexing"] { guard indexing as? String == "text-nodes" else { return false } }
                 if let range = locations["domRange"] {
                     guard let range = range as? [String: Any], Set(range.keys).isSubset(of: ["start", "end"]) else { return false }
                     for key in ["start", "end"] {

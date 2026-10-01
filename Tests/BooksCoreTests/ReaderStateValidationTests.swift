@@ -106,6 +106,10 @@ final class ReaderStateValidationTests: XCTestCase {
         var value = state
         value["position"] = ["href": "chapter.xhtml", "locations": ["domRange": ["start": point, "end": point]]] as [String: Any]
         XCTAssertNoThrow(try validate(value))
+        value["position"] = ["href": "chapter.xhtml", "locations": ["domRange": ["start": point, "end": point], "domRangeIndexing": "text-nodes"] as [String: Any]]
+        XCTAssertNoThrow(try validate(value))
+        value["position"] = ["href": "chapter.xhtml", "locations": ["domRange": ["start": point, "end": point], "domRangeIndexing": "unknown"] as [String: Any]]
+        XCTAssertThrowsError(try validate(value))
         for invalid in [["cssSelector": "p", "charOffset": true], ["cssSelector": "p", "textNodeIndex": 10_000_001], ["cssSelector": "p", "unknown": 1]] as [[String: Any]] {
             value["position"] = ["href": "chapter.xhtml", "locations": ["domRange": ["start": invalid, "end": point]]] as [String: Any]
             XCTAssertThrowsError(try validate(value))

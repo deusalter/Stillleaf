@@ -1,9 +1,9 @@
 import {EpubNavigator,EpubPreferences,DecorationStyleType} from '@readium/navigator';
 import {Manifest,Publication,Locator} from '@readium/shared';
 import {PublicationResources,PublicationFetcher} from './resources';
-import {ContinuousNavigator} from './continuous';
+import {ContinuousNavigator,locatorRange} from './continuous';
 import {AnnotationUI} from './annotation-ui';
-import {annotationLocator,quotePreview} from './annotation-anchor';
+import {annotationLocator,quotePreview,longSelectionRange,MAX_LOCATOR_TEXT} from './annotation-anchor';
 import {PageSlide} from './page-slide';
 import {visibleTextBounds,firstFullyVisibleOffset} from './visible-text';
 import {installPageTurnWheel} from './page-turn-input';
@@ -436,6 +436,7 @@ function selected(value){
   if(sel?.rangeCount&&sel.toString()===value.text){
    const range=sel.getRangeAt(0);selectedRange={frame,range};locator.locations={...locator.locations,domRange:{start:rangePoint(range.startContainer,range.startOffset),end:rangePoint(range.endContainer,range.endOffset)}};
    const before=range.cloneRange(),after=range.cloneRange();before.selectNodeContents(frame.contentDocument.body);before.setEnd(range.startContainer,range.startOffset);after.selectNodeContents(frame.contentDocument.body);after.setStart(range.endContainer,range.endOffset);
+   if(value.text.length>MAX_LOCATOR_TEXT){locator.locations.domRange=longSelectionRange(range);locator.locations.domRangeIndexing='text-nodes'}
    locator.text={...locator.text,highlight:value.text,before:before.toString().slice(-80),after:after.toString().slice(0,80)};break;
   }
  }
@@ -444,10 +445,23 @@ function selected(value){
  annotationUI.show(selection,selectedRange);
  emit('selection',{selection:{text:selection.quote,locator:selection.locator}});
 }
+function decorationLocator(item){
+ const locator=clone(item.locator);
+ // Readium sends decoration locators as JSON. Passing a Locator instance loses
+ // locations.otherLocations (a Map), including domRange, on the wire.
+ // Convert legacy all-child coordinates only for that wire representation.
+ if(locator.locations?.domRange&&locator.locations.domRangeIndexing!=='text-nodes'){
+  const frame=annotationUI.frames().find(value=>value.href===locator.href)?.frame;
+  const range=frame&&locatorRange(frame.contentDocument,locator);
+  if(range){locator.locations.domRange=longSelectionRange(range);locator.locations.domRangeIndexing='text-nodes'}
+  else if(locator.text?.highlight)delete locator.locations.domRange;
+ }
+ return locator;
+}
 function applyAnnotations(){
  annotationUI.invalidate();
  if(navigator?.decorationsAvailable===false)return;
- navigator?.applyDecorations(state.annotations.filter(item=>input.readingOrder.some(link=>link.href===item.locator.href)).map(item=>({id:item.id,locator:Locator.deserialize(item.locator),style:{type:DecorationStyleType.Highlight,tint:colors[item.color]??colors.gold,isActive:true}})),'personal');
+ navigator?.applyDecorations(state.annotations.filter(item=>input.readingOrder.some(link=>link.href===item.locator.href)).map(item=>({id:item.id,locator:navigator?.kind==='continuous'?clone(item.locator):decorationLocator(item),style:{type:DecorationStyleType.Highlight,tint:colors[item.color]??colors.gold,isActive:true}})),'personal');
 }
 function annotate(value){
  const prior=state.annotations.find(x=>x.id===value.id);

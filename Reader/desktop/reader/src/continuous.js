@@ -7,9 +7,9 @@ const MAX_FRAMES=8, MAX_CHAPTER_BYTES=8*1024*1024, MAX_CHAPTER_HEIGHT=250000, MA
 const clone=value=>JSON.parse(JSON.stringify(value));
 const nextPaint=()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
 const serial=value=>value?.serialize?.()??value;
-function point(doc,value){
+function point(doc,value,textNodes=false){
  if(!value?.cssSelector)return null;
- try{const element=doc.querySelector(value.cssSelector);if(!element)return null;const node=value.textNodeIndex===undefined?element:element.childNodes[value.textNodeIndex];const offset=value.charOffset??0;if(!node||offset<0||offset>(node.nodeType===Node.TEXT_NODE?node.length:node.childNodes.length))return null;return {node,offset}}catch{return null}
+ try{const element=doc.querySelector(value.cssSelector);if(!element)return null;const children=textNodes?[...element.childNodes].filter(node=>node.nodeType===Node.TEXT_NODE):element.childNodes;const node=value.textNodeIndex===undefined?element:children[value.textNodeIndex];const offset=value.charOffset??0;if(!node||offset<0||offset>(node.nodeType===Node.TEXT_NODE?node.length:node.childNodes.length))return null;return {node,offset}}catch{return null}
 }
 function textRange(doc,root,text){
  if(!text?.highlight)return null;
@@ -23,7 +23,7 @@ function textRange(doc,root,text){
 }
 export function locatorRange(doc,value){
  const locator=serial(value),locations=locator?.locations??{},endpoints=locations.domRange;
- if(endpoints){const a=point(doc,endpoints.start),b=point(doc,endpoints.end);if(a&&b)try{const range=doc.createRange();range.setStart(a.node,a.offset);range.setEnd(b.node,b.offset);if(!range.collapsed)return range}catch{}}
+ if(endpoints){const textNodes=locations.domRangeIndexing==='text-nodes',a=point(doc,endpoints.start,textNodes),b=point(doc,endpoints.end,textNodes);if(a&&b)try{const range=doc.createRange();range.setStart(a.node,a.offset);range.setEnd(b.node,b.offset);if(!range.collapsed)return range}catch{}}
  let root=doc.body;try{if(locations.cssSelector)root=doc.querySelector(locations.cssSelector)||root}catch{}
  if(locator?.text?.highlight)return textRange(doc,root,locator.text);
  for(const fragment of locations.fragments??[]){let id=fragment.replace(/^#/,'');try{id=decodeURIComponent(id)}catch{}const el=doc.getElementById(id);if(el){const range=doc.createRange();range.selectNodeContents(el);return range}}

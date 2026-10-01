@@ -1,3 +1,4 @@
+import {selectorFor} from './state';
 // Match ReaderStateValidation's UTF-16 locator-text contract. A shortened quote
 // is a preview, never a replacement anchor for a longer selected passage.
 export const MAX_LOCATOR_TEXT=16384;
@@ -18,4 +19,17 @@ export function annotationLocator(value){
   delete locator.locations.cssSelector;delete locator.locations.fragments;
  }
  return locator;
+}
+
+// Readium indexes direct-child text nodes. Older Stillleaf endpoints index all
+// children; retain those saved anchors and tag only newly created long ranges.
+export function longSelectionRange(range){
+ const doc=range.startContainer.ownerDocument,root=range.commonAncestorContainer;
+ const nodes=[];
+ if(root.nodeType===Node.TEXT_NODE)nodes.push(root);
+ else{const walker=doc.createTreeWalker(root,NodeFilter.SHOW_TEXT);let node;while((node=walker.nextNode()))if(node.length&&range.intersectsNode(node))nodes.push(node)}
+ if(!nodes.length)throw Error('Select a text passage to annotate.');
+ const point=(node,offset)=>({cssSelector:selectorFor(node.parentElement),textNodeIndex:[...node.parentElement.childNodes].filter(child=>child.nodeType===Node.TEXT_NODE).indexOf(node),charOffset:offset});
+ const first=nodes[0],last=nodes.at(-1);
+ return {start:point(first,first===range.startContainer?range.startOffset:0),end:point(last,last===range.endContainer?range.endOffset:last.length)};
 }

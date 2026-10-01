@@ -12,7 +12,7 @@ final class ReaderStateStoreTests: XCTestCase {
         let store = ReaderStateStore(directory: root)
         let start: [String: Any] = ["cssSelector": "#passage", "textNodeIndex": 0, "charOffset": 0]
         let end: [String: Any] = ["cssSelector": "#passage", "textNodeIndex": 0, "charOffset": 17_000]
-        let locator: [String: Any] = ["href": "chapter.xhtml", "locations": ["domRange": ["start": start, "end": end]]]
+        let locator: [String: Any] = ["href": "chapter.xhtml", "locations": ["domRange": ["start": start, "end": end], "domRangeIndexing": "text-nodes"] as [String: Any]]
         let annotation: [String: Any] = ["id": "long", "locator": locator, "quote": String(repeating: "x", count: ReaderStateValidation.maximumLocatorText), "note": "Autosaved note", "color": "gold", "createdAt": "2026-09-24T12:00:00Z", "updatedAt": "2026-09-24T12:00:00Z"]
         var state: [String: Any] = ["schemaVersion": 1, "editionId": id, "revision": 1, "position": NSNull(), "preferences": ["theme": "system", "fontFamily": "publisher", "fontSize": 1.2, "lineHeight": 1.6, "measure": 65], "bookmarks": [], "annotations": [annotation]]
         let data = try JSONSerialization.data(withJSONObject: state)
