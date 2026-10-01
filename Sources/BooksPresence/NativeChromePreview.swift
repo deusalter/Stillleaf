@@ -59,13 +59,16 @@ private enum NativeChromeCaptureError: Error { case renderFailed }
             let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: false)
             guard let owned = content.windows.first(where: { $0.windowID == CGWindowID(window.windowNumber) }) else { throw NativeChromeCaptureError.renderFailed }
             let config = SCStreamConfiguration()
-            // Window-server capture bounds can differ from AppKit popover
-            // bounds. Match the actual filtered source to avoid scaling a
-            // parent-window capture into a small popup with black padding.
-            config.width = Int(owned.frame.width * (window.screen?.backingScaleFactor ?? 1))
-            config.height = Int(owned.frame.height * (window.screen?.backingScaleFactor ?? 1))
-            print("native-capture-geometry: AppKit=\(window.frame.size) source=\(owned.frame.size) output=\(config.width)x\(config.height)")
-            let image = try await SCScreenshotManager.captureImage(contentFilter: SCContentFilter(desktopIndependentWindow: owned), configuration: config)
+            // A system popover belongs to a capture window group. Its filtered
+            // content rectangle can include the parent, unlike SCWindow.frame.
+            // Use the filter's native pixel geometry rather than scaling that
+            // group into the smaller AppKit popup's dimensions.
+            let filter = SCContentFilter(desktopIndependentWindow: owned)
+            let scale = CGFloat(filter.pointPixelScale)
+            config.width = Int(filter.contentRect.width * scale)
+            config.height = Int(filter.contentRect.height * scale)
+            print("native-capture-geometry: AppKit=\(window.frame.size) window=\(owned.frame.size) filter=\(filter.contentRect) scale=\(scale) output=\(config.width)x\(config.height)")
+            let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
             guard let data = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else { throw NativeChromeCaptureError.renderFailed }
             try data.write(to: url)
             print("native-capture: compositor own-window \(url.lastPathComponent)")
