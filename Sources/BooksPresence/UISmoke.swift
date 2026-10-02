@@ -7,7 +7,9 @@ import CSQLite
 /// Explicit developer-only self-check. Uses temporary synthetic history and an isolated defaults suite.
 @MainActor
 func runUISmoke() throws {
+    try checkFormSaveResults()
     try checkHistoryDateFormatting()
+    try checkLibraryHistorySummary()
     let root = FileManager.default.temporaryDirectory.appendingPathComponent("BooksPresence-ui-check-\(UUID().uuidString)")
     let suite = "BooksPresence.UIValidation.\(UUID().uuidString)"
     let defaults = UserDefaults(suiteName: suite)!
@@ -16,6 +18,7 @@ func runUISmoke() throws {
     try checkHistoryRefreshPerformance(at: root.appendingPathComponent("performance"))
     try seedUISmokeHistory(at: root)
     let model = try AppModel(support: root, defaults: defaults, startTracking: false)
+    try runSettingsDraftSmoke(model: model)
     guard let atlasSource = model.historyAtlasSource else { throw BooksAccessErrorForUI.failed("History source was not published") }
     try runHistoryAtlasNavigationSmoke(source: atlasSource)
     guard model.manualPages(forBookID: "smoke-pages-a") == 7 else {
@@ -606,7 +609,8 @@ private func checkHistoryRefreshPerformance(at root: URL) throws {
     release.signal()
     try pumpHistoryRefresh { asyncModel.historyRefreshIsIdle }
     guard asyncModel.books == model.books, asyncModel.events == model.events,
-          asyncModel.todayPages == model.todayPages, asyncModel.libraryProgressObservations == expected else {
+          asyncModel.todayPages == model.todayPages, asyncModel.libraryProgressObservations == expected,
+          asyncModel.librarySummary == model.librarySummary else {
         throw BooksAccessErrorForUI.failed("Background presentation differs from synchronous history")
     }
     print("ui-smoke: background refresh enqueue \(requestMS) ms; main-queue heartbeat ran while snapshot worker was gated")
@@ -632,7 +636,8 @@ private func checkHistoryRefreshPerformance(at root: URL) throws {
     guard asyncModel.books.isEmpty else { throw BooksAccessErrorForUI.failed("Delete did not publish synchronously") }
     release.signal()
     try pumpHistoryRefresh { asyncModel.historyRefreshIsIdle }
-    guard asyncModel.books.isEmpty, asyncModel.events.isEmpty, asyncModel.libraryProgressObservations.isEmpty else {
+    guard asyncModel.books.isEmpty, asyncModel.events.isEmpty, asyncModel.libraryProgressObservations.isEmpty,
+          asyncModel.librarySummary == LibraryHistorySummary() else {
         throw BooksAccessErrorForUI.failed("Stale worker resurrected deleted history")
     }
     // Restore while idle, then change timezone during a captured read. It must retry.

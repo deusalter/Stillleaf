@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import BooksCore
 
 @MainActor
@@ -119,6 +120,7 @@ struct AudiobookPlaybackControls: View {
 struct AudiobookLogView: View {
     @ObservedObject var model: AppModel
     var book: BookRecord? = nil
+    var maximumHeight: CGFloat = 640
     @Environment(\.dismiss) private var dismiss
     @State private var selectedID = ""
     @State private var title = ""
@@ -128,6 +130,14 @@ struct AudiobookLogView: View {
     @State private var includeSession = false
     @State private var start = Date().addingTimeInterval(-1800)
     @State private var end = Date()
+
+    init(model: AppModel, book: BookRecord? = nil, maximumHeight: CGFloat = 640, initiallyIncludesSession: Bool = false) {
+        self.model = model
+        self.book = book
+        self.maximumHeight = maximumHeight
+        _includeSession = State(initialValue: initiallyIncludesSession)
+    }
+
     private var selectedBook: BookRecord? { (book ?? model.books.first { $0.id == selectedID }).flatMap { model.canonicalLibraryBook($0) } }
     private var audio: AudiobookProgress? {
         guard let position = AudiobookProgress.parse(position), let duration = AudiobookProgress.parse(total) else { return nil }
@@ -137,38 +147,45 @@ struct AudiobookLogView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             ReadingSheetHeader(title: "Log listening", subtitle: nil, close: { dismiss() })
-            VStack(alignment: .leading, spacing: 12) {
-                if let book { Text(book.title).font(ReadingType.bookTitle(20)) }
-                else {
-                    let books = model.books.filter { model.canonicalLibraryBook($0)?.id == $0.id }
-                        .sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
-                    ReadingMenuPicker(label: "Book", options: [""] + books.map(\.id), selection: $selectedID) { id in
-                        books.first { $0.id == id }?.title ?? "New audiobook"
-                    }.onChange(of: selectedID) { _ in loadPosition() }
-                    if selectedID.isEmpty {
-                        TextField("Title", text: $title)
-                        TextField("Author (optional)", text: $author)
-                    }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        if let book { Text(book.title).font(ReadingType.bookTitle(20)) }
+                        else {
+                            let books = model.books.filter { model.canonicalLibraryBook($0)?.id == $0.id }
+                                .sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+                            ReadingMenuPicker(label: "Book", options: [""] + books.map(\.id), selection: $selectedID) { id in
+                                books.first { $0.id == id }?.title ?? "New audiobook"
+                            }.onChange(of: selectedID) { _ in loadPosition() }
+                            if selectedID.isEmpty {
+                                TextField("Title", text: $title)
+                                TextField("Author (optional)", text: $author)
+                            }
+                        }
+                        Text("Current content position").font(.caption.weight(.medium))
+                        TextField("2:15:00", text: $position).accessibilityLabel("Current content position")
+                        Text("Total content duration").font(.caption.weight(.medium))
+                        TextField("10:00:00", text: $total).accessibilityLabel("Total content duration")
+                        Text("Use hours:minutes:seconds, hours:minutes, or a number of minutes.")
+                            .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
+                    }.readingPanel()
+                    VStack(alignment: .leading, spacing: 12) {
+                        ReadingSwitchRow(title: "Also log a listening session", isOn: $includeSession)
+                        if includeSession {
+                            ReadingDatePicker("Started listening", selection: $start)
+                            ReadingDatePicker("Stopped listening", selection: $end)
+                            Text("Actual listening: \(ReadingFormat.duration(max(0, end.timeIntervalSince(start))))")
+                                .font(.callout.monospacedDigit())
+                        }
+                        Text("Enter the time you actually listened, excluding breaks. At 2×, one hour of content takes about 30 minutes. Position alone adds no listening time or pages.")
+                            .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
+                    }.readingPanel()
+                    if let error = model.errorMessage { Text(error).font(.caption).foregroundStyle(ReadingPalette.warning) }
                 }
-                Text("Current content position").font(.caption.weight(.medium))
-                TextField("2:15:00", text: $position).accessibilityLabel("Current content position")
-                Text("Total content duration").font(.caption.weight(.medium))
-                TextField("10:00:00", text: $total).accessibilityLabel("Total content duration")
-                Text("Use hours:minutes:seconds, hours:minutes, or a number of minutes.")
-                    .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
-            }.readingPanel()
-            VStack(alignment: .leading, spacing: 12) {
-                ReadingSwitchRow(title: "Also log a listening session", isOn: $includeSession)
-                if includeSession {
-                    ReadingDatePicker("Started listening", selection: $start)
-                    ReadingDatePicker("Stopped listening", selection: $end)
-                    Text("Actual listening: \(ReadingFormat.duration(max(0, end.timeIntervalSince(start))))")
-                        .font(.callout.monospacedDigit())
-                }
-                Text("Enter the time you actually listened, excluding breaks. At 2×, one hour of content takes about 30 minutes. Position alone adds no listening time or pages.")
-                    .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
-            }.readingPanel()
-            if let error = model.errorMessage { Text(error).font(.caption).foregroundStyle(ReadingPalette.warning) }
+                .padding(2)
+            }
+            .scrollIndicators(.visible)
+            Hairline()
             HStack {
                 Button("Cancel") { dismiss() }
                 Spacer()
@@ -181,7 +198,8 @@ struct AudiobookLogView: View {
                     (includeSession && (end <= start || end > Date())))
             }
         }
-        .padding(26).frame(width: 550)
+        .padding(26)
+        .frame(width: 550, height: min(maximumHeight, max(320, (NSScreen.main?.visibleFrame.height ?? 800) - 100)))
         .background(ReadingPalette.paper).foregroundStyle(ReadingPalette.ink).tint(ReadingPalette.moss)
         .textFieldStyle(ReadingTextFieldStyle()).buttonStyle(ReadingButtonStyle())
         .onAppear { loadPosition() }

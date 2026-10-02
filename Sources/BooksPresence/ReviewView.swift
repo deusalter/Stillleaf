@@ -143,18 +143,23 @@ struct IntervalReviewEditor: View {
         _disposition = State(initialValue: interval.disposition)
         _splitAt = State(initialValue: interval.start.addingTimeInterval(interval.duration / 2))
     }
+    @State private var saveError: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             ReadingSheetHeader(title: "Review reading", subtitle: nil, close: { dismiss() }).padding(24)
+            if let saveError {
+                Text(saveError).font(.caption).foregroundStyle(ReadingPalette.warning)
+                    .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 24).padding(.bottom, 12)
+            }
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     VStack(alignment: .leading, spacing: 12) {
                         ReadingMenuPicker(label: "Book", options: model.books.map(\.id), selection: $bookID) { id in
                             model.books.first { $0.id == id }?.title ?? "Choose a book"
                         }
-                        ReadingDatePicker("Started", selection: $start)
-                        ReadingDatePicker("Finished", selection: $end, minimumDate: start)
+                        ReadingDatePicker("Started", selection: $start, maximumDate: Date())
+                        ReadingDatePicker("Finished", selection: $end, minimumDate: start, maximumDate: Date())
                         ReadingSegmentedControl(label: "Treatment", options: [IntervalDisposition.credited, .uncertain, .excluded], selection: $disposition) { value in
                             switch value {
                             case .credited: return "Count this time"
@@ -164,17 +169,20 @@ struct IntervalReviewEditor: View {
                         }
                         Text("\(model.pages(forSessionID: interval.sessionID)) pages saved for this session. Changing its time does not add pages.")
                             .font(.caption).foregroundStyle(ReadingPalette.fadedInk)
+                        if end <= start || end > Date() {
+                            Text("Choose a finish time after the start and no later than now.")
+                                .font(.caption).foregroundStyle(ReadingPalette.warning)
+                        }
                         Button("Save changes") {
-                            model.reviewInterval(interval, start: start, end: end, bookID: bookID, disposition: disposition)
-                            dismiss()
+                            finish(model.reviewInterval(interval, start: start, end: end, bookID: bookID, disposition: disposition))
                         }
                         .buttonStyle(ReadingButtonStyle(emphasis: .primary))
-                        .disabled(end <= start || bookID.isEmpty)
+                        .disabled(end <= start || end > Date() || bookID.isEmpty)
                     }.readingPanel()
                     VStack(alignment: .leading, spacing: 12) {
                         Text("Split this reading span").font(.headline)
                         ReadingDatePicker("Split at", selection: $splitAt, minimumDate: interval.start, maximumDate: interval.end)
-                        Button("Split reading") { model.splitInterval(interval, at: splitAt); dismiss() }
+                        Button("Split reading") { finish(model.splitInterval(interval, at: splitAt)) }
                             .disabled(splitAt <= interval.start || splitAt >= interval.end)
                     }.readingPanel()
                     HStack(spacing: 12) {
@@ -189,10 +197,14 @@ struct IntervalReviewEditor: View {
         .background(ReadingPalette.paper).foregroundStyle(ReadingPalette.ink)
         .tint(ReadingPalette.moss).buttonStyle(ReadingButtonStyle())
         .alert("Delete this session?", isPresented: $deletionConfirmation) {
-            Button("Delete session", role: .destructive) { model.deleteSession(interval.sessionID); dismiss() }
+            Button("Delete session", role: .destructive) { finish(model.deleteSession(interval.sessionID)) }
             Button("Cancel", role: .cancel) { }
         } message: {
             Text("This permanently removes this session and related correction records.")
         }
+    }
+    private func finish(_ saved: Bool) {
+        if saved { dismiss() }
+        else { saveError = model.errorMessage ?? "Could not save this change. Try again." }
     }
 }

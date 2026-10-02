@@ -353,7 +353,7 @@ function renderAppearanceControls(){
  if(focused)fonts.querySelector(`[data-font="${focused}"]`)?.focus();
  const margins=$('margins');
  if(!margins.childElementCount)for(const [id,m]of Object.entries(MARGINS)){const b=document.createElement('button');b.dataset.margins=id;b.setAttribute('role','radio');b.textContent=m.label;b.onclick=()=>void setPreferences({margins:id,sideMargin:null});margins.append(b)}
- for(const b of margins.children){const on=state?.preferences.sideMargin==null&&b.dataset.margins===(state?.preferences.margins??'normal');b.setAttribute('aria-checked',String(on));b.tabIndex=on?0:-1}
+ for(const b of margins.children){const on=state?.preferences.sideMargin==null&&b.dataset.margins===(state?.preferences.margins??'normal');b.setAttribute('aria-checked',String(on));b.tabIndex=b.dataset.margins===(state?.preferences.margins??'normal')?0:-1}
 }
 function syncAppearance(){
  if(!state)return;
@@ -790,10 +790,12 @@ function nativeDefinitions(){
  return nativeDefinitionCache=result;
 }
 const nativeChrome=nativeChromeAdapter({edition:()=>input?.editionId,ready:()=>Boolean(state&&navigator&&!opening),current:()=>clone(state?.preferences??{}),definitions:nativeDefinitions,
- status:()=>({bookmarked:Boolean(lastLocator&&state?.bookmarks.some(x=>samePlace(x.locator,lastLocator))),dialogOpen:Boolean(document.querySelector('dialog[open]'))}),
+ status:()=>({effectiveAppearance:{backgroundColor:currentTheme().background,textColor:currentTheme().text},bookmarked:Boolean(lastLocator&&state?.bookmarks.some(x=>samePlace(x.locator,lastLocator))),dialogOpen:Boolean(document.querySelector('dialog[open]'))}),
  visibility:(active,closing=false)=>{document.body.classList.toggle('native-chrome',active);if(state&&!closing)return setPreferences({})},
  perform:async(command,payload)=>{
   if(command==='preferences'){
+   // A named preset replaces custom gutters, matching the web appearance control.
+   if(Object.hasOwn(payload,'margins')&&!Object.hasOwn(payload,'sideMargin'))payload={...payload,sideMargin:null};
    if(typeof payload.backgroundColor==='string'||typeof payload.textColor==='string'){
     const base=currentTheme();payload={backgroundColor:base.background,textColor:base.text,...payload,theme:'custom'};
    }

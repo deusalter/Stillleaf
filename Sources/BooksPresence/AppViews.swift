@@ -16,6 +16,7 @@ struct DashboardView: View {
         self.initialSettingsCategory = initialSettingsCategory
     }
     @State private var sheet: DashboardSheet?
+    @StateObject private var settingsDrafts = SettingsDraftStore()
     @ObservedObject private var theme = ThemeStore.shared
     @State private var deleteAllConfirmation = false
     @State private var uninstallConfirmation = false
@@ -38,13 +39,13 @@ struct DashboardView: View {
                     case .review: PersonalReviewsView(model: model)
                     case .timeline: ReadingTimelineView(model: model, present: { sheet = $0 })
                     case .health: HealthView(model: model)
-                    case .settings: SettingsView(model: model, present: { sheet = $0 }, deleteAll: { deleteAllConfirmation = true }, uninstall: { uninstallConfirmation = true }, initialCategory: model.settingsCategoryRequest ?? initialSettingsCategory)
+                    case .settings: SettingsView(model: model, present: { sheet = $0 }, deleteAll: { deleteAllConfirmation = true }, uninstall: { uninstallConfirmation = true }, initialCategory: model.settingsCategoryRequest ?? initialSettingsCategory, drafts: settingsDrafts)
                         .id(model.settingsCategoryRequest)
                     }
                 }
                 // A theme change re-keys only the rendered content, inside the entrance, so it
-                // swaps instantly instead of replaying the fade. Settings owns unsaved drafts
-                // and re-keys its own content instead.
+                // swaps instantly instead of replaying the fade. Settings re-keys its
+                // rendered content while the dashboard retains its unsaved drafts.
                 .id(Self.contentKey(for: section, revision: theme.revision))
                 .readingEntrance()
                 .id(section)

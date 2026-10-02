@@ -1,6 +1,36 @@
 import Foundation
 import BooksCore
 
+/// Shelf metadata derived once per history revision, not on each search keystroke
+/// or tracker notification. Linked editions share a card and their latest dates.
+struct LibraryHistorySummary: Equatable {
+    let books: [BookRecord]
+    let finishedIDs: Set<String>
+    let recent: [String: Date]
+    let finishes: [String: Date]
+    let finishedCount: Int
+    var readingCount: Int { books.count - finishedCount }
+
+    init(books: [BookRecord] = [], intervals: [ReadingInterval] = [],
+         finishedBooks: [FinishedBookEntry] = [], merges: [BookMerge] = []) {
+        let resolver = BookMergeResolver(merges: merges)
+        let canonicalBooks = books.filter { resolver.resolvedID(for: $0.id) == $0.id }
+        let finishedIDs = Set(finishedBooks.map { resolver.resolvedID(for: $0.id) })
+        self.books = canonicalBooks
+        self.finishedIDs = finishedIDs
+        self.finishedCount = canonicalBooks.filter { finishedIDs.contains($0.id) }.count
+        self.recent = intervals.reduce(into: [String: Date]()) { result, interval in
+            let id = resolver.resolvedID(for: interval.bookID)
+            result[id] = max(result[id] ?? .distantPast, interval.end)
+        }
+        self.finishes = finishedBooks.reduce(into: [String: Date]()) { result, entry in
+            guard let date = entry.finishedAt else { return }
+            let id = resolver.resolvedID(for: entry.id)
+            result[id] = max(result[id] ?? .distantPast, date)
+        }
+    }
+}
+
 /// Immutable presentation computed entirely from one committed archive.
 struct HistoryPresentation {
     let atlasSource: HistoryAtlasSource
@@ -13,6 +43,7 @@ struct HistoryPresentation {
     let progress: [ProgressObservation]
     let merges: [BookMerge]
     let libraryPositions: [String: ProgressObservation]
+    let librarySummary: LibraryHistorySummary
     let correctedIntervalIDs: Set<String>
     let sessionBreakIDs: Set<String>
     let days: [DailyTotal]
@@ -80,6 +111,7 @@ struct HistoryPresentation {
         let annualBooksFinished = ReadingGoals.finishedCount(year: goalYear, timezoneID: timezoneID,
             books: books, events: archive.events, merges: merges)
         let finishedBooks = BookHistory.completedBooks(books: books, events: archive.events)
+        librarySummary = LibraryHistorySummary(books: books, intervals: intervals, finishedBooks: finishedBooks, merges: merges)
         atlasSource = HistoryAtlasSource(books: books, intervals: intervals, events: events, progress: progress,
             merges: merges, finishedBooks: finishedBooks, pageEvidence: pageEvidence,
             breakBeforeIntervalIDs: sessionBreakIDs)

@@ -19,6 +19,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var progress: [ProgressObservation] = []
     @Published private(set) var merges: [BookMerge] = []
     @Published private(set) var preparingAppleBooksIDs = Set<String>()
+    @Published private(set) var openingEPUBIDs = Set<String>()
     /// Apple Books asset IDs of store purchases, which only Apple Books can open.
     @Published private(set) var appleBooksStorePurchaseIDs = Set<String>()
     private var storePurchaseCheckInFlight = false
@@ -99,6 +100,7 @@ final class AppModel: ObservableObject {
     private var sessionPagesCache: [String: Int] = [:]
     private var bookRatings: [String: Double] = [:]
     private var libraryPositions: [String: ProgressObservation] = [:]
+    private(set) var librarySummary = LibraryHistorySummary()
     private var pageEvidenceCache: PageStatistics.Snapshot?
     private var pageEvidence: PageStatistics.Snapshot {
         if let cached = pageEvidenceCache { return cached }
@@ -427,11 +429,18 @@ final class AppModel: ObservableObject {
     }
     var hasNativeReaderCommands: Bool { epubReaders.hasCommandReader }
     func performReaderControl(_ command: String) { epubReaders.performControl(command) }
+    func isOpeningEPUB(_ book: BookRecord) -> Bool {
+        guard !openingEPUBIDs.isEmpty else { return false }
+        let resolver = BookMergeResolver(merges: merges)
+        let canonicalID = resolver.resolvedID(for: book.id)
+        return openingEPUBIDs.contains { resolver.resolvedID(for: "epub:" + $0) == canonicalID }
+    }
     func readEPUB(_ book: BookRecord) {
-        guard let publication = chooseEPUB(book), !epubLibrary.removingIDs.contains(publication.id),
-              !transferringReaderState.contains(publication.id) else { return }
+        guard !isOpeningEPUB(book), let publication = chooseEPUB(book), !epubLibrary.removingIDs.contains(publication.id),
+              !transferringReaderState.contains(publication.id), openingEPUBIDs.insert(publication.id).inserted else { return }
         cancelExternalCoverLookups()
         Task {
+            defer { openingEPUBIDs.remove(publication.id) }
             do { try await epubReaders.open(publication, directory: epubLibrary.directory.appendingPathComponent(publication.id)) }
             catch { errorMessage = error.localizedDescription }
         }
@@ -873,6 +882,7 @@ final class AppModel: ObservableObject {
     }
 
     private func applyHistory(_ prepared: HistoryPresentation) {
+        librarySummary = prepared.librarySummary
         displayedIntervalsCache = nil; sessionGroupsCache = nil
         durableVisibleSessionIDs = nil; visibleSessionGroupsCache = nil
         bookPaceCache.removeAll(keepingCapacity: true); sessionPaceCache.removeAll(keepingCapacity: true)
@@ -1177,10 +1187,11 @@ final class AppModel: ObservableObject {
             appleHistoryStatus = "Synced \(records.count) finished books from Apple Books."
         } catch { appleHistoryStatus = "Could not save Apple Books history: \(error.localizedDescription)" }
     }
-    private func perform(_ action: () throws -> Void) {
+    @discardableResult
+    private func perform(_ action: () throws -> Void) -> Bool {
         refreshGeneration += 1; refreshPending = false
-        do { try action(); errorMessage = nil; refresh() }
-        catch { errorMessage = String(describing: error) }
+        do { try action(); errorMessage = nil; refresh(); return true }
+        catch { errorMessage = String(describing: error); return false }
     }
     private func resetEngineAfterMutation() throws {
         try audiobookPlayer.close()
@@ -1194,14 +1205,17 @@ final class AppModel: ObservableObject {
         historyGeneration += 1
         try engine.stop(); snapshot = engine.snapshot; pageTurnTracker.reset(); readerPagination.reset(); currentPagePosition = nil; readingActivityEvidence = ReadingActivityEvidence(); presencePolicy.reset(); presenceState = .hidden; discord.clear()
     }
-    func startManual(title: String, author: String) {
+    @discardableResult
+    func startManual(title: String, author: String) -> Bool {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { errorMessage = "Enter a book title."; return }
-        startManual(book: BookRecord(id: "manual:\(UUID().uuidString)", title: trimmed, author: author.isEmpty ? nil : author))
+        guard !trimmed.isEmpty else { errorMessage = "Enter a book title."; return false }
+        return startManual(book: BookRecord(id: "manual:\(UUID().uuidString)", title: trimmed, author: author.isEmpty ? nil : author))
     }
-    func startManual(book: BookRecord) {
-        perform { try stopForMutation(); try store.saveBook(book); manualBook = book }
+    @discardableResult
+    func startManual(book: BookRecord) -> Bool {
+        guard perform({ try stopForMutation(); try store.saveBook(book); manualBook = book }) else { return false }
         tick()
+        return true
     }
     func stopManual() { perform { try stopForMutation(); manualBook = nil }; tick() }
     func canonicalLibraryBook(_ book: BookRecord) -> BookRecord? {
@@ -1349,9 +1363,10 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func addManual(title: String, author: String, start: Date, end: Date) {
-        guard end > start, end <= Date(), !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { errorMessage = "Manual records need a title and a past end time after the start."; return }
-        perform {
+    @discardableResult
+    func addManual(title: String, author: String, start: Date, end: Date) -> Bool {
+        guard end > start, end <= Date(), !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { errorMessage = "Manual records need a title and a past end time after the start."; return false }
+        return perform {
             try stopForMutation()
             let book = BookRecord(id: "manual:\(UUID().uuidString)", title: title, author: author.isEmpty ? nil : author)
             var archive = HistoryArchive(); archive.books = [book]
@@ -1443,9 +1458,10 @@ final class AppModel: ObservableObject {
             if manualBook?.id == book.id { manualBook = updated }
         }
     }
-    func reviewInterval(_ interval: ReadingInterval, start: Date, end: Date, bookID: String, disposition: IntervalDisposition) {
-        guard end > start, end <= Date() else { errorMessage = "Use an end time after the start and no later than now."; return }
-        perform {
+    @discardableResult
+    func reviewInterval(_ interval: ReadingInterval, start: Date, end: Date, bookID: String, disposition: IntervalDisposition) -> Bool {
+        guard end > start, end <= Date() else { errorMessage = "Use an end time after the start and no later than now."; return false }
+        return perform {
             try stopForMutation()
             // Unchanged bounds retain measured elapsed time; adjusted bounds are an explicit manual correction.
             let unchanged = abs(start.timeIntervalSince(interval.start)) < 0.001 && abs(end.timeIntervalSince(interval.end)) < 0.001
@@ -1455,9 +1471,10 @@ final class AppModel: ObservableObject {
             try resetEngineAfterMutation()
         }
     }
-    func splitInterval(_ interval: ReadingInterval, at date: Date) {
-        guard date > interval.start, date < interval.end else { errorMessage = "Split time must be inside this interval."; return }
-        perform {
+    @discardableResult
+    func splitInterval(_ interval: ReadingInterval, at date: Date) -> Bool {
+        guard date > interval.start, date < interval.end else { errorMessage = "Split time must be inside this interval."; return false }
+        return perform {
             try stopForMutation()
             let fraction = date.timeIntervalSince(interval.start) / interval.end.timeIntervalSince(interval.start)
             let first = ReadingInterval(sessionID: interval.sessionID, bookID: interval.bookID, start: interval.start, end: date, duration: interval.duration * fraction, timezoneID: interval.timezoneID, mode: interval.mode, disposition: interval.disposition, audioSessionID: interval.audioSessionID ?? (isListening(interval) ? interval.sessionID : nil))
@@ -1467,7 +1484,8 @@ final class AppModel: ObservableObject {
         }
     }
     func resolveUncertain(_ interval: ReadingInterval, confirm: Bool) { reviewInterval(interval, start: interval.start, end: interval.end, bookID: interval.bookID, disposition: confirm ? .credited : .excluded) }
-    func deleteSession(_ sessionID: String) { perform { try stopForMutation(); defer { try? removeManagedBackups() }; try store.deleteSession(sessionID); try resetEngineAfterMutation() } }
+    @discardableResult
+    func deleteSession(_ sessionID: String) -> Bool { perform { try stopForMutation(); defer { try? removeManagedBackups() }; try store.deleteSession(sessionID); try resetEngineAfterMutation() } }
     func deleteBook(_ book: BookRecord) {
         perform {
             try stopForMutation(); if manualBook?.id == book.id { manualBook = nil }
@@ -1508,12 +1526,13 @@ final class AppModel: ObservableObject {
         let dir = support.appendingPathComponent("Covers")
         for file in try FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) where !referenced.contains(file.path) { try FileManager.default.removeItem(at: file) }
     }
-    func mergeBooks(source: BookRecord, target: BookRecord) {
+    @discardableResult
+    func mergeBooks(source: BookRecord, target: BookRecord) -> Bool {
         guard source.resolvedFormat != .audiobook, target.resolvedFormat != .audiobook else {
             errorMessage = "Keep audiobook editions separate so their audio files and content positions remain accessible."
-            return
+            return false
         }
-        perform { try stopForMutation(); try store.merge(BookMerge(sourceID: source.id, targetID: target.id)) } }
+        return perform { try stopForMutation(); try store.merge(BookMerge(sourceID: source.id, targetID: target.id)) } }
     func unmerge(_ merge: BookMerge) { perform { try stopForMutation(); try store.merge(BookMerge(sourceID: merge.sourceID, targetID: merge.targetID, active: false)) } }
 
     private func saveURL(name: String, type: UTType) -> URL? {

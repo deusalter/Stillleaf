@@ -7,6 +7,7 @@ struct ManualStartView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var title = ""
     @State private var author = ""
+    @State private var saveError: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
@@ -17,12 +18,14 @@ struct ManualStartView: View {
             }.readingPanel()
             Text("Saved as manual reading time. Pages are not estimated.")
                 .font(.caption).foregroundStyle(ReadingPalette.fadedInk)
+            if let saveError { Text(saveError).font(.caption).foregroundStyle(ReadingPalette.warning) }
             HStack {
                 Button("Cancel") { dismiss() }
                 Spacer()
                 Button("Start reading") {
-                    model.startManual(title: title.trimmingCharacters(in: .whitespacesAndNewlines), author: author.trimmingCharacters(in: .whitespacesAndNewlines))
-                    dismiss()
+                    if model.startManual(title: title.trimmingCharacters(in: .whitespacesAndNewlines), author: author.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                        dismiss()
+                    } else { saveError = model.errorMessage ?? "Could not start reading. Try again." }
                 }
                 .buttonStyle(ReadingButtonStyle(emphasis: .primary))
                 .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -44,6 +47,7 @@ struct ManualAdditionView: View {
     @State private var author = ""
     @State private var end = Date()
     @State private var start = Date().addingTimeInterval(-30 * 60)
+    @State private var saveError: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
@@ -56,20 +60,26 @@ struct ManualAdditionView: View {
             }.readingPanel()
             VStack(alignment: .leading, spacing: 14) {
                 Text("When you read").font(.headline)
-                ReadingDatePicker("Started", selection: $start)
-                ReadingDatePicker("Finished", selection: $end, minimumDate: start)
+                ReadingDatePicker("Started", selection: $start, maximumDate: Date())
+                ReadingDatePicker("Finished", selection: $end, minimumDate: start, maximumDate: Date())
                 Text("Saved as manual time. This does not add pages or Apple Books activity.")
                     .font(.caption).foregroundStyle(ReadingPalette.fadedInk)
             }.readingPanel()
+            if end <= start || end > Date() {
+                Text("Choose a finish time after the start and no later than now.")
+                    .font(.caption).foregroundStyle(ReadingPalette.warning)
+            }
+            if let saveError { Text(saveError).font(.caption).foregroundStyle(ReadingPalette.warning) }
             HStack {
                 Button("Cancel") { dismiss() }
                 Spacer()
                 Button("Add reading time") {
-                    model.addManual(title: title.trimmingCharacters(in: .whitespacesAndNewlines), author: author.trimmingCharacters(in: .whitespacesAndNewlines), start: start, end: end)
-                    dismiss()
+                    if model.addManual(title: title.trimmingCharacters(in: .whitespacesAndNewlines), author: author.trimmingCharacters(in: .whitespacesAndNewlines), start: start, end: end) {
+                        dismiss()
+                    } else { saveError = model.errorMessage ?? "Could not save reading time. Try again." }
                 }
                 .buttonStyle(ReadingButtonStyle(emphasis: .primary))
-                .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || end <= start)
+                .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || end <= start || end > Date())
             }
         }
         .sheet(isPresented: $loggingAudio) { AudiobookLogView(model: model) }
@@ -86,32 +96,39 @@ struct MergeBooksView: View {
     let source: BookRecord
     @Environment(\.dismiss) private var dismiss
     @State private var targetID = ""
+    @State private var saveError: String?
 
     private var targets: [BookRecord] {
         let resolver = BookMergeResolver(merges: model.merges)
-        return model.books.filter { $0.id != source.id && resolver.resolvedID(for: $0.id) == $0.id }
+        return model.books.filter { $0.id != source.id && resolver.resolvedID(for: $0.id) == $0.id && $0.resolvedFormat != .audiobook }
+            .sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             ReadingSheetHeader(title: "Merge books", subtitle: nil, close: { dismiss() })
             Text("Merge \(source.title) into a selected record. Its recorded time will be shown with that record; you can reverse this decision later with Unmerge.")
                 .font(.callout).foregroundStyle(ReadingPalette.secondaryInk)
-            if targets.isEmpty {
-                Text("There is no other book record available to merge with.").foregroundStyle(ReadingPalette.secondaryInk)
+            if source.resolvedFormat == .audiobook {
+                Text("Audiobook editions stay separate so their audio files and listening positions remain accessible.")
+                    .foregroundStyle(ReadingPalette.secondaryInk)
+            } else if targets.isEmpty {
+                Text("There is no other text book available to merge with. Audiobook editions stay separate.").foregroundStyle(ReadingPalette.secondaryInk)
             } else {
                 ReadingMenuPicker(label: "Merge into", options: [""] + targets.map(\.id), selection: $targetID) { id in
                     targets.first { $0.id == id }?.title ?? "Choose a book"
                 }
+                if let saveError { Text(saveError).font(.caption).foregroundStyle(ReadingPalette.warning) }
                 HStack {
                     Button("Cancel") { dismiss() }
                     Spacer()
                     Button("Merge") {
                         if let target = targets.first(where: { $0.id == targetID }) {
-                            model.mergeBooks(source: source, target: target)
-                            dismiss()
+                            if model.mergeBooks(source: source, target: target) {
+                                dismiss()
+                            } else { saveError = model.errorMessage ?? "Could not merge these books. Try again." }
                         }
                     }
-                    .buttonStyle(ReadingButtonStyle(emphasis: .primary)).disabled(targetID.isEmpty)
+                    .buttonStyle(ReadingButtonStyle(emphasis: .primary)).disabled(!targets.contains { $0.id == targetID })
                 }
             }
         }
@@ -265,17 +282,8 @@ struct SettingsView: View {
     let uninstall: () -> Void
 
     @State private var category: SettingsCategory
+    @ObservedObject private var drafts: SettingsDraftStore
     @ObservedObject private var theme = ThemeStore.shared
-    @State private var didLoadDrafts = false
-    @State private var pageGoalDraft = "20"
-    @State private var goalDraft = "20"
-    @State private var dailyUnitDraft: DailyGoalUnit = .pages
-    @State private var annualEnabledDraft = false
-    @State private var annualGoalDraft = "12"
-    @State private var uncertaintyDraft = "20"
-    @State private var timezoneDraft = TimeZone.current.identifier
-    @State private var discordApplicationIDDraft = ""
-    @State private var discordAssetKeyDraft = "books"
     @State private var applyFeedback: String?
     @State private var applyFailed = false
     @State private var showAdvancedReading = false
@@ -288,13 +296,15 @@ struct SettingsView: View {
         present: @escaping (DashboardSheet) -> Void,
         deleteAll: @escaping () -> Void,
         uninstall: @escaping () -> Void,
-        initialCategory: SettingsCategory = .reading
+        initialCategory: SettingsCategory = .reading,
+        drafts: SettingsDraftStore? = nil
     ) {
         self.model = model
         self.present = present
         self.deleteAll = deleteAll
         self.uninstall = uninstall
         _category = State(initialValue: initialCategory)
+        _drafts = ObservedObject(wrappedValue: drafts ?? SettingsDraftStore())
     }
 
     var body: some View {
@@ -336,7 +346,7 @@ struct SettingsView: View {
                 .id(theme.revision)
             }
         }
-        // Drafts live in this view's own state, so only rendered subtrees above are re-keyed.
+        // The dashboard owns drafts across destination and theme changes.
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(ReadingPalette.paper).foregroundStyle(ReadingPalette.ink)
         .tint(ReadingPalette.moss).buttonStyle(.bordered)
@@ -368,18 +378,18 @@ struct SettingsView: View {
             ReadingSection("Daily goal") {
                 VStack(alignment: .leading, spacing: 14) {
                     ReadingSegmentedControl(label: "Daily goal unit", options: [DailyGoalUnit.pages, .minutes],
-                        selection: $dailyUnitDraft, title: { $0 == .pages ? "Pages" : "Minutes" })
+                        selection: $drafts.dailyUnitDraft, title: { $0 == .pages ? "Pages" : "Minutes" })
                         .frame(maxWidth: 320)
                     HStack {
                         Text("Daily target").font(.callout)
                         Spacer(minLength: 8)
-                        if dailyUnitDraft == .pages {
-                            numericEditor(label: "Daily page goal", value: $pageGoalDraft, range: 1...10_000, stepperValue: pageGoalBinding)
+                        if drafts.dailyUnitDraft == .pages {
+                            numericEditor(label: "Daily page goal", value: $drafts.pageGoalDraft, range: 1...10_000, stepperValue: pageGoalBinding)
                         } else {
-                            numericEditor(label: "Daily goal minutes", value: $goalDraft, range: 1...1_440, stepperValue: goalBinding)
+                            numericEditor(label: "Daily goal minutes", value: $drafts.goalDraft, range: 1...1_440, stepperValue: goalBinding)
                         }
                     }
-                    Text(dailyUnitDraft == .pages ? "Tracked and manually logged pages. Changes apply from today." : "Tracked and manually logged minutes. Unconfirmed time waits for review.")
+                    Text(drafts.dailyUnitDraft == .pages ? "Tracked and manually logged pages. Changes apply from today." : "Tracked and manually logged minutes. Unconfirmed time waits for review.")
                         .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -389,13 +399,13 @@ struct SettingsView: View {
                     HStack {
                         Text("Set a yearly goal").font(.callout)
                         Spacer()
-                        Toggle("Set a yearly books goal", isOn: $annualEnabledDraft).labelsHidden().toggleStyle(.switch)
+                        Toggle("Set a yearly books goal", isOn: $drafts.annualEnabledDraft).labelsHidden().toggleStyle(.switch)
                     }
-                    if annualEnabledDraft {
+                    if drafts.annualEnabledDraft {
                         HStack {
                             Text("\(model.annualBooksFinished) books finished so far").font(.callout).foregroundStyle(ReadingPalette.secondaryInk)
                             Spacer()
-                            numericEditor(label: "Yearly books goal", value: $annualGoalDraft, range: 1...10_000, stepperValue: annualGoalBinding)
+                            numericEditor(label: "Yearly books goal", value: $drafts.annualGoalDraft, range: 1...10_000, stepperValue: annualGoalBinding)
                         }
                     }
                     Text("Counts books with a finish date this year.")
@@ -437,7 +447,7 @@ struct SettingsView: View {
                     VStack(alignment: .leading, spacing: 16) {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Calendar time zone").font(.headline)
-                            TimeZoneChooser(selection: $timezoneDraft)
+                            TimeZoneChooser(selection: $drafts.timezoneDraft)
                             Text("Determines when a new reading day begins.").font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
                         }
                         Hairline()
@@ -447,7 +457,7 @@ struct SettingsView: View {
                                 Text("Reading without fresh evidence is kept for review.").font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
                             }
                             Spacer()
-                            numericEditor(label: "Review threshold minutes", value: $uncertaintyDraft, range: 1...240, stepperValue: uncertaintyBinding)
+                            numericEditor(label: "Review threshold minutes", value: $drafts.uncertaintyDraft, range: 1...240, stepperValue: uncertaintyBinding)
                         }
                     }.padding(.top, 14)
                 } label: {
@@ -503,7 +513,7 @@ struct SettingsView: View {
                     VStack(alignment: .leading, spacing: 16) {
                         VStack(alignment: .leading, spacing: 7) {
                             Text("Discord Application ID").font(.headline)
-                            TextField("Application ID", text: $discordApplicationIDDraft)
+                            TextField("Application ID", text: $drafts.discordApplicationIDDraft)
                                 .textFieldStyle(ReadingTextFieldStyle()).onSubmit { applyDiscordDrafts() }
                             Text("Use the Application ID from your Discord Developer Portal, not a token.")
                                 .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
@@ -512,7 +522,7 @@ struct SettingsView: View {
                         }
                         VStack(alignment: .leading, spacing: 7) {
                             Text("Fallback artwork (optional)").font(.headline)
-                            TextField("Uploaded asset key", text: $discordAssetKeyDraft)
+                            TextField("Uploaded asset key", text: $drafts.discordAssetKeyDraft)
                                 .textFieldStyle(ReadingTextFieldStyle()).onSubmit { applyDiscordDrafts() }
                             Text("Used when a public cover isn't available. Leave blank if you haven't uploaded a Discord asset.")
                                 .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
@@ -603,15 +613,15 @@ struct SettingsView: View {
     }
 
     private var readingDirty: Bool {
-        didLoadDrafts && (dailyUnitDraft != model.dailyGoalUnit
-            || annualEnabledDraft != (model.annualBookGoal != nil)
-            || (annualEnabledDraft && annualGoalDraft != String(model.annualBookGoal ?? 12))
-            || pageGoalDraft != String(Int(model.pageGoal.rounded()))
-            || goalDraft != String(Int(model.goalMinutes.rounded()))
-            || uncertaintyDraft != String(Int(model.uncertaintyMinutes.rounded())) || timezoneDraft != model.timezoneID)
+        drafts.didLoadDrafts && (drafts.dailyUnitDraft != model.dailyGoalUnit
+            || drafts.annualEnabledDraft != (model.annualBookGoal != nil)
+            || (drafts.annualEnabledDraft && drafts.annualGoalDraft != String(model.annualBookGoal ?? 12))
+            || drafts.pageGoalDraft != String(Int(model.pageGoal.rounded()))
+            || drafts.goalDraft != String(Int(model.goalMinutes.rounded()))
+            || drafts.uncertaintyDraft != String(Int(model.uncertaintyMinutes.rounded())) || drafts.timezoneDraft != model.timezoneID)
     }
     private var discordDirty: Bool {
-        didLoadDrafts && (discordApplicationIDDraft != model.discordApplicationID || discordAssetKeyDraft != model.discordAssetKey)
+        drafts.didLoadDrafts && (drafts.discordApplicationIDDraft != model.discordApplicationID || drafts.discordAssetKeyDraft != model.discordAssetKey)
     }
     private var currentCategoryDirty: Bool { category == .reading ? readingDirty : category == .discord ? discordDirty : false }
 
@@ -654,35 +664,31 @@ struct SettingsView: View {
     }
 
     private var goalBinding: Binding<Int> {
-        Binding(get: { Int(goalDraft) ?? 20 }, set: { value in
-            goalDraft = String(value)
+        Binding(get: { Int(drafts.goalDraft) ?? 20 }, set: { value in
+            drafts.goalDraft = String(value)
             clearFeedback()
         })
     }
 
     private var pageGoalBinding: Binding<Int> {
-        Binding(get: { Int(pageGoalDraft) ?? 20 }, set: { value in
-            pageGoalDraft = String(value)
+        Binding(get: { Int(drafts.pageGoalDraft) ?? 20 }, set: { value in
+            drafts.pageGoalDraft = String(value)
             clearFeedback()
         })
     }
 
     private var annualGoalBinding: Binding<Int> {
-        Binding(get: { Int(annualGoalDraft) ?? 12 }, set: { annualGoalDraft = String($0); clearFeedback() })
+        Binding(get: { Int(drafts.annualGoalDraft) ?? 12 }, set: { drafts.annualGoalDraft = String($0); clearFeedback() })
     }
     private var uncertaintyBinding: Binding<Int> {
-        Binding(get: { Int(uncertaintyDraft) ?? 20 }, set: { value in
-            uncertaintyDraft = String(value)
+        Binding(get: { Int(drafts.uncertaintyDraft) ?? 20 }, set: { value in
+            drafts.uncertaintyDraft = String(value)
             clearFeedback()
         })
     }
 
     private var readingDraftsAreValid: Bool {
-        guard let pageGoal = Int(pageGoalDraft), (1...10_000).contains(pageGoal),
-              let goal = Int(goalDraft), (1...1_440).contains(goal),
-              let uncertainty = Int(uncertaintyDraft), (1...240).contains(uncertainty),
-              TimeZone(identifier: timezoneDraft) != nil else { return false }
-        return !annualEnabledDraft || Int(annualGoalDraft).map { (1...10_000).contains($0) } == true
+        drafts.readingValuesAreValid
     }
 
     @ViewBuilder
@@ -733,52 +739,47 @@ struct SettingsView: View {
     }
 
     private func setGoalPreset(_ minutes: Int) {
-        goalDraft = String(minutes)
+        drafts.goalDraft = String(minutes)
         clearFeedback()
     }
 
     private func setPageGoalPreset(_ pages: Int) {
-        pageGoalDraft = String(pages)
+        drafts.pageGoalDraft = String(pages)
         clearFeedback()
     }
 
     private func loadDraftsIfNeeded() {
-        guard !didLoadDrafts else { return }
-        didLoadDrafts = true
-        reloadDrafts()
+        drafts.loadIfNeeded(from: model)
     }
 
-    private func reloadDrafts() { reloadReadingDrafts(); reloadDiscordDrafts(); clearFeedback() }
-
     private func reloadReadingDrafts() {
-        dailyUnitDraft = model.dailyGoalUnit
-        annualEnabledDraft = model.annualBookGoal != nil
-        annualGoalDraft = String(model.annualBookGoal ?? 12)
-        pageGoalDraft = String(Int(model.pageGoal.rounded()))
-        goalDraft = String(Int(model.goalMinutes.rounded()))
-        uncertaintyDraft = String(Int(model.uncertaintyMinutes.rounded()))
-        timezoneDraft = model.timezoneID
+        drafts.reloadReading(from: model)
     }
 
     private func reloadDiscordDrafts() {
-        discordApplicationIDDraft = model.discordApplicationID
-        discordAssetKeyDraft = model.discordAssetKey
+        drafts.reloadSharing(from: model)
         clearFeedback()
     }
 
     private func applyReadingDrafts() {
-        guard readingDraftsAreValid, let pageGoal = Int(pageGoalDraft), let goal = Int(goalDraft), let uncertainty = Int(uncertaintyDraft) else {
+        guard readingDraftsAreValid, let uncertainty = Int(drafts.uncertaintyDraft) else {
             applyFeedback = "Choose a page goal from 1–10,000 pages, a time goal from 1–1,440 minutes, a review threshold from 1–240 minutes, and a valid time zone."
             applyFailed = true
             return
         }
         let previous = (model.pageGoal, model.goalMinutes, model.dailyGoalUnit, model.annualBookGoal, model.uncertaintyMinutes, model.timezoneID)
-        model.dailyGoalUnit = dailyUnitDraft
-        model.annualBookGoal = annualEnabledDraft ? Int(annualGoalDraft) : nil
-        model.pageGoal = Double(pageGoal)
-        model.goalMinutes = Double(goal)
+        model.dailyGoalUnit = drafts.dailyUnitDraft
+        model.annualBookGoal = drafts.annualEnabledDraft ? Int(drafts.annualGoalDraft) : nil
+        // An invalid hidden unit must neither block the active goal nor replace
+        // the last saved value. Valid drafts for either unit can still be saved.
+        if let pageGoal = Int(drafts.pageGoalDraft), (1...10_000).contains(pageGoal) {
+            model.pageGoal = Double(pageGoal)
+        }
+        if let goal = Int(drafts.goalDraft), (1...1_440).contains(goal) {
+            model.goalMinutes = Double(goal)
+        }
         model.uncertaintyMinutes = Double(uncertainty)
-        model.timezoneID = timezoneDraft
+        model.timezoneID = drafts.timezoneDraft
         model.saveSettings()
         if model.errorMessage != nil {
             model.pageGoal = previous.0; model.goalMinutes = previous.1; model.dailyGoalUnit = previous.2
@@ -788,8 +789,8 @@ struct SettingsView: View {
     }
 
     private func applyDiscordDrafts() {
-        model.discordApplicationID = discordApplicationIDDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        model.discordAssetKey = discordAssetKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        model.discordApplicationID = drafts.discordApplicationIDDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        model.discordAssetKey = drafts.discordAssetKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         model.saveSettings()
         if model.errorMessage == nil { reloadDiscordDrafts() }
         showResult(success: "Sharing settings saved.")

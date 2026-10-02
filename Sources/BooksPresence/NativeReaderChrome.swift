@@ -47,12 +47,21 @@ struct ReaderControlDefinition: Decodable, Identifiable {
     guard !chrome.toolbar.isVisible else { throw NSError(domain: "Stillleaf.ReaderControls", code: 6) }
     chrome.accept(["preferences": ["fontSize": 1.2, "immersive": false], "dialogOpen": true])
     guard chrome.toolbar.isVisible, !chrome.canAcceptCommands else { throw NSError(domain: "Stillleaf.ReaderControls", code: 7) }
+    chrome.model.accept(["effectiveAppearance": ["backgroundColor": "#1c302d", "textColor": "#e7f3ea"]])
+    guard chrome.model.customColor("backgroundColor") == "#1c302d",
+          chrome.model.customColor("textColor") == "#e7f3ea" else { throw NSError(domain: "Stillleaf.ReaderControls", code: 16) }
+    let presetModel = ReaderChromeModel()
+    var presetChanges: [String: Any] = [:]
+    presetModel.change = { key, value in presetChanges[key] = value }
+    presetModel.selectChoice("margins", "narrow")
+    guard presetChanges["sideMargin"] is NSNull, presetChanges["margins"] as? String == "narrow" else { throw NSError(domain: "Stillleaf.ReaderControls", code: 17) }
     chrome.disconnect()
     print("native-reader-queue: delayed slider, superseded pending patch and Reset ordering passed")
 }
 
 @MainActor final class ReaderChromeModel: ObservableObject {
     @Published var preferences: [String: Any] = [:]
+    @Published var effectiveAppearance: [String: Any] = [:]
     @Published var definitions: [ReaderControlDefinition] = []
     @Published var error: String?
     @Published var resetting = false
@@ -60,8 +69,20 @@ struct ReaderControlDefinition: Decodable, Identifiable {
     var reset: (() -> Void)?
     func accept(_ value: [String: Any]) {
         if let p = value["preferences"] as? [String: Any] { preferences = p }
+        if let appearance = value["effectiveAppearance"] as? [String: Any] { effectiveAppearance = appearance }
         if let d = value["definitions"], let data = try? JSONSerialization.data(withJSONObject: d),
            let decoded = try? JSONDecoder().decode([ReaderControlDefinition].self, from: data) { definitions = decoded }
+    }
+    func selectChoice(_ key: String, _ value: Any) {
+        if key == "margins" { change?("sideMargin", NSNull()) }
+        change?(key, value)
+    }
+    func customColor(_ key: String) -> String {
+        if let current = effectiveAppearance[key] as? String { return current }
+        // A disconnected/older renderer still starts with a readable system pair.
+        let color = key == "backgroundColor" ? NSColor.textBackgroundColor : NSColor.textColor
+        guard let rgb = color.usingColorSpace(.sRGB) else { return key == "backgroundColor" ? "#ffffff" : "#000000" }
+        return String(format: "#%02x%02x%02x", Int((rgb.redComponent * 255).rounded()), Int((rgb.greenComponent * 255).rounded()), Int((rgb.blueComponent * 255).rounded()))
     }
     func encoded(_ key: String) -> String {
         guard let value = preferences[key], let data = try? JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed]), let text = String(data: data, encoding: .utf8) else { return "null" }
@@ -87,7 +108,7 @@ private struct ReaderAppearanceView: View {
         case "choice" where d.key == "columns": EmptyView() // Combined Reading mode picker owns both values.
         case "choice":
             Picker(d.label, selection: Binding(get: { model.encoded(d.key) }, set: { value in
-                if let data = value.data(using: .utf8), let decoded = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) { model.change?(d.key, decoded) }
+                if let data = value.data(using: .utf8), let decoded = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) { model.selectChoice(d.key, decoded) }
             })) { ForEach(d.options ?? []) { Text($0.label).tag($0.value) } }
         case "toggle" where d.key == "scroll":
             Picker("Reading mode", selection: Binding(get: { model.preferences["scroll"] as? Bool == true ? "continuous" : (model.preferences["columns"] as? String == "two" ? "facing" : "single") }, set: { mode in
@@ -109,7 +130,7 @@ private struct ReaderAppearanceView: View {
                 }
             }
         case "color":
-            Toggle("Custom \(d.label.lowercased())", isOn: Binding(get: { model.preferences[d.key] is String }, set: { model.change?(d.key, $0 ? "#ffffff" as Any : NSNull()) }))
+            Toggle("Custom \(d.label.lowercased())", isOn: Binding(get: { model.preferences[d.key] is String }, set: { model.change?(d.key, $0 ? model.customColor(d.key) as Any : NSNull()) }))
             if let hex = model.preferences[d.key] as? String {
                 ColorPicker(d.label, selection: Binding(get: { Color(nsColor: Self.color(hex)) }, set: { value in
                     guard let rgb = NSColor(value).usingColorSpace(.sRGB) else { return }
@@ -136,6 +157,7 @@ private struct ReaderAppearanceView: View {
     private var closing = false
     private var dialogOpen = false
     private var failedPreference = false
+    private var commandErrorAlert: NSAlert?
     private var bookmarked = false
     private var connectionGeneration = 0
     private var preferenceGeneration = 0
@@ -143,7 +165,7 @@ private struct ReaderAppearanceView: View {
     private var appearanceCloses = 0
     private var resetTask: Task<Void, Never>?
     var isConnected: Bool { active }
-    var canAcceptCommands: Bool { active && !closing && !dialogOpen && !model.resetting }
+    var canAcceptCommands: Bool { active && !closing && !dialogOpen && !model.resetting && commandErrorAlert == nil }
     private var pendingCommands: Set<String> = []
     private var pending: [String: Any] = [:]
     private var preferenceTask: Task<Void, Never>?
@@ -200,7 +222,7 @@ private struct ReaderAppearanceView: View {
         }
         updateEnabled()
     }
-    func disconnect() { connectionGeneration += 1; active = false; resetTask?.cancel(); preferenceTask?.cancel(); pending.removeAll(); pendingCommands.removeAll(); appearance.close(); updateEnabled() }
+    func disconnect() { connectionGeneration += 1; active = false; resetTask?.cancel(); preferenceTask?.cancel(); pending.removeAll(); pendingCommands.removeAll(); appearance.close(); dismissCommandError(); updateEnabled() }
     func command(_ name: String) {
         guard canAcceptCommands, !pendingCommands.contains(name), send != nil else { return }
         // Native feedback is immediate; selection still requires the renderer's
@@ -212,8 +234,29 @@ private struct ReaderAppearanceView: View {
             defer { if generation == connectionGeneration { pendingCommands.remove(name); updateEnabled() } }
             guard active, generation == connectionGeneration else { return }
             do { let value = try await send(name, nil); guard active, !closing, generation == connectionGeneration else { return }; model.error = nil; accept(value) }
-            catch { if active, generation == connectionGeneration { model.error = "The reader command could not finish. Try again." } }
+            catch { if active, !closing, generation == connectionGeneration { showCommandError(name) } }
         }
+    }
+    private func showCommandError(_ command: String) {
+        model.error = "The reader did not confirm the action. Check the page or bookmark before trying again."
+        guard commandErrorAlert == nil, let window else { return }
+        let alert = NSAlert()
+        alert.messageText = "The reader did not confirm the action"
+        alert.informativeText = "Check the page or bookmark before trying again."
+        alert.addButton(withTitle: "Try again")
+        alert.addButton(withTitle: "Cancel")
+        commandErrorAlert = alert; updateEnabled()
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard let self else { return }
+            self.commandErrorAlert = nil; self.updateEnabled()
+            if response == .alertFirstButtonReturn { self.command(command) }
+            else { self.returnFocus?() }
+        }
+    }
+    private func dismissCommandError() {
+        guard let alert = commandErrorAlert else { return }
+        window?.endSheet(alert.window, returnCode: .alertSecondButtonReturn)
+        commandErrorAlert = nil
     }
     private func updatePreference(_ key: String, _ value: Any) {
         guard active, !closing, !model.resetting else { return }
@@ -330,10 +373,16 @@ private struct ReaderAppearanceView: View {
         accept(try await original("bookmark", nil))
         send = { _, _ in throw NSError(domain: "Stillleaf.SyntheticFailure", code: 1) }
         try testClick("bookmark")
-        while !button.isEnabled && Date() < deadline { try await Task.sleep(nanoseconds: 1_000_000) }
-        guard button.isEnabled, button.state == originalState, model.error != nil else { throw NSError(domain: "Stillleaf.ReaderControls", code: 13) }
-        model.error = nil
-        print("native-reader-feedback: Reset re-enabled toolbar; immediate pending, duplicate suppression, acknowledged selection and failure cleanup passed")
+        while commandErrorAlert == nil && Date() < deadline { try await Task.sleep(nanoseconds: 1_000_000) }
+        guard let failure = commandErrorAlert, !button.isEnabled, button.state == originalState,
+              model.error != nil, failure.buttons.first?.title == "Try again" else { throw NSError(domain: "Stillleaf.ReaderControls", code: 13) }
+        send = original
+        window?.endSheet(failure.window, returnCode: .alertFirstButtonReturn)
+        let retryDeadline = Date().addingTimeInterval(3)
+        while (!button.isEnabled || button.state == originalState) && Date() < retryDeadline { try await Task.sleep(nanoseconds: 1_000_000) }
+        guard button.isEnabled, button.state != originalState, model.error == nil else { throw NSError(domain: "Stillleaf.ReaderControls", code: 15) }
+        accept(try await original("bookmark", nil))
+        print("native-reader-feedback: Reset re-enabled toolbar; immediate pending, duplicate suppression, acknowledged selection and explicit failure retry passed")
     }
     func benchmarkFeedback(output: URL) async throws {
         guard let item = toolbar.items.first(where: { $0.itemIdentifier.rawValue == "bookmark" }), let button = item.view as? NSButton else { throw NSError(domain: "Stillleaf.Benchmark", code: 3) }

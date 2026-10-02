@@ -33,6 +33,14 @@ private enum NativeChromeCaptureError: Error { case renderFailed }
             guard window.toolbar != nil, identifiers.filter({ $0.contains("toggleSidebar") }).count == 1 else { throw NativeChromeCaptureError.renderFailed }
             try await captureNativeWindow(window, to: directory.appendingPathComponent("dashboard-\(dark ? "dark" : "light")-\(opaque ? "opaque" : "system").png"))
             window.contentViewController = nil; window.close()
+            // An app-owned text backdrop exercises popover readability without
+            // collecting desktop content or any real reading data.
+            let backdrop = NSWindow(contentRect: NSRect(x: 70, y: 70, width: 600, height: 650),
+                                    styleMask: [.borderless], backing: .buffered, defer: false)
+            backdrop.isReleasedWhenClosed = false
+            backdrop.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+            backdrop.contentViewController = NSHostingController(rootView: NativePopoverBackdrop())
+            backdrop.orderFront(nil)
             let panel = NSPanel(contentRect: NSRect(x: 100, y: 100, width: 350, height: 500), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
             panel.isOpaque = false; panel.backgroundColor = .clear; panel.hasShadow = true
             panel.isReleasedWhenClosed = false; panel.title = "Stillleaf — synthetic menu panel"; panel.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
@@ -40,8 +48,35 @@ private enum NativeChromeCaptureError: Error { case renderFailed }
             panel.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true); try await Task.sleep(nanoseconds: 300_000_000)
             try await captureNativeWindow(panel, to: directory.appendingPathComponent("panel-\(dark ? "dark" : "light")-\(opaque ? "opaque" : "system").png"))
             panel.contentViewController = nil; panel.close()
+            backdrop.contentViewController = nil; backdrop.close()
             try await checkMenuPickerLayout(directory: directory, dark: dark, opaque: opaque)
         }
+        // Exercise the actual dashboard at its supported minimum, rather than
+        // inferring compact layouts from wide offscreen view-cache renders.
+        for section in [DashboardSection.today, .library, .timeline, .review, .settings] {
+            let window = DashboardWindow(contentRect: NSRect(x: 100, y: 100, width: 920, height: 660),
+                styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.title = "Stillleaf — synthetic compact preview"
+            window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+            window.contentViewController = NSHostingController(rootView: DashboardView(model: model, initialSection: section))
+            window.makeKeyAndOrderFront(nil)
+            try await Task.sleep(nanoseconds: 300_000_000)
+            try await captureNativeWindow(window, to: directory.appendingPathComponent(
+                "compact-\(section.rawValue)-\(dark ? "dark" : "light").png"))
+            window.contentViewController = nil; window.close()
+        }
+        let listeningWindow = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 550, height: 500),
+            styleMask: [.titled], backing: .buffered, defer: false)
+        listeningWindow.isReleasedWhenClosed = false
+        listeningWindow.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+        listeningWindow.contentViewController = NSHostingController(rootView:
+            AudiobookLogView(model: model, maximumHeight: 500, initiallyIncludesSession: true))
+        listeningWindow.makeKeyAndOrderFront(nil)
+        try await Task.sleep(nanoseconds: 300_000_000)
+        try await captureNativeWindow(listeningWindow, to: directory.appendingPathComponent(
+            "compact-listening-\(dark ? "dark" : "light").png"))
+        listeningWindow.contentViewController = nil; listeningWindow.close()
     }
     #if compiler(>=6.2)
     if #available(macOS 26, *) { print("native-chrome-preview: genuine SwiftUI glass compiled; macOS26 runtime; app-owned solid fallback captured (system accessibility settings unchanged)") }
@@ -49,6 +84,21 @@ private enum NativeChromeCaptureError: Error { case renderFailed }
     #else
     print("native-chrome-preview: compatibility SDK native material runtime")
     #endif
+}
+
+private struct NativePopoverBackdrop: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            ForEach(0..<10) { _ in
+                Text("Synthetic background text\nA quiet place to return to your reading.")
+                    .font(.system(size: 24, weight: .medium))
+            }
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .foregroundStyle(Color.primary)
+        .background(Color(nsColor: .windowBackgroundColor))
+    }
 }
 
 private struct MenuPickerWidthPreference: PreferenceKey {

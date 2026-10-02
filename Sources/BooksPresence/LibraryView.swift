@@ -14,18 +14,11 @@ struct LibraryView: View {
     @State private var loggingAudio = false
 
     var body: some View {
-        let resolver = BookMergeResolver(merges: model.merges)
-        let books = model.books.filter { resolver.resolvedID(for: $0.id) == $0.id }
-        let finishedIDs = Set(model.finishedBooks.map { resolver.resolvedID(for: $0.id) })
-        let recent = model.intervals.reduce(into: [String: Date]()) { result, interval in
-            let id = resolver.resolvedID(for: interval.bookID)
-            result[id] = max(result[id] ?? .distantPast, interval.end)
-        }
-        let finishes = model.finishedBooks.reduce(into: [String: Date]()) { result, entry in
-            guard let date = entry.finishedAt else { return }
-            let id = resolver.resolvedID(for: entry.id)
-            result[id] = max(result[id] ?? .distantPast, date)
-        }
+        let summary = model.librarySummary
+        let books = summary.books
+        let finishedIDs = summary.finishedIDs
+        let recent = summary.recent
+        let finishes = summary.finishes
         let positions = model.libraryProgressObservations
         let visible = books.filter { book in
             (shelf == .all || (shelf == .finished ? finishedIDs.contains(book.id) : !finishedIDs.contains(book.id)))
@@ -72,10 +65,14 @@ struct LibraryView: View {
                     }
                 }
                 if visible.isEmpty {
+                    VStack(spacing: 16) {
                     ReadingEmptyState(title: search.isEmpty ? (shelf == .finished ? "Stories to look back on" : "Your next chapter awaits") : "No matching books",
                         symbol: "books.vertical",
                         message: search.isEmpty ? (shelf == .finished ? "Books you mark finished will appear here." : "Import an EPUB, open a book in Apple Books, or add a reading session to start your shelf.") : "Try another title or author.")
-                        .padding(.vertical, 35)
+                        if !search.isEmpty || shelf != .all {
+                            Button("Show all books") { search = ""; shelf = .all }
+                        }
+                    }.padding(.vertical, 35)
                 } else {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 168, maximum: 210), spacing: 28, alignment: .topLeading)],
                               alignment: .leading, spacing: 36) {
@@ -86,7 +83,8 @@ struct LibraryView: View {
                                     rating: model.rating(for: book.id), progress: positions[book.id]) { present(.book(book)) }
                                 HStack {
                                     if model.hasImportedEPUB(book) && model.hasEPUB(book) {
-                                        Button("Read") { model.readEPUB(book) }.controlSize(.small)
+                                        Button(model.isOpeningEPUB(book) ? "Opening…" : "Read") { model.readEPUB(book) }
+                                            .controlSize(.small).disabled(model.isOpeningEPUB(book))
                                     } else if model.canReadAppleBooksCopy(book) {
                                         // Books added to Apple Books by the reader open here; store purchases stay in Apple Books.
                                         Button(model.preparingAppleBooksIDs.contains(book.id) ? "Opening…" : "Read here") { model.readFromAppleBooks(book) }
@@ -155,8 +153,8 @@ extension LibraryView {
     fileprivate func shelfPicker(books: [BookRecord], finishedIDs: Set<String>) -> some View {
         let title: (LibraryShelf) -> String = { item in
             switch item {
-            case .reading: return "Reading · \(books.filter { !finishedIDs.contains($0.id) }.count)"
-            case .finished: return "Finished · \(books.filter { finishedIDs.contains($0.id) }.count)"
+            case .reading: return "Reading · \(model.librarySummary.readingCount)"
+            case .finished: return "Finished · \(model.librarySummary.finishedCount)"
             case .all: return "All books · \(books.count)"
             }
         }
@@ -175,8 +173,8 @@ extension LibraryView {
 
     fileprivate var searchAndSort: some View {
         HStack(spacing: 10) {
-            TextField("Find a title or author", text: $search)
-                .textFieldStyle(ReadingTextFieldStyle()).frame(minWidth: 180, maxWidth: 260)
+            ReadingSearchField(label: "Search library", placeholder: "Find a title or author", text: $search)
+                .frame(minWidth: 180, maxWidth: 260)
             Menu {
                 ForEach(LibrarySort.allCases, id: \.self) { value in
                     Button { sort = value } label: {
@@ -225,24 +223,25 @@ struct BookLibraryCard: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(book.title).font(ReadingType.bookTitle(16))
-                        .lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                        .lineLimit(2, reservesSpace: true).fixedSize(horizontal: false, vertical: true)
                     Text(book.author?.isEmpty == false ? book.author! : "Author unavailable")
                         .font(.caption).foregroundStyle(ReadingPalette.secondaryInk).lineLimit(1)
                     HStack(spacing: 6) {
                         Text(progressLabel.primary)
                             .font(.callout.weight(.semibold)).foregroundStyle(ReadingPalette.accent)
+                            .lineLimit(1)
                         if let rating {
                             Label(rating.formatted(.number.precision(.fractionLength(0...2))), systemImage: "star.fill")
                                 .font(.caption.weight(.medium)).foregroundStyle(ReadingPalette.accent)
                         }
                     }.padding(.top, 2)
-                    if let detail = progressLabel.detail {
-                        Text(detail).font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
-                    }
-                    if date != nil || progress == nil || finished {
-                        Text(date.map { "\(finished ? "Finished" : "Last read") \($0.formatted(date: .abbreviated, time: .omitted))" } ?? (finished ? "Date unavailable" : "No reading recorded yet"))
-                            .font(.caption2).foregroundStyle(ReadingPalette.secondaryInk).lineLimit(1)
-                    }
+                    Text(progressLabel.detail ?? " ").font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
+                        .lineLimit(2, reservesSpace: true)
+                        .accessibilityHidden(progressLabel.detail == nil)
+                    let showsDate = date != nil || progress == nil || finished
+                    Text(showsDate ? (date.map { "\(finished ? "Finished" : "Last read") \($0.formatted(date: .abbreviated, time: .omitted))" } ?? (finished ? "Date unavailable" : "No reading recorded yet")) : " ")
+                        .font(.caption2).foregroundStyle(ReadingPalette.secondaryInk).lineLimit(1)
+                        .accessibilityHidden(!showsDate)
                 }
                 .padding(.horizontal, 2)
             }

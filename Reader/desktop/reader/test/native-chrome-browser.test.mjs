@@ -36,7 +36,33 @@ test('native host retains complete preferences, modal ownership and backwards-co
  await dispatch(6,'preferences',{scroll:false,columns:'one'});
  await page.evaluate(()=>{window.slideAnimations=0;const original=Element.prototype.animate;Element.prototype.animate=function(...args){if(this.classList.contains('page-slide-track'))slideAnimations++;return original.apply(this,args)}});
  await dispatch(7,'next');assert.equal(await page.evaluate(()=>slideAnimations),0,'native Reduced Motion suppresses subsequent WAAPI slides independently of web media');
- await dispatch(8,'deactivate');assert.equal(await page.locator('.reader-bar').isVisible(),true);
+ // Native color toggles seed from the effective page colors, preserving readability.
+ let nextRequest=8;
+ for(const theme of ['white','dark']){
+  const themed=await dispatch(nextRequest++,'preferences',{theme,backgroundColor:null,textColor:null});
+  const colors=themed.effectiveAppearance;
+  assert.ok(colors.backgroundColor&&colors.textColor);
+  assert.notEqual(colors.backgroundColor.toLowerCase(),colors.textColor.toLowerCase());
+  const custom=await dispatch(nextRequest++,'preferences',{textColor:colors.textColor});
+  assert.deepEqual(custom.effectiveAppearance,colors,'enabling a custom text color keeps the current page pair');
+  const customPage=await dispatch(nextRequest++,'preferences',{backgroundColor:colors.backgroundColor});
+  assert.deepEqual(customPage.effectiveAppearance,colors,'enabling a custom page color keeps the current page pair');
+ }
+ await dispatch(nextRequest++,'preferences',{sideMargin:96});
+ const preset=await dispatch(nextRequest++,'preferences',{margins:'narrow'});
+ assert.equal(preset.preferences.sideMargin,null,'a named margin preset clears the custom gutter');
+ const explicit=await dispatch(nextRequest++,'preferences',{margins:'wide',sideMargin:28});
+ assert.equal(explicit.preferences.sideMargin,28,'an explicit custom gutter in the same patch remains intentional');
+ await dispatch(nextRequest++,'deactivate');assert.equal(await page.locator('.reader-bar').isVisible(),true);
+ await page.locator('#appearance').click();
+ await page.locator('#measure').focus();await page.keyboard.press('Tab');
+ const margins=page.getByRole('radiogroup',{name:'Margins',exact:true});
+ assert.equal(await margins.getByRole('radio',{name:'Wide',exact:true}).evaluate(button=>document.activeElement===button),true,'custom spacing leaves the preset group reachable by Tab');
+ assert.equal(await margins.getByRole('radio',{name:'Wide',exact:true}).getAttribute('aria-checked'),'false','custom spacing is not misrepresented as a selected preset');
+ await page.keyboard.press('ArrowLeft');
+ await page.waitForFunction(()=>StillleafReader.exportState().preferences.sideMargin===null);
+ assert.equal(await margins.getByRole('radio',{name:'Normal',exact:true}).getAttribute('aria-checked'),'true','keyboard selection restores preset spacing');
+ await page.keyboard.press('Escape');
  await page.evaluate(async book=>{await StillleafReader.close();await StillleafReader.open(book)},{...book,state:persisted});
  assert.equal(await page.locator('.reader-bar').isVisible(),true,'standalone reopen does not inherit host capability');
  const reopened=await page.evaluate(()=>StillleafReader.exportState());assert.deepEqual(reopened.preferences,persisted.preferences);assert.equal('nativeChrome' in reopened,false);
