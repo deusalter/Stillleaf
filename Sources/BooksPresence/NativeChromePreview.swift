@@ -51,15 +51,17 @@ private enum NativeChromeCaptureError: Error { case renderFailed }
             backdrop.contentViewController = nil; backdrop.close()
             try await checkMenuPickerLayout(directory: directory, dark: dark, opaque: opaque)
         }
-        // Exercise the actual dashboard at its supported minimum, rather than
-        // inferring compact layouts from wide offscreen view-cache renders.
+        // Exercise glass at the supported minimum too. An explicit app-owned
+        // override keeps runner accessibility defaults from silently selecting
+        // our solid fallback; the separate opaque captures cover that branch.
         for section in [DashboardSection.today, .library, .timeline, .history, .review, .settings] {
             let window = DashboardWindow(contentRect: NSRect(x: 100, y: 100, width: 920, height: 660),
                 styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
             window.title = "Stillleaf — synthetic compact preview"
             window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
-            window.contentViewController = NSHostingController(rootView: DashboardView(model: model, initialSection: section))
+            window.contentViewController = NSHostingController(rootView: DashboardView(model: model, initialSection: section)
+                .environment(\.nativePreviewOpaque, false))
             window.makeKeyAndOrderFront(nil)
             try await Task.sleep(nanoseconds: 300_000_000)
             try await captureNativeWindow(window, to: directory.appendingPathComponent(
@@ -71,7 +73,8 @@ private enum NativeChromeCaptureError: Error { case renderFailed }
         listeningWindow.isReleasedWhenClosed = false
         listeningWindow.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
         listeningWindow.contentViewController = NSHostingController(rootView:
-            AudiobookLogView(model: model, maximumHeight: 500, initiallyIncludesSession: true))
+            AudiobookLogView(model: model, maximumHeight: 500, initiallyIncludesSession: true)
+                .environment(\.nativePreviewOpaque, false))
         listeningWindow.makeKeyAndOrderFront(nil)
         try await Task.sleep(nanoseconds: 300_000_000)
         try await captureNativeWindow(listeningWindow, to: directory.appendingPathComponent(
