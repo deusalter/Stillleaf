@@ -30,6 +30,31 @@ private struct NativePanelSurface: ViewModifier {
 extension View {
     func nativePanelSurface() -> some View { modifier(NativePanelSurface()) }
     func nativePopoverSurface() -> some View { modifier(NativePopoverSurface()) }
+    func nativeMenuSurface(hovering: Bool) -> some View { modifier(NativeMenuSurface(hovering: hovering)) }
+}
+
+private struct NativeMenuSurface: ViewModifier {
+    let hovering: Bool
+    @Environment(\.accessibilityReduceTransparency) private var opaque
+    @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.nativePreviewOpaque) private var previewOpaque
+
+    @ViewBuilder func body(content: Content) -> some View {
+        #if compiler(>=6.2)
+        if #available(macOS 26.0, *), !(previewOpaque ?? opaque), contrast != .increased {
+            content.glassEffect(.regular.tint(ReadingPalette.accent.opacity(hovering ? 0.12 : 0)), in: .capsule)
+        } else {
+            fallback(content)
+        }
+        #else
+        fallback(content)
+        #endif
+    }
+
+    private func fallback(_ content: Content) -> some View {
+        content.background(ReadingPalette.elevated, in: Capsule())
+            .overlay(Capsule().stroke(ReadingPalette.accent.opacity(contrast == .increased ? 0.7 : (hovering ? 0.3 : 0.16))))
+    }
 }
 
 /// A text-heavy menu needs the system popover material, not a refracting glass

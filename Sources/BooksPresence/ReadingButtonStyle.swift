@@ -2,12 +2,30 @@ import SwiftUI
 
 /// Keep native menu actions and selection semantics inside a compact reading toolbar surface.
 struct ReadingMenuStyle: MenuStyle {
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.isFocused) private var isFocused
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var hovering = false
+
     func makeBody(configuration: Configuration) -> some View {
         Menu(configuration)
-            .menuStyle(.button)
-            .buttonStyle(ReadingButtonStyle())
+            // AppKit-backed menus do not consistently inherit a ButtonStyle.
+            // Style the menu surface itself, leaving its label and popup native.
+            .menuStyle(.borderlessButton)
+            .buttonStyle(.borderless)
             .controlSize(.small)
+            .font(.caption.weight(.medium))
+            .foregroundStyle(ReadingPalette.ink)
+            .tint(ReadingPalette.ink)
             .fixedSize()
+            .padding(.horizontal, 12).padding(.vertical, 6)
+            .frame(minHeight: 30)
+            .nativeMenuSurface(hovering: hovering && isEnabled)
+            .overlay(Capsule().stroke(isFocused ? ReadingPalette.accent : .clear, lineWidth: 2))
+            .contentShape(Capsule())
+            .opacity(isEnabled ? 1 : 0.42)
+            .onHover { hovering = $0 }
+            .animation(reduceMotion ? nil : ReadingMotion.hover, value: hovering)
     }
 }
 

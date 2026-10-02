@@ -199,7 +199,8 @@ struct MenuReadingGoal: View {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(daily.displayValue).font(ReadingType.numeral(36))
                     .minimumScaleFactor(0.5).lineLimit(1)
-                Text(daily.unitTitle).font(.callout).foregroundStyle(ReadingPalette.secondaryInk)
+                Text(daily.value == 1 ? (daily.unit == .pages ? "page" : "minute") : daily.unitTitle)
+                    .font(.callout).foregroundStyle(ReadingPalette.secondaryInk)
                 Spacer(minLength: 4)
                 Label(daily.unit == .pages ? ReadingFormat.duration(model.today.creditedSeconds) : "\(model.todayPages) pages",
                       systemImage: daily.unit == .pages ? "clock" : "book")
