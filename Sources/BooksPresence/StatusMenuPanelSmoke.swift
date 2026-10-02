@@ -121,11 +121,15 @@ func checkStatusMenuPanelInteractions(directory: URL) async throws {
     while !NSApp.isActive && Date() < activationDeadline { try await Task.sleep(nanoseconds: 10_000_000) }
     guard NSApp.isActive else { throw StatusMenuPanelSmokeError.failed("Could not activate the synthetic panel for deactivation check") }
     print("status-menu-deactivation-before: \(diagnosticState())")
-    NSApp.deactivate()
-    print("status-menu-deactivation-immediate: \(diagnosticState())")
+    let sheetSwitchCallbacks = delegate.applicationDeactivations
+    try await switchStatusMenuSmokeToFinder()
+    print("status-menu-deactivation-after-focus-transfer: \(diagnosticState())")
     let deactivationDeadline = Date().addingTimeInterval(2)
-    while NSApp.isActive && Date() < deactivationDeadline { try await Task.sleep(nanoseconds: 10_000_000) }
-    guard !NSApp.isActive, panel.level == .normal, sheet.level == .normal, !panel.isFloatingPanel,
+    while (NSApp.isActive || delegate.applicationDeactivations == sheetSwitchCallbacks) && Date() < deactivationDeadline {
+        try await Task.sleep(nanoseconds: 10_000_000)
+    }
+    guard !NSApp.isActive, delegate.applicationDeactivations > sheetSwitchCallbacks,
+          panel.level == .normal, sheet.level == .normal, !panel.isFloatingPanel,
           panel.attachedSheet === sheet, dismissals == 0,
           draft.stringValue == "Synthetic unsaved reading title" else {
         throw StatusMenuPanelSmokeError.failed("Application deactivation left a floating form or discarded its attached draft: \(diagnosticState())")
@@ -150,10 +154,13 @@ func checkStatusMenuPanelInteractions(directory: URL) async throws {
           panel.collectionBehavior.contains(.canJoinAllSpaces) else {
         throw StatusMenuPanelSmokeError.failed("Closing the sheet did not restore menu presentation and deferred sizing")
     }
-    NSApp.deactivate()
+    let menuSwitchCallbacks = delegate.applicationDeactivations
+    try await switchStatusMenuSmokeToFinder()
     let menuDismissalDeadline = Date().addingTimeInterval(2)
-    while panel.isVisible && Date() < menuDismissalDeadline { try await Task.sleep(nanoseconds: 10_000_000) }
-    guard !panel.isVisible else {
+    while (panel.isVisible || delegate.applicationDeactivations == menuSwitchCallbacks) && Date() < menuDismissalDeadline {
+        try await Task.sleep(nanoseconds: 10_000_000)
+    }
+    guard !NSApp.isActive, !panel.isVisible, delegate.applicationDeactivations > menuSwitchCallbacks else {
         throw StatusMenuPanelSmokeError.failed("Application deactivation no longer dismisses the ordinary menu")
     }
     NSApp.activate(ignoringOtherApps: true)
@@ -178,4 +185,29 @@ func checkStatusMenuPanelInteractions(directory: URL) async throws {
     try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys])
         .write(to: directory.appendingPathComponent("status-menu-interactions.json"))
     print("status-menu-smoke: sheet modality, application switching, draft retention, Escape and anchored resize passed")
+}
+
+/// NSApp.deactivate() does not transfer foreground focus away from an active
+/// sheet. Activate another real application, matching Command-Tab instead.
+@MainActor
+private func switchStatusMenuSmokeToFinder() async throws {
+    let finder: NSRunningApplication
+    if let running = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.finder").first {
+        finder = running
+    } else {
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = true
+        finder = try await NSWorkspace.shared.openApplication(
+            at: URL(fileURLWithPath: "/System/Library/CoreServices/Finder.app"), configuration: configuration)
+    }
+    guard finder.activate(options: [.activateIgnoringOtherApps]) else {
+        throw StatusMenuPanelSmokeError.failed("Finder rejected foreground activation for the application-switch fixture")
+    }
+    let deadline = Date().addingTimeInterval(3)
+    while (NSApp.isActive || !finder.isActive) && Date() < deadline {
+        try await Task.sleep(nanoseconds: 10_000_000)
+    }
+    guard !NSApp.isActive, finder.isActive else {
+        throw StatusMenuPanelSmokeError.failed("Application focus did not transfer to Finder: stillleafActive=\(NSApp.isActive) finderActive=\(finder.isActive)")
+    }
 }
