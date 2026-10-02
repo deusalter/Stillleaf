@@ -72,7 +72,7 @@ func checkStatusMenuPanelInteractions(directory: URL) async throws {
         throw StatusMenuPanelSmokeError.failed("Reduce Motion did not apply the resize immediately")
     }
 
-    panel.beginSheet(sheet)
+    panel.beginSheet(sheet, completionHandler: nil)
     sheet.makeFirstResponder(draft)
     try await Task.sleep(nanoseconds: 180_000_000)
     guard panel.attachedSheet === sheet, panel.isVisible, dismissals == 0, panel.owns(sheet) else {
