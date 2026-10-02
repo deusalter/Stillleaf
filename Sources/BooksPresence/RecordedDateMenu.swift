@@ -1,8 +1,8 @@
 import AppKit
 import SwiftUI
 
-/// One native keyboard/VoiceOver destination per chart row. Date labels and
-/// menu items are created only when this row's menu opens, not for the year.
+/// One lightweight keyboard/VoiceOver button per chart row. The native menu
+/// itself, date labels, and items exist only when someone opens this row.
 struct RecordedDateMenu: NSViewRepresentable {
     let dates: [Date]
     let timezoneID: String
@@ -19,24 +19,26 @@ struct RecordedDateMenu: NSViewRepresentable {
 }
 
 @MainActor
-final class RecordedDateMenuButton: NSPopUpButton, NSMenuDelegate {
+final class RecordedDateMenuButton: NSButton {
     private var dates: [Date] = []
     private var timezoneID = "UTC"
     private var selectDate: (Date) -> Void = { _ in }
+    private(set) var activeDateMenu: NSMenu?
+    private static let disclosureImage = NSImage(systemSymbolName: "chevron.down", accessibilityDescription: nil)
 
     init() {
-        super.init(frame: .zero, pullsDown: true)
+        super.init(frame: .zero)
+        setButtonType(.momentaryPushIn)
         controlSize = .mini
         font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         isBordered = false
+        image = Self.disclosureImage
+        imagePosition = .imageTrailing
         focusRingType = .default
+        target = self
+        action = #selector(showDates(_:))
         setContentHuggingPriority(.required, for: .horizontal)
         setContentCompressionResistancePriority(.required, for: .vertical)
-        let dateMenu = NSMenu()
-        dateMenu.autoenablesItems = false
-        dateMenu.addItem(withTitle: "0 dates", action: nil, keyEquivalent: "")
-        dateMenu.delegate = self
-        menu = dateMenu
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -49,13 +51,13 @@ final class RecordedDateMenuButton: NSPopUpButton, NSMenuDelegate {
         title = "\(dates.count) \(dates.count == 1 ? "date" : "dates")"
         isEnabled = enabled && !dates.isEmpty
         setAccessibilityLabel("Choose a recorded date for \(bookTitle)")
-        toolTip = "Open a recorded day, pending day, or finish date"
+        toolTip = "Open the menu of recorded days, pending days, and finish dates"
     }
 
-    func menuNeedsUpdate(_ menu: NSMenu) {
-        menu.removeAllItems()
-        // A pull-down's first item supplies its title; it is not a destination.
-        menu.addItem(withTitle: "\(dates.count) \(dates.count == 1 ? "date" : "dates")", action: nil, keyEquivalent: "")
+    func prepareDateMenu() -> NSMenu? {
+        guard isEnabled, !dates.isEmpty else { return nil }
+        let menu = NSMenu()
+        menu.autoenablesItems = false
         for date in dates {
             let item = NSMenuItem(title: AtlasStyle.date(date, zone: timezoneID, pattern: "EEEE, MMMM d, yyyy"),
                                   action: #selector(openDate(_:)), keyEquivalent: "")
@@ -63,6 +65,17 @@ final class RecordedDateMenuButton: NSPopUpButton, NSMenuDelegate {
             item.representedObject = date
             menu.addItem(item)
         }
+        activeDateMenu = menu
+        return menu
+    }
+
+    @objc private func showDates(_ sender: NSButton) {
+        guard let menu = prepareDateMenu() else { return }
+        defer { activeDateMenu = nil }
+        // Anchoring to the control works for keyboard/VoiceOver activation too;
+        // there need not be a pointer event or a pointer over this row.
+        let anchor = NSPoint(x: bounds.minX, y: isFlipped ? bounds.maxY : bounds.minY)
+        menu.popUp(positioning: nil, at: anchor, in: self)
     }
 
     @objc private func openDate(_ item: NSMenuItem) {

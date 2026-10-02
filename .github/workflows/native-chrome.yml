@@ -68,6 +68,11 @@ jobs:
           python3 scripts/reader-review-fixture.py "$RUNNER_TEMP/native-chrome.epub" --chapters 3
           mkdir -p "$RUNNER_TEMP/native-reader"
           .build/release/BooksPresence --self-test-epub "$RUNNER_TEMP/native-chrome.epub" --reader-artifacts "$RUNNER_TEMP/native-reader"
+      - name: Independent sampled History diagnostics
+        if: matrix.os == 'macos-26'
+        continue-on-error: true
+        timeout-minutes: 3
+        run: python3 scripts/profile-native-history.py .native-baseline/.build/release/BooksPresence .build/release/BooksPresence "$RUNNER_TEMP"
       - name: Enforce matched settled History and native feedback gates
         if: matrix.os == 'macos-26'
         run: |
@@ -93,6 +98,7 @@ jobs:
             ${{ runner.temp }}/candidate-settled-ui.json
             ${{ runner.temp }}/native-performance-gates.json
             ${{ runner.temp }}/native-performance-batches
+            ${{ runner.temp }}/native-history-profile
   modern-package-fallback:
     needs: sdk-probe
     runs-on: macos-14
