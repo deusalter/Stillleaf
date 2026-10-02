@@ -53,7 +53,7 @@ private enum NativeChromeCaptureError: Error { case renderFailed }
         }
         // Exercise the actual dashboard at its supported minimum, rather than
         // inferring compact layouts from wide offscreen view-cache renders.
-        for section in [DashboardSection.today, .library, .timeline, .review, .settings] {
+        for section in [DashboardSection.today, .library, .timeline, .history, .review, .settings] {
             let window = DashboardWindow(contentRect: NSRect(x: 100, y: 100, width: 920, height: 660),
                 styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
