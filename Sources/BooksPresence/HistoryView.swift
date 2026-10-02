@@ -25,24 +25,28 @@ struct HistoryView: View {
     private var requestKey: HistoryAtlasKey? {
         model.historyAtlasSource.map { HistoryAtlasKey(source: $0, navigation: requestedNavigation) }
     }
-    private var visibleNavigation: CalendarNavigation {
-        if let displayed = atlas.displayed, let request = requestKey, displayed.canRetain(for: request) {
-            return displayed.navigation
-        }
-        return requestedNavigation
-    }
     var body: some View {
-        ScrollView {
+        // Resolve the request once for this render. Repeated computed-property
+        // reads otherwise rebuild calendars/period keys in both adaptive layouts.
+        let requested = requestedNavigation
+        let source = model.historyAtlasSource
+        let request = source.map { HistoryAtlasKey(source: $0, navigation: requested) }
+        let displayed = atlas.displayed
+        let visible = displayed.flatMap { candidate in
+            request.flatMap { candidate.canRetain(for: $0) ? candidate.navigation : nil }
+        } ?? requested
+        let visibleTitle = Self.title(for: visible)
+        return ScrollView {
             VStack(alignment: .leading, spacing: 26) {
                 Text("History").font(.system(size: 17, weight: .semibold)).accessibilityAddTraits(.isHeader)
                 ViewThatFits(in: .horizontal) {
-                    HStack(alignment: .firstTextBaseline) { periodTitle; Spacer(minLength: 16); navigationButtons }
-                    VStack(alignment: .leading, spacing: 14) { periodTitle; navigationButtons }
+                    HStack(alignment: .firstTextBaseline) { periodTitle(visibleTitle); Spacer(minLength: 16); navigationButtons }
+                    VStack(alignment: .leading, spacing: 14) { periodTitle(visibleTitle); navigationButtons }
                 }
-                if let displayed = atlas.displayed {
-                    historyContent(displayed)
+                if let displayed {
+                    historyContent(displayed, request: request, requested: requested)
                 } else {
-                    ProgressView("Preparing \(requestedNavigation.title)…").controlSize(.small)
+                    ProgressView("Preparing \(visibleTitle)…").controlSize(.small)
                         .frame(maxWidth: .infinity, minHeight: 260, alignment: .topLeading)
                         .padding(.top, 20)
                 }
@@ -54,26 +58,28 @@ struct HistoryView: View {
         }
         .background(AtlasStyle.canvas(dark)).foregroundStyle(AtlasStyle.ink(dark)).tint(AtlasStyle.accent(dark))
         .onChange(of: model.timezoneID) { navigation.timezoneID = $0 }
-        .task(id: requestKey) {
-            guard let source = model.historyAtlasSource else { return }
-            await atlas.load(source: source, navigation: requestedNavigation, reduceMotion: reduceMotion)
+        .task(id: request) {
+            guard let source else { return }
+            await atlas.load(source: source, navigation: requested, reduceMotion: reduceMotion)
         }
         .sheet(item: $reviewInterval) { interval in IntervalReviewEditor(model: model, interval: interval) }
     }
-    private func historyContent(_ displayed: HistoryAtlasDisplay) -> some View {
+    private func historyContent(_ displayed: HistoryAtlasDisplay, request: HistoryAtlasKey?, requested: CalendarNavigation) -> some View {
         let prepared = displayed.presentation
-        let canReveal = requestKey.map { displayed.canRetain(for: $0) } ?? false
-        let current = prepared.key == requestKey
-        let periodID = "\(displayed.navigation.scale.rawValue)-\(displayed.navigation.periodStart)-\(displayed.navigation.timezoneID)"
+        let canReveal = request.map { displayed.canRetain(for: $0) } ?? false
+        let current = prepared.key == request
+        let periodID = "\(prepared.key.scale.rawValue)-\(prepared.key.period.start)-\(prepared.key.timezoneID)"
+        let dailyGoal = prepared.key.scale == .day
+            ? model.dailyGoal(on: displayed.navigation.dayKey(for: prepared.key.period.start)) : nil
         return VStack(alignment: .leading, spacing: 26) {
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 25) {
                     summary(pages: prepared.pages, seconds: prepared.creditedSeconds, activeDays: prepared.activeDays, scale: displayed.navigation.scale)
-                    Spacer(minLength: 0); goal(for: displayed.navigation)
+                    Spacer(minLength: 0); goal(dailyGoal)
                 }
                 VStack(alignment: .leading, spacing: 12) {
                     HStack(spacing: 22) { summary(pages: prepared.pages, seconds: prepared.creditedSeconds, activeDays: prepared.activeDays, scale: displayed.navigation.scale) }
-                    goal(for: displayed.navigation)
+                    goal(dailyGoal)
                 }
             }
             .opacity(canReveal ? 1 : 0).accessibilityHidden(!canReveal)
@@ -93,7 +99,7 @@ struct HistoryView: View {
         }
         .overlay(alignment: .topLeading) {
             if !current {
-                ProgressView("Updating to \(requestedNavigation.title)…")
+                ProgressView("Updating to \(Self.title(for: requested))…")
                     .controlSize(.small).font(.callout)
                     .padding(12)
                     .background(ReadingPalette.surface, in: RoundedRectangle(cornerRadius: 10))
@@ -119,10 +125,26 @@ struct HistoryView: View {
         guard key == requestKey else { return }
         benchmarkReady?(key)
     }
-    private var periodTitle: some View {
-        Text(visibleNavigation.scale == .day ? AtlasStyle.date(visibleNavigation.periodStart, zone: visibleNavigation.timezoneID, pattern: "EEEE, MMMM d, yyyy") : visibleNavigation.title)
+    private func periodTitle(_ title: String) -> some View {
+        Text(title)
             .font(.system(size: 30, weight: .regular, design: .serif)).tracking(-0.7)
             .fixedSize(horizontal: false, vertical: true).accessibilityAddTraits(.isHeader)
+    }
+    static func title(for navigation: CalendarNavigation) -> String {
+        let period = navigation.period
+        func format(_ date: Date, _ pattern: String) -> String {
+            AtlasStyle.date(date, zone: navigation.timezoneID, pattern: pattern)
+        }
+        switch navigation.scale {
+        case .day: return format(period.start, "EEEE, MMMM d, yyyy")
+        case .week:
+            let calendar = navigation.calendar
+            let finalDay = calendar.date(byAdding: .day, value: -1, to: period.end) ?? period.end
+            let sameYear = calendar.component(.year, from: period.start) == calendar.component(.year, from: finalDay)
+            return "\(format(period.start, sameYear ? "MMM d" : "MMM d, yyyy")) – \(format(finalDay, "MMM d, yyyy"))"
+        case .month: return format(period.start, "MMMM yyyy")
+        case .year: return format(period.start, "yyyy")
+        }
     }
     private var navigationButtons: some View {
         HStack(spacing: 7) {
@@ -155,9 +177,8 @@ struct HistoryView: View {
             Text(label).font(.caption).foregroundStyle(AtlasStyle.muted(dark))
         }.accessibilityElement(children: .combine)
     }
-    @ViewBuilder private func goal(for committed: CalendarNavigation) -> some View {
-        if committed.scale == .day {
-            let progress = model.dailyGoal(on: committed.dayKey(for: committed.periodStart))
+    @ViewBuilder private func goal(_ progress: DailyGoalProgress?) -> some View {
+        if let progress {
             Text(progress.reached ? "✓ Daily goal reached" : progress.summary).font(.caption)
                 .foregroundStyle(AtlasStyle.accent(dark)).accessibilityLabel("Daily goal: \(progress.summary)")
         }

@@ -74,18 +74,9 @@ struct AtlasYearView: View {
                             .multilineTextAlignment(.leading)
                     }.buttonStyle(.plain)
                         .accessibilityLabel("\(title(id)), \(activity.count) recorded days, \(pages) pages, \(ReadingFormat.duration(seconds)) recorded. \(finished.isEmpty ? "" : "Finished this year.") Open latest day.")
-                    Menu {
-                        ForEach(row.recordedDates, id: \.self) { date in
-                            Button(AtlasStyle.date(date, zone: navigation.timezoneID, pattern: "EEEE, MMMM d, yyyy")) { select(date) }
-                        }
-                    } label: {
-                        Text("\(row.recordedDates.count) \(row.recordedDates.count == 1 ? "date" : "dates")").font(.caption2)
-                    }
-                    .menuStyle(.borderlessButton).controlSize(.mini)
-                    .disabled(row.recordedDates.isEmpty)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityLabel("Choose a recorded date for \(title(id))")
-                    .help("Open a recorded day, pending day, or finish date")
+                    RecordedDateMenu(dates: row.recordedDates, timezoneID: navigation.timezoneID,
+                                     bookTitle: title(id), select: select)
+                        .fixedSize()
                 }
             }.frame(width: 170, alignment: .leading)
             GeometryReader { geometry in

@@ -75,6 +75,18 @@ test('held navigation keys settle on release and secondary link clicks preserve 
   await link.evaluate(link => {
     const doc = link.ownerDocument;
     doc.defaultView.leakedSecondaryPointers = 0;
+    doc.defaultView.linkPointerDowns = 0;
+    doc.defaultView.contextDefaults = [];
+    // Observe whether the app preserved the context-menu default, then suppress
+    // only the native menu UI in this harness. Playwright WebKit cannot reliably
+    // dismiss that platform menu; it otherwise swallows every later test click.
+    doc.addEventListener('contextmenu', event => {
+      doc.defaultView.contextDefaults.push(event.defaultPrevented);
+      event.preventDefault();
+    });
+    doc.addEventListener('pointerdown', event => {
+      if (event.target.closest?.('#jump')) doc.defaultView.linkPointerDowns++;
+    }, true);
     // Readium also listens in the bubble phase. Ignored pointer activation must
     // never reach it, even on hosts where its asynchronous navigation is slow.
     doc.addEventListener('pointerup', event => {
@@ -82,11 +94,16 @@ test('held navigation keys settle on release and secondary link clicks preserve 
     });
   });
   for (const options of [{button: 'right'}, {button: 'middle'}, {modifiers: ['Meta']}, {modifiers: ['Control']}, {modifiers: ['Alt']}, {modifiers: ['Shift']}]) {
+    const before = await link.evaluate(link => link.ownerDocument.defaultView.linkPointerDowns);
     await link.click(options);
+    assert.equal(await link.evaluate(link => link.ownerDocument.defaultView.linkPointerDowns), before + 1, 'the pointer action reaches the publication link');
     assert.equal(await link.evaluate(link => link.ownerDocument.defaultView.leakedSecondaryPointers), 0, 'secondary pointer activation never reaches the engine bubble handler');
     await page.evaluate(() => StillleafReader.setPreferences({}));
     assert.equal(await page.evaluate(() => StillleafReader.bookmark().href), 'one.html', `secondary or modified click preserves place: ${JSON.stringify(options)}`);
   }
+  const contextDefaults = await link.evaluate(link => link.ownerDocument.defaultView.contextDefaults);
+  assert.ok(contextDefaults.length > 0, 'right-click requests a context menu');
+  assert.ok(contextDefaults.every(prevented => !prevented), 'the reader leaves the native context-menu default available');
   assert.equal(page.context().pages().length, 1, 'modified links do not open unsupported publication tabs');
   await link.click();
   await page.waitForFunction(() => StillleafReader.bookmark()?.href === 'two.html');

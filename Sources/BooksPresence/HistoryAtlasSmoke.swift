@@ -4,6 +4,8 @@ import BooksCore
 /// Exercised by macOS CI with synthetic data and the real publication controller.
 @MainActor
 func runHistoryAtlasNavigationSmoke(source: HistoryAtlasSource) throws {
+    try checkCachedHistoryTitles()
+    try checkRecordedDateMenu()
     try checkRetainedHistoryNavigation(source: source)
     var pending: [CheckedContinuation<HistoryAtlasPeriod, Error>] = []
     var navigations: [CalendarNavigation] = []
@@ -49,6 +51,22 @@ func runHistoryAtlasNavigationSmoke(source: HistoryAtlasSource) throws {
     try pumpAtlas { cancelledFinished }
     guard cancelledController.presentation == nil else { throw AtlasSmokeFailure.stalePublication }
     print("ui-smoke: History day → year → day, reversed completions, cancellation and main-queue heartbeat passed")
+}
+
+@MainActor
+private func checkCachedHistoryTitles() throws {
+    let parser = ISO8601DateFormatter()
+    // Cross-year weeks and DST days exercise the calendar arithmetic; all
+    // labels must remain identical to the uncached core navigation formatter.
+    for timestamp in ["2025-12-31T23:30:00Z", "2026-03-08T10:01:00Z", "2026-11-01T09:01:00Z"] {
+        let anchor = parser.date(from: timestamp)!
+        for zone in ["UTC", "America/Los_Angeles", "Asia/Kathmandu"] {
+            for scale in CalendarScale.allCases {
+                let navigation = CalendarNavigation(timezoneID: zone, anchor: anchor, scale: scale)
+                guard HistoryView.title(for: navigation) == navigation.title else { throw AtlasSmokeFailure.titleMismatch }
+            }
+        }
+    }
 }
 
 @MainActor
@@ -117,4 +135,4 @@ private func pumpAtlas(until finished: () -> Bool) throws {
     while !finished(), Date() < deadline { RunLoop.current.run(until: Date().addingTimeInterval(0.002)) }
     guard finished() else { throw AtlasSmokeFailure.timeout }
 }
-private enum AtlasSmokeFailure: Error { case stalePublication, timeout }
+private enum AtlasSmokeFailure: Error { case stalePublication, timeout, titleMismatch }
