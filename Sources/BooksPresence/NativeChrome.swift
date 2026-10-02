@@ -6,7 +6,7 @@ extension EnvironmentValues {
     var nativePreviewOpaque: Bool? { get { self[NativePreviewOpaque.self] } set { self[NativePreviewOpaque.self] = newValue } }
 }
 
-private struct NativePanelSurface: ViewModifier {
+private struct NativeSidebarSurface: ViewModifier {
     @Environment(\.accessibilityReduceTransparency) private var opaque
     @Environment(\.colorSchemeContrast) private var contrast
     @Environment(\.nativePreviewOpaque) private var previewOpaque
@@ -16,7 +16,9 @@ private struct NativePanelSurface: ViewModifier {
         } else {
             #if compiler(>=6.2)
             if #available(macOS 26.0, *) {
-                content.glassEffect(.regular, in: .rect(cornerRadius: 20))
+                // NavigationSplitView owns the glass on Tahoe. A second glass
+                // effect here produces nested outlines and double refraction.
+                content
             } else {
                 content.background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20))
             }
@@ -28,9 +30,24 @@ private struct NativePanelSurface: ViewModifier {
 }
 
 extension View {
-    func nativePanelSurface() -> some View { modifier(NativePanelSurface()) }
+    func nativeSidebarSurface() -> some View { modifier(NativeSidebarSurface()) }
     func nativePopoverSurface() -> some View { modifier(NativePopoverSurface()) }
     func nativeMenuSurface(hovering: Bool) -> some View { modifier(NativeMenuSurface(hovering: hovering)) }
+    func nativeNavigationBackdrop() -> some View { modifier(NativeNavigationBackdrop()) }
+}
+
+private struct NativeNavigationBackdrop: ViewModifier {
+    @ViewBuilder func body(content: Content) -> some View {
+        #if compiler(>=6.2)
+        if #available(macOS 26.0, *) {
+            content.backgroundExtensionEffect()
+        } else {
+            content
+        }
+        #else
+        content
+        #endif
+    }
 }
 
 private struct NativeMenuSurface: ViewModifier {

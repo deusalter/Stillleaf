@@ -386,7 +386,7 @@ private struct DashboardSidebar: View {
 
             .padding(.horizontal, 16).padding(.bottom, 16)
         }
-        .nativePanelSurface()
+        .nativeSidebarSurface()
         .padding(8)
     }
 

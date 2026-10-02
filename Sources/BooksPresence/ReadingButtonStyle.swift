@@ -42,6 +42,7 @@ struct ReadingButtonStyle: PrimitiveButtonStyle {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorSchemeContrast) private var contrast
     @Environment(\.nativePreviewOpaque) private var previewOpaque
+    @Environment(\.controlSize) private var controlSize
 
     init(emphasis: Emphasis = .secondary, iconOnly: Bool = false) {
         self.emphasis = emphasis
@@ -52,16 +53,15 @@ struct ReadingButtonStyle: PrimitiveButtonStyle {
         #if compiler(>=6.2)
         if #available(macOS 26.0, *), !(previewOpaque ?? reduceTransparency), contrast != .increased {
             if emphasis == .primary {
-                Button(configuration)
+                nativeButton(configuration)
                     .buttonStyle(.glassProminent)
                     .buttonBorderShape(.capsule)
                     .tint(configuration.role == .destructive ? ReadingPalette.warning : ReadingPalette.accent)
             } else {
-                Button(configuration)
+                nativeButton(configuration)
                     .buttonStyle(.glass)
                     .buttonBorderShape(.capsule)
                     .tint(.clear)
-                    .foregroundStyle(configuration.role == .destructive ? ReadingPalette.warning : ReadingPalette.ink)
             }
         } else {
             fallback(configuration)
@@ -69,6 +69,22 @@ struct ReadingButtonStyle: PrimitiveButtonStyle {
         #else
         fallback(configuration)
         #endif
+    }
+
+    private func nativeButton(_ configuration: Configuration) -> some View {
+        let primary = emphasis == .primary
+        let compact = controlSize == .small || controlSize == .mini
+        let foreground = primary ? ReadingPalette.onAccent : (configuration.role == .destructive ? ReadingPalette.warning : ReadingPalette.ink)
+        // Set the color on the label itself: macOS glass can override an inherited
+        // foreground with white when its tint is clear, even in light appearance.
+        return Button(role: configuration.role, action: configuration.trigger) {
+            configuration.label
+                .font((compact ? Font.caption : Font.callout).weight(primary ? .semibold : .medium))
+                .foregroundStyle(foreground)
+                .padding(.horizontal, 2).padding(.vertical, 4)
+                .frame(minWidth: iconOnly ? 16 : 0, minHeight: iconOnly ? 16 : 0)
+                .contentShape(Capsule())
+        }
     }
 
     private func fallback(_ configuration: Configuration) -> some View {

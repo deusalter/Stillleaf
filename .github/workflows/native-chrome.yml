@@ -34,6 +34,13 @@ jobs:
           "$RUNNER_TEMP/native-chrome-probe"
       - name: Native implementation build
         run: swift build -c release
+      - name: Native dashboard and menu panel previews
+        run: .build/release/BooksPresence --render-native-chrome "$RUNNER_TEMP/native-chrome"
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: Stillleaf-dashboard-preview-${{ matrix.os }}
+          path: ${{ runner.temp }}/native-chrome
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -58,7 +65,6 @@ jobs:
           else
             .build/release/BooksPresence --benchmark-settled-ui "$RUNNER_TEMP/candidate-settled-ui.json"
           fi
-          .build/release/BooksPresence --render-native-chrome "$RUNNER_TEMP/native-chrome"
           python3 scripts/reader-review-fixture.py "$RUNNER_TEMP/native-chrome.epub" --chapters 3
           mkdir -p "$RUNNER_TEMP/native-reader"
           .build/release/BooksPresence --self-test-epub "$RUNNER_TEMP/native-chrome.epub" --reader-artifacts "$RUNNER_TEMP/native-reader"
