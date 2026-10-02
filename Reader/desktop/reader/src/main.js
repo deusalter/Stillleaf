@@ -176,10 +176,12 @@ function returnFromJump(){return queueNavigation(async()=>{
 })}
 function followPublicationLink(event){
  const anchor=event.target?.closest?.('a[href]');if(!anchor)return;
- // Secondary clicks keep their context menu. Modified clicks must not replace
- // the reading place; this embedded reader has no alternate-tab destination.
+ // Own link activation before Readium's bubbling pointer handler, which treats
+ // any primary pointer (including its middle/right buttons) as a tap. Preserve
+ // the separate contextmenu default while blocking alternate navigation paths.
+ event.stopImmediatePropagation();
  if(event.type==='pointerup'&&(event.button!==0||event.metaKey||event.ctrlKey||event.altKey||event.shiftKey))return;
- event.preventDefault();event.stopImmediatePropagation();
+ event.preventDefault();
  if(event.type==='auxclick'||event.metaKey||event.ctrlKey||event.altKey||event.shiftKey)return;
  if(event.type==='click'&&event.detail!==0)return;
  const locator=linkLocator({href:anchor.getAttribute('href')});

@@ -5,10 +5,14 @@ private enum StatusMenuPanelSmokeError: Error { case failed(String) }
 @MainActor
 private final class StatusMenuPanelSmokeDelegate: NSObject, NSWindowDelegate, NSApplicationDelegate {
     weak var panel: StatusMenuPanel?
+    var applicationDeactivations = 0
     func windowDidResignKey(_ notification: Notification) { panel?.dismissAfterFocusLeaves() }
     func windowDidEndSheet(_ notification: Notification) { panel?.sheetDidEnd() }
     func windowWillBeginSheet(_ notification: Notification) { panel?.prepareForSheet() }
-    func applicationDidResignActive(_ notification: Notification) { panel?.dismissForApplicationDeactivation() }
+    func applicationDidResignActive(_ notification: Notification) {
+        applicationDeactivations += 1
+        panel?.dismissForApplicationDeactivation()
+    }
 }
 
 /// Real AppKit windows exercise the same focus, event and sizing methods as the
@@ -38,6 +42,14 @@ func checkStatusMenuPanelInteractions(directory: URL) async throws {
     let draft = NSTextField(string: "Synthetic unsaved reading title")
     draft.frame = NSRect(x: 20, y: 60, width: 260, height: 24)
     sheet.contentView?.addSubview(draft)
+    func diagnosticState() -> String {
+        "active=\(NSApp.isActive) panelVisible=\(panel.isVisible) sheetVisible=\(sheet.isVisible) " +
+        "panelLevel=\(panel.level.rawValue) sheetLevel=\(sheet.level.rawValue) floating=\(panel.isFloatingPanel) " +
+        "attached=\(panel.attachedSheet === sheet) sheetParent=\(sheet.sheetParent === panel) " +
+        "panelKey=\(NSApp.keyWindow === panel) sheetKey=\(NSApp.keyWindow === sheet) " +
+        "dismissals=\(dismissals) deactivationCallbacks=\(delegate.applicationDeactivations) " +
+        "collection=\(panel.collectionBehavior.rawValue) draft=\(draft.stringValue)"
+    }
     defer {
         NSApp.delegate = previousApplicationDelegate
         panel.delegate = nil
@@ -108,13 +120,15 @@ func checkStatusMenuPanelInteractions(directory: URL) async throws {
     let activationDeadline = Date().addingTimeInterval(2)
     while !NSApp.isActive && Date() < activationDeadline { try await Task.sleep(nanoseconds: 10_000_000) }
     guard NSApp.isActive else { throw StatusMenuPanelSmokeError.failed("Could not activate the synthetic panel for deactivation check") }
+    print("status-menu-deactivation-before: \(diagnosticState())")
     NSApp.deactivate()
+    print("status-menu-deactivation-immediate: \(diagnosticState())")
     let deactivationDeadline = Date().addingTimeInterval(2)
     while NSApp.isActive && Date() < deactivationDeadline { try await Task.sleep(nanoseconds: 10_000_000) }
     guard !NSApp.isActive, panel.level == .normal, sheet.level == .normal, !panel.isFloatingPanel,
           panel.attachedSheet === sheet, dismissals == 0,
           draft.stringValue == "Synthetic unsaved reading title" else {
-        throw StatusMenuPanelSmokeError.failed("Application deactivation left a floating form or discarded its attached draft")
+        throw StatusMenuPanelSmokeError.failed("Application deactivation left a floating form or discarded its attached draft: \(diagnosticState())")
     }
     NSApp.activate(ignoringOtherApps: true)
     panel.showKeepingSheetDraft()

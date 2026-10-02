@@ -72,8 +72,18 @@ test('held navigation keys settle on release and secondary link clicks preserve 
   };
   await returnToStart();
   const link = page.locator('#reader iframe:visible').first().contentFrame().locator('#jump');
+  await link.evaluate(link => {
+    const doc = link.ownerDocument;
+    doc.defaultView.leakedSecondaryPointers = 0;
+    // Readium also listens in the bubble phase. Ignored pointer activation must
+    // never reach it, even on hosts where its asynchronous navigation is slow.
+    doc.addEventListener('pointerup', event => {
+      if (event.button !== 0 || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) doc.defaultView.leakedSecondaryPointers++;
+    });
+  });
   for (const options of [{button: 'right'}, {button: 'middle'}, {modifiers: ['Meta']}, {modifiers: ['Control']}, {modifiers: ['Alt']}, {modifiers: ['Shift']}]) {
     await link.click(options);
+    assert.equal(await link.evaluate(link => link.ownerDocument.defaultView.leakedSecondaryPointers), 0, 'secondary pointer activation never reaches the engine bubble handler');
     await page.evaluate(() => StillleafReader.setPreferences({}));
     assert.equal(await page.evaluate(() => StillleafReader.bookmark().href), 'one.html', `secondary or modified click preserves place: ${JSON.stringify(options)}`);
   }
