@@ -52,25 +52,17 @@ struct DashboardView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .background(ReadingPalette.paper)
             .foregroundStyle(ReadingPalette.ink)
+            .buttonStyle(ReadingButtonStyle())
         }
         .readingMotionAccessibility()
         .onAppear { acceptNavigationRequest() }
         .onChange(of: model.dashboardSectionRequest) { _ in acceptNavigationRequest() }
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button { model.showDashboard(section: .library) } label: { Label("Library", systemImage: "books.vertical") }.buttonStyle(.borderless)
-            }
-            ToolbarItem(placement: .primaryAction) {
-                Button { model.showDashboard(section: .settings) } label: { Label("Settings", systemImage: "gearshape") }.buttonStyle(.borderless)
-            }
-        }
         .navigationSplitViewStyle(.balanced)
         .frame(minWidth: 920, minHeight: 660)
         .toggleStyle(.switch)
         .tint(ReadingPalette.moss)
-        .buttonStyle(ReadingButtonStyle())
         .sheet(item: $sheet) { item in
-            dashboardSheet(item).readingMotionAccessibility()
+            dashboardSheet(item).buttonStyle(ReadingButtonStyle()).readingMotionAccessibility()
         }
         .alert("Delete all reading data?", isPresented: $deleteAllConfirmation) {
             Button("Delete all data", role: .destructive) { model.deleteAllData() }
@@ -137,8 +129,10 @@ struct PopoverView: View {
                     .accessibilityLabel("Stillleaf")
                 Spacer()
                 Button { model.showDashboard() } label: {
-                    Label("Dashboard", systemImage: "arrow.up.forward.app")
-                }.controlSize(.small).accessibilityLabel("Open dashboard")
+                    Image(systemName: "arrow.up.forward.app")
+                }
+                .buttonStyle(ReadingButtonStyle(iconOnly: true)).controlSize(.small)
+                .accessibilityLabel("Open dashboard").help("Open dashboard")
             }
             ScrollView {
                 readingContent
@@ -156,25 +150,27 @@ struct PopoverView: View {
                     .frame(maxWidth: .infinity)
             }
             Hairline()
-            HStack {
-                Button(model.manualActive ? "Stop manual reading" : "Read manually") {
-                    if model.manualActive { model.stopManual() } else { showingManualStart = true }
+            ReadingGlassGroup {
+                HStack {
+                    Button(model.manualActive ? "Stop manual reading" : "Read manually") {
+                        if model.manualActive { model.stopManual() } else { showingManualStart = true }
+                    }
+                    .buttonStyle(ReadingButtonStyle(emphasis: model.manualActive ? .primary : .secondary)).controlSize(.small)
+                    Spacer()
+                    Menu {
+                        Button("Settings…") { model.showDashboard(section: .settings) }
+                        Divider()
+                        Button("Quit Stillleaf") { model.quit() }
+                    } label: { Image(systemName: "ellipsis").frame(width: 12, height: 18) }
+                    .menuStyle(ReadingMenuStyle()).menuIndicator(.hidden)
+                    .accessibilityLabel("More actions")
                 }
-                .buttonStyle(ReadingButtonStyle(emphasis: model.manualActive ? .primary : .secondary)).controlSize(.small)
-                Spacer()
-                Button("Settings") { model.showDashboard(section: .settings) }.controlSize(.small)
-                Menu {
-                    Button("Quit Stillleaf") { model.quit() }
-                } label: { Image(systemName: "ellipsis").frame(width: 12, height: 18) }
-                .menuStyle(ReadingMenuStyle()).menuIndicator(.hidden)
-                .accessibilityLabel("More actions")
             }
         }
         .id(theme.revision)
         .padding(18).frame(width: 350)
         .foregroundStyle(ReadingPalette.ink)
-        .nativePanelSurface()
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .nativePopoverSurface()
         .tint(ReadingPalette.moss).buttonStyle(ReadingButtonStyle())
         .readingMotionAccessibility()
         .sheet(isPresented: $showingManualStart) { ManualStartView(model: model).readingMotionAccessibility() }
@@ -201,11 +197,10 @@ struct PopoverView: View {
                 }
             } else {
                 HStack(spacing: 12) {
-                    Image(systemName: "book.closed").font(.system(size: 20, weight: .light))
-                        .foregroundStyle(ReadingPalette.accent).frame(width: 36, height: 42)
-                        .background(ReadingPalette.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    Image(systemName: "book.closed").font(.system(size: 24, weight: .light))
+                        .foregroundStyle(ReadingPalette.accent).frame(width: 30, height: 36)
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Open a book to begin").font(ReadingType.bookTitle(18))
+                        Text("Open a book to begin").font(.callout.weight(.medium))
                         ActivityStateLabel(snapshot: model.snapshot, compact: true)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -331,17 +326,48 @@ private struct DashboardSidebar: View {
     @Binding var selection: DashboardSection
     @ObservedObject var model: AppModel
     let troubleshoot: () -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @FocusState private var focusedDestination: DashboardSection?
+    @Namespace private var selectionHighlight
     private let destinations: [DashboardSection] = [.today, .library, .timeline, .history, .review, .settings]
     var body: some View {
         VStack(spacing: 0) {
-            List(selection: Binding<DashboardSection?>(get: { selection }, set: { if let value = $0 { selection = value } })) {
-                ForEach(destinations) { item in
-                    Label(item.title, systemImage: item.symbol)
-                        .tag(item)
+            ScrollView {
+                VStack(spacing: 4) {
+                    ForEach(destinations) { item in
+                        Button { selection = item } label: {
+                            Label(item.title, systemImage: item.symbol)
+                                .font(.system(size: 13, weight: selection == item ? .semibold : .medium))
+                                .foregroundStyle(selection == item ? ReadingPalette.ink : ReadingPalette.secondaryInk)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 12).padding(.vertical, 11)
+                                .background {
+                                    if selection == item {
+                                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                            .fill(ReadingPalette.accent.opacity(0.14))
+                                            .matchedGeometryEffect(id: "destination", in: selectionHighlight)
+                                    }
+                                }
+                                .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
+                        .focused($focusedDestination, equals: item)
+                        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .stroke(focusedDestination == item ? ReadingPalette.accent : .clear, lineWidth: 2))
+                        .accessibilityAddTraits(selection == item ? .isSelected : [])
                         .accessibilityIdentifier("navigation-\(item.rawValue)")
+                    }
                 }
+                .padding(10)
+                .animation(reduceMotion ? nil : ReadingMotion.selection, value: selection)
             }
-            .listStyle(.sidebar)
+            .onMoveCommand { direction in
+                guard direction == .up || direction == .down,
+                      let index = destinations.firstIndex(of: focusedDestination ?? selection) else { return }
+                let next = min(destinations.count - 1, max(0, index + (direction == .down ? 1 : -1)))
+                focusedDestination = destinations[next]
+                selection = destinations[next]
+            }
             VStack(alignment: .leading, spacing: 6) {
                 if model.appleBooksTrackingNeedsAccess || model.snapshot.pauseReason == .captureFailure {
                     Button(action: troubleshoot) {
@@ -360,6 +386,8 @@ private struct DashboardSidebar: View {
 
             .padding(.horizontal, 16).padding(.bottom, 16)
         }
+        .nativePanelSurface()
+        .padding(8)
     }
 
     private var trackingStatus: String {

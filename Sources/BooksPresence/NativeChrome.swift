@@ -29,4 +29,52 @@ private struct NativePanelSurface: ViewModifier {
 
 extension View {
     func nativePanelSurface() -> some View { modifier(NativePanelSurface()) }
+    func nativePopoverSurface() -> some View { modifier(NativePopoverSurface()) }
+}
+
+/// A text-heavy menu needs the system popover material, not a refracting glass
+/// sheet over desktop text. Glass belongs to the controls above this surface.
+private struct NativePopoverSurface: ViewModifier {
+    @Environment(\.accessibilityReduceTransparency) private var opaque
+    @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.nativePreviewOpaque) private var previewOpaque
+
+    @ViewBuilder func body(content: Content) -> some View {
+        if (previewOpaque ?? opaque) || contrast == .increased {
+            content.background(ReadingPalette.canvas, in: RoundedRectangle(cornerRadius: 20))
+        } else {
+            content.background {
+                PopoverMaterial().clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            }
+        }
+    }
+}
+
+private struct PopoverMaterial: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = .popover
+        view.blendingMode = .behindWindow
+        view.state = .active
+        return view
+    }
+    func updateNSView(_ nsView: NSVisualEffectView, context: Context) { }
+}
+
+/// Share sampling between adjacent controls without merging their shapes at rest.
+struct ReadingGlassGroup<Content: View>: View {
+    private let content: Content
+    init(@ViewBuilder content: () -> Content) { self.content = content() }
+
+    @ViewBuilder var body: some View {
+        #if compiler(>=6.2)
+        if #available(macOS 26.0, *) {
+            GlassEffectContainer(spacing: 4) { content }
+        } else {
+            content
+        }
+        #else
+        content
+        #endif
+    }
 }

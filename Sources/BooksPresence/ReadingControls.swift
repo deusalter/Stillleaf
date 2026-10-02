@@ -90,15 +90,15 @@ struct ReadingMenuPicker<Value: Hashable>: View {
     let options: [Value]
     @Binding var selection: Value
     let title: (Value) -> String
-    @Environment(\.isEnabled) private var isEnabled
-    @Environment(\.isFocused) private var isFocused
-    @State private var hovering = false
-
     var body: some View {
-        Picker(label, selection: $selection) {
-            ForEach(options, id: \.self) { option in Text(title(option)).tag(option) }
+        Menu {
+            Picker(label, selection: $selection) {
+                ForEach(options, id: \.self) { option in Text(title(option)).tag(option) }
+            }
+        } label: {
+            Text(title(selection)).lineLimit(1)
         }
-        .pickerStyle(.menu)
+        .menuStyle(ReadingMenuStyle())
         .accessibilityLabel(label).accessibilityValue(title(selection))
     }
 }

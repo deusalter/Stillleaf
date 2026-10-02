@@ -253,7 +253,7 @@ func renderNativeView(_ view: AnyView, size: NSSize, appearance: NSAppearance?, 
     try data.write(to: output, options: .atomic)
 }
 
-private func seedPreviewHistory(at support: URL) throws {
+func seedPreviewHistory(at support: URL) throws {
     let store = try ReadingStore(url: support.appendingPathComponent("history.sqlite"))
     let books = [BookRecord(id: "preview-waves", title: "The Waves", author: "Virginia Woolf"),
                  BookRecord(id: "preview-walden", title: "Walden", author: "Henry David Thoreau"),

@@ -11,6 +11,7 @@ private enum NativeChromeCaptureError: Error { case renderFailed }
     let defaults = UserDefaults(suiteName: suite)!
     defer { try? FileManager.default.removeItem(at: temporary); defaults.removePersistentDomain(forName: suite) }
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    try seedPreviewHistory(at: temporary)
     NSApp.setActivationPolicy(.regular)
     let model = try AppModel(support: temporary, defaults: defaults, startTracking: false)
     defer { model.shutdown() }
@@ -19,7 +20,7 @@ private enum NativeChromeCaptureError: Error { case renderFailed }
             let window = DashboardWindow(contentRect: NSRect(x: 100, y: 100, width: 1060, height: 760), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false; window.title = "Stillleaf — synthetic preview"
             window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
-            window.contentViewController = NSHostingController(rootView: DashboardView(model: model).environment(\.nativePreviewOpaque, opaque))
+            window.contentViewController = NSHostingController(rootView: DashboardView(model: model, initialSection: .library).environment(\.nativePreviewOpaque, opaque))
             window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
             // Hosting installs toolbar items asynchronously. Check real readiness for
             // the modern-built package on older runtimes, not a fixed capture delay.
@@ -32,7 +33,8 @@ private enum NativeChromeCaptureError: Error { case renderFailed }
             guard window.toolbar != nil, identifiers.filter({ $0.contains("toggleSidebar") }).count == 1 else { throw NativeChromeCaptureError.renderFailed }
             try await captureNativeWindow(window, to: directory.appendingPathComponent("dashboard-\(dark ? "dark" : "light")-\(opaque ? "opaque" : "system").png"))
             window.contentViewController = nil; window.close()
-            let panel = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 350, height: 500), styleMask: [.titled], backing: .buffered, defer: false)
+            let panel = NSPanel(contentRect: NSRect(x: 100, y: 100, width: 350, height: 500), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+            panel.isOpaque = false; panel.backgroundColor = .clear; panel.hasShadow = true
             panel.isReleasedWhenClosed = false; panel.title = "Stillleaf — synthetic menu panel"; panel.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
             panel.contentViewController = NSHostingController(rootView: PopoverView(model: model).environment(\.nativePreviewOpaque, opaque))
             panel.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true); try await Task.sleep(nanoseconds: 300_000_000)
