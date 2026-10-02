@@ -153,13 +153,24 @@ struct LibraryView: View {
 
 extension LibraryView {
     fileprivate func shelfPicker(books: [BookRecord], finishedIDs: Set<String>) -> some View {
-        ReadingMenuPicker(label: "Bookshelf", options: [LibraryShelf.all, .reading, .finished], selection: $shelf) { item in
+        let title: (LibraryShelf) -> String = { item in
             switch item {
             case .reading: return "Reading · \(books.filter { !finishedIDs.contains($0.id) }.count)"
             case .finished: return "Finished · \(books.filter { finishedIDs.contains($0.id) }.count)"
             case .all: return "All books · \(books.count)"
             }
         }
+        return Menu {
+            Picker("Bookshelf", selection: $shelf) {
+                ForEach([LibraryShelf.all, .reading, .finished], id: \.self) { item in
+                    Text(title(item)).tag(item)
+                }
+            }
+        } label: {
+            Text(title(shelf)).lineLimit(1)
+        }
+        .menuStyle(ReadingMenuStyle())
+        .accessibilityLabel("Bookshelf").accessibilityValue(title(shelf))
     }
 
     fileprivate var searchAndSort: some View {

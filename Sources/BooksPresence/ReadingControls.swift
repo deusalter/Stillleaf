@@ -91,14 +91,12 @@ struct ReadingMenuPicker<Value: Hashable>: View {
     @Binding var selection: Value
     let title: (Value) -> String
     var body: some View {
-        Menu {
-            Picker(label, selection: $selection) {
-                ForEach(options, id: \.self) { option in Text(title(option)).tag(option) }
-            }
-        } label: {
-            Text(title(selection)).lineLimit(1)
+        // Form values can be arbitrarily long book titles. A native picker
+        // negotiates the available width; an AppKit-backed Menu label doesn't.
+        Picker(label, selection: $selection) {
+            ForEach(options, id: \.self) { option in Text(title(option)).tag(option) }
         }
-        .menuStyle(ReadingMenuStyle())
+        .pickerStyle(.menu)
         .accessibilityLabel(label).accessibilityValue(title(selection))
     }
 }
