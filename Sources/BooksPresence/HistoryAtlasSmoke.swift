@@ -4,6 +4,7 @@ import BooksCore
 /// Exercised by macOS CI with synthetic data and the real publication controller.
 @MainActor
 func runHistoryAtlasNavigationSmoke(source: HistoryAtlasSource) throws {
+    try checkRetainedHistoryNavigation(source: source)
     var pending: [CheckedContinuation<HistoryAtlasPeriod, Error>] = []
     var navigations: [CalendarNavigation] = []
     let controller = HistoryAtlasController { _, navigation in
@@ -48,6 +49,66 @@ func runHistoryAtlasNavigationSmoke(source: HistoryAtlasSource) throws {
     try pumpAtlas { cancelledFinished }
     guard cancelledController.presentation == nil else { throw AtlasSmokeFailure.stalePublication }
     print("ui-smoke: History day → year → day, reversed completions, cancellation and main-queue heartbeat passed")
+}
+
+@MainActor
+private func checkRetainedHistoryNavigation(source: HistoryAtlasSource) throws {
+    var pending: [CheckedContinuation<HistoryAtlasPeriod, Error>] = []
+    let controller = HistoryAtlasController { _, _ in
+        try await withCheckedThrowingContinuation { pending.append($0) }
+    }
+    let anchor = source.intervals.first?.start ?? Date()
+    let month = CalendarNavigation(timezoneID: "UTC", anchor: anchor, scale: .month)
+    let first = Task { await controller.load(source: source, navigation: month, reduceMotion: true) }
+    try pumpAtlas { pending.count == 1 }
+    let monthData = HistoryAtlasPeriod(source: source, navigation: month)
+    pending[0].resume(returning: monthData)
+    try pumpAtlas { controller.displayed != nil }
+    let year = CalendarNavigation(timezoneID: "UTC", anchor: anchor, scale: .year)
+    let yearKey = HistoryAtlasKey(source: source, navigation: year)
+    let second = Task { await controller.load(source: source, navigation: year, reduceMotion: true) }
+    try pumpAtlas { pending.count == 2 }
+    guard let retained = controller.displayed, retained.navigation == month,
+          retained.presentation.key == monthData.key, retained.canRetain(for: yearKey),
+          retained.presentation.key != yearKey else { throw AtlasSmokeFailure.stalePublication }
+
+    // A timezone change or a new source revision must mask the old contents,
+    // even while the view keeps their footprint to avoid a scrolling jump.
+    let changedZone = CalendarNavigation(timezoneID: "Asia/Tokyo", anchor: anchor, scale: .month)
+    let emptySource = HistoryAtlasSource(books: [], intervals: [], events: [], progress: [], merges: [],
+        finishedBooks: [], pageEvidence: PageStatistics.snapshot(events: [], effectiveIntervals: [], merges: []))
+    guard !retained.canRetain(for: HistoryAtlasKey(source: source, navigation: changedZone)),
+          !retained.canRetain(for: HistoryAtlasKey(source: emptySource, navigation: month)),
+          !retained.canRetain(for: HistoryAtlasKey(source: source, navigation: month, now: Date().addingTimeInterval(172_800))),
+          !retained.canRetain(for: HistoryAtlasKey(source: source, navigation: month, localeID: "different-locale")) else {
+        throw AtlasSmokeFailure.stalePublication
+    }
+    // Delete the source while navigation is pending. Its newer empty result
+    // must win even if the earlier year result completes afterward.
+    let third = Task { await controller.load(source: emptySource, navigation: month, reduceMotion: true) }
+    try pumpAtlas { pending.count == 3 }
+    let emptyData = HistoryAtlasPeriod(source: emptySource, navigation: month)
+    pending[2].resume(returning: emptyData)
+    try pumpAtlas { controller.presentation?.key == emptyData.key }
+    pending[1].resume(returning: HistoryAtlasPeriod(source: source, navigation: year))
+    var finished = false
+    Task { await first.value; await second.value; await third.value; finished = true }
+    try pumpAtlas { finished }
+    guard controller.displayed?.navigation == month, controller.presentation?.key == emptyData.key,
+          controller.presentation?.booksByID.isEmpty == true,
+          controller.displayed?.animatesPeriodChange == false else { throw AtlasSmokeFailure.stalePublication }
+    let fourth = Task { await controller.load(source: emptySource, navigation: year, reduceMotion: true) }
+    try pumpAtlas { pending.count == 4 }
+    let yearData = HistoryAtlasPeriod(source: emptySource, navigation: year)
+    pending[3].resume(returning: yearData)
+    try pumpAtlas { controller.presentation?.key == yearData.key }
+    guard controller.displayed?.navigation == year, controller.displayed?.animatesPeriodChange == true else {
+        throw AtlasSmokeFailure.stalePublication
+    }
+    var fourthFinished = false
+    Task { await fourth.value; fourthFinished = true }
+    try pumpAtlas { fourthFinished }
+    print("ui-smoke: pending History retains matching navigation/data; timezone, revision, locale and day invalidate it; deletion wins late completion")
 }
 
 @MainActor

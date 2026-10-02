@@ -62,17 +62,32 @@ struct AtlasYearView: View {
         let seconds = row.creditedSeconds, pages = row.pages, finished = row.finishes
         let target = row.target
         return HStack(spacing: 16) {
-            Button { select(target) } label: {
-                HStack(spacing: 10) {
+            HStack(spacing: 10) {
+                Button { select(target) } label: {
                     BookCoverView(book: presentation.booksByID[id], size: .compact)
                         .scaleEffect(0.62).frame(width: 33, height: 46)
-                    VStack(alignment: .leading, spacing: 5) {
+                }.buttonStyle(.plain).accessibilityHidden(true)
+                    .focusable(false)
+                VStack(alignment: .leading, spacing: 5) {
+                    Button { select(target) } label: {
                         Text(title(id)).font(.system(size: 13, weight: .medium)).lineLimit(3)
-                        Text("\(activity.count) \(activity.count == 1 ? "day" : "days")").font(.caption2).foregroundStyle(AtlasStyle.muted(dark))
+                            .multilineTextAlignment(.leading)
+                    }.buttonStyle(.plain)
+                        .accessibilityLabel("\(title(id)), \(activity.count) recorded days, \(pages) pages, \(ReadingFormat.duration(seconds)) recorded. \(finished.isEmpty ? "" : "Finished this year.") Open latest day.")
+                    Menu {
+                        ForEach(row.recordedDates, id: \.self) { date in
+                            Button(AtlasStyle.date(date, zone: navigation.timezoneID, pattern: "EEEE, MMMM d, yyyy")) { select(date) }
+                        }
+                    } label: {
+                        Text("\(row.recordedDates.count) \(row.recordedDates.count == 1 ? "date" : "dates")").font(.caption2)
                     }
-                }.frame(width: 170, alignment: .leading)
-            }.buttonStyle(.plain)
-                .accessibilityLabel("\(title(id)), \(activity.count) recorded days, \(pages) pages, \(ReadingFormat.duration(seconds)) recorded. \(finished.isEmpty ? "" : "Finished this year.") Open latest day.")
+                    .menuStyle(.borderlessButton).controlSize(.mini)
+                    .disabled(row.recordedDates.isEmpty)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityLabel("Choose a recorded date for \(title(id))")
+                    .help("Open a recorded day, pending day, or finish date")
+                }
+            }.frame(width: 170, alignment: .leading)
             GeometryReader { geometry in
                 Canvas { context, size in
                     for fraction in presentation.monthPositions {

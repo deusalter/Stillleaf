@@ -17,17 +17,19 @@ struct HistoryView: View {
         _navigation = State(initialValue: CalendarNavigation(timezoneID: model.timezoneID, anchor: anchor, scale: initialScale))
     }
     private var dark: Bool { scheme == .dark }
-    private var requestKey: HistoryAtlasKey? {
-        model.historyAtlasSource.map { HistoryAtlasKey(source: $0, navigation: navigation) }
+    private var requestedNavigation: CalendarNavigation {
+        var requested = navigation
+        requested.timezoneID = model.timezoneID
+        return requested
     }
-    private var presentation: HistoryAtlasPeriod? {
-        guard let prepared = atlas.presentation, let requested = requestKey,
-              prepared.key.timezoneID == requested.timezoneID, prepared.key.scale == requested.scale,
-              prepared.key.period == requested.period, prepared.key.today == requested.today,
-              prepared.key.localeID == requested.localeID else { return nil }
-        // Keep this period's last committed snapshot during an archive refresh so
-        // month/day selection survives. A different period never displays old data.
-        return prepared
+    private var requestKey: HistoryAtlasKey? {
+        model.historyAtlasSource.map { HistoryAtlasKey(source: $0, navigation: requestedNavigation) }
+    }
+    private var visibleNavigation: CalendarNavigation {
+        if let displayed = atlas.displayed, let request = requestKey, displayed.canRetain(for: request) {
+            return displayed.navigation
+        }
+        return requestedNavigation
     }
     var body: some View {
         ScrollView {
@@ -37,27 +39,10 @@ struct HistoryView: View {
                     HStack(alignment: .firstTextBaseline) { periodTitle; Spacer(minLength: 16); navigationButtons }
                     VStack(alignment: .leading, spacing: 14) { periodTitle; navigationButtons }
                 }
-                if let prepared = presentation {
-                    ViewThatFits(in: .horizontal) {
-                        HStack(spacing: 25) { summary(pages: prepared.pages, seconds: prepared.creditedSeconds, activeDays: prepared.activeDays); Spacer(minLength: 0); goal }
-                        VStack(alignment: .leading, spacing: 12) { HStack(spacing: 22) { summary(pages: prepared.pages, seconds: prepared.creditedSeconds, activeDays: prepared.activeDays) }; goal }
-                    }
-                    Group {
-                        switch navigation.scale {
-                        case .day:
-                            AtlasDayView(navigation: navigation, presentation: prepared, review: { reviewInterval = $0 })
-                        case .week:
-                            AtlasWeekView(navigation: navigation, presentation: prepared, select: { selectDay($0) })
-                        case .month:
-                            AtlasMonthView(navigation: navigation, presentation: prepared, select: { selectDay($0) })
-                        case .year:
-                            AtlasYearView(navigation: navigation, presentation: prepared, select: { selectDay($0) }, selectMonth: { navigation.select($0, scale: .month) })
-                        }
-                    }.id("\(navigation.scale.rawValue)-\(navigation.periodStart)-\(model.timezoneID)")
-                        .transition(reduceMotion ? .identity : .opacity)
-                        .onAppear { benchmarkReady?(prepared.key) }
+                if let displayed = atlas.displayed {
+                    historyContent(displayed)
                 } else {
-                    ProgressView("Preparing history…").controlSize(.small)
+                    ProgressView("Preparing \(requestedNavigation.title)…").controlSize(.small)
                         .frame(maxWidth: .infinity, minHeight: 260, alignment: .topLeading)
                         .padding(.top, 20)
                 }
@@ -71,12 +56,71 @@ struct HistoryView: View {
         .onChange(of: model.timezoneID) { navigation.timezoneID = $0 }
         .task(id: requestKey) {
             guard let source = model.historyAtlasSource else { return }
-            await atlas.load(source: source, navigation: navigation, reduceMotion: reduceMotion)
+            await atlas.load(source: source, navigation: requestedNavigation, reduceMotion: reduceMotion)
         }
         .sheet(item: $reviewInterval) { interval in IntervalReviewEditor(model: model, interval: interval) }
     }
+    private func historyContent(_ displayed: HistoryAtlasDisplay) -> some View {
+        let prepared = displayed.presentation
+        let canReveal = requestKey.map { displayed.canRetain(for: $0) } ?? false
+        let current = prepared.key == requestKey
+        let periodID = "\(displayed.navigation.scale.rawValue)-\(displayed.navigation.periodStart)-\(displayed.navigation.timezoneID)"
+        return VStack(alignment: .leading, spacing: 26) {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 25) {
+                    summary(pages: prepared.pages, seconds: prepared.creditedSeconds, activeDays: prepared.activeDays, scale: displayed.navigation.scale)
+                    Spacer(minLength: 0); goal(for: displayed.navigation)
+                }
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(spacing: 22) { summary(pages: prepared.pages, seconds: prepared.creditedSeconds, activeDays: prepared.activeDays, scale: displayed.navigation.scale) }
+                    goal(for: displayed.navigation)
+                }
+            }
+            .opacity(canReveal ? 1 : 0).accessibilityHidden(!canReveal)
+            ZStack(alignment: .topLeading) {
+                chart(displayed)
+                    .id(periodID)
+                    .transition(reduceMotion ? .identity : .opacity)
+                    .onAppear { reportReady(prepared.key) }
+                    .onChange(of: prepared.key) { reportReady($0) }
+            }
+            // Only the chart swaps with a fade. Its last footprint stays in the
+            // scroll view while pending; summary/header geometry never animates.
+            .animation(reduceMotion || !displayed.animatesPeriodChange ? nil : ReadingMotion.entrance, value: periodID)
+            .opacity(canReveal ? (current ? 1 : 0.55) : 0)
+            .disabled(!current).allowsHitTesting(current)
+            .accessibilityHidden(!canReveal)
+        }
+        .overlay(alignment: .topLeading) {
+            if !current {
+                ProgressView("Updating to \(requestedNavigation.title)…")
+                    .controlSize(.small).font(.callout)
+                    .padding(12)
+                    .background(ReadingPalette.surface, in: RoundedRectangle(cornerRadius: 10))
+                    .accessibilityIdentifier("history-updating")
+            }
+        }
+    }
+    @ViewBuilder private func chart(_ displayed: HistoryAtlasDisplay) -> some View {
+        let committed = displayed.navigation
+        let prepared = displayed.presentation
+        switch committed.scale {
+        case .day:
+            AtlasDayView(navigation: committed, presentation: prepared, review: { reviewInterval = $0 })
+        case .week:
+            AtlasWeekView(navigation: committed, presentation: prepared, select: { selectDay($0) })
+        case .month:
+            AtlasMonthView(navigation: committed, presentation: prepared, select: { selectDay($0) })
+        case .year:
+            AtlasYearView(navigation: committed, presentation: prepared, select: { selectDay($0) }, selectMonth: { navigation.select($0, scale: .month) })
+        }
+    }
+    private func reportReady(_ key: HistoryAtlasKey) {
+        guard key == requestKey else { return }
+        benchmarkReady?(key)
+    }
     private var periodTitle: some View {
-        Text(navigation.scale == .day ? AtlasStyle.date(navigation.periodStart, zone: model.timezoneID, pattern: "EEEE, MMMM d, yyyy") : navigation.title)
+        Text(visibleNavigation.scale == .day ? AtlasStyle.date(visibleNavigation.periodStart, zone: visibleNavigation.timezoneID, pattern: "EEEE, MMMM d, yyyy") : visibleNavigation.title)
             .font(.system(size: 30, weight: .regular, design: .serif)).tracking(-0.7)
             .fixedSize(horizontal: false, vertical: true).accessibilityAddTraits(.isHeader)
     }
@@ -100,10 +144,10 @@ struct HistoryView: View {
             Button("Today") { navigation.goToToday() }
         }.buttonStyle(AtlasButtonStyle())
     }
-    @ViewBuilder private func summary(pages: Int, seconds: Double, activeDays: Int) -> some View {
+    @ViewBuilder private func summary(pages: Int, seconds: Double, activeDays: Int, scale: CalendarScale) -> some View {
         if pages > 0 { metric(pages.formatted(), "pages") }
         metric(ReadingFormat.duration(seconds), "recorded")
-        if navigation.scale != .day { metric("\(activeDays)", activeDays == 1 ? "active day" : "active days") }
+        if scale != .day { metric("\(activeDays)", activeDays == 1 ? "active day" : "active days") }
     }
     private func metric(_ value: String, _ label: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 5) {
@@ -111,9 +155,9 @@ struct HistoryView: View {
             Text(label).font(.caption).foregroundStyle(AtlasStyle.muted(dark))
         }.accessibilityElement(children: .combine)
     }
-    @ViewBuilder private var goal: some View {
-        if navigation.scale == .day {
-            let progress = model.dailyGoal(on: navigation.dayKey(for: navigation.periodStart))
+    @ViewBuilder private func goal(for committed: CalendarNavigation) -> some View {
+        if committed.scale == .day {
+            let progress = model.dailyGoal(on: committed.dayKey(for: committed.periodStart))
             Text(progress.reached ? "✓ Daily goal reached" : progress.summary).font(.caption)
                 .foregroundStyle(AtlasStyle.accent(dark)).accessibilityLabel("Daily goal: \(progress.summary)")
         }

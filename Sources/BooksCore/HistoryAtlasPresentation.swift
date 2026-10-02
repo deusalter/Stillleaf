@@ -96,6 +96,8 @@ public struct AtlasYearRow: Identifiable {
     public let pending: [Double]
     public let finishes: [Double]
     public let target: Date
+    /// Exact local dates for keyboard-accessible chart navigation, newest first.
+    public let recordedDates: [Date]
 }
 
 /// All archive-dependent chart work is done before publishing this value.
@@ -197,10 +199,12 @@ public struct HistoryAtlasPeriod {
         monthPositions = navigation.scale == .year ? navigation.yearMonths.map(fraction) : []
         if navigation.scale == .year {
             var activity: [String: [AtlasYearMark]] = [:], pending: [String: [Double]] = [:]
+            var recordedDates: [String: Set<Date>] = [:]
             var firstDates: [String: Date] = [:], lastActive: [String: Date] = [:], lastPending: [String: Date] = [:]
             for day in days {
                 let end = calendar.date(byAdding: .day, value: 1, to: day.date) ?? day.date
                 for book in day.books {
+                    recordedDates[book.bookID, default: []].insert(day.date)
                     firstDates[book.bookID] = min(firstDates[book.bookID] ?? .distantFuture, day.date)
                     if book.creditedSeconds > 0 {
                         activity[book.bookID, default: []].append(AtlasYearMark(start: fraction(day.date), end: fraction(end)))
@@ -211,6 +215,7 @@ public struct HistoryAtlasPeriod {
                 // Qualified page evidence can exist without recorded time. Keep
                 // its book and active day visible without manufacturing seconds.
                 for (id, pages) in totals.byDayBook[day.key] ?? [:] where pages > 0 {
+                    recordedDates[id, default: []].insert(day.date)
                     firstDates[id] = min(firstDates[id] ?? .distantFuture, day.date)
                     lastActive[id] = day.date
                     if !day.books.contains(where: { $0.bookID == id && $0.creditedSeconds > 0 }) {
@@ -222,6 +227,7 @@ public struct HistoryAtlasPeriod {
             for entry in source.finishedBooks {
                 guard let date = entry.finishedAt, date >= period.start, date < period.end, date <= now else { continue }
                 let id = resolver.resolve(entry.id)
+                recordedDates[id, default: []].insert(calendar.startOfDay(for: date))
                 firstDates[id] = min(firstDates[id] ?? .distantFuture, date)
                 finishes[id, default: []].append(date)
             }
@@ -231,7 +237,8 @@ public struct HistoryAtlasPeriod {
             }.map { id in
                 AtlasYearRow(id: id, creditedSeconds: seconds[id] ?? 0, pages: totals.byBook[id] ?? 0,
                     activity: activity[id] ?? [], pending: pending[id] ?? [], finishes: (finishes[id] ?? []).map(fraction),
-                    target: lastActive[id] ?? lastPending[id] ?? finishes[id]?.first.map { calendar.startOfDay(for: $0) } ?? period.start)
+                    target: lastActive[id] ?? lastPending[id] ?? finishes[id]?.first.map { calendar.startOfDay(for: $0) } ?? period.start,
+                    recordedDates: (recordedDates[id] ?? []).filter { $0 <= calendar.startOfDay(for: now) }.sorted(by: >))
             }
         } else { yearRows = [] }
     }

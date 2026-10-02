@@ -28,6 +28,7 @@ struct ManualStartView: View {
                     } else { saveError = model.errorMessage ?? "Could not start reading. Try again." }
                 }
                 .buttonStyle(ReadingButtonStyle(emphasis: .primary))
+                .keyboardShortcut(.defaultAction)
                 .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
@@ -79,6 +80,7 @@ struct ManualAdditionView: View {
                     } else { saveError = model.errorMessage ?? "Could not save reading time. Try again." }
                 }
                 .buttonStyle(ReadingButtonStyle(emphasis: .primary))
+                .keyboardShortcut(.defaultAction)
                 .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || end <= start || end > Date())
             }
         }
@@ -789,10 +791,7 @@ struct SettingsView: View {
     }
 
     private func applyDiscordDrafts() {
-        model.discordApplicationID = drafts.discordApplicationIDDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        model.discordAssetKey = drafts.discordAssetKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        model.saveSettings()
-        if model.errorMessage == nil { reloadDiscordDrafts() }
+        drafts.saveSharing(to: model)
         showResult(success: "Sharing settings saved.")
     }
 

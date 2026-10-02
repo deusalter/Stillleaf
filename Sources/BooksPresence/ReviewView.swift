@@ -177,6 +177,7 @@ struct IntervalReviewEditor: View {
                             finish(model.reviewInterval(interval, start: start, end: end, bookID: bookID, disposition: disposition))
                         }
                         .buttonStyle(ReadingButtonStyle(emphasis: .primary))
+                        .keyboardShortcut(.defaultAction)
                         .disabled(end <= start || end > Date() || bookID.isEmpty)
                     }.readingPanel()
                     VStack(alignment: .leading, spacing: 12) {

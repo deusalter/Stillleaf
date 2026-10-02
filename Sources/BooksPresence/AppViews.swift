@@ -17,6 +17,7 @@ struct DashboardView: View {
     }
     @State private var sheet: DashboardSheet?
     @StateObject private var settingsDrafts = SettingsDraftStore()
+    @StateObject private var libraryBrowsing = LibraryBrowseState()
     @ObservedObject private var theme = ThemeStore.shared
     @State private var deleteAllConfirmation = false
     @State private var uninstallConfirmation = false
@@ -28,14 +29,14 @@ struct DashboardView: View {
                 .navigationSplitViewColumnWidth(min: 205, ideal: 225, max: 260)
         } detail: {
             VStack(spacing: 0) {
-                if let error = model.errorMessage, !error.isEmpty {
+                if let error = model.errorMessage ?? model.trackingRecoveryMessage, !error.isEmpty {
                     ErrorBanner(message: error, refresh: { model.refresh() })
                 }
                 Group {
                     switch section {
                     case .today: TodayView(model: model, present: { sheet = $0 })
                     case .history: HistoryView(model: model, initialScale: initialCalendarScale)
-                    case .library: LibraryView(model: model, present: { sheet = $0 })
+                    case .library: LibraryView(model: model, present: { sheet = $0 }, browsing: libraryBrowsing)
                     case .review: PersonalReviewsView(model: model)
                     case .timeline: ReadingTimelineView(model: model, present: { sheet = $0 })
                     case .health: HealthView(model: model)

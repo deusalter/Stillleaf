@@ -50,6 +50,23 @@ final class SettingsDraftStore: ObservableObject {
         loadedSharingValues = sharingValues
     }
 
+    @discardableResult
+    func saveSharing(to model: AppModel) -> Bool {
+        let previous = (model.discordApplicationID, model.discordAssetKey)
+        model.discordApplicationID = discordApplicationIDDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        model.discordAssetKey = discordAssetKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        model.saveSettings()
+        guard model.errorMessage == nil else {
+            // Keep the form dirty and its Save/Revert actions available after a
+            // failed write, matching the reading settings workflow.
+            model.discordApplicationID = previous.0
+            model.discordAssetKey = previous.1
+            return false
+        }
+        reloadSharing(from: model)
+        return true
+    }
+
     var readingValuesAreValid: Bool {
         let activeGoal = dailyUnitDraft == .pages ? pageGoalDraft : goalDraft
         let activeRange = dailyUnitDraft == .pages ? 1...10_000 : 1...1_440

@@ -109,8 +109,10 @@ final class HistoryAtlasPresentationTests: XCTestCase {
         XCTAssertEqual((row.activity[0].end - row.activity[0].start) * navigation.period.duration, 90000, accuracy: 0.001)
         XCTAssertEqual(row.pending.count, 1)
         XCTAssertEqual(row.target, start) // Latest credited day retains precedence over later pending day.
+        XCTAssertEqual(row.recordedDates, [start.addingTimeInterval(90000), start])
         XCTAssertEqual(prepared.yearRows[1].finishes.count, 1)
         XCTAssertEqual(prepared.yearRows[1].target, navigation.calendar.startOfDay(for: finish))
+        XCTAssertEqual(prepared.yearRows[1].recordedDates, [navigation.calendar.startOfDay(for: finish)])
         XCTAssertEqual(prepared.monthPositions.count, 12)
     }
 
@@ -136,6 +138,17 @@ final class HistoryAtlasPresentationTests: XCTestCase {
         XCTAssertNotEqual(newRevision.key.revision, first.key.revision)
         XCTAssertNotEqual(HistoryAtlasKey(source: input, navigation: navigation, now: now),
             HistoryAtlasKey(source: input, navigation: navigation, now: now.addingTimeInterval(86400)))
+    }
+
+    func testYearNavigationDatesDeduplicateEvidenceAndExcludeFutureDays() {
+        let first = interval("first", start: date("2026-09-25T12:00:00Z"))
+        let future = interval("future", start: date("2026-09-27T12:00:00Z"))
+        let completion = AuditEvent(date: first.end, kind: "bookCompleted", bookID: "b", detail: "Synthetic",
+            completion: BookCompletionEvidence(finishedAt: first.end, source: "manual", imported: false))
+        let input = source([first, future], events: [pageEvent(first, from: 1, to: 4), completion])
+        let navigation = CalendarNavigation(timezoneID: "UTC", anchor: first.start, scale: .year)
+        let prepared = HistoryAtlasPeriod(source: input, navigation: navigation, now: date("2026-09-26T12:00:00Z"))
+        XCTAssertEqual(prepared.yearRows.first?.recordedDates, [date("2026-09-25T00:00:00Z")])
     }
 
     func testCancelledRequestNeverPopulatesCache() async throws {
@@ -187,6 +200,7 @@ final class HistoryAtlasPresentationTests: XCTestCase {
                 XCTAssertEqual(period.yearRows.first?.pages, 5)
                 XCTAssertEqual(period.yearRows.first?.creditedSeconds, 0)
                 XCTAssertEqual(period.yearRows.first?.activity.count, 1)
+                XCTAssertEqual(period.yearRows.first?.recordedDates, [date("2026-09-26T00:00:00Z")])
                 XCTAssertEqual(period.yearRows.first?.target, date("2026-09-26T00:00:00Z"))
             }
         }

@@ -130,6 +130,7 @@ struct AudiobookLogView: View {
     @State private var includeSession = false
     @State private var start = Date().addingTimeInterval(-1800)
     @State private var end = Date()
+    @State private var saveError: String?
 
     init(model: AppModel, book: BookRecord? = nil, maximumHeight: CGFloat = 640, initiallyIncludesSession: Bool = false) {
         self.model = model
@@ -143,6 +144,23 @@ struct AudiobookLogView: View {
         guard let position = AudiobookProgress.parse(position), let duration = AudiobookProgress.parse(total) else { return nil }
         let value = AudiobookProgress(positionSeconds: position, durationSeconds: duration)
         return value.isValid ? value : nil
+    }
+    private var validationMessage: String? {
+        if selectedBook == nil && title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return "Enter a title or choose a book from your library."
+        }
+        guard let duration = AudiobookProgress.parse(total), duration.isFinite, duration > 0 else {
+            return "Enter a total duration greater than zero, such as 10:00:00."
+        }
+        guard let current = AudiobookProgress.parse(position), current.isFinite, current >= 0 else {
+            return "Enter a valid position, such as 2:15:00, or 0 for the beginning."
+        }
+        if current > duration { return "The current position cannot exceed the total duration." }
+        if includeSession {
+            if end <= start { return "The stopped time must be after the started time." }
+            if end > Date() { return "Listening sessions must finish no later than now." }
+        }
+        return nil
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -172,30 +190,37 @@ struct AudiobookLogView: View {
                     VStack(alignment: .leading, spacing: 12) {
                         ReadingSwitchRow(title: "Also log a listening session", isOn: $includeSession)
                         if includeSession {
-                            ReadingDatePicker("Started listening", selection: $start)
-                            ReadingDatePicker("Stopped listening", selection: $end)
+                            ReadingDatePicker("Started listening", selection: $start, maximumDate: Date())
+                            ReadingDatePicker("Stopped listening", selection: $end, minimumDate: start, maximumDate: Date())
                             Text("Actual listening: \(ReadingFormat.duration(max(0, end.timeIntervalSince(start))))")
                                 .font(.callout.monospacedDigit())
                         }
                         Text("Enter the time you actually listened, excluding breaks. At 2×, one hour of content takes about 30 minutes. Position alone adds no listening time or pages.")
                             .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
                     }.readingPanel()
-                    if let error = model.errorMessage { Text(error).font(.caption).foregroundStyle(ReadingPalette.warning) }
                 }
                 .padding(2)
             }
             .scrollIndicators(.visible)
             Hairline()
+            if let message = saveError ?? validationMessage {
+                Text(message).font(.caption)
+                    .foregroundStyle(saveError == nil ? ReadingPalette.secondaryInk : ReadingPalette.warning)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             HStack {
                 Button("Cancel") { dismiss() }
                 Spacer()
                 Button("Save listening") {
-                    if let audio, model.logAudiobook(book: selectedBook, title: title, author: author, audio: audio,
+                    guard validationMessage == nil, let audio else { return }
+                    if model.logAudiobook(book: selectedBook, title: title, author: author, audio: audio,
                         start: includeSession ? start : nil, end: includeSession ? end : Date()) { dismiss() }
+                    else { saveError = model.errorMessage ?? "Could not save listening. Your entries are still here; try again." }
                 }
                 .buttonStyle(ReadingButtonStyle(emphasis: .primary))
-                .disabled(audio == nil || (selectedBook == nil && title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) ||
-                    (includeSession && (end <= start || end > Date())))
+                .keyboardShortcut(.defaultAction)
+                .disabled(validationMessage != nil)
             }
         }
         .padding(26)
@@ -203,8 +228,16 @@ struct AudiobookLogView: View {
         .background(ReadingPalette.paper).foregroundStyle(ReadingPalette.ink).tint(ReadingPalette.moss)
         .textFieldStyle(ReadingTextFieldStyle()).buttonStyle(ReadingButtonStyle())
         .onAppear { loadPosition() }
+        .onChange(of: title) { _ in saveError = nil }
+        .onChange(of: author) { _ in saveError = nil }
+        .onChange(of: position) { _ in saveError = nil }
+        .onChange(of: total) { _ in saveError = nil }
+        .onChange(of: start) { _ in saveError = nil }
+        .onChange(of: end) { _ in saveError = nil }
+        .onChange(of: includeSession) { _ in saveError = nil }
     }
     private func loadPosition() {
+        saveError = nil
         if let book = selectedBook, let saved = model.audiobookProgress(for: book.id) {
             position = AudiobookProgress.timestamp(saved.positionSeconds); total = AudiobookProgress.timestamp(saved.durationSeconds)
         } else { position = "0:00:00"; total = "" }

@@ -80,7 +80,20 @@ private enum NativeChromeCaptureError: Error { case renderFailed }
         try await captureNativeWindow(listeningWindow, to: directory.appendingPathComponent(
             "compact-listening-\(dark ? "dark" : "light").png"))
         listeningWindow.contentViewController = nil; listeningWindow.close()
+        let yearWindow = DashboardWindow(contentRect: NSRect(x: 100, y: 100, width: 920, height: 660),
+            styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+        yearWindow.isReleasedWhenClosed = false
+        yearWindow.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+        yearWindow.contentViewController = NSHostingController(rootView:
+            DashboardView(model: model, initialSection: .history, initialCalendarScale: .year)
+                .environment(\.nativePreviewOpaque, false))
+        yearWindow.makeKeyAndOrderFront(nil)
+        try await Task.sleep(nanoseconds: 500_000_000)
+        try await captureNativeWindow(yearWindow, to: directory.appendingPathComponent(
+            "compact-year-\(dark ? "dark" : "light").png"))
+        yearWindow.contentViewController = nil; yearWindow.close()
     }
+    try await checkStatusMenuPanelInteractions(directory: directory)
     #if compiler(>=6.2)
     if #available(macOS 26, *) { print("native-chrome-preview: genuine SwiftUI glass compiled; macOS26 runtime; app-owned solid fallback captured (system accessibility settings unchanged)") }
     else { print("native-chrome-preview: modern binary fallback runtime") }

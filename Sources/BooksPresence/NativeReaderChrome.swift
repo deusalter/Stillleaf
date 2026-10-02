@@ -50,6 +50,9 @@ struct ReaderControlDefinition: Decodable, Identifiable {
     chrome.model.accept(["effectiveAppearance": ["backgroundColor": "#1c302d", "textColor": "#e7f3ea"]])
     guard chrome.model.customColor("backgroundColor") == "#1c302d",
           chrome.model.customColor("textColor") == "#e7f3ea" else { throw NSError(domain: "Stillleaf.ReaderControls", code: 16) }
+    chrome.model.accept(["preferences": ["theme": "white", "textColor": "#e7f3ea"],
+                         "effectiveAppearance": ["backgroundColor": "#ffffff", "textColor": "#242729"]])
+    guard chrome.model.customColor("textColor") == "#242729" else { throw NSError(domain: "Stillleaf.ReaderControls", code: 18) }
     let presetModel = ReaderChromeModel()
     var presetChanges: [String: Any] = [:]
     presetModel.change = { key, value in presetChanges[key] = value }
@@ -130,13 +133,14 @@ private struct ReaderAppearanceView: View {
                 }
             }
         case "color":
-            Toggle("Custom \(d.label.lowercased())", isOn: Binding(get: { model.preferences[d.key] is String }, set: { model.change?(d.key, $0 ? model.customColor(d.key) as Any : NSNull()) }))
-            if let hex = model.preferences[d.key] as? String {
-                ColorPicker(d.label, selection: Binding(get: { Color(nsColor: Self.color(hex)) }, set: { value in
-                    guard let rgb = NSColor(value).usingColorSpace(.sRGB) else { return }
-                    let text = String(format: "#%02x%02x%02x", Int((rgb.redComponent * 255).rounded()), Int((rgb.greenComponent * 255).rounded()), Int((rgb.blueComponent * 255).rounded()))
-                    model.change?(d.key, text)
-                }), supportsOpacity: false)
+            ColorPicker(d.label, selection: Binding(get: { Color(nsColor: Self.color(model.customColor(d.key))) }, set: { value in
+                guard let rgb = NSColor(value).usingColorSpace(.sRGB) else { return }
+                let text = String(format: "#%02x%02x%02x", Int((rgb.redComponent * 255).rounded()), Int((rgb.greenComponent * 255).rounded()), Int((rgb.blueComponent * 255).rounded()))
+                model.change?(d.key, text)
+            }), supportsOpacity: false)
+            if d.key == "textColor" {
+                Text("Choose a page theme above to restore its colors.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
         default: EmptyView()
         }

@@ -71,7 +71,6 @@ struct SegmentedReadingBar: View, Animatable {
 struct DailyReadingOverview: View {
     @ObservedObject var model: AppModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var appeared = false
     private var daily: DailyGoalProgress { model.todayGoal }
     private var goal: Double? { daily.target }
     private var progress: Double { daily.fraction }
@@ -80,9 +79,11 @@ struct DailyReadingOverview: View {
     var body: some View {
         HStack(spacing: 28) {
             ZStack {
-                DottedReadingArc(progress: appeared || reduceMotion ? progress : 0)
-                    .animation(reduceMotion ? nil : .easeOut(duration: 0.32), value: appeared)
+                DottedReadingArc(progress: progress)
                     .animation(reduceMotion ? nil : .easeOut(duration: 0.24), value: progress)
+                    // Only real progress changes animate. Returning to Today
+                    // must not replay earned progress from an empty ring.
+                    .id("\(model.today.day)-\(daily.unit.rawValue)-\(goal ?? -1)")
                 VStack(spacing: 1) {
                     Text(daily.displayValue)
                         .font(ReadingType.numeral(72))
@@ -117,7 +118,6 @@ struct DailyReadingOverview: View {
         }
         .padding(28)
         .background(ReadingPalette.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .onAppear { appeared = true }
     }
 
     private var goalTitle: String { daily.goalTitle }

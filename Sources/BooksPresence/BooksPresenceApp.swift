@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private var menuPanel: StatusMenuPanel?
     private var menuPanelSizeObservation: NSKeyValueObservation?
     private var outsideClickMonitor: Any?
+    private var localClickMonitor: Any?
     private var escapeKeyMonitor: Any?
     private var dashboard: NSWindow?
     private var onboarding: NSWindow?
@@ -177,7 +178,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
 
     func windowDidResignKey(_ notification: Notification) {
         guard let panel = menuPanel, notification.object as? NSWindow === panel else { return }
-        dismissMenuPanel()
+        panel.dismissAfterFocusLeaves()
+    }
+
+    func applicationDidResignActive(_ notification: Notification) {
+        menuPanel?.dismissForApplicationDeactivation()
+    }
+
+    func windowDidEndSheet(_ notification: Notification) {
+        guard let panel = menuPanel, notification.object as? NSWindow === panel else { return }
+        panel.sheetDidEnd()
     }
 
     private func makeMenuPanel(model: AppModel) -> StatusMenuPanel {
@@ -196,6 +206,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         panel.hasShadow = true
         panel.delegate = self
         panel.cancelHandler = { [weak self] in self?.dismissMenuPanel() }
+        panel.anchorGeometry = { [weak self] in
+            guard let button = self?.statusItem?.button, let window = button.window else { return nil }
+            let anchor = window.convertToScreen(button.convert(button.bounds, to: nil))
+            return (anchor, window.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? anchor)
+        }
 
         let controller = NSHostingController(rootView: PopoverView(model: model, maximumHeight: max(300, min(640, (NSScreen.screens.map { $0.visibleFrame.height }.min() ?? 700) - 24))))
         controller.sizingOptions = [.preferredContentSize]
@@ -203,11 +218,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         panel.contentView?.wantsLayer = true
         panel.contentView?.layer?.cornerRadius = 22
         panel.contentView?.layer?.masksToBounds = true
-        menuPanelSizeObservation = controller.observe(\.preferredContentSize, options: [.initial, .new]) { [weak self, weak panel] controller, _ in
-            Task { @MainActor [weak self, weak panel] in
+        menuPanelSizeObservation = controller.observe(\.preferredContentSize, options: [.initial, .new]) { [weak panel] controller, _ in
+            Task { @MainActor [weak panel] in
                 guard let panel, controller.preferredContentSize.width > 0, controller.preferredContentSize.height > 0 else { return }
-                panel.setContentSize(controller.preferredContentSize)
-                if panel.isVisible { self?.positionMenuPanel() }
+                panel.scheduleContentSize(controller.preferredContentSize)
             }
         }
         return panel
@@ -215,26 +229,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
 
     private func showMenuPanel() {
         guard let panel = menuPanel else { return }
-        positionMenuPanel()
+        panel.positionAtAnchor()
         installMenuDismissalMonitors()
-        panel.makeKeyAndOrderFront(nil)
+        panel.showKeepingSheetDraft()
     }
 
     private func dismissMenuPanel() {
-        menuPanel?.orderOut(nil)
+        menuPanel?.hideKeepingSheetDraft()
         removeMenuDismissalMonitors()
-    }
-
-    private func positionMenuPanel() {
-        guard let panel = menuPanel, let button = statusItem?.button, let window = button.window else { return }
-        let buttonRect = button.convert(button.bounds, to: nil)
-        let anchor = window.convertToScreen(buttonRect)
-        let visibleFrame = window.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? anchor
-        let panelSize = panel.frame.size
-        let horizontalPadding: CGFloat = 8
-        let x = min(max(anchor.midX - panelSize.width / 2, visibleFrame.minX + horizontalPadding), visibleFrame.maxX - panelSize.width - horizontalPadding)
-        let y = max(visibleFrame.minY + horizontalPadding, anchor.minY - panelSize.height - 6)
-        panel.setFrameOrigin(NSPoint(x: x, y: y))
     }
 
     private func installMenuDismissalMonitors() {
@@ -242,27 +244,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] _ in
             Task { @MainActor [weak self] in self?.dismissMenuPanel() }
         }
+        localClickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
+            // The status button has its own toggle; dismissing before that
+            // action would immediately reopen the panel.
+            if let self, event.window !== self.statusItem?.button?.window {
+                self.menuPanel?.dismissForOutsideClick(in: event.window)
+            }
+            return event
+        }
         escapeKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard event.keyCode == 53, self?.menuPanel?.isVisible == true else { return event }
-            self?.dismissMenuPanel()
-            return nil
+            guard let panel = self?.menuPanel else { return event }
+            return panel.routeEscape(event)
         }
     }
 
     private func removeMenuDismissalMonitors() {
         if let monitor = outsideClickMonitor { NSEvent.removeMonitor(monitor); outsideClickMonitor = nil }
+        if let monitor = localClickMonitor { NSEvent.removeMonitor(monitor); localClickMonitor = nil }
         if let monitor = escapeKeyMonitor { NSEvent.removeMonitor(monitor); escapeKeyMonitor = nil }
-    }
-}
-
-private final class StatusMenuPanel: NSPanel {
-    var cancelHandler: (() -> Void)?
-
-    override var canBecomeKey: Bool { true }
-    override var canBecomeMain: Bool { false }
-
-    override func cancelOperation(_ sender: Any?) {
-        cancelHandler?()
     }
 }
 

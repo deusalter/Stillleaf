@@ -26,7 +26,12 @@ func checkFormSaveResults() throws {
         for book in [source, target, audio] { try store.saveBook(book) }
         try store.appendInterval(interval)
     }
-    let model = try AppModel(support: root, defaults: defaults, startTracking: false)
+    var failRecovery = false
+    let model = try AppModel(support: root, defaults: defaults, startTracking: false,
+        makeTrackingEngine: { store, zone, threshold in
+            if failRecovery { throw FormWorkflowSmokeError.failed("Synthetic postcommit tracker recovery failure") }
+            return try TrackingEngine(store: store, timezoneID: zone, uncertaintyThreshold: threshold)
+        })
     defer { model.shutdown() }
     let future = Date().addingTimeInterval(3600)
     guard !model.addManual(title: "Future", author: "", start: end, end: future), model.errorMessage != nil,
@@ -79,5 +84,74 @@ func checkFormSaveResults() throws {
           model.deleteSession(interval.sessionID), model.errorMessage == nil else {
         throw FormWorkflowSmokeError.failed("A form could not retry successfully after its write failure: \(model.errorMessage ?? "no error")")
     }
-    print("ui-smoke: form results preserve validation failures, write failures and successful retries")
+    // A durable save must still report success when the subsequent tracker
+    // rebuild fails. Otherwise the retained editor can submit it a second time.
+    failRecovery = true
+    let recoveredEnd = earlierEnd.addingTimeInterval(-86_400)
+    guard model.addManual(title: "Saved before recovery failed", author: "",
+                          start: recoveredEnd.addingTimeInterval(-600), end: recoveredEnd),
+          model.trackingRecoveryMessage?.contains("saved changes are intact") == true,
+          let committedBook = model.books.first(where: { $0.title == "Saved before recovery failed" }),
+          let committedInterval = model.intervals.first(where: { $0.bookID == committedBook.id }),
+          model.intervals.filter({ $0.bookID == committedBook.id }).count == 1,
+          model.reviewInterval(committedInterval, start: committedInterval.start, end: committedInterval.end,
+                               bookID: committedBook.id, disposition: .excluded),
+          model.trackingRecoveryMessage?.contains("saved changes are intact") == true,
+          let corrected = model.intervals.first(where: { $0.bookID == committedBook.id }), corrected.disposition == .excluded,
+          model.splitInterval(corrected, at: corrected.start.addingTimeInterval(300)),
+          model.trackingRecoveryMessage?.contains("saved changes are intact") == true,
+          model.intervals.filter({ $0.bookID == committedBook.id }).count == 2,
+          model.deleteSession(corrected.sessionID),
+          model.trackingRecoveryMessage?.contains("saved changes are intact") == true,
+          !model.intervals.contains(where: { $0.sessionID == corrected.sessionID }),
+          model.logAudiobook(book: audio, audio: AudiobookProgress(positionSeconds: 60, durationSeconds: 600),
+                             start: nil, end: Date()),
+          model.trackingRecoveryMessage?.contains("saved changes are intact") == true,
+          model.audiobookProgress(for: audio.id)?.positionSeconds == 60 else {
+        throw FormWorkflowSmokeError.failed("A committed form mutation was reported as retryable or hidden after tracker recovery failed")
+    }
+    let durable = try ReadingStore(url: database).archive()
+    guard durable.books.filter({ $0.id == committedBook.id }).count == 1,
+          durable.progress.contains(where: { $0.bookID == audio.id && $0.audio?.positionSeconds == 60 }),
+          model.trackingRecoveryRequired, model.snapshot.phase == .paused,
+          !model.audiobookPlayer.shouldCredit(audio.id), model.trackingEnabled else {
+        throw FormWorkflowSmokeError.failed("Postcommit success was not durable")
+    }
+    var playbackBlocked = false
+    do { try model.audiobookPlayer.willPlay?() } catch { playbackBlocked = true }
+    guard playbackBlocked else { throw FormWorkflowSmokeError.failed("Playback resumed before tracker recovery") }
+    guard !model.startManual(title: "Must not start during recovery", author: ""),
+          !model.startManual(book: target), !model.manualActive,
+          model.errorMessage?.contains("tracker recovers") == true,
+          try ReadingStore(url: database).archive().books == durable.books else {
+        throw FormWorkflowSmokeError.failed("Manual reading claimed to start or created a book while recovery blocked the tracker")
+    }
+    model.discordAssetKey = "form-recovery-fixture"
+    model.saveSettings()
+    guard model.errorMessage == nil, model.trackingRecoveryMessage != nil,
+          defaults.string(forKey: "discordAssetKey") == "form-recovery-fixture" else {
+        throw FormWorkflowSmokeError.failed("Tracker recovery status was mistaken for a failed independent settings save")
+    }
+    model.refresh(); model.refresh()
+    let afterFailedRecovery = try ReadingStore(url: database).archive()
+    guard model.trackingRecoveryRequired, model.trackingRecoveryMessage?.contains("saved changes are intact") == true,
+          afterFailedRecovery.intervals == durable.intervals,
+          afterFailedRecovery.corrections == durable.corrections,
+          afterFailedRecovery.progress == durable.progress else {
+        throw FormWorkflowSmokeError.failed("Retrying tracker recovery replayed a committed mutation or hid its failure")
+    }
+    failRecovery = false
+    model.refresh()
+    let afterRecovery = try ReadingStore(url: database).archive()
+    guard !model.trackingRecoveryRequired, model.trackingRecoveryMessage == nil, model.errorMessage == nil, model.trackingEnabled,
+          afterRecovery.intervals == durable.intervals,
+          afterRecovery.corrections == durable.corrections,
+          afterRecovery.progress == durable.progress else {
+        throw FormWorkflowSmokeError.failed("Explicit recovery changed saved records or failed to release the tracking pause")
+    }
+    guard model.logAudiobook(book: audio, audio: AudiobookProgress(positionSeconds: 120, durationSeconds: 600),
+                             start: nil, end: Date()), model.errorMessage == nil else {
+        throw FormWorkflowSmokeError.failed("A subsequent successful tracker recovery retained the warning")
+    }
+    print("ui-smoke: form results distinguish validation/write failures from durable saves with failed tracker recovery")
 }

@@ -48,6 +48,9 @@ final class AppModel: ObservableObject {
     @Published private(set) var health = "Starting the local tracker…"
     @Published private(set) var lastCapture: Date?
     @Published var errorMessage: String?
+    @Published private(set) var trackingRecoveryRequired = false
+    @Published private(set) var trackingRecoveryMessage: String?
+    private var rebuildingTracker = false
     @Published private(set) var discordStatus = "Discord sharing is off."
     @Published private(set) var lastDiscordResult: String?
     @Published private(set) var accessibilityGranted = false
@@ -138,6 +141,7 @@ final class AppModel: ObservableObject {
     private let support: URL
     private let store: ReadingStore
     private let historyReader: (URL) throws -> (archive: HistoryArchive, intervals: [ReadingInterval])
+    private let makeTrackingEngine: (ReadingStore, String, TimeInterval) throws -> TrackingEngine
     private let accessibilityStatus: () -> Bool
     private var engine: TrackingEngine
     private let captures: BooksCapture
@@ -210,8 +214,12 @@ final class AppModel: ObservableObject {
 
     init(support: URL, defaults: UserDefaults = .standard, startTracking: Bool = true,
          accessibilityStatus: @escaping () -> Bool = { BooksCapture.isTrusted },
-         historyReader: @escaping (URL) throws -> (archive: HistoryArchive, intervals: [ReadingInterval]) = ReadingStore.readSnapshot) throws {
+         historyReader: @escaping (URL) throws -> (archive: HistoryArchive, intervals: [ReadingInterval]) = ReadingStore.readSnapshot,
+         makeTrackingEngine: @escaping (ReadingStore, String, TimeInterval) throws -> TrackingEngine = {
+             try TrackingEngine(store: $0, timezoneID: $1, uncertaintyThreshold: $2)
+         }) throws {
         self.historyReader = historyReader
+        self.makeTrackingEngine = makeTrackingEngine
         self.accessibilityStatus = accessibilityStatus
         self.support = support
         self.defaults = defaults
@@ -222,7 +230,7 @@ final class AppModel: ObservableObject {
         store = try ReadingStore(url: support.appendingPathComponent("history.sqlite"))
         let zone = defaults.string(forKey: "timezoneID").flatMap { TimeZone(identifier: $0) }?.identifier ?? TimeZone.current.identifier
         let uncertain = defaults.object(forKey: "uncertaintyMinutes") as? Double ?? 20
-        engine = try TrackingEngine(store: store, timezoneID: zone, uncertaintyThreshold: max(1, uncertain) * 60)
+        engine = try makeTrackingEngine(store, zone, max(1, uncertain) * 60)
         covers = try CoverCache(directory: support.appendingPathComponent("Covers"))
         captures = BooksCapture(covers: covers)
         accessibilityGranted = accessibilityStatus()
@@ -295,13 +303,16 @@ final class AppModel: ObservableObject {
         audiobookPlayer.timezoneID = { [weak self] in self?.timezoneID ?? TimeZone.current.identifier }
         audiobookPlayer.willPlay = { [weak self] in
             guard let self else { return }
+            guard !self.trackingRecoveryRequired else {
+                throw ReadingStoreError.invalidData("Tracking is paused while the tracker recovers. Choose Try again in the dashboard, then retry playback.")
+            }
             // Stop the reading tracker before the audio clock starts: no double credit.
             try self.stopForMutation()
             self.manualBook = nil
         }
         audiobookPlayer.shouldCredit = { [weak self] id in
             guard let self, let book = self.books.first(where: { $0.id == id }) else { return false }
-            return self.trackingEnabled && !book.trackingExcluded
+            return self.trackingEnabled && !self.trackingRecoveryRequired && !book.trackingExcluded
         }
         audiobookPlayer.persist = { [weak self] observation, interval in
             guard let self, let book = self.books.first(where: { $0.id == observation.bookID }) else {
@@ -563,13 +574,14 @@ final class AppModel: ObservableObject {
         if stopped { audiobookPlayer.pauseReportingErrors(); suspended.insert(key); pause(reason) } else { suspended.remove(key); tick() }
     }
     private func commonPauseReason() -> PauseReason? {
+        if trackingRecoveryRequired { return .captureFailure }
         if !trackingEnabled { return .disabled }
         if suspended.contains("lock") || suspended.contains("session") || !SystemEligibility.unlocked { return .locked }
         if !suspended.isEmpty || !SystemEligibility.displayAwake { return .displayAsleep }
         return nil
     }
     private func tick() {
-        guard ready else { return }
+        guard ready, !trackingRecoveryRequired else { return }
         if Date().timeIntervalSince(lastHistorySync) > 30 { syncAppleBooksHistory() }
         if Date().timeIntervalSince(lastStorePurchaseCheck) > 60 { refreshStorePurchases() }
         let trusted = accessibilityStatus()
@@ -871,9 +883,13 @@ final class AppModel: ObservableObject {
     }
 
     /// Explicit edits retain immediate read-after-write behavior and supersede queued reads.
-    func refresh() {
+    func refresh(recoverTracking: Bool = true) {
         refreshGeneration += 1
         refreshPending = false
+        if recoverTracking, trackingRecoveryRequired, !rebuildingTracker {
+            do { try resetEngineAfterMutation(); errorMessage = nil }
+            catch { /* The recovery status remains visible without masquerading as a failed save. */ }
+        }
         do {
             let archive = try store.archive()
             applyHistory(HistoryPresentation(archive: archive, effectiveIntervals: try store.effectiveIntervals(),
@@ -1188,15 +1204,34 @@ final class AppModel: ObservableObject {
         } catch { appleHistoryStatus = "Could not save Apple Books history: \(error.localizedDescription)" }
     }
     @discardableResult
-    private func perform(_ action: () throws -> Void) -> Bool {
+    private func perform(afterCommit: (() throws -> Void)? = nil, _ action: () throws -> Void) -> Bool {
         refreshGeneration += 1; refreshPending = false
-        do { try action(); errorMessage = nil; refresh(); return true }
+        do { try action() }
         catch { errorMessage = String(describing: error); return false }
+        errorMessage = nil
+        // The record is durable now. A failed tracker rebuild must not invite
+        // another save with new record IDs or stale correction inputs.
+        do { try afterCommit?() }
+        catch { /* The mutation committed; resetEngineAfterMutation publishes recovery status separately. */ }
+        refresh(recoverTracking: false)
+        return true
     }
     private func resetEngineAfterMutation() throws {
-        try audiobookPlayer.close()
-        engine = try TrackingEngine(store: store, timezoneID: timezoneID, uncertaintyThreshold: uncertaintyMinutes * 60)
-        snapshot = engine.snapshot
+        rebuildingTracker = true
+        defer { rebuildingTracker = false }
+        do {
+            try audiobookPlayer.close()
+            engine = try makeTrackingEngine(store, timezoneID, uncertaintyMinutes * 60)
+            snapshot = engine.snapshot
+            trackingRecoveryRequired = false
+            trackingRecoveryMessage = nil
+        } catch {
+            trackingRecoveryRequired = true
+            trackingRecoveryMessage = "Your saved changes are intact. Tracking is paused because the tracker could not recover. Choose Try again to retry recovery. \(error)"
+            snapshot.phase = .paused; snapshot.pauseReason = .captureFailure
+            presencePolicy.reset(); presenceState = .hidden; discord.clear()
+            throw error
+        }
     }
     private func stopForMutation() throws {
         refreshGeneration += 1; refreshPending = false
@@ -1213,6 +1248,10 @@ final class AppModel: ObservableObject {
     }
     @discardableResult
     func startManual(book: BookRecord) -> Bool {
+        guard !trackingRecoveryRequired else {
+            errorMessage = "Tracking is paused while the tracker recovers. Choose Try again in the dashboard, then start manual reading."
+            return false
+        }
         guard perform({ try stopForMutation(); try store.saveBook(book); manualBook = book }) else { return false }
         tick()
         return true
@@ -1266,7 +1305,7 @@ final class AppModel: ObservableObject {
     @discardableResult
     func logAudiobook(book: BookRecord?, title: String = "", author: String = "", audio: AudiobookProgress,
                       start: Date?, end: Date) -> Bool {
-        do {
+        return perform(afterCommit: resetEngineAfterMutation) {
             guard audio.isValid, end <= Date(), start.map({ $0 < end }) ?? true else {
                 throw ReadingStoreError.invalidData("Use a position within the total duration and a past session ending after its start.")
             }
@@ -1288,9 +1327,7 @@ final class AppModel: ObservableObject {
                 source: "manual-audio", reliable: true, audio: audio, sessionID: interval?.sessionID)
             if audiobookPlayer.bookID == record.id { try audiobookPlayer.close() }
             try store.saveAudiobook(record, progress: observation, interval: interval)
-            try resetEngineAfterMutation(); errorMessage = nil; refresh()
-            return true
-        } catch { errorMessage = String(describing: error); return false }
+        }
     }
 
     func chooseAudiobook(for book: BookRecord? = nil) {
@@ -1366,14 +1403,13 @@ final class AppModel: ObservableObject {
     @discardableResult
     func addManual(title: String, author: String, start: Date, end: Date) -> Bool {
         guard end > start, end <= Date(), !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { errorMessage = "Manual records need a title and a past end time after the start."; return false }
-        return perform {
+        return perform(afterCommit: resetEngineAfterMutation) {
             try stopForMutation()
             let book = BookRecord(id: "manual:\(UUID().uuidString)", title: title, author: author.isEmpty ? nil : author)
             var archive = HistoryArchive(); archive.books = [book]
             archive.intervals = [ReadingInterval(sessionID: UUID().uuidString, bookID: book.id, start: start, end: end, duration: end.timeIntervalSince(start), timezoneID: timezoneID, mode: .manual)]
             archive.events = [AuditEvent(kind: "manualAddition", bookID: book.id, sessionID: archive.intervals[0].sessionID, detail: "User-entered reading time; elapsed duration supplied manually.")]
             try importArchive(archive)
-            try resetEngineAfterMutation()
         }
     }
     private func importArchive(_ archive: HistoryArchive) throws {
@@ -1461,31 +1497,29 @@ final class AppModel: ObservableObject {
     @discardableResult
     func reviewInterval(_ interval: ReadingInterval, start: Date, end: Date, bookID: String, disposition: IntervalDisposition) -> Bool {
         guard end > start, end <= Date() else { errorMessage = "Use an end time after the start and no later than now."; return false }
-        return perform {
+        return perform(afterCommit: resetEngineAfterMutation) {
             try stopForMutation()
             // Unchanged bounds retain measured elapsed time; adjusted bounds are an explicit manual correction.
             let unchanged = abs(start.timeIntervalSince(interval.start)) < 0.001 && abs(end.timeIntervalSince(interval.end)) < 0.001
             let duration = unchanged ? interval.duration : end.timeIntervalSince(start)
             let revised = ReadingInterval(sessionID: interval.sessionID, bookID: bookID, start: start, end: end, duration: duration, timezoneID: interval.timezoneID, mode: unchanged ? interval.mode : .manual, disposition: disposition, audioSessionID: interval.audioSessionID ?? (isListening(interval) ? interval.sessionID : nil))
             try store.correct(IntervalCorrection(originalIDs: originalIDs(for: interval), replacements: [revised], reason: "User reviewed timing, assignment or credit status."))
-            try resetEngineAfterMutation()
         }
     }
     @discardableResult
     func splitInterval(_ interval: ReadingInterval, at date: Date) -> Bool {
         guard date > interval.start, date < interval.end else { errorMessage = "Split time must be inside this interval."; return false }
-        return perform {
+        return perform(afterCommit: resetEngineAfterMutation) {
             try stopForMutation()
             let fraction = date.timeIntervalSince(interval.start) / interval.end.timeIntervalSince(interval.start)
             let first = ReadingInterval(sessionID: interval.sessionID, bookID: interval.bookID, start: interval.start, end: date, duration: interval.duration * fraction, timezoneID: interval.timezoneID, mode: interval.mode, disposition: interval.disposition, audioSessionID: interval.audioSessionID ?? (isListening(interval) ? interval.sessionID : nil))
             let second = ReadingInterval(sessionID: UUID().uuidString, bookID: interval.bookID, start: date, end: interval.end, duration: interval.duration * (1 - fraction), timezoneID: interval.timezoneID, mode: interval.mode, disposition: interval.disposition, audioSessionID: interval.audioSessionID ?? (isListening(interval) ? interval.sessionID : nil))
             try store.correct(IntervalCorrection(originalIDs: originalIDs(for: interval), replacements: [first, second], reason: "User split a reading interval into two sessions."))
-            try resetEngineAfterMutation()
         }
     }
     func resolveUncertain(_ interval: ReadingInterval, confirm: Bool) { reviewInterval(interval, start: interval.start, end: interval.end, bookID: interval.bookID, disposition: confirm ? .credited : .excluded) }
     @discardableResult
-    func deleteSession(_ sessionID: String) -> Bool { perform { try stopForMutation(); defer { try? removeManagedBackups() }; try store.deleteSession(sessionID); try resetEngineAfterMutation() } }
+    func deleteSession(_ sessionID: String) -> Bool { perform(afterCommit: resetEngineAfterMutation) { try stopForMutation(); defer { try? removeManagedBackups() }; try store.deleteSession(sessionID) } }
     func deleteBook(_ book: BookRecord) {
         perform {
             try stopForMutation(); if manualBook?.id == book.id { manualBook = nil }

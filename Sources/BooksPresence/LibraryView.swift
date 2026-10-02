@@ -2,13 +2,26 @@ import SwiftUI
 import BooksCore
 import UniformTypeIdentifiers
 
+/// Dashboard-owned browsing choices survive visiting another destination or
+/// changing the theme, without keeping an offscreen Library view alive.
+@MainActor
+final class LibraryBrowseState: ObservableObject {
+    @Published var shelf = LibraryShelf.all
+    @Published var search = ""
+    @Published var sort = LibrarySort.recent
+}
+
 @MainActor
 struct LibraryView: View {
     @ObservedObject var model: AppModel
     let present: (DashboardSheet) -> Void
-    @State private var shelf = LibraryShelf.all
-    @State private var search = ""
-    @State private var sort = LibrarySort.recent
+    @StateObject private var browsing: LibraryBrowseState
+
+    init(model: AppModel, present: @escaping (DashboardSheet) -> Void, browsing: LibraryBrowseState? = nil) {
+        self.model = model
+        self.present = present
+        _browsing = StateObject(wrappedValue: browsing ?? LibraryBrowseState())
+    }
     @State private var removingBook: BookRecord?
     @State private var removingEPUB: BookRecord?
     @State private var loggingAudio = false
@@ -21,13 +34,13 @@ struct LibraryView: View {
         let finishes = summary.finishes
         let positions = model.libraryProgressObservations
         let visible = books.filter { book in
-            (shelf == .all || (shelf == .finished ? finishedIDs.contains(book.id) : !finishedIDs.contains(book.id)))
-                && (search.isEmpty || book.title.localizedCaseInsensitiveContains(search) || (book.author ?? "").localizedCaseInsensitiveContains(search))
+            (browsing.shelf == .all || (browsing.shelf == .finished ? finishedIDs.contains(book.id) : !finishedIDs.contains(book.id)))
+                && (browsing.search.isEmpty || book.title.localizedCaseInsensitiveContains(browsing.search) || (book.author ?? "").localizedCaseInsensitiveContains(browsing.search))
         }.sorted { lhs, rhs in
-            switch sort {
+            switch browsing.sort {
             case .recent:
-                let left = shelf == .finished ? finishes[lhs.id] : recent[lhs.id]
-                let right = shelf == .finished ? finishes[rhs.id] : recent[rhs.id]
+                let left = browsing.shelf == .finished ? finishes[lhs.id] : recent[lhs.id]
+                let right = browsing.shelf == .finished ? finishes[rhs.id] : recent[rhs.id]
                 if left != right { return (left ?? .distantPast) > (right ?? .distantPast) }
             case .author:
                 let order = (lhs.author ?? "").localizedStandardCompare(rhs.author ?? "")
@@ -66,11 +79,11 @@ struct LibraryView: View {
                 }
                 if visible.isEmpty {
                     VStack(spacing: 16) {
-                    ReadingEmptyState(title: search.isEmpty ? (shelf == .finished ? "Stories to look back on" : "Your next chapter awaits") : "No matching books",
-                        symbol: "books.vertical",
-                        message: search.isEmpty ? (shelf == .finished ? "Books you mark finished will appear here." : "Import an EPUB, open a book in Apple Books, or add a reading session to start your shelf.") : "Try another title or author.")
-                        if !search.isEmpty || shelf != .all {
-                            Button("Show all books") { search = ""; shelf = .all }
+                        ReadingEmptyState(title: browsing.search.isEmpty ? (browsing.shelf == .finished ? "Stories to look back on" : "Your next chapter awaits") : "No matching books",
+                            symbol: "books.vertical",
+                            message: browsing.search.isEmpty ? (browsing.shelf == .finished ? "Books you mark finished will appear here." : "Import an EPUB, open a book in Apple Books, or add a reading session to start your shelf.") : "Try another title or author.")
+                        if !browsing.search.isEmpty || browsing.shelf != .all {
+                            Button("Show all books") { browsing.search = ""; browsing.shelf = .all }
                         }
                     }.padding(.vertical, 35)
                 } else {
@@ -159,43 +172,43 @@ extension LibraryView {
             }
         }
         return Menu {
-            Picker("Bookshelf", selection: $shelf) {
+            Picker("Bookshelf", selection: $browsing.shelf) {
                 ForEach([LibraryShelf.all, .reading, .finished], id: \.self) { item in
                     Text(title(item)).tag(item)
                 }
             }
         } label: {
-            Text(title(shelf)).lineLimit(1)
+            Text(title(browsing.shelf)).lineLimit(1)
         }
         .menuStyle(ReadingMenuStyle())
-        .accessibilityLabel("Bookshelf").accessibilityValue(title(shelf))
+        .accessibilityLabel("Bookshelf").accessibilityValue(title(browsing.shelf))
     }
 
     fileprivate var searchAndSort: some View {
         HStack(spacing: 10) {
-            ReadingSearchField(label: "Search library", placeholder: "Find a title or author", text: $search)
+            ReadingSearchField(label: "Search library", placeholder: "Find a title or author", text: $browsing.search)
                 .frame(minWidth: 180, maxWidth: 260)
             Menu {
                 ForEach(LibrarySort.allCases, id: \.self) { value in
-                    Button { sort = value } label: {
-                        if sort == value {
+                    Button { browsing.sort = value } label: {
+                        if browsing.sort == value {
                             Label(value.rawValue, systemImage: "checkmark")
                         } else {
                             Text(value.rawValue)
                         }
                     }
-                    .accessibilityAddTraits(sort == value ? .isSelected : [])
+                    .accessibilityAddTraits(browsing.sort == value ? .isSelected : [])
                 }
-            } label: { Label(sort.rawValue, systemImage: "arrow.up.arrow.down") }
+            } label: { Label(browsing.sort.rawValue, systemImage: "arrow.up.arrow.down") }
             .menuStyle(ReadingMenuStyle())
             .accessibilityLabel("Sort books")
-            .accessibilityValue(sort.rawValue)
+            .accessibilityValue(browsing.sort.rawValue)
         }
     }
 }
 
-private enum LibraryShelf: Hashable { case reading, finished, all }
-private enum LibrarySort: String, CaseIterable { case recent = "Recent", title = "Title", author = "Author" }
+enum LibraryShelf: Hashable { case reading, finished, all }
+enum LibrarySort: String, CaseIterable { case recent = "Recent", title = "Title", author = "Author" }
 
 struct BookLibraryCard: View {
     let book: BookRecord
