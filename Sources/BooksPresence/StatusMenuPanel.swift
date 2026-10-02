@@ -1,14 +1,15 @@
 import AppKit
 import QuartzCore
 
-/// The menu and its sheet are one interaction surface. Hiding that surface
-/// must not end the sheet or throw away its in-progress reading draft.
+/// A reading sheet follows normal window modality: it stays open until Save or
+/// Cancel, and its parent stops floating above other applications meanwhile.
 @MainActor
 final class StatusMenuPanel: NSPanel {
     var cancelHandler: (() -> Void)?
     var anchorGeometry: (() -> (anchor: NSRect, visibleFrame: NSRect)?)?
     private var pendingContentSize: NSSize?
     private var resizeScheduled = false
+    private var presentationBeforeSheet: (level: NSWindow.Level, floating: Bool, collection: NSWindow.CollectionBehavior)?
 
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
@@ -33,14 +34,19 @@ final class StatusMenuPanel: NSPanel {
         // Native menus use their own high-level window rather than a child
         // window. Let AppKit finish menu tracking before handling dismissal.
         if let window, window.level.rawValue >= NSWindow.Level.popUpMenu.rawValue { return }
-        guard isVisible, !owns(window) else { return }
+        guard isVisible, attachedSheet == nil, !owns(window) else { return }
         cancelHandler?()
     }
 
     func dismissForApplicationDeactivation() {
-        // Command-Tab does not produce an outside mouse event. An attached
-        // sheet may own key focus, so the parent's resign-key callback alone
-        // cannot hide this surface when the reader switches applications.
+        // An unfinished sheet remains a normal-level window when the user
+        // switches applications. Ordering out an attached sheet can sever its
+        // AppKit attachment, so it must not use the menu's dismissal path.
+        if let sheet = attachedSheet {
+            prepareForSheet()
+            sheet.level = .normal
+            return
+        }
         guard isVisible || attachedSheet?.isVisible == true else { return }
         cancelHandler?()
     }
@@ -57,14 +63,26 @@ final class StatusMenuPanel: NSPanel {
         cancelHandler?()
     }
 
-    func hideKeepingSheetDraft() {
-        attachedSheet?.orderOut(nil)
+    @discardableResult
+    func hideKeepingSheetDraft() -> Bool {
+        guard attachedSheet == nil else { return false }
         orderOut(nil)
+        return true
     }
 
     func showKeepingSheetDraft() {
         makeKeyAndOrderFront(nil)
         attachedSheet?.makeKeyAndOrderFront(nil)
+    }
+
+    func prepareForSheet() {
+        if presentationBeforeSheet == nil {
+            presentationBeforeSheet = (level, isFloatingPanel, collectionBehavior)
+        }
+        isFloatingPanel = false
+        level = .normal
+        collectionBehavior = []
+        DispatchQueue.main.async { [weak self] in self?.attachedSheet?.level = .normal }
     }
 
     func scheduleContentSize(_ size: NSSize) {
@@ -80,7 +98,17 @@ final class StatusMenuPanel: NSPanel {
     }
 
     func sheetDidEnd() {
-        DispatchQueue.main.async { [weak self] in self?.applyPendingContentSize() }
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.attachedSheet == nil else { return }
+            if !NSApp.isActive { self.cancelHandler?() }
+            if let previous = self.presentationBeforeSheet {
+                self.isFloatingPanel = previous.floating
+                self.level = previous.level
+                self.collectionBehavior = previous.collection
+                self.presentationBeforeSheet = nil
+            }
+            self.applyPendingContentSize()
+        }
     }
 
     func applyPendingContentSize(reduceMotion: Bool? = nil) {
@@ -107,6 +135,7 @@ final class StatusMenuPanel: NSPanel {
     }
 
     func positionAtAnchor() {
+        guard attachedSheet == nil else { return }
         applyPendingContentSize(reduceMotion: true)
         setFrame(targetFrame(size: frame.size), display: true)
     }

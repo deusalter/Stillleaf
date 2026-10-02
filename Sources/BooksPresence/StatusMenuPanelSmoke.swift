@@ -7,6 +7,7 @@ private final class StatusMenuPanelSmokeDelegate: NSObject, NSWindowDelegate, NS
     weak var panel: StatusMenuPanel?
     func windowDidResignKey(_ notification: Notification) { panel?.dismissAfterFocusLeaves() }
     func windowDidEndSheet(_ notification: Notification) { panel?.sheetDidEnd() }
+    func windowWillBeginSheet(_ notification: Notification) { panel?.prepareForSheet() }
     func applicationDidResignActive(_ notification: Notification) { panel?.dismissForApplicationDeactivation() }
 }
 
@@ -20,6 +21,9 @@ func checkStatusMenuPanelInteractions(directory: URL) async throws {
         styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
     panel.isReleasedWhenClosed = false
     panel.hidesOnDeactivate = false
+    panel.isFloatingPanel = true
+    panel.level = .statusBar
+    panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
     panel.anchorGeometry = { (anchor, visible) }
     let delegate = StatusMenuPanelSmokeDelegate()
     let previousApplicationDelegate = NSApp.delegate
@@ -92,13 +96,13 @@ func checkStatusMenuPanelInteractions(directory: URL) async throws {
     panel.dismissForOutsideClick(in: sheet)
     guard dismissals == 0 else { throw StatusMenuPanelSmokeError.failed("A click inside the form dismissed it") }
     panel.dismissForOutsideClick(in: nil)
-    guard !panel.isVisible, panel.attachedSheet === sheet, draft.stringValue == "Synthetic unsaved reading title" else {
-        throw StatusMenuPanelSmokeError.failed("Outside dismissal lost the attached reading draft")
+    guard panel.isVisible, sheet.isVisible, panel.attachedSheet === sheet, dismissals == 0,
+          !panel.hideKeepingSheetDraft(), draft.stringValue == "Synthetic unsaved reading title" else {
+        throw StatusMenuPanelSmokeError.failed("Outside dismissal bypassed sheet modality or lost its draft")
     }
-    panel.showKeepingSheetDraft()
-    try await Task.sleep(nanoseconds: 60_000_000)
-    guard panel.isVisible, sheet.isVisible, draft.stringValue == "Synthetic unsaved reading title" else {
-        throw StatusMenuPanelSmokeError.failed("Reopening failed to restore the reading sheet")
+    guard panel.level == .normal, sheet.level == .normal, !panel.isFloatingPanel,
+          !panel.collectionBehavior.contains(.canJoinAllSpaces) else {
+        throw StatusMenuPanelSmokeError.failed("The reading sheet still floats at menu level")
     }
     NSApp.activate(ignoringOtherApps: true)
     let activationDeadline = Date().addingTimeInterval(2)
@@ -106,23 +110,46 @@ func checkStatusMenuPanelInteractions(directory: URL) async throws {
     guard NSApp.isActive else { throw StatusMenuPanelSmokeError.failed("Could not activate the synthetic panel for deactivation check") }
     NSApp.deactivate()
     let deactivationDeadline = Date().addingTimeInterval(2)
-    while panel.isVisible && Date() < deactivationDeadline { try await Task.sleep(nanoseconds: 10_000_000) }
-    guard !panel.isVisible, !sheet.isVisible, panel.attachedSheet === sheet,
+    while NSApp.isActive && Date() < deactivationDeadline { try await Task.sleep(nanoseconds: 10_000_000) }
+    guard !NSApp.isActive, panel.level == .normal, sheet.level == .normal, !panel.isFloatingPanel,
+          panel.attachedSheet === sheet, dismissals == 0,
           draft.stringValue == "Synthetic unsaved reading title" else {
-        throw StatusMenuPanelSmokeError.failed("Application deactivation left the panel floating or discarded its sheet draft")
+        throw StatusMenuPanelSmokeError.failed("Application deactivation left a floating form or discarded its attached draft")
     }
     NSApp.activate(ignoringOtherApps: true)
     panel.showKeepingSheetDraft()
-    try await Task.sleep(nanoseconds: 80_000_000)
-    guard panel.isVisible, sheet.isVisible, draft.stringValue == "Synthetic unsaved reading title" else {
-        throw StatusMenuPanelSmokeError.failed("Reopening after application deactivation lost the draft")
+    let reactivationDeadline = Date().addingTimeInterval(2)
+    while (!NSApp.isActive || !panel.isVisible || !sheet.isVisible) && Date() < reactivationDeadline {
+        try await Task.sleep(nanoseconds: 10_000_000)
+    }
+    guard NSApp.isActive, panel.isVisible, sheet.isVisible, draft.stringValue == "Synthetic unsaved reading title" else {
+        throw StatusMenuPanelSmokeError.failed("Returning to the application lost the attached reading draft")
     }
     panel.endSheet(sheet)
     sheet.orderOut(nil)
     panel.makeKeyAndOrderFront(nil)
-    try await Task.sleep(nanoseconds: 260_000_000)
-    guard abs(panel.frame.height - 450) < 1 else {
-        throw StatusMenuPanelSmokeError.failed("Deferred sizing did not resume after the sheet closed")
+    let sheetEndDeadline = Date().addingTimeInterval(2)
+    while (panel.attachedSheet != nil || abs(panel.frame.height - 450) >= 1 || panel.level != .statusBar) && Date() < sheetEndDeadline {
+        try await Task.sleep(nanoseconds: 10_000_000)
+    }
+    guard panel.attachedSheet == nil, abs(panel.frame.height - 450) < 1, panel.level == .statusBar, panel.isFloatingPanel,
+          panel.collectionBehavior.contains(.canJoinAllSpaces) else {
+        throw StatusMenuPanelSmokeError.failed("Closing the sheet did not restore menu presentation and deferred sizing")
+    }
+    NSApp.deactivate()
+    let menuDismissalDeadline = Date().addingTimeInterval(2)
+    while panel.isVisible && Date() < menuDismissalDeadline { try await Task.sleep(nanoseconds: 10_000_000) }
+    guard !panel.isVisible else {
+        throw StatusMenuPanelSmokeError.failed("Application deactivation no longer dismisses the ordinary menu")
+    }
+    NSApp.activate(ignoringOtherApps: true)
+    panel.showKeepingSheetDraft()
+    let menuActivationDeadline = Date().addingTimeInterval(2)
+    while (!NSApp.isActive || !panel.isVisible) && Date() < menuActivationDeadline {
+        try await Task.sleep(nanoseconds: 10_000_000)
+    }
+    guard NSApp.isActive, panel.isVisible else {
+        throw StatusMenuPanelSmokeError.failed("Could not reactivate the ordinary menu for Escape check")
     }
     guard let panelEscape = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
         timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: panel.windowNumber, context: nil,
@@ -130,10 +157,11 @@ func checkStatusMenuPanelInteractions(directory: URL) async throws {
           panel.routeEscape(panelEscape) == nil, !panel.isVisible else {
         throw StatusMenuPanelSmokeError.failed("Escape no longer dismisses the menu itself")
     }
-    let report: [String: Any] = ["sheetFocus": true, "sheetEscapePassthrough": true, "outsideClickRetainsDraft": true,
-        "reopenedDraft": true, "coalescedSizing": true, "resizeRetargeting": true, "reduceMotion": true,
-        "sheetDefersResize": true, "menuEscape": true, "applicationDeactivationRetainsDraft": true]
+    let report: [String: Any] = ["sheetFocus": true, "sheetEscapePassthrough": true, "outsideClickPreservesModalDraft": true,
+        "sheetUsesNormalWindowLevel": true, "coalescedSizing": true, "resizeRetargeting": true, "reduceMotion": true,
+        "sheetDefersResize": true, "menuEscape": true, "applicationDeactivationRetainsDraft": true,
+        "ordinaryMenuDeactivation": true, "menuPresentationRestored": true]
     try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys])
         .write(to: directory.appendingPathComponent("status-menu-interactions.json"))
-    print("status-menu-smoke: sheet focus, Escape, outside/app dismissal, draft restoration and anchored resize passed")
+    print("status-menu-smoke: sheet modality, application switching, draft retention, Escape and anchored resize passed")
 }

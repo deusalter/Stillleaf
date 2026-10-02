@@ -87,7 +87,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     }
     @objc private func togglePopover() {
         guard let panel = menuPanel else { return }
-        if panel.isVisible { dismissMenuPanel() }
+        if panel.attachedSheet != nil { showMenuPanel() }
+        else if panel.isVisible { dismissMenuPanel() }
         else { showMenuPanel() }
     }
     func showDashboard() {
@@ -190,6 +191,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         panel.sheetDidEnd()
     }
 
+    func windowWillBeginSheet(_ notification: Notification) {
+        guard let panel = menuPanel, notification.object as? NSWindow === panel else { return }
+        panel.prepareForSheet()
+    }
+
     private func makeMenuPanel(model: AppModel) -> StatusMenuPanel {
         let panel = StatusMenuPanel(
             contentRect: NSRect(x: 0, y: 0, width: 350, height: 430),
@@ -235,7 +241,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     }
 
     private func dismissMenuPanel() {
-        menuPanel?.hideKeepingSheetDraft()
+        guard menuPanel?.hideKeepingSheetDraft() == true else { return }
         removeMenuDismissalMonitors()
     }
 
