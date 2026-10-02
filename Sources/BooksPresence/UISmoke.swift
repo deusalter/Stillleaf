@@ -7,6 +7,7 @@ import CSQLite
 /// Explicit developer-only self-check. Uses temporary synthetic history and an isolated defaults suite.
 @MainActor
 func runUISmoke() throws {
+    try checkHistoryDateFormatting()
     let root = FileManager.default.temporaryDirectory.appendingPathComponent("BooksPresence-ui-check-\(UUID().uuidString)")
     let suite = "BooksPresence.UIValidation.\(UUID().uuidString)"
     let defaults = UserDefaults(suiteName: suite)!
@@ -699,4 +700,31 @@ private func pumpHistoryRefresh(until finished: () -> Bool) throws {
         RunLoop.current.run(until: Date().addingTimeInterval(0.002))
     }
     guard finished() else { throw BooksAccessErrorForUI.failed("Background refresh timed out") }
+}
+
+@MainActor
+private func checkHistoryDateFormatting() throws {
+    let parser = ISO8601DateFormatter()
+    let dates = ["2026-03-08T09:59:00Z", "2026-03-08T10:01:00Z",
+                 "2026-11-01T08:59:00Z", "2026-11-01T09:01:00Z"].map { parser.date(from: $0)! }
+    let zones = ["America/Los_Angeles", "Europe/London", "Asia/Kathmandu", "UTC", "Invalid/Zone"]
+    let patterns = ["EEEE, MMMM d, yyyy", "MMM", "MMMM yyyy", "ha", "h:mm a z",
+                    "EEE", "EEEE, MMMM d", "MMMM", "EEEE d"]
+    // More than 32 zone/pattern pairs exercise bounded eviction. Revisit them
+    // in reverse order, and alternate DST dates through each warmed formatter.
+    for orderedZones in [zones, Array(zones.reversed())] {
+        for zone in orderedZones {
+            for pattern in patterns {
+                let reference = DateFormatter(); reference.locale = .current
+                reference.timeZone = TimeZone(identifier: zone) ?? .current
+                reference.dateFormat = pattern
+                for date in dates + Array(dates.reversed()) {
+                    guard AtlasStyle.date(date, zone: zone, pattern: pattern) == reference.string(from: date) else {
+                        throw BooksAccessErrorForUI.failed("History date formatting changed for \(zone), \(pattern), \(date)")
+                    }
+                }
+            }
+        }
+    }
+    print("ui-smoke: History date labels preserve timezone, DST, patterns and cache eviction")
 }

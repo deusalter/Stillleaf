@@ -40,14 +40,72 @@ private enum NativeChromeCaptureError: Error { case renderFailed }
             panel.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true); try await Task.sleep(nanoseconds: 300_000_000)
             try await captureNativeWindow(panel, to: directory.appendingPathComponent("panel-\(dark ? "dark" : "light")-\(opaque ? "opaque" : "system").png"))
             panel.contentViewController = nil; panel.close()
+            try await checkMenuPickerLayout(directory: directory, dark: dark, opaque: opaque)
         }
     }
     #if compiler(>=6.2)
-    if #available(macOS 26, *) { print("native-chrome-preview: genuine SwiftUI glass compiled; macOS26 runtime; solid accessibility fallback captured") }
+    if #available(macOS 26, *) { print("native-chrome-preview: genuine SwiftUI glass compiled; macOS26 runtime; app-owned solid fallback captured (system accessibility settings unchanged)") }
     else { print("native-chrome-preview: modern binary fallback runtime") }
     #else
     print("native-chrome-preview: compatibility SDK native material runtime")
     #endif
+}
+
+private struct MenuPickerWidthPreference: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
+}
+
+@MainActor private final class MenuPickerLayoutProbe { var width: CGFloat = 0 }
+
+@MainActor private struct LongTitlePickerFixture: View {
+    let width: CGFloat
+    let probe: MenuPickerLayoutProbe
+    @State private var selection = 0
+    private let titles = [
+        "A Very Long Book Title: Collected Letters, Notes, and Recollections from a Journey Across the World — Revised and Expanded Edition",
+        "A Short Title"
+    ]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Book").font(.headline)
+            ReadingMenuPicker(label: "Book", options: Array(titles.indices), selection: $selection) { titles[$0] }
+                // Measure before the enclosing form's fixed width can mask an
+                // overflowing child. This catches the old horizontal fixedSize.
+                .background(GeometryReader { geometry in
+                    Color.clear.preference(key: MenuPickerWidthPreference.self, value: geometry.size.width)
+                })
+                .onPreferenceChange(MenuPickerWidthPreference.self) { probe.width = $0 }
+            Button("Done") { }.buttonStyle(ReadingButtonStyle())
+        }
+        .padding(24)
+        .frame(width: width, height: 180, alignment: .topLeading)
+        .background(ReadingPalette.paper)
+        .foregroundStyle(ReadingPalette.ink)
+    }
+}
+
+@MainActor private func checkMenuPickerLayout(directory: URL, dark: Bool, opaque: Bool) async throws {
+    // Merge's 480-point sheet and a narrower available form column.
+    for width in [CGFloat(480), CGFloat(360)] {
+        let probe = MenuPickerLayoutProbe()
+        let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: width, height: 180),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.contentViewController = nil; window.close() }
+        window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+        window.contentViewController = NSHostingController(rootView:
+            LongTitlePickerFixture(width: width, probe: probe).environment(\.nativePreviewOpaque, opaque))
+        window.makeKeyAndOrderFront(nil)
+        let deadline = Date().addingTimeInterval(3)
+        while probe.width == 0 && Date() < deadline { try await Task.sleep(nanoseconds: 20_000_000) }
+        try await captureNativeWindow(window, to: directory.appendingPathComponent(
+            "long-title-\(Int(width))-\(dark ? "dark" : "light")-\(opaque ? "opaque" : "system").png"))
+        let available = width - 48
+        print("native-menu-layout: form=\(width) available=\(available) menu=\(probe.width)")
+        guard probe.width > 0, probe.width <= available + 1 else { throw NativeChromeCaptureError.renderFailed }
+    }
 }
 
 @MainActor func captureNativeWindow(_ window: NSWindow, to url: URL, contextWindow: NSWindow? = nil) async throws {

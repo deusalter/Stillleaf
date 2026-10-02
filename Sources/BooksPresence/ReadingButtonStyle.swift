@@ -17,7 +17,7 @@ struct ReadingMenuStyle: MenuStyle {
             .font(.caption.weight(.medium))
             .foregroundStyle(ReadingPalette.ink)
             .tint(ReadingPalette.ink)
-            .fixedSize()
+            .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, 12).padding(.vertical, 6)
             .frame(minHeight: 30)
             .nativeMenuSurface(hovering: hovering && isEnabled)
