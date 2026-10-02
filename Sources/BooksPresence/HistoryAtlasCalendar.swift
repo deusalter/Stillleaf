@@ -133,10 +133,13 @@ struct AtlasMonthView: View {
         }
     }
     private var calendar: some View {
-        AtlasPanel(title: AtlasStyle.date(navigation.periodStart, zone: navigation.timezoneID, pattern: "MMMM"), note: "Time by book") {
+        let formatter = DateFormatter(); formatter.locale = .current
+        let weekdayNames = formatter.shortWeekdaySymbols ?? []
+        let firstWeekday = navigation.calendar.firstWeekday
+        return AtlasPanel(title: AtlasStyle.date(navigation.periodStart, zone: navigation.timezoneID, pattern: "MMMM"), note: "Time by book") {
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(minimum: 42), spacing: 8), count: 7), spacing: 14) {
                 ForEach(0..<7, id: \.self) { index in
-                    Text(weekday(index)).font(.caption).foregroundStyle(AtlasStyle.muted(dark)).padding(.bottom, 8)
+                    Text(weekdayNames[(firstWeekday - 1 + index) % 7]).font(.caption).foregroundStyle(AtlasStyle.muted(dark)).padding(.bottom, 8)
                 }
                 ForEach(navigation.monthCells) { cell in
                     if cell.isInMonth { dayCell(cell.date) }
@@ -195,10 +198,5 @@ struct AtlasMonthView: View {
                 }
             }
         }.frame(maxWidth: .infinity, alignment: .leading)
-    }
-    private func weekday(_ index: Int) -> String {
-        let formatter = DateFormatter(); formatter.locale = .current
-        let names = formatter.shortWeekdaySymbols ?? []
-        return names[(navigation.calendar.firstWeekday - 1 + index) % 7]
     }
 }

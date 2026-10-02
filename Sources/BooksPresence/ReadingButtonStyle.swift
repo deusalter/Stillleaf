@@ -4,34 +4,34 @@ import SwiftUI
 struct ReadingMenuStyle: MenuStyle {
     @Environment(\.isEnabled) private var isEnabled
     @Environment(\.isFocused) private var isFocused
-    @State private var isHovering = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var hovering = false
 
     func makeBody(configuration: Configuration) -> some View {
         Menu(configuration)
+            // AppKit-backed menus do not consistently inherit a ButtonStyle.
+            // Style the menu surface itself, leaving its label and popup native.
             .menuStyle(.borderlessButton)
+            .buttonStyle(.borderless)
             .controlSize(.small)
             .font(.caption.weight(.medium))
             .foregroundStyle(ReadingPalette.ink)
             .tint(ReadingPalette.ink)
-            .fixedSize()
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .frame(minHeight: 28)
-            .background(ReadingPalette.accent.opacity(isHovering && isEnabled ? 0.14 : 0.075),
-                        in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .stroke(ReadingPalette.accent.opacity(isFocused ? 1 : (isHovering && isEnabled ? 0.20 : 0.08)),
-                            lineWidth: isFocused ? 2 : 1)
-            }
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 12).padding(.vertical, 6)
+            .frame(minHeight: 30)
+            .nativeMenuSurface(hovering: hovering && isEnabled)
+            .overlay(Capsule().stroke(isFocused ? ReadingPalette.accent : .clear, lineWidth: 2))
+            .contentShape(Capsule())
             .opacity(isEnabled ? 1 : 0.42)
-            .onHover { isHovering = $0 }
+            .onHover { hovering = $0 }
+            .animation(reduceMotion ? nil : ReadingMotion.hover, value: hovering)
     }
 }
 
 /// A compact native button treatment for reading actions. Button roles remain intact for VoiceOver,
 /// keyboard activation, and destructive actions.
-struct ReadingButtonStyle: ButtonStyle {
+struct ReadingButtonStyle: PrimitiveButtonStyle {
     enum Emphasis {
         case primary
         case secondary
@@ -39,16 +39,68 @@ struct ReadingButtonStyle: ButtonStyle {
 
     let emphasis: Emphasis
     let iconOnly: Bool
-    @Environment(\.isEnabled) private var isEnabled
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.nativePreviewOpaque) private var previewOpaque
+    @Environment(\.controlSize) private var controlSize
 
     init(emphasis: Emphasis = .secondary, iconOnly: Bool = false) {
         self.emphasis = emphasis
         self.iconOnly = iconOnly
     }
 
+    @ViewBuilder func makeBody(configuration: Configuration) -> some View {
+        #if compiler(>=6.2)
+        if #available(macOS 26.0, *), !(previewOpaque ?? reduceTransparency), contrast != .increased {
+            if emphasis == .primary {
+                nativeButton(configuration)
+                    .buttonStyle(.glassProminent)
+                    .buttonBorderShape(.capsule)
+                    .tint(configuration.role == .destructive ? ReadingPalette.warning : ReadingPalette.accent)
+            } else {
+                nativeButton(configuration)
+                    .buttonStyle(.glass)
+                    .buttonBorderShape(.capsule)
+                    .tint(.clear)
+            }
+        } else {
+            fallback(configuration)
+        }
+        #else
+        fallback(configuration)
+        #endif
+    }
+
+    private func nativeButton(_ configuration: Configuration) -> some View {
+        let primary = emphasis == .primary
+        let compact = controlSize == .small || controlSize == .mini
+        let foreground = primary ? ReadingPalette.onAccent : (configuration.role == .destructive ? ReadingPalette.warning : ReadingPalette.ink)
+        // Set the color on the label itself: macOS glass can override an inherited
+        // foreground with white when its tint is clear, even in light appearance.
+        return Button(role: configuration.role, action: configuration.trigger) {
+            configuration.label
+                .font((compact ? Font.caption : Font.callout).weight(primary ? .semibold : .medium))
+                .foregroundStyle(foreground)
+                .padding(.horizontal, 2).padding(.vertical, 4)
+                .frame(minWidth: iconOnly ? 16 : 0, minHeight: iconOnly ? 16 : 0)
+                .contentShape(Capsule())
+        }
+    }
+
+    private func fallback(_ configuration: Configuration) -> some View {
+        Button(configuration).buttonStyle(ReadingFallbackButtonStyle(emphasis: emphasis, iconOnly: iconOnly))
+    }
+}
+
+private struct ReadingFallbackButtonStyle: ButtonStyle {
+    let emphasis: ReadingButtonStyle.Emphasis
+    let iconOnly: Bool
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     func makeBody(configuration: Configuration) -> some View {
-        ReadingButtonStyleBody(configuration: configuration, emphasis: emphasis, iconOnly: iconOnly, isEnabled: isEnabled, reduceMotion: reduceMotion)
+        ReadingButtonStyleBody(configuration: configuration, emphasis: emphasis, iconOnly: iconOnly,
+                               isEnabled: isEnabled, reduceMotion: reduceMotion)
     }
 }
 
@@ -60,6 +112,7 @@ private struct ReadingButtonStyleBody: View {
     let reduceMotion: Bool
     @Environment(\.controlSize) private var controlSize
     @Environment(\.isFocused) private var isFocused
+    @Environment(\.colorSchemeContrast) private var contrast
     @State private var isHovering = false
 
     var body: some View {
@@ -69,7 +122,7 @@ private struct ReadingButtonStyleBody: View {
         let foreground = primary ? ReadingPalette.onAccent : (destructive ? ReadingPalette.warning : ReadingPalette.ink)
         let hovering = isHovering && isEnabled
         let compact = controlSize == .small || controlSize == .mini
-        let background = primary ? accent.opacity(hovering ? 0.90 : 1) : accent.opacity(destructive ? (hovering ? 0.15 : 0.08) : (hovering ? 0.14 : 0.075))
+        let background = primary ? accent.opacity(hovering ? 0.90 : 1) : ReadingPalette.elevated
 
         configuration.label
             .font((compact ? Font.caption : Font.callout).weight(primary ? .semibold : .medium))
@@ -80,7 +133,7 @@ private struct ReadingButtonStyleBody: View {
             .background(background, in: RoundedRectangle(cornerRadius: compact ? 9 : 13, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: compact ? 9 : 13, style: .continuous)
-                    .stroke(isFocused ? ReadingPalette.accent : (primary ? .clear : accent.opacity(destructive ? 0.25 : (hovering ? 0.20 : 0.08))), lineWidth: isFocused ? 2 : 1)
+                    .stroke(isFocused ? ReadingPalette.accent : (primary ? .clear : accent.opacity(contrast == .increased ? 0.7 : (hovering ? 0.3 : 0.16))), lineWidth: isFocused ? 2 : 1)
             }
             .contentShape(RoundedRectangle(cornerRadius: compact ? 9 : 13, style: .continuous))
             .opacity(isEnabled ? (configuration.isPressed ? 0.84 : 1) : 0.42)

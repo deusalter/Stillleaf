@@ -188,36 +188,44 @@ struct MenuReadingGoal: View {
     private var reached: Bool { daily.reached }
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 14) {
-                ZStack {
-                    if goal != nil {
-                        DottedReadingArc(progress: appeared || reduceMotion ? progress : 0)
-                            .animation(reduceMotion ? nil : .easeOut(duration: 0.28), value: appeared)
-                            .animation(reduceMotion ? nil : ReadingMotion.entrance, value: progress)
-                    }
-                    VStack(spacing: 1) {
-                        Text(daily.displayValue)
-                            .font(ReadingType.numeral(36)).monospacedDigit()
-                            .minimumScaleFactor(0.5).lineLimit(1)
-                        Text(daily.todayLabel)
-                            .font(.system(size: 10, weight: .medium)).foregroundStyle(ReadingPalette.fadedInk)
-                    }.frame(width: 78).offset(y: 3)
-                }.frame(width: 112, height: 110)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel("Today's reading")
+            HStack(alignment: .firstTextBaseline) {
+                Text("Today").font(.caption.weight(.medium)).foregroundStyle(ReadingPalette.secondaryInk)
+                Spacer()
+                if reached {
+                    Label("Goal reached", systemImage: "checkmark.circle.fill")
+                        .font(.caption.weight(.medium)).foregroundStyle(ReadingPalette.accent)
+                }
+            }
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(daily.displayValue).font(ReadingType.numeral(36))
+                    .minimumScaleFactor(0.5).lineLimit(1)
+                Text(daily.value == 1 ? (daily.unit == .pages ? "page" : "minute") : daily.unitTitle)
+                    .font(.callout).foregroundStyle(ReadingPalette.secondaryInk)
+                Spacer(minLength: 4)
+                Label(daily.unit == .pages ? ReadingFormat.duration(model.today.creditedSeconds) : "\(model.todayPages) pages",
+                      systemImage: daily.unit == .pages ? "clock" : "book")
+                    .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
+            }
+            .accessibilityElement(children: .combine)
+            if goal != nil {
+                GeometryReader { geometry in
+                    Capsule().fill(ReadingPalette.progressTrack)
+                        .overlay(alignment: .leading) {
+                            Capsule().fill(ReadingPalette.accent)
+                                .frame(width: geometry.size.width * (appeared || reduceMotion ? min(1, max(0, progress)) : 0))
+                        }
+                }
+                .frame(height: 4)
+                .animation(reduceMotion ? nil : ReadingMotion.selection, value: appeared)
+                .animation(reduceMotion ? nil : ReadingMotion.selection, value: progress)
+                .accessibilityLabel("Daily goal")
                 .accessibilityValue(daily.summary)
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(reached ? "Goal reached" : "Daily reading")
-                        .font(ReadingType.bookTitle(17))
-                    Text(daily.targetText)
-                        .font(.caption).foregroundStyle(ReadingPalette.fadedInk)
-                    Label(daily.unit == .pages ? ReadingFormat.duration(model.today.creditedSeconds) : "\(model.todayPages) pages", systemImage: daily.unit == .pages ? "clock" : "book")
-                        .font(.caption.weight(.medium)).foregroundStyle(ReadingPalette.moss)
-                    if model.today.manualSeconds > 0 {
-                        Text("Includes \(ReadingFormat.duration(model.today.manualSeconds)) manual time")
-                            .font(.caption2).foregroundStyle(ReadingPalette.fadedInk)
-                    }
-                }.frame(maxWidth: .infinity, alignment: .leading)
+            }
+            Text(goal == nil ? daily.targetText : "\(daily.targetText) daily goal")
+                .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
+            if model.today.manualSeconds > 0 {
+                Text("Includes \(ReadingFormat.duration(model.today.manualSeconds)) manual time")
+                    .font(.caption2).foregroundStyle(ReadingPalette.secondaryInk)
             }
             if model.today.uncertainSeconds > 0 {
                 Label("\(ReadingFormat.duration(model.today.uncertainSeconds)) awaiting review", systemImage: "clock.badge.questionmark")
@@ -227,8 +235,9 @@ struct MenuReadingGoal: View {
                     .font(.caption2).foregroundStyle(ReadingPalette.ochre)
             }
         }
-        .padding(14).background(ReadingPalette.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .help("Pages include tracked page turns and explicit manual corrections. Time is recorded separately.")
+        .padding(.vertical, 8)
+        .accessibilityElement(children: .contain)
+        .accessibilityHint("Pages include tracked page turns and explicit manual corrections. Time is recorded separately.")
         .onAppear { appeared = true }
     }
 }

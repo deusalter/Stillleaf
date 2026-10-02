@@ -8,7 +8,7 @@ mkdir -p "$OUT/baseline-sources"
 for source in ReadingLayout ReadingMotion ReadingControls; do
   git show "$BASE:Sources/BooksPresence/$source.swift" > "$OUT/baseline-sources/$source.swift"
 done
-COMMON=(Sources/BooksPresence/Theme.swift Sources/BooksPresence/ThemeStore.swift Sources/BooksPresence/ReadingButtonStyle.swift)
+COMMON=(Sources/BooksPresence/Theme.swift Sources/BooksPresence/ThemeStore.swift Sources/BooksPresence/NativeChrome.swift Sources/BooksPresence/ReadingButtonStyle.swift)
 FLAGS=(-parse-as-library -sdk "$(xcrun --sdk macosx --show-sdk-path)" -target "$(uname -m)-apple-macosx13.0")
 xcrun swiftc "${FLAGS[@]}" "${COMMON[@]}" "$OUT"/baseline-sources/*.swift scripts/shared-style-preview.swift -o "$OUT/before-preview"
 xcrun swiftc "${FLAGS[@]}" "${COMMON[@]}" Sources/BooksPresence/ReadingLayout.swift Sources/BooksPresence/ReadingMotion.swift Sources/BooksPresence/ReadingControls.swift scripts/shared-style-preview.swift -o "$OUT/after-preview"

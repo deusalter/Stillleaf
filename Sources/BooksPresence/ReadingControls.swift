@@ -90,11 +90,9 @@ struct ReadingMenuPicker<Value: Hashable>: View {
     let options: [Value]
     @Binding var selection: Value
     let title: (Value) -> String
-    @Environment(\.isEnabled) private var isEnabled
-    @Environment(\.isFocused) private var isFocused
-    @State private var hovering = false
-
     var body: some View {
+        // Form values can be arbitrarily long book titles. A native picker
+        // negotiates the available width; an AppKit-backed Menu label doesn't.
         Picker(label, selection: $selection) {
             ForEach(options, id: \.self) { option in Text(title(option)).tag(option) }
         }

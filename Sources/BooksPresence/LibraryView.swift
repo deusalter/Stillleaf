@@ -47,25 +47,29 @@ struct LibraryView: View {
         return ScrollView {
             VStack(alignment: .leading, spacing: 26) {
                 PageHeader("Library", subtitle: "\(books.count) \(books.count == 1 ? "book" : "books")") {
-                    HStack(spacing: 8) {
-                        Button { model.epubLibrary.chooseFiles() } label: { Label("Import EPUBs", systemImage: "square.and.arrow.down") }
-                            .controlSize(.small)
-                        Menu {
-                            Button("Import local audio…") { model.chooseAudiobook() }
-                            Button("Log audiobook progress…") { loggingAudio = true }
-                        } label: { Label("Audiobook", systemImage: "headphones") }
-                            .menuStyle(ReadingMenuStyle())
-                            .disabled(model.importingAudio)
-                        Button { present(.manualAdd) } label: { Label("Add reading", systemImage: "plus") }
-                            .controlSize(.small)
+                    ReadingGlassGroup {
+                        HStack(spacing: 8) {
+                            Button { model.epubLibrary.chooseFiles() } label: { Label("Import EPUBs", systemImage: "square.and.arrow.down") }
+                                .controlSize(.small)
+                            Menu {
+                                Button("Import local audio…") { model.chooseAudiobook() }
+                                Button("Log audiobook progress…") { loggingAudio = true }
+                            } label: { Label("Audiobook", systemImage: "headphones") }
+                                .menuStyle(ReadingMenuStyle())
+                                .disabled(model.importingAudio)
+                            Button { present(.manualAdd) } label: { Label("Add reading", systemImage: "plus") }
+                                .controlSize(.small)
+                        }
                     }
                 }
                 EPUBImportStatusView(controller: model.epubLibrary)
                 if model.importingAudio { ProgressView("Importing local audio…") }
                 AudiobookLibraryPlayer(model: model, player: model.audiobookPlayer)
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 14) { shelfPicker(books: books, finishedIDs: finishedIDs).frame(width: 380); Spacer(minLength: 12); searchAndSort }
-                    VStack(alignment: .leading, spacing: 14) { shelfPicker(books: books, finishedIDs: finishedIDs); searchAndSort }
+                ReadingGlassGroup {
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 14) { shelfPicker(books: books, finishedIDs: finishedIDs); Spacer(minLength: 12); searchAndSort }
+                        VStack(alignment: .leading, spacing: 14) { shelfPicker(books: books, finishedIDs: finishedIDs); searchAndSort }
+                    }
                 }
                 if visible.isEmpty {
                     ReadingEmptyState(title: search.isEmpty ? (shelf == .finished ? "Stories to look back on" : "Your next chapter awaits") : "No matching books",
@@ -117,6 +121,10 @@ struct LibraryView: View {
             }
             .readingPage()
         }
+        // Let shelf colors reach the system sidebar's glass instead of giving
+        // it a second glass layer over an empty, flat column.
+        .background(ReadingPalette.paper)
+        .nativeNavigationBackdrop()
         .buttonStyle(ReadingButtonStyle())
         .sheet(isPresented: $loggingAudio) { AudiobookLogView(model: model) }
         .onDrop(of: [UTType.fileURL.identifier], isTargeted: nil) { model.epubLibrary.acceptDrop($0) }
@@ -145,13 +153,24 @@ struct LibraryView: View {
 
 extension LibraryView {
     fileprivate func shelfPicker(books: [BookRecord], finishedIDs: Set<String>) -> some View {
-        ReadingSegmentedControl(label: "Bookshelf", options: [LibraryShelf.reading, .finished, .all], selection: $shelf) { item in
+        let title: (LibraryShelf) -> String = { item in
             switch item {
             case .reading: return "Reading · \(books.filter { !finishedIDs.contains($0.id) }.count)"
-            case .finished: return "Finished · \(finishedIDs.count)"
-            case .all: return "All · \(books.count)"
+            case .finished: return "Finished · \(books.filter { finishedIDs.contains($0.id) }.count)"
+            case .all: return "All books · \(books.count)"
             }
         }
+        return Menu {
+            Picker("Bookshelf", selection: $shelf) {
+                ForEach([LibraryShelf.all, .reading, .finished], id: \.self) { item in
+                    Text(title(item)).tag(item)
+                }
+            }
+        } label: {
+            Text(title(shelf)).lineLimit(1)
+        }
+        .menuStyle(ReadingMenuStyle())
+        .accessibilityLabel("Bookshelf").accessibilityValue(title(shelf))
     }
 
     fileprivate var searchAndSort: some View {
