@@ -39,6 +39,7 @@ struct ReadingButtonStyle: PrimitiveButtonStyle {
 
     let emphasis: Emphasis
     let iconOnly: Bool
+    @Environment(\.isEnabled) private var isEnabled
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorSchemeContrast) private var contrast
     @Environment(\.nativePreviewOpaque) private var previewOpaque
@@ -74,7 +75,10 @@ struct ReadingButtonStyle: PrimitiveButtonStyle {
     private func nativeButton(_ configuration: Configuration) -> some View {
         let primary = emphasis == .primary
         let compact = controlSize == .small || controlSize == .mini
-        let foreground = primary ? ReadingPalette.onAccent : (configuration.role == .destructive ? ReadingPalette.warning : ReadingPalette.ink)
+        // Disabled prominent glass loses its accent fill. Keeping onAccent
+        // there makes the label disappear in both light and dark appearances.
+        let foreground = !isEnabled ? ReadingPalette.secondaryInk :
+            (primary ? ReadingPalette.onAccent : (configuration.role == .destructive ? ReadingPalette.warning : ReadingPalette.ink))
         // Set the color on the label itself: macOS glass can override an inherited
         // foreground with white when its tint is clear, even in light appearance.
         return Button(role: configuration.role, action: configuration.trigger) {
