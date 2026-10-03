@@ -197,7 +197,9 @@ struct AtlasMonthView: View {
     }
     private func detail(selectedDate: Date, selectedDay: AtlasDayPresentation?) -> some View {
         let selectedIDs = selectedDay?.bookIDs ?? []
-        return VStack(alignment: .leading, spacing: 22) {
+        // Use History's vertical viewport for long days. Covers, wrapped titles
+        // and recorded positions below the fold need not be laid out on selection.
+        return LazyVStack(alignment: .leading, spacing: 22) {
             HStack {
                 Text(AtlasStyle.date(selectedDate, zone: navigation.timezoneID, pattern: "EEEE d")).font(.system(size: 14, weight: .semibold))
                 Spacer()

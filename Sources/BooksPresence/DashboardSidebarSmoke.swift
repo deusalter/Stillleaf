@@ -38,6 +38,13 @@ private func dashboardSidebarIsCollapsed(in window: NSWindow) -> Bool? {
 @MainActor
 func checkDashboardSidebarNavigation(model: AppModel, directory: URL, dark: Bool) async throws {
     guard #available(macOS 14.0, *) else { return }
+    if ProcessInfo.processInfo.environment["STILLLEAF_PREVIEW_EXPECT_SYSTEM_GLASS"] == "1" {
+        let workspace = NSWorkspace.shared
+        guard !workspace.accessibilityDisplayShouldReduceTransparency,
+              !workspace.accessibilityDisplayShouldReduceMotion else {
+            throw DashboardSidebarSmokeError.failed("Runner did not enable actual native effects: reduceTransparency=\(workspace.accessibilityDisplayShouldReduceTransparency) reduceMotion=\(workspace.accessibilityDisplayShouldReduceMotion)")
+        }
+    }
     let backdrop = NSWindow(contentRect: NSRect(x: 70, y: 70, width: 1300, height: 900),
         styleMask: [.borderless], backing: .buffered, defer: false)
     backdrop.isReleasedWhenClosed = false
