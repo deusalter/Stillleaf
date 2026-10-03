@@ -59,7 +59,7 @@ private struct NativeMenuSurface: ViewModifier {
     @ViewBuilder func body(content: Content) -> some View {
         #if compiler(>=6.2)
         if #available(macOS 26.0, *), !(previewOpaque ?? opaque), contrast != .increased {
-            content.glassEffect(.regular.tint(ReadingPalette.accent.opacity(hovering ? 0.12 : 0)), in: .capsule)
+            content.glassEffect(.regular.tint(ReadingPalette.accent.opacity(hovering ? 0.12 : 0.08)), in: .capsule)
         } else {
             fallback(content)
         }
@@ -69,7 +69,7 @@ private struct NativeMenuSurface: ViewModifier {
     }
 
     private func fallback(_ content: Content) -> some View {
-        content.background(ReadingPalette.elevated, in: Capsule())
+        content.background(ReadingPalette.surface, in: Capsule())
             .overlay(Capsule().stroke(ReadingPalette.accent.opacity(contrast == .increased ? 0.7 : (hovering ? 0.3 : 0.16))))
     }
 }
@@ -86,7 +86,11 @@ private struct NativePopoverSurface: ViewModifier {
             content.background(ReadingPalette.canvas, in: RoundedRectangle(cornerRadius: 20))
         } else {
             content.background {
-                PopoverMaterial().clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                PopoverMaterial()
+                    // Carry the same paper hue into the menu without a second
+                    // refracting surface or desktop text showing through it.
+                    .overlay(ReadingPalette.canvas.opacity(0.55))
+                    .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
             }
         }
     }

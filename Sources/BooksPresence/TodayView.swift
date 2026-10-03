@@ -31,18 +31,17 @@ struct TodayView: View {
                     FinishedBookPrompt(model: model, entry: entry)
                 }
                 ReadingSection("Manual reading") {
-                    ReadingGlassGroup {
-                        HStack(spacing: 10) {
-                            if model.manualActive {
-                                Button("Stop manual reading") { model.stopManual() }
-                                    .buttonStyle(ReadingButtonStyle(emphasis: .primary))
-                            } else {
-                                Button("Read manually") { present(.manualStart) }
-                            }
-                            Button { present(.manualAdd) } label: { Label("Add time", systemImage: "plus") }
+                    HStack(spacing: 10) {
+                        if model.manualActive {
+                            Button("Stop manual reading") { model.stopManual() }
+                                .buttonStyle(ReadingButtonStyle(emphasis: .primary))
+                        } else {
+                            Button("Read manually") { present(.manualStart) }
                         }
-                        .controlSize(.small)
+                        Button { present(.manualAdd) } label: { Label("Add time", systemImage: "plus") }
                     }
+                    .buttonStyle(ReadingButtonStyle(glass: false))
+                    .controlSize(.small)
                 }
                 DailyReadingOverview(model: model)
                 AnnualReadingGoalView(model: model, openBook: { present(.book($0)) })
@@ -59,7 +58,7 @@ struct TodayView: View {
     private var featuredReading: some View {
         ReadingSection(featuredBook == nil ? "Your next read" : (model.snapshot.book == nil ? "Last read" : "Your current read"), accessory: {
             if let book = featuredBook {
-                Button("Book details") { present(.book(book)) }.controlSize(.small)
+                Button("Book details") { present(.book(book)) }.buttonStyle(ReadingButtonStyle(glass: false)).controlSize(.small)
             }
         }) {
             HStack(alignment: .center, spacing: 28) {

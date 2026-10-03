@@ -14,7 +14,7 @@ struct ReadingMenuStyle: MenuStyle {
             .menuStyle(.borderlessButton)
             .buttonStyle(.borderless)
             .controlSize(.small)
-            .font(.caption.weight(.medium))
+            .font(ReadingType.controlLabel)
             .foregroundStyle(ReadingPalette.ink)
             .tint(ReadingPalette.ink)
             .fixedSize(horizontal: false, vertical: true)
@@ -39,15 +39,17 @@ struct ReadingButtonStyle: PrimitiveButtonStyle {
 
     let emphasis: Emphasis
     let iconOnly: Bool
+    let glass: Bool
     @Environment(\.isEnabled) private var isEnabled
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorSchemeContrast) private var contrast
     @Environment(\.nativePreviewOpaque) private var previewOpaque
     @Environment(\.controlSize) private var controlSize
 
-    init(emphasis: Emphasis = .secondary, iconOnly: Bool = false) {
+    init(emphasis: Emphasis = .secondary, iconOnly: Bool = false, glass: Bool = true) {
         self.emphasis = emphasis
         self.iconOnly = iconOnly
+        self.glass = glass
     }
 
     @ViewBuilder func makeBody(configuration: Configuration) -> some View {
@@ -58,11 +60,13 @@ struct ReadingButtonStyle: PrimitiveButtonStyle {
                     .buttonStyle(.glassProminent)
                     .buttonBorderShape(.capsule)
                     .tint(configuration.role == .destructive ? ReadingPalette.warning : ReadingPalette.accent)
-            } else {
+            } else if glass {
                 nativeButton(configuration)
                     .buttonStyle(.glass)
                     .buttonBorderShape(.capsule)
-                    .tint(.clear)
+                    .tint(ReadingPalette.accent.opacity(0.08))
+            } else {
+                fallback(configuration)
             }
         } else {
             fallback(configuration)
@@ -83,7 +87,7 @@ struct ReadingButtonStyle: PrimitiveButtonStyle {
         // foreground with white when its tint is clear, even in light appearance.
         return Button(role: configuration.role, action: configuration.trigger) {
             configuration.label
-                .font((compact ? Font.caption : Font.callout).weight(primary ? .semibold : .medium))
+                .font((compact ? Font.system(size: 12) : Font.callout).weight(primary ? .semibold : .medium))
                 .foregroundStyle(foreground)
                 .padding(.horizontal, 2).padding(.vertical, 4)
                 .frame(minWidth: iconOnly ? 16 : 0, minHeight: iconOnly ? 16 : 0)
@@ -126,20 +130,20 @@ private struct ReadingButtonStyleBody: View {
         let foreground = primary ? ReadingPalette.onAccent : (destructive ? ReadingPalette.warning : ReadingPalette.ink)
         let hovering = isHovering && isEnabled
         let compact = controlSize == .small || controlSize == .mini
-        let background = primary ? accent.opacity(hovering ? 0.90 : 1) : ReadingPalette.elevated
+        let background = primary ? accent.opacity(hovering ? 0.90 : 1) : ReadingPalette.surface
 
         configuration.label
-            .font((compact ? Font.caption : Font.callout).weight(primary ? .semibold : .medium))
+            .font((compact ? Font.system(size: 12) : Font.callout).weight(primary ? .semibold : .medium))
             .foregroundStyle(foreground)
             .padding(.horizontal, iconOnly ? 9 : (compact ? 10 : 14))
             .padding(.vertical, compact ? 5 : 8)
             .frame(minWidth: iconOnly ? 32 : 0, minHeight: iconOnly ? 32 : (compact ? 28 : 36))
-            .background(background, in: RoundedRectangle(cornerRadius: compact ? 9 : 13, style: .continuous))
+            .background(background, in: Capsule())
             .overlay {
-                RoundedRectangle(cornerRadius: compact ? 9 : 13, style: .continuous)
+                Capsule()
                     .stroke(isFocused ? ReadingPalette.accent : (primary ? .clear : accent.opacity(contrast == .increased ? 0.7 : (hovering ? 0.3 : 0.16))), lineWidth: isFocused ? 2 : 1)
             }
-            .contentShape(RoundedRectangle(cornerRadius: compact ? 9 : 13, style: .continuous))
+            .contentShape(Capsule())
             .opacity(isEnabled ? (configuration.isPressed ? 0.84 : 1) : 0.42)
             .scaleEffect(configuration.isPressed && !reduceMotion ? 0.985 : 1)
             .animation(reduceMotion ? nil : ReadingMotion.press, value: configuration.isPressed)
