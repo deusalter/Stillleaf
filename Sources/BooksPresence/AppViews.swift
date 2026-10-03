@@ -66,6 +66,7 @@ struct DashboardView: View {
                 columnVisibility = columnVisibility == .detailOnly ? .all : .detailOnly
             }
         }
+        .nativeDashboardWindowBackground()
         .readingMotionAccessibility()
         .onAppear { acceptNavigationRequest() }
         .onChange(of: model.dashboardSectionRequest) { _ in acceptNavigationRequest() }

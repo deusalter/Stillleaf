@@ -22,24 +22,31 @@ if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
     had_reduce_motion=true
   fi
 fi
+restore_boolean() {
+  local restored_value=false
+  case "$2" in 1|true|TRUE|yes|YES) restored_value=true ;; esac
+  defaults write com.apple.universalaccess "$1" -bool "$restored_value"
+}
 restore_preferences() {
+  local restore_status=0
   if "$had_keyboard_mode"; then
-    defaults write -g AppleKeyboardUIMode -int "$keyboard_mode"
+    defaults write -g AppleKeyboardUIMode -int "$keyboard_mode" || restore_status=$?
   else
-    defaults delete -g AppleKeyboardUIMode >/dev/null 2>&1 || true
+    defaults delete -g AppleKeyboardUIMode >/dev/null 2>&1 || restore_status=$?
   fi
   if "$prepare_system_glass"; then
     if "$had_reduce_transparency"; then
-      defaults write com.apple.universalaccess reduceTransparency -bool "$reduce_transparency"
+      restore_boolean reduceTransparency "$reduce_transparency" || restore_status=$?
     else
-      defaults delete com.apple.universalaccess reduceTransparency >/dev/null 2>&1 || true
+      defaults delete com.apple.universalaccess reduceTransparency >/dev/null 2>&1 || restore_status=$?
     fi
     if "$had_reduce_motion"; then
-      defaults write com.apple.universalaccess reduceMotion -bool "$reduce_motion"
+      restore_boolean reduceMotion "$reduce_motion" || restore_status=$?
     else
-      defaults delete com.apple.universalaccess reduceMotion >/dev/null 2>&1 || true
+      defaults delete com.apple.universalaccess reduceMotion >/dev/null 2>&1 || restore_status=$?
     fi
   fi
+  return "$restore_status"
 }
 trap restore_preferences EXIT
 defaults write -g AppleKeyboardUIMode -int 3

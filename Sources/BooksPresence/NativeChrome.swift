@@ -39,8 +39,22 @@ extension View {
     func nativePopoverSurface() -> some View { modifier(NativePopoverSurface()) }
     func nativeMenuSurface(hovering: Bool) -> some View { modifier(NativeMenuSurface(hovering: hovering)) }
     func nativeSidebarToolbar() -> some View { modifier(NativeSidebarToolbar()) }
+    func nativeDashboardWindowBackground() -> some View { modifier(NativeDashboardWindowBackground()) }
     func nativeDashboardSidebarToggle(isCollapsed: Bool, toggle: @escaping () -> Void) -> some View {
         modifier(NativeDashboardSidebarToggle(isCollapsed: isCollapsed, toggle: toggle))
+    }
+}
+
+private struct NativeDashboardWindowBackground: ViewModifier {
+    @ViewBuilder func body(content: Content) -> some View {
+        if #available(macOS 26.0, *) {
+            // The detail column already paints its paper. Clear SwiftUI's
+            // separate window-container fill so the native sidebar's glass
+            // can sample the backdrop, just as the clear NSWindow allows.
+            content.containerBackground(.clear, for: .window)
+        } else {
+            content
+        }
     }
 }
 
