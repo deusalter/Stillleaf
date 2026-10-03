@@ -5,6 +5,7 @@ import BooksCore
 @MainActor
 func runHistoryAtlasNavigationSmoke(source: HistoryAtlasSource) throws {
     try checkCachedHistoryTitles()
+    try checkMonthCivilDayIndex()
     try checkRecordedDateMenu()
     try checkRetainedHistoryNavigation(source: source)
     var pending: [CheckedContinuation<HistoryAtlasPeriod, Error>] = []
@@ -67,6 +68,51 @@ private func checkCachedHistoryTitles() throws {
             }
         }
     }
+}
+
+@MainActor
+private func checkMonthCivilDayIndex() throws {
+    let zone = "America/Santiago"
+    let anchor = ISO8601DateFormatter().date(from: "2026-09-15T12:00:00Z")!
+    let navigation = CalendarNavigation(timezoneID: zone, anchor: anchor, scale: .month)
+    let calendar = navigation.calendar
+    let book = BookRecord(id: "midnight-dst-book", title: "Midnight DST")
+    let dates = [6, 7, 8].map {
+        calendar.date(from: DateComponents(year: 2026, month: 9, day: $0, hour: 12))!
+    }
+    let intervals = dates.enumerated().map { offset, start in
+        let duration = Double(offset + 1) * 600
+        return ReadingInterval(sessionID: "midnight-dst-\(offset)", bookID: book.id,
+            start: start, end: start.addingTimeInterval(duration), duration: duration,
+            timezoneID: zone, mode: .manual)
+    }
+    let source = HistoryAtlasSource(books: [book], intervals: intervals, events: [], progress: [], merges: [],
+        finishedBooks: [], pageEvidence: PageStatistics.snapshot(events: [], effectiveIntervals: intervals, merges: []))
+    let presentation = HistoryAtlasPeriod(source: source, navigation: navigation, now: anchor)
+    let index = AtlasMonthView.indexDays(presentation, calendar: calendar)
+    let cells = navigation.monthCells.filter(\.isInMonth)
+    for (offset, date) in dates.enumerated() {
+        let key = navigation.dayKey(for: date)
+        guard let cell = cells.first(where: { calendar.isDate($0.date, inSameDayAs: date) }),
+              let prepared = presentation.daysByKey[key] else {
+            throw AtlasSmokeFailure.monthDayIndex("Missing source day \(key)")
+        }
+        // September 6 starts at 01:00, then cells return to midnight. Do not
+        // require Foundation to preserve the shifted hour in prepared dates;
+        // matching must work whether its day arithmetic normalizes it or not.
+        guard calendar.component(.hour, from: cell.date) == (offset == 0 ? 1 : 0) else {
+            throw AtlasSmokeFailure.monthDayIndex("Fixture did not exercise midnight DST on \(key)")
+        }
+        print("ui-smoke: \(key) prepared hour \(calendar.component(.hour, from: prepared.day.date)), grid hour \(calendar.component(.hour, from: cell.date))")
+        for lookupDate in [cell.date, date] {
+            guard let indexed = AtlasMonthView.day(for: lookupDate, in: index, calendar: calendar),
+                  indexed.day.key == key,
+                  indexed.day.creditedSeconds == Double(offset + 1) * 600 else {
+                throw AtlasSmokeFailure.monthDayIndex("Recorded time missing or mapped to the wrong day on \(key)")
+            }
+        }
+    }
+    print("ui-smoke: Santiago midnight DST preserves September 6–8 month cells and same-day selection")
 }
 
 @MainActor
@@ -135,4 +181,4 @@ private func pumpAtlas(until finished: () -> Bool) throws {
     while !finished(), Date() < deadline { RunLoop.current.run(until: Date().addingTimeInterval(0.002)) }
     guard finished() else { throw AtlasSmokeFailure.timeout }
 }
-private enum AtlasSmokeFailure: Error { case stalePublication, timeout, titleMismatch }
+private enum AtlasSmokeFailure: Error { case stalePublication, timeout, titleMismatch, monthDayIndex(String) }

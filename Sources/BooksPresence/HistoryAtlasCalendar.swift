@@ -128,13 +128,25 @@ struct AtlasMonthView: View {
     @Environment(\.colorScheme) private var scheme
     private var dark: Bool { scheme == .dark }
     private var ids: [String] { presentation.creditedBookIDs }
+
+    static func indexDays(_ presentation: HistoryAtlasPeriod, calendar: Calendar) -> [Date: AtlasDayPresentation] {
+        Dictionary(uniqueKeysWithValues: presentation.daysByKey.values.map {
+            (calendar.startOfDay(for: $0.day.date), $0)
+        })
+    }
+
+    static func day(for date: Date, in index: [Date: AtlasDayPresentation], calendar: Calendar) -> AtlasDayPresentation? {
+        index[calendar.startOfDay(for: date)]
+    }
+
     var body: some View {
         let calendar = navigation.calendar
         let selectedDate = selected ?? calendar.startOfDay(for: navigation.anchor)
-        let selectedDay = presentation.daysByKey[navigation.dayKey(for: selectedDate)]
         // Day cells and detail rows share one calendar/selection snapshot. In
-        // particular, the detail must not reformat its day key for every book.
-        let daysByDate = Dictionary(uniqueKeysWithValues: presentation.daysByKey.values.map { ($0.day.date, $0) })
+        // midnight DST transitions, repeated day arithmetic can retain 01:00
+        // while grid dates return to 00:00. Match civil days, not those instants.
+        let daysByDate = Self.indexDays(presentation, calendar: calendar)
+        let selectedDay = Self.day(for: selectedDate, in: daysByDate, calendar: calendar)
         let formatter = DateFormatter(); formatter.locale = .current
         let weekdayNames = formatter.shortWeekdaySymbols ?? []
         let grid = monthCalendar(calendar: calendar, selectedDate: selectedDate,
@@ -155,7 +167,7 @@ struct AtlasMonthView: View {
                     Text(weekdayNames[(firstWeekday - 1 + index) % 7]).font(.caption).foregroundStyle(AtlasStyle.muted(dark)).padding(.bottom, 8)
                 }
                 ForEach(cells) { cell in
-                    if cell.isInMonth { dayCell(cell.date, prepared: daysByDate[cell.date], calendar: calendar, selectedDate: selectedDate, today: today) }
+                    if cell.isInMonth { dayCell(cell.date, prepared: Self.day(for: cell.date, in: daysByDate, calendar: calendar), calendar: calendar, selectedDate: selectedDate, today: today) }
                     else { Color.clear.frame(height: 77).accessibilityHidden(true) }
                 }
             }
