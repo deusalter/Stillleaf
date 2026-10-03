@@ -132,10 +132,7 @@ struct LibraryView: View {
             }
             .readingPage()
         }
-        // Let shelf colors reach the system sidebar's glass instead of giving
-        // it a second glass layer over an empty, flat column.
         .background(ReadingPalette.paper)
-        .nativeNavigationBackdrop()
         .buttonStyle(ReadingButtonStyle())
         .sheet(isPresented: $loggingAudio) { AudiobookLogView(model: model) }
         .onDrop(of: [UTType.fileURL.identifier], isTargeted: nil) { model.epubLibrary.acceptDrop($0) }

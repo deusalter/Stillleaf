@@ -185,7 +185,16 @@ private struct MenuPickerWidthPreference: PreferenceKey {
     if #available(macOS 14.0, *) {
         let originalOrigin = window.frame.origin
         defer { window.setFrameOrigin(originalOrigin) }
-        window.setFrameOrigin(NSPoint(x: 100, y: 100)); window.orderFront(nil)
+        var captureOrigin = NSPoint(x: 100, y: 100)
+        if contextWindow != nil, let screen = window.screen ?? NSScreen.main {
+            // Display-space captures cannot include pixels beyond the screen.
+            // Keep the whole window visible without changing its actual size.
+            let bounds = screen.visibleFrame
+            captureOrigin.x = max(bounds.minX, min(captureOrigin.x, bounds.maxX - window.frame.width))
+            captureOrigin.y = max(bounds.minY, min(captureOrigin.y, bounds.maxY - window.frame.height))
+        }
+        window.setFrameOrigin(captureOrigin)
+        window.orderFront(nil)
         try await Task.sleep(nanoseconds: 200_000_000)
         do {
             let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: false)

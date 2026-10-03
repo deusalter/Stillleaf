@@ -18,14 +18,19 @@ func dashboardSidebarToggleButtons(in window: NSWindow) -> [NSButton] {
 }
 
 @MainActor
-private func dashboardSidebarIsCollapsed(in window: NSWindow) -> Bool? {
+private func dashboardSidebarGeometry(in window: NSWindow) -> (collapsed: Bool, width: CGFloat)? {
     func find(_ view: NSView) -> NSSplitView? {
         if let split = view as? NSSplitView, split.isVertical, split.arrangedSubviews.count == 2 { return split }
         for child in view.subviews { if let found = find(child) { return found } }
         return nil
     }
     guard let root = window.contentView, let split = find(root), let sidebar = split.arrangedSubviews.first else { return nil }
-    return split.isSubviewCollapsed(sidebar) || sidebar.frame.width < 2
+    return (split.isSubviewCollapsed(sidebar) || sidebar.frame.width < 2, sidebar.frame.width)
+}
+
+@MainActor
+private func dashboardSidebarIsCollapsed(in window: NSWindow) -> Bool? {
+    dashboardSidebarGeometry(in: window)?.collapsed
 }
 
 /// Exercise the real native control and split view, recording its physical
@@ -36,10 +41,11 @@ func checkDashboardSidebarNavigation(model: AppModel, directory: URL, dark: Bool
     let backdrop = NSWindow(contentRect: NSRect(x: 70, y: 70, width: 1300, height: 900),
         styleMask: [.borderless], backing: .buffered, defer: false)
     backdrop.isReleasedWhenClosed = false
-    backdrop.backgroundColor = NSColor(calibratedRed: 0.83, green: 0.40, blue: 0.21, alpha: 1)
+    if let screen = NSScreen.main { backdrop.setFrame(screen.frame, display: false) }
     backdrop.orderFront(nil)
     defer { backdrop.close() }
     for reducedMotion in [false, true] {
+        backdrop.backgroundColor = NSColor(calibratedRed: 0.83, green: 0.40, blue: 0.21, alpha: 1)
         let window = DashboardWindow(contentRect: NSRect(x: 100, y: 100, width: 1060, height: 760),
             styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -65,6 +71,12 @@ func checkDashboardSidebarNavigation(model: AppModel, directory: URL, dark: Bool
                     // finished resizing its compositor layers. Capture the
                     // resting controls, not that intermediate presentation.
                     if !reducedMotion { try await Task.sleep(nanoseconds: 350_000_000) }
+                    if !collapsed {
+                        let width = dashboardSidebarGeometry(in: window)?.width ?? 0
+                        guard width >= 205 - 1, width <= 260 + 1 else {
+                            throw DashboardSidebarSmokeError.failed("Expanded sidebar width outside 205–260 pt: \(width)")
+                        }
+                    }
                     return
                 }
                 try await Task.sleep(nanoseconds: 20_000_000)
@@ -122,7 +134,8 @@ func checkDashboardSidebarNavigation(model: AppModel, directory: URL, dark: Bool
         }
         let report: [String: Any] = ["expanded": NSStringFromRect(before), "collapsed": NSStringFromRect(collapsed),
             "reopened": NSStringFromRect(after), "keyboardEquivalent": true, "spaceActivation": true, "reduceMotion": reducedMotion,
-            "nativeToggleCount": dashboardSidebarToggleButtons(in: window).count, "defaultToggleCount": systemToggleCount]
+            "nativeToggleCount": dashboardSidebarToggleButtons(in: window).count, "defaultToggleCount": systemToggleCount,
+            "expandedSidebarWidth": dashboardSidebarGeometry(in: window)?.width ?? 0]
         try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys])
             .write(to: directory.appendingPathComponent("sidebar-toggle-\(appearance)-\(mode).json"))
         print("sidebar-toggle: fixed native position, pointer and keyboard passed; \(appearance) \(mode)")

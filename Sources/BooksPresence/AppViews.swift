@@ -29,8 +29,9 @@ struct DashboardView: View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             DashboardSidebar(selection: $section, model: model, troubleshoot: { sheet = .trackingHelp })
                 .id(theme.revision)
-                .navigationSplitViewColumnWidth(min: 205, ideal: 225, max: 260)
+                .frame(minWidth: 205, idealWidth: 225, maxWidth: 260)
                 .nativeSidebarToolbar()
+                .navigationSplitViewColumnWidth(min: 205, ideal: 225, max: 260)
         } detail: {
             VStack(spacing: 0) {
                 if let error = model.errorMessage ?? model.trackingRecoveryMessage, !error.isEmpty {
@@ -59,7 +60,6 @@ struct DashboardView: View {
             .background(ReadingPalette.paper)
             .foregroundStyle(ReadingPalette.ink)
             .buttonStyle(ReadingButtonStyle())
-            .nativeNavigationBackdrop()
         }
         .nativeDashboardSidebarToggle(isCollapsed: columnVisibility == .detailOnly) {
             withAnimation((previewReduceMotion ?? reduceMotion) ? nil : ReadingMotion.selection) {

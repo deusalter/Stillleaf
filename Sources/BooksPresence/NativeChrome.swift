@@ -3,16 +3,11 @@ import AppKit
 
 private struct NativePreviewOpaque: EnvironmentKey { static let defaultValue: Bool? = nil }
 private struct NativePreviewReduceMotion: EnvironmentKey { static let defaultValue: Bool? = nil }
-private struct NativeNavigationBackdropInstalled: EnvironmentKey { static let defaultValue = false }
 extension EnvironmentValues {
     var nativePreviewOpaque: Bool? { get { self[NativePreviewOpaque.self] } set { self[NativePreviewOpaque.self] = newValue } }
     var nativePreviewReduceMotion: Bool? {
         get { self[NativePreviewReduceMotion.self] }
         set { self[NativePreviewReduceMotion.self] = newValue }
-    }
-    fileprivate var nativeNavigationBackdropInstalled: Bool {
-        get { self[NativeNavigationBackdropInstalled.self] }
-        set { self[NativeNavigationBackdropInstalled.self] = newValue }
     }
 }
 
@@ -43,7 +38,6 @@ extension View {
     func nativeSidebarSurface() -> some View { modifier(NativeSidebarSurface()) }
     func nativePopoverSurface() -> some View { modifier(NativePopoverSurface()) }
     func nativeMenuSurface(hovering: Bool) -> some View { modifier(NativeMenuSurface(hovering: hovering)) }
-    func nativeNavigationBackdrop() -> some View { modifier(NativeNavigationBackdrop()) }
     func nativeSidebarToolbar() -> some View { modifier(NativeSidebarToolbar()) }
     func nativeDashboardSidebarToggle(isCollapsed: Bool, toggle: @escaping () -> Void) -> some View {
         modifier(NativeDashboardSidebarToggle(isCollapsed: isCollapsed, toggle: toggle))
@@ -111,22 +105,6 @@ private struct DashboardSidebarToggleButton: NSViewRepresentable {
         var toggle: () -> Void
         init(toggle: @escaping () -> Void) { self.toggle = toggle }
         @objc func performToggle() { toggle() }
-    }
-}
-
-private struct NativeNavigationBackdrop: ViewModifier {
-    @Environment(\.nativeNavigationBackdropInstalled) private var installed
-    @ViewBuilder func body(content: Content) -> some View {
-        #if compiler(>=6.2)
-        if #available(macOS 26.0, *) {
-            if installed { content }
-            else { content.backgroundExtensionEffect().environment(\.nativeNavigationBackdropInstalled, true) }
-        } else {
-            content
-        }
-        #else
-        content
-        #endif
     }
 }
 
