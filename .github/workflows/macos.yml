@@ -31,7 +31,7 @@ jobs:
       - name: Reader geometry and XHTML (headless WebKit)
         working-directory: Reader/desktop/reader
         run: |
-          READER_TEST_BROWSER=webkit SLIDE_BROWSER=webkit SCROLL_BROWSER=webkit node --test --test-concurrency=1 test/visible-text.test.mjs test/visible-anchor.test.mjs test/render-stability.test.mjs test/page-slide.test.mjs test/continuous-geometry.test.mjs test/continuous-layout-performance.test.mjs test/preference-burst.test.mjs test/appearance-controls.test.mjs test/screen-pagination.test.mjs test/pagination-lifecycle.test.mjs test/input-navigation.test.mjs test/native-chrome-browser.test.mjs
+          READER_TEST_BROWSER=webkit SLIDE_BROWSER=webkit SCROLL_BROWSER=webkit node --test --test-concurrency=1 test/visible-text.test.mjs test/visible-anchor.test.mjs test/render-stability.test.mjs test/page-slide.test.mjs test/continuous-geometry.test.mjs test/continuous-readiness.test.mjs test/continuous-layout-performance.test.mjs test/preference-burst.test.mjs test/appearance-controls.test.mjs test/screen-pagination.test.mjs test/pagination-lifecycle.test.mjs test/input-navigation.test.mjs test/native-chrome-browser.test.mjs
       - name: Native date-field semantics (offscreen)
         run: |
           swiftc -parse-as-library Sources/BooksPresence/ReadingDatePicker.swift scripts/native-date-field-smoke.swift -o "$RUNNER_TEMP/native-date-field-smoke"

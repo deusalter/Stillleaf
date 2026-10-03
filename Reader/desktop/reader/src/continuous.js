@@ -85,6 +85,9 @@ export class ContinuousNavigator {
   entry.appearance=frame.contentDocument.head.lastElementChild;
   await Promise.race([frame.contentDocument.fonts.ready,new Promise(resolve=>setTimeout(resolve,1500))]);
   if(this.destroyed||generation!==this.epoch)return;
+  // Preferences can change while this document is loading. Apply the latest
+  // values after readiness, before its first measurement or publication.
+  entry.appearance.textContent=this.preferenceCSS();
   if(!frame.contentWindow.CSS?.highlights||typeof frame.contentWindow.Highlight!=='function')throw Error('Continuous view needs text highlight support unavailable in this browser. Choose Single page or Facing pages.');
   this.measure(entry);this.bindFrame(entry);this.paint(entry);this.listeners.frameLoaded?.(frame.contentWindow);
   const dirty=()=>{if(entry.frame!==frame||this.destroyed)return;this.invalidate(entry);this.listeners.chapterInvalidated?.(entry.index);this.scheduleMeasurement()};
@@ -111,8 +114,14 @@ export class ContinuousNavigator {
   if(!this.dirtyEntries.has(entry))entry.geometryRevision=(entry.geometryRevision??0)+1;
   this.dirtyEntries.add(entry);
  }
+ loadedDocument(entry){
+  const doc=entry.frame?.contentDocument;
+  // entry.frame is installed before navigation completes. Its appearance node
+  // still belongs to the preparatory document until the load callback runs.
+  return doc?.body&&entry.appearance?.ownerDocument===doc?doc:null;
+ }
  measure(entry){
-  const doc=entry.frame?.contentDocument;if(!doc?.body)return;
+  const doc=this.loadedDocument(entry);if(!doc)return;
   // WebKit reports a zoomed body's rectangles unzoomed, so a frame sized from them alone clips the
   // end of every chapter (by a sixth at the default 1.2 text size). The root's scroll height is the
   // rendered extent in both engines, but never reads below the frame's own height: collapse it first.
@@ -154,7 +163,7 @@ export class ContinuousNavigator {
  captureAnchor(){
   const viewport=this.container.getBoundingClientRect();
   for(const entry of this.entries){if(!entry.frame)continue;const bounds=entry.frame.getBoundingClientRect();if(bounds.bottom<=viewport.top||bounds.top>=viewport.bottom)continue;
-   const doc=entry.frame.contentDocument;
+   const doc=this.loadedDocument(entry);if(!doc)continue;
    // Native caret hit-testing avoids traversing thousands of preceding paragraphs on each scroll.
    for(const y of [Math.max(2,viewport.top-bounds.top+3),Math.max(2,viewport.top-bounds.top+24)])for(const x of [44,entry.frame.clientWidth*.25,entry.frame.clientWidth*.5]){
     const caret=doc.caretPositionFromPoint?.(x,y),hit=caret?{node:caret.offsetNode,offset:caret.offset}:null;
@@ -184,7 +193,7 @@ export class ContinuousNavigator {
   }return null;
  }
  captureLocator(){return this.captureAnchor()?.locator??this.current;}
- restoreAnchorNow(anchor){const entry=this.entries.find(e=>e.link.href===anchor.locator.href);if(!entry?.frame)return false;const range=locatorRange(entry.frame.contentDocument,anchor.locator),progression=anchor.locator.locations?.progression;if(!range&&typeof progression!=='number')return false;const into=range?range.getBoundingClientRect().top-anchor.offset:progression*entry.height;this.setTop(this.container.scrollTop+entry.frame.getBoundingClientRect().top+into-this.container.getBoundingClientRect().top);return true;}
+ restoreAnchorNow(anchor){const entry=this.entries.find(e=>e.link.href===anchor.locator.href);if(!entry?.frame)return false;const doc=this.loadedDocument(entry);if(!doc)return false;const range=locatorRange(doc,anchor.locator),progression=anchor.locator.locations?.progression;if(!range&&typeof progression!=='number')return false;const into=range?range.getBoundingClientRect().top-anchor.offset:progression*entry.height;this.setTop(this.container.scrollTop+entry.frame.getBoundingClientRect().top+into-this.container.getBoundingClientRect().top);return true;}
  /** Every scroll the adapter makes goes through here, so any other movement is the reader's. */
  setTop(top){this.container.scrollTop=top;this.ownTop=this.evidenceTop=this.container.scrollTop;}
  moved(){
@@ -223,7 +232,7 @@ export class ContinuousNavigator {
  step(direction,callback){const flow=this.container,before=flow.scrollTop;flow.scrollBy({top:direction*flow.clientHeight*.9,behavior:'auto'});requestAnimationFrame(()=>callback(Math.abs(flow.scrollTop-before)>1))}
  async submitPreferences(settings){
   const anchor=this.captureAnchor();this.suppress++;this.settings=settings;
-  try{for(const entry of this.entries)if(entry.frame)entry.appearance.textContent=this.preferenceCSS();await nextPaint();for(const entry of this.entries)if(entry.frame)this.measure(entry);this.settle(anchor)}finally{this.suppress--}this.report();
+  try{for(const entry of this.entries)if(this.loadedDocument(entry))entry.appearance.textContent=this.preferenceCSS();await nextPaint();for(const entry of this.entries)if(entry.frame)this.measure(entry);this.settle(anchor)}finally{this.suppress--}this.report();
  }
  bindFrame(entry){
   const wnd=entry.frame.contentWindow,doc=wnd.document;
@@ -235,7 +244,7 @@ export class ContinuousNavigator {
  registerDecorationObserver(_group,observer){this.decorationObserver=observer;}
  applyDecorations(decorations){this.decorations=decorations;for(const entry of this.entries)if(entry.frame)this.paint(entry);}
  paint(entry){
-  const wnd=entry.frame.contentWindow,doc=wnd.document;entry.ranges=[];entry.highlightStyle?.remove();if(!wnd.CSS?.highlights)return;
+  const doc=this.loadedDocument(entry);if(!doc)return;const wnd=doc.defaultView;entry.ranges=[];entry.highlightStyle?.remove();if(!wnd.CSS?.highlights)return;
   for(const key of [...wnd.CSS.highlights.keys()])if(key.startsWith('stillleaf-'))wnd.CSS.highlights.delete(key);
   const rules=[];let index=0;for(const decoration of this.decorations){const locator=serial(decoration.locator);if(locator.href!==entry.link.href)continue;const range=locatorRange(doc,locator);if(!range)continue;const name='stillleaf-'+index++;wnd.CSS.highlights.set(name,new wnd.Highlight(range));const tint=/^#[0-9a-f]{6}$/i.test(decoration.style.tint)?decoration.style.tint:'#e4c778';rules.push(`::highlight(${name}){background:${tint};color:#17271f}`);entry.ranges.push({range,decoration});}
   const style=doc.createElement('style');entry.highlightStyle=style;style.textContent=rules.join('\n');doc.head.append(style);
