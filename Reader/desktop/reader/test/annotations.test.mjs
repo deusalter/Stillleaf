@@ -25,6 +25,11 @@ async function activate(page,id){
   frame.contentDocument.dispatchEvent(new frame.contentWindow.MouseEvent('click',{bubbles:true,clientX:rect.left+1,clientY:rect.top+1}));
  },id);await page.locator('#selection-tools').waitFor({state:'visible'});
 }
+async function waitForAutosave(page,note){
+ // exportState flushes pending drafts. Observe the autosave status first so
+ // this assertion cannot perform the save that it is supposed to verify.
+ await page.waitForFunction(note=>document.getElementById('note-status').textContent==='Saved automatically'&&window.StillleafReader.exportState().annotations[0]?.note===note,note,{timeout:5000});
+}
 test('anchored annotation interaction, autosave, margins, reflow and restart',{timeout:90000},async t=>{
  const server=createServer(async(req,res)=>{try{const file=path.resolve(root,'.'+new URL(req.url,'http://localhost').pathname);if(!file.startsWith(root+path.sep))throw Error();res.setHeader('Content-Type',{'.html':'text/html','.js':'text/javascript','.css':'text/css'}[path.extname(file)]??'application/octet-stream');res.end(await readFile(file))}catch{res.writeHead(404).end()}});
  await new Promise(done=>server.listen(0,'127.0.0.1',done));t.after(()=>new Promise(done=>server.close(done)));
@@ -42,13 +47,13 @@ test('anchored annotation interaction, autosave, margins, reflow and restart',{t
  await page.getByRole('button',{name:'Sage highlight',exact:true}).click();let saved=await page.evaluate(()=>window.StillleafReader.exportState());assert.equal(saved.annotations.length,1);assert.equal(saved.annotations[0].color,'sage');assert.ok(saved.annotations[0].locator.locations.domRange);assert.ok(saved.annotations[0].locator.text.before);const original=saved.annotations[0];
  await activate(page,original.id);await page.getByRole('button',{name:'Rose highlight',exact:true}).click();saved=await page.evaluate(()=>window.StillleafReader.exportState());assert.equal(saved.annotations[0].id,original.id);assert.deepEqual(saved.annotations[0].locator,original.locator);assert.equal(saved.annotations[0].createdAt,original.createdAt);
  await activate(page,original.id);await page.getByRole('button',{name:'Add note',exact:true}).click();const note='A note with <img src=x onerror="window.injection=true"> & a thought.';await page.getByRole('textbox',{name:'Your note'}).fill(note);
- await page.waitForFunction(note=>window.StillleafReader.exportState().annotations[0].note===note&&document.getElementById('note-status').textContent==='Saved automatically',note);assert.equal(await page.locator('#note-status').textContent(),'Saved automatically');
+ await waitForAutosave(page,note);assert.equal(await page.locator('#note-status').textContent(),'Saved automatically');
  const rangesBefore=await page.evaluate(()=>{window.savedRanges=[...document.querySelector('#reader iframe').contentWindow.CSS.highlights.values()].flatMap(x=>[...x]);return window.savedRanges.length});
- await page.getByRole('textbox',{name:'Your note'}).fill(note+' More.');await page.waitForFunction(note=>window.StillleafReader.exportState().annotations[0].note===note&&document.getElementById('note-status').textContent==='Saved automatically',note+' More.');
+ await page.getByRole('textbox',{name:'Your note'}).fill(note+' More.');await waitForAutosave(page,note+' More.');
  assert.equal(await page.evaluate(()=>{const ranges=[...document.querySelector('#reader iframe').contentWindow.CSS.highlights.values()].flatMap(x=>[...x]);return ranges.length===window.savedRanges.length&&ranges.every((range,i)=>range===window.savedRanges[i])}),true,'note autosave retains every highlight range');assert.ok(rangesBefore>0);
  // Revert before the debounce settles: the already-saved value is still saved.
- await page.getByRole('textbox',{name:'Your note'}).fill(note);await page.waitForTimeout(300);
- await page.getByRole('textbox',{name:'Your note'}).fill(note+' unsaved');await page.getByRole('textbox',{name:'Your note'}).fill(note);await page.waitForTimeout(300);
+ await page.getByRole('textbox',{name:'Your note'}).fill(note);await waitForAutosave(page,note);
+ await page.getByRole('textbox',{name:'Your note'}).fill(note+' unsaved');await page.getByRole('textbox',{name:'Your note'}).fill(note);await waitForAutosave(page,note);
  assert.equal(await page.locator('#note-status').textContent(),'Saved automatically');
  await page.getByRole('button',{name:'Close note',exact:true}).click();assert.equal(await page.locator('#draft-panel').isVisible(),false);
  await page.locator('.margin-note').waitFor({state:'visible'});assert.equal(await page.locator('.margin-note').textContent(),note);assert.equal(await page.locator('.margin-note img').count(),0);
@@ -79,7 +84,7 @@ test('long selections autosave a bounded preview and retain their complete range
  await page.evaluate(book=>window.StillleafReader.open(book),book);
  await page.evaluate(()=>{const frame=document.querySelector('#reader iframe'),node=frame.contentDocument.getElementById('long').firstChild,range=frame.contentDocument.createRange();range.setStart(node.firstChild,0);range.setEnd(node.parentElement,node.parentElement.childNodes.length);const selection=frame.contentWindow.getSelection();selection.removeAllRanges();selection.addRange(range);frame.contentDocument.dispatchEvent(new frame.contentWindow.PointerEvent('pointerup',{bubbles:true}))});
  await page.locator('#selection-tools').waitFor({state:'visible'});await page.getByRole('button',{name:'Add note',exact:true}).click();await page.getByRole('textbox',{name:'Your note'}).fill('Long passage note');
- await page.waitForFunction(()=>window.StillleafReader.exportState().annotations[0]?.note==='Long passage note');
+ await waitForAutosave(page,'Long passage note');
  assert.equal(await page.locator('#note-status').textContent(),'Saved automatically');await page.getByRole('button',{name:'Close note',exact:true}).click();
  let saved=await page.evaluate(()=>window.StillleafReader.exportState()),item=saved.annotations[0];assert.ok(passage.length>16384);assert.equal(item.quote,passage.slice(0,16383));assert.equal(item.locator.text,undefined);assert.equal(item.locator.locations.domRange.end.charOffset,passage.length-9000);assert.equal(item.locator.locations.domRange.end.textNodeIndex,0);assert.equal(item.locator.locations.domRangeIndexing,'text-nodes');
  const {validateState}=await import('../../src/reader-state.cjs');assert.deepEqual(validateState(saved,id,{manifest:[{path:'chapter.xhtml'}]}).annotations,saved.annotations);

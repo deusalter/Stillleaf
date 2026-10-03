@@ -67,7 +67,7 @@ jobs:
           fi
           python3 scripts/reader-review-fixture.py "$RUNNER_TEMP/native-chrome.epub" --chapters 3
           mkdir -p "$RUNNER_TEMP/native-reader"
-          .build/release/BooksPresence --self-test-epub "$RUNNER_TEMP/native-chrome.epub" --reader-artifacts "$RUNNER_TEMP/native-reader"
+          python3 scripts/run-native-reader-smoke.py --timeout 300 --output "$RUNNER_TEMP/native-reader-diagnostics" -- .build/release/BooksPresence --self-test-epub "$RUNNER_TEMP/native-chrome.epub" --reader-artifacts "$RUNNER_TEMP/native-reader"
       - name: Independent sampled History diagnostics
         if: matrix.os == 'macos-26'
         continue-on-error: true
@@ -99,6 +99,7 @@ jobs:
             ${{ runner.temp }}/native-performance-gates.json
             ${{ runner.temp }}/native-performance-batches
             ${{ runner.temp }}/native-history-profile
+            ${{ runner.temp }}/native-reader-diagnostics
   modern-package-fallback:
     needs: sdk-probe
     runs-on: macos-14
