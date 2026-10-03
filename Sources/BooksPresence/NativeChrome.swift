@@ -44,8 +44,16 @@ extension View {
     func nativePopoverSurface() -> some View { modifier(NativePopoverSurface()) }
     func nativeMenuSurface(hovering: Bool) -> some View { modifier(NativeMenuSurface(hovering: hovering)) }
     func nativeNavigationBackdrop() -> some View { modifier(NativeNavigationBackdrop()) }
+    func nativeSidebarToolbar() -> some View { modifier(NativeSidebarToolbar()) }
     func nativeDashboardSidebarToggle(isCollapsed: Bool, toggle: @escaping () -> Void) -> some View {
         modifier(NativeDashboardSidebarToggle(isCollapsed: isCollapsed, toggle: toggle))
+    }
+}
+
+private struct NativeSidebarToolbar: ViewModifier {
+    @ViewBuilder func body(content: Content) -> some View {
+        if #available(macOS 14.0, *) { content.toolbar(removing: .sidebarToggle) }
+        else { content }
     }
 }
 
@@ -56,7 +64,6 @@ private struct NativeDashboardSidebarToggle: ViewModifier {
     @ViewBuilder func body(content: Content) -> some View {
         if #available(macOS 14.0, *) {
             content
-                .toolbar(removing: .sidebarToggle)
                 .toolbar {
                     // A root navigation item stays ahead of the title. The
                     // system's split-view toggle migrates with its column.

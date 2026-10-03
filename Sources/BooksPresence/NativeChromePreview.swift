@@ -25,12 +25,16 @@ private enum NativeChromeCaptureError: Error { case renderFailed }
             // Hosting installs toolbar items asynchronously. Check real readiness for
             // the modern-built package on older runtimes, not a fixed capture delay.
             let deadline = Date().addingTimeInterval(3)
-            while Date() < deadline && dashboardSidebarToggleButtons(in: window).count != 1 {
+            func sidebarToolbarReady() -> Bool {
+                if #available(macOS 14.0, *) { return dashboardSidebarToggleButtons(in: window).count == 1 }
+                return window.toolbar?.items.filter { $0.itemIdentifier.rawValue.contains("toggleSidebar") }.count == 1
+            }
+            while Date() < deadline && !sidebarToolbarReady() {
                 try await Task.sleep(nanoseconds: 20_000_000)
             }
             let identifiers = window.toolbar?.items.map { $0.itemIdentifier.rawValue } ?? []
             print("native-dashboard-toolbar: installed=\(window.toolbar != nil) items=\(identifiers)")
-            guard window.toolbar != nil, dashboardSidebarToggleButtons(in: window).count == 1 else { throw NativeChromeCaptureError.renderFailed }
+            guard window.toolbar != nil, sidebarToolbarReady() else { throw NativeChromeCaptureError.renderFailed }
             try await captureNativeWindow(window, to: directory.appendingPathComponent("dashboard-\(dark ? "dark" : "light")-\(opaque ? "opaque" : "system").png"))
             window.contentViewController = nil; window.close()
             // An app-owned text backdrop exercises popover readability without

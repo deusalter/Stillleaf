@@ -30,6 +30,7 @@ struct DashboardView: View {
             DashboardSidebar(selection: $section, model: model, troubleshoot: { sheet = .trackingHelp })
                 .id(theme.revision)
                 .navigationSplitViewColumnWidth(min: 205, ideal: 225, max: 260)
+                .nativeSidebarToolbar()
         } detail: {
             VStack(spacing: 0) {
                 if let error = model.errorMessage ?? model.trackingRecoveryMessage, !error.isEmpty {

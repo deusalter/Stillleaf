@@ -60,7 +60,13 @@ func checkDashboardSidebarNavigation(model: AppModel, directory: URL, dark: Bool
             while Date() < deadline {
                 let buttons = dashboardSidebarToggleButtons(in: window)
                 if buttons.count == 1, dashboardSidebarIsCollapsed(in: window) == collapsed,
-                   buttons[0].toolTip == (collapsed ? "Show sidebar" : "Hide sidebar") { return }
+                   buttons[0].toolTip == (collapsed ? "Show sidebar" : "Hide sidebar") {
+                    // The visibility binding settles before native glass has
+                    // finished resizing its compositor layers. Capture the
+                    // resting controls, not that intermediate presentation.
+                    if !reducedMotion { try await Task.sleep(nanoseconds: 350_000_000) }
+                    return
+                }
                 try await Task.sleep(nanoseconds: 20_000_000)
             }
             throw DashboardSidebarSmokeError.failed("Sidebar state did not settle: expectedCollapsed=\(collapsed) actual=\(String(describing: dashboardSidebarIsCollapsed(in: window))) buttons=\(dashboardSidebarToggleButtons(in: window).count)")
@@ -70,11 +76,11 @@ func checkDashboardSidebarNavigation(model: AppModel, directory: URL, dark: Bool
         let before = button.convert(button.bounds, to: nil)
         let mode = reducedMotion ? "reduced-motion" : "animated"
         let appearance = dark ? "dark" : "light"
-        try await captureNativeWindow(window, to: directory.appendingPathComponent("sidebar-expanded-\(appearance)-\(mode).png"))
+        try await captureNativeWindow(window, to: directory.appendingPathComponent("sidebar-expanded-\(appearance)-\(mode).png"), contextWindow: backdrop)
         button.performClick(nil)
         try await waitForSidebar(collapsed: true)
         // Capture waits for the compositor after the visibility state settles.
-        try await captureNativeWindow(window, to: directory.appendingPathComponent("sidebar-collapsed-\(appearance)-\(mode).png"))
+        try await captureNativeWindow(window, to: directory.appendingPathComponent("sidebar-collapsed-\(appearance)-\(mode).png"), contextWindow: backdrop)
         guard let collapsedButton = dashboardSidebarToggleButtons(in: window).first else { throw DashboardSidebarSmokeError.failed("Sidebar toggle disappeared after collapse") }
         let collapsed = collapsedButton.convert(collapsedButton.bounds, to: nil)
         guard abs(before.minX - collapsed.minX) < 1, abs(before.minY - collapsed.minY) < 1,
@@ -93,7 +99,7 @@ func checkDashboardSidebarNavigation(model: AppModel, directory: URL, dark: Bool
             window.sendEvent(space)
         }
         try await waitForSidebar(collapsed: false)
-        try await captureNativeWindow(window, to: directory.appendingPathComponent("sidebar-reopened-\(appearance)-\(mode).png"))
+        try await captureNativeWindow(window, to: directory.appendingPathComponent("sidebar-reopened-\(appearance)-\(mode).png"), contextWindow: backdrop)
         let afterButton = dashboardSidebarToggleButtons(in: window)[0]
         let after = afterButton.convert(afterButton.bounds, to: nil)
         guard abs(before.minX - after.minX) < 1, abs(before.minY - after.minY) < 1 else {
@@ -112,7 +118,7 @@ func checkDashboardSidebarNavigation(model: AppModel, directory: URL, dark: Bool
         guard systemToggleCount == 0 else { throw DashboardSidebarSmokeError.failed("Duplicate system sidebar toggle remained") }
         if !reducedMotion {
             backdrop.backgroundColor = NSColor(calibratedRed: 0.12, green: 0.37, blue: 0.76, alpha: 1)
-            try await captureNativeWindow(window, to: directory.appendingPathComponent("sidebar-cool-backdrop-\(appearance).png"))
+            try await captureNativeWindow(window, to: directory.appendingPathComponent("sidebar-cool-backdrop-\(appearance).png"), contextWindow: backdrop)
         }
         let report: [String: Any] = ["expanded": NSStringFromRect(before), "collapsed": NSStringFromRect(collapsed),
             "reopened": NSStringFromRect(after), "keyboardEquivalent": true, "spaceActivation": true, "reduceMotion": reducedMotion,
