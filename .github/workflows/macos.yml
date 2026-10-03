@@ -53,12 +53,15 @@ jobs:
           path: ${{ runner.temp }}/history-atlas/*.png
       - name: Native EPUB reader smoke (offscreen WKWebView, synthetic book)
         id: epub-smoke
+        timeout-minutes: 7
         if: ${{ !cancelled() && steps.reader-assets.outcome == 'success' }}
         run: |
+          python3 scripts/test-native-reader-smoke-runner.py
           python3 scripts/reader-review-fixture.py "$RUNNER_TEMP/reader-fixture.epub" --chapters 3
           mkdir -p "$RUNNER_TEMP/reader-appearance"
-          .build/release/BooksPresence --self-test-epub "$RUNNER_TEMP/reader-fixture.epub" --reader-appearance-review --reader-artifacts "$RUNNER_TEMP/reader-appearance"
+          python3 scripts/run-native-reader-smoke.py --timeout 300 --output "$RUNNER_TEMP/reader-diagnostics/release" -- .build/release/BooksPresence --self-test-epub "$RUNNER_TEMP/reader-fixture.epub" --reader-appearance-review --reader-artifacts "$RUNNER_TEMP/reader-appearance"
       - name: Native EPUB reader crash diagnostics
+        timeout-minutes: 10
         if: ${{ failure() && steps.epub-smoke.outcome == 'failure' }}
         run: |
           fixture="$RUNNER_TEMP/reader-fixture.epub"
@@ -81,7 +84,17 @@ jobs:
           # Debug builds report the exact trap message and source line.
           swift build
           scripts/build-reader-assets.sh .build/debug
-          .build/debug/BooksPresence --self-test-epub "$fixture" || true
+          mkdir -p "$RUNNER_TEMP/reader-appearance-debug"
+          python3 scripts/run-native-reader-smoke.py --timeout 300 --output "$RUNNER_TEMP/reader-diagnostics/debug" -- .build/debug/BooksPresence --self-test-epub "$fixture" --reader-appearance-review --reader-artifacts "$RUNNER_TEMP/reader-appearance-debug"
+      - name: Upload native reader evidence and diagnostics
+        if: ${{ always() && steps.epub-smoke.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: Stillleaf-reader-smoke-diagnostics
+          path: |
+            ${{ runner.temp }}/reader-diagnostics/
+            ${{ runner.temp }}/reader-appearance/
+            ${{ runner.temp }}/reader-appearance-debug/
       - name: Package development app
         run: scripts/package-app.sh
       - uses: actions/upload-artifact@v4
