@@ -57,7 +57,7 @@ struct DashboardView: View {
                 .id(section)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .background(ReadingPalette.paper)
+            .background(ReadingPalette.paper, ignoresSafeAreaEdges: .vertical)
             .foregroundStyle(ReadingPalette.ink)
             .buttonStyle(ReadingButtonStyle())
         }

@@ -132,7 +132,7 @@ struct LibraryView: View {
             }
             .readingPage()
         }
-        .background(ReadingPalette.paper)
+        .background(ReadingPalette.paper, ignoresSafeAreaEdges: .vertical)
         .buttonStyle(ReadingButtonStyle())
         .sheet(isPresented: $loggingAudio) { AudiobookLogView(model: model) }
         .onDrop(of: [UTType.fileURL.identifier], isTargeted: nil) { model.epubLibrary.acceptDrop($0) }

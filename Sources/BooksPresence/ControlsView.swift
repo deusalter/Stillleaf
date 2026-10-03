@@ -344,13 +344,13 @@ struct SettingsView: View {
                 }
                 .frame(maxWidth: 820).padding(.horizontal, 40).padding(.vertical, 14)
                 .frame(maxWidth: .infinity)
-                .background(ReadingPalette.canvas)
+                .background(ReadingPalette.canvas, ignoresSafeAreaEdges: .vertical)
                 .id(theme.revision)
             }
         }
         // The dashboard owns drafts across destination and theme changes.
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(ReadingPalette.paper).foregroundStyle(ReadingPalette.ink)
+        .background(ReadingPalette.paper, ignoresSafeAreaEdges: .vertical).foregroundStyle(ReadingPalette.ink)
         .tint(ReadingPalette.moss).buttonStyle(.bordered)
         .onAppear {
             loadDraftsIfNeeded()

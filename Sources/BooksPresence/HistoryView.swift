@@ -56,7 +56,7 @@ struct HistoryView: View {
             .frame(maxWidth: 1120, alignment: .leading)
             .padding(.horizontal, 32).padding(.vertical, 30).frame(maxWidth: .infinity, alignment: .top)
         }
-        .background(AtlasStyle.canvas(dark)).foregroundStyle(AtlasStyle.ink(dark)).tint(AtlasStyle.accent(dark))
+        .background(AtlasStyle.canvas(dark), ignoresSafeAreaEdges: .vertical).foregroundStyle(AtlasStyle.ink(dark)).tint(AtlasStyle.accent(dark))
         .onChange(of: model.timezoneID) { navigation.timezoneID = $0 }
         .task(id: request) {
             guard let source else { return }
