@@ -84,7 +84,9 @@ struct AtlasWeekView: View {
         entries.map { entry in "\(presentation.booksByID[entry.bookID]?.title ?? "Unknown book"): \(ReadingFormat.duration(entry.creditedSeconds))" }.joined(separator: "\n")
     }
     private var bookSummary: some View {
-        VStack(alignment: .leading, spacing: 22) {
+        // This list shares History's vertical scroll view. A busy week can span
+        // many screens; instantiate covers and wrapped text as rows come into view.
+        LazyVStack(alignment: .leading, spacing: 22) {
             ForEach(bookIDs, id: \.self) { id in
                 let seconds = presentation.secondsByBook[id] ?? 0
                 let pages = presentation.pagesByBook[id] ?? 0
