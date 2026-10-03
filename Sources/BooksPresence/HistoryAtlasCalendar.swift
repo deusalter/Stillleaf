@@ -10,14 +10,16 @@ struct AtlasWeekView: View {
     @Environment(\.colorScheme) private var scheme
     private var dark: Bool { scheme == .dark }
     private var bookIDs: [String] { presentation.creditedBookIDs }
-    private var maximumMinutes: Double { max(30, ceil((days.map(\.creditedSeconds).max() ?? 0) / 60 / 30) * 30) }
     var body: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(alignment: .top, spacing: 24) { chart.frame(minWidth: 420); bookSummary.frame(width: 210) }
-            VStack(alignment: .leading, spacing: 24) { chart; bookSummary }
+        // Every stacked segment uses the same scale. Resolve it once instead of
+        // rescanning the week's days from each GeometryReader/segment closure.
+        let maximumMinutes = max(30, ceil((days.map(\.creditedSeconds).max() ?? 0) / 60 / 30) * 30)
+        return ViewThatFits(in: .horizontal) {
+            HStack(alignment: .top, spacing: 24) { chart(maximumMinutes: maximumMinutes).frame(minWidth: 420); bookSummary.frame(width: 210) }
+            VStack(alignment: .leading, spacing: 24) { chart(maximumMinutes: maximumMinutes); bookSummary }
         }
     }
-    private var chart: some View {
+    private func chart(maximumMinutes: Double) -> some View {
         AtlasPanel(title: "Time with your books", note: "Minutes") {
             HStack(alignment: .top, spacing: 10) {
                 VStack(spacing: 0) {
@@ -27,7 +29,7 @@ struct AtlasWeekView: View {
                     }
                 }.foregroundStyle(AtlasStyle.muted(dark)).frame(width: 30, height: 224).padding(.top, 20)
                 HStack(alignment: .top, spacing: 10) {
-                    ForEach(days) { day in dayColumn(day) }
+                    ForEach(days) { day in dayColumn(day, maximumMinutes: maximumMinutes) }
                 }
                 .background(alignment: .top) {
                     VStack(spacing: 0) {
@@ -45,7 +47,7 @@ struct AtlasWeekView: View {
             }
         }
     }
-    private func dayColumn(_ day: AtlasDay) -> some View {
+    private func dayColumn(_ day: AtlasDay, maximumMinutes: Double) -> some View {
         let future = day.date > navigation.calendar.startOfDay(for: Date())
         let pages = presentation.daysByKey[day.key]?.pages ?? 0
         let entries = day.books.filter { $0.creditedSeconds > 0 }.sorted { $0.bookID < $1.bookID }
