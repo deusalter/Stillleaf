@@ -2,9 +2,14 @@ import SwiftUI
 import AppKit
 
 private struct NativePreviewOpaque: EnvironmentKey { static let defaultValue: Bool? = nil }
+private struct NativePreviewReduceMotion: EnvironmentKey { static let defaultValue: Bool? = nil }
 private struct NativeNavigationBackdropInstalled: EnvironmentKey { static let defaultValue = false }
 extension EnvironmentValues {
     var nativePreviewOpaque: Bool? { get { self[NativePreviewOpaque.self] } set { self[NativePreviewOpaque.self] = newValue } }
+    var nativePreviewReduceMotion: Bool? {
+        get { self[NativePreviewReduceMotion.self] }
+        set { self[NativePreviewReduceMotion.self] = newValue }
+    }
     fileprivate var nativeNavigationBackdropInstalled: Bool {
         get { self[NativeNavigationBackdropInstalled.self] }
         set { self[NativeNavigationBackdropInstalled.self] = newValue }

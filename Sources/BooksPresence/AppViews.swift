@@ -23,6 +23,7 @@ struct DashboardView: View {
     @State private var uninstallConfirmation = false
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.nativePreviewReduceMotion) private var previewReduceMotion
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -60,7 +61,7 @@ struct DashboardView: View {
             .nativeNavigationBackdrop()
         }
         .nativeDashboardSidebarToggle(isCollapsed: columnVisibility == .detailOnly) {
-            withAnimation(reduceMotion ? nil : ReadingMotion.selection) {
+            withAnimation((previewReduceMotion ?? reduceMotion) ? nil : ReadingMotion.selection) {
                 columnVisibility = columnVisibility == .detailOnly ? .all : .detailOnly
             }
         }

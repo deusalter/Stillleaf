@@ -47,7 +47,7 @@ func checkDashboardSidebarNavigation(model: AppModel, directory: URL, dark: Bool
         window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
         let controller = NSHostingController(rootView: DashboardView(model: model, initialSection: .library)
             .environment(\.nativePreviewOpaque, false)
-            .environment(\.accessibilityReduceMotion, reducedMotion))
+            .environment(\.nativePreviewReduceMotion, reducedMotion))
         controller.sizingOptions = []
         window.contentViewController = controller
         window.setContentSize(NSSize(width: 1060, height: 760))
