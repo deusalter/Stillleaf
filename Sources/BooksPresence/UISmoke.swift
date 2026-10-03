@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 import BooksCore
 import BooksPlatform
@@ -18,6 +19,7 @@ func runUISmoke() throws {
     try checkHistoryRefreshPerformance(at: root.appendingPathComponent("performance"))
     try seedUISmokeHistory(at: root)
     let model = try AppModel(support: root, defaults: defaults, startTracking: false)
+    try checkUnchangedHealthUpdates(model)
     try runSettingsDraftSmoke(model: model)
     guard let atlasSource = model.historyAtlasSource else { throw BooksAccessErrorForUI.failed("History source was not published") }
     try runHistoryAtlasNavigationSmoke(source: atlasSource)
@@ -391,6 +393,28 @@ func runUISmoke() throws {
     }
     model.shutdown()
     print("ui-smoke: model correction/deletion and native view layout checks passed (synthetic data; no screenshots)")
+}
+
+@MainActor
+private func checkUnchangedHealthUpdates(_ model: AppModel) throws {
+    let original = model.health
+    var invalidations = 0
+    let subscription = model.objectWillChange.sink { invalidations += 1 }
+    defer { subscription.cancel(); model.reportHealth(original) }
+    for _ in 0..<60 { model.reportHealth(original) }
+    guard invalidations == 0 else {
+        throw BooksAccessErrorForUI.failed("Unchanged tracker status invalidated the dashboard")
+    }
+    model.reportHealth("Synthetic capture unavailable")
+    guard invalidations == 1, model.health == "Synthetic capture unavailable" else {
+        throw BooksAccessErrorForUI.failed("A real tracker status change did not publish immediately")
+    }
+    for _ in 0..<60 { model.reportHealth("Synthetic capture unavailable") }
+    model.reportHealth(original)
+    guard invalidations == 2, model.health == original else {
+        throw BooksAccessErrorForUI.failed("Repeated status or recovery published incorrectly")
+    }
+    print("ui-smoke: 120 identical tracker status reports emit zero dashboard invalidations; failure and recovery each publish immediately")
 }
 
 /// Uses its own history and defaults so saving the tour's goal cannot disturb the main fixture.

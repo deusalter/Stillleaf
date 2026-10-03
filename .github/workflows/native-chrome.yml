@@ -1,6 +1,12 @@
 name: Native chrome SDK probe
 on:
   workflow_dispatch:
+    inputs:
+      comparison_ref:
+        description: 'Optional existing revision with the settled-UI harness, for a supplemental matched comparison'
+        required: false
+        default: ''
+        type: string
   push:
     branches: [ui/native-macos-experience]
   pull_request:
@@ -9,6 +15,7 @@ permissions:
   contents: read
 jobs:
   sdk-probe:
+    if: github.event_name != 'workflow_dispatch' || inputs.comparison_ref == ''
     strategy:
       fail-fast: false
       matrix:
@@ -124,3 +131,32 @@ jobs:
         with:
           name: Stillleaf-modern-package-fallback
           path: ${{ runner.temp }}/modern-fallback-captures
+  compare-revision:
+    if: github.event_name == 'workflow_dispatch' && inputs.comparison_ref != ''
+    runs-on: macos-26
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.0.1.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.comparison_ref }}
+          path: .native-comparison
+      - name: Build both revisions with the same SDK
+        run: |
+          xcodebuild -version
+          mkdir -p "$RUNNER_TEMP/native-comparison"
+          git rev-parse HEAD > "$RUNNER_TEMP/native-comparison/candidate-revision.txt"
+          git -C .native-comparison rev-parse HEAD > "$RUNNER_TEMP/native-comparison/baseline-revision.txt"
+          cmp Sources/BooksPresence/UISettledBenchmark.swift .native-comparison/Sources/BooksPresence/UISettledBenchmark.swift
+          swift build --package-path .native-comparison -c release
+          swift build -c release
+      - name: Supplemental matched revision measurements
+        run: |
+          python3 scripts/run-matched-native-benchmark.py .native-comparison/.build/release/BooksPresence .build/release/BooksPresence "$RUNNER_TEMP/native-comparison"
+          python3 scripts/summarize-native-comparison.py "$RUNNER_TEMP/native-comparison"
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: Stillleaf-native-revision-comparison
+          path: ${{ runner.temp }}/native-comparison

@@ -580,6 +580,13 @@ final class AppModel: ObservableObject {
         if !suspended.isEmpty || !SystemEligibility.displayAwake { return .displayAsleep }
         return nil
     }
+    /// The tracker reports its status every second. Publishing identical text
+    /// would invalidate every dashboard observing this model while idle.
+    func reportHealth(_ message: String) {
+        guard health != message else { return }
+        health = message
+    }
+
     private func tick() {
         guard ready, !trackingRecoveryRequired else { return }
         if Date().timeIntervalSince(lastHistorySync) > 30 { syncAppleBooksHistory() }
@@ -609,10 +616,10 @@ final class AppModel: ObservableObject {
                   health: "Reading in Stillleaf. Position comes from the reader; sequential content coverage and active time are recorded separately.")
             return
         case .appleBooksNeedsAccess:
-            health = "Apple Books tracking needs Accessibility access. Import an EPUB into Stillleaf to record reading progress and time without it."
+            reportHealth("Apple Books tracking needs Accessibility access. Import an EPUB into Stillleaf to record reading progress and time without it.")
             pause(.permissionLost); return
         case .idle:
-            health = "Ready to read in Stillleaf. Import an EPUB to record progress and active reading time without Accessibility access."
+            reportHealth("Ready to read in Stillleaf. Import an EPUB to record progress and active reading time without Accessibility access.")
             // Input in Discord or another app is not evidence of reading.
             lastInputUptime = ProcessInfo.processInfo.systemUptime - SystemEligibility.secondsSinceInput
             pause(.background); return
@@ -620,7 +627,7 @@ final class AppModel: ObservableObject {
             break
         }
         if captureInFlight {
-            if Date().timeIntervalSince(captureStarted) > 2 { health = "Books capture is delayed; tracking is paused until fresh evidence arrives."; pause(.captureFailure) }
+            if Date().timeIntervalSince(captureStarted) > 2 { reportHealth("Books capture is delayed; tracking is paused until fresh evidence arrives."); pause(.captureFailure) }
             return
         }
         captureInFlight = true; captureStarted = Date()
@@ -653,7 +660,7 @@ final class AppModel: ObservableObject {
                     || value.source != prior.source || value.reliable != prior.reliable
             } ?? true
         } ?? false
-        self.health = health; latestProgress = progress
+        reportHealth(health); latestProgress = progress
         let uptime = ProcessInfo.processInfo.systemUptime
         let sampleDate = Date()
         let latestInput = uptime - SystemEligibility.secondsSinceInput
@@ -742,7 +749,7 @@ final class AppModel: ObservableObject {
     }
     private func trackingFailure(_ error: Error) {
         errorMessage = "Tracking stopped because evidence could not be saved: \(error)"
-        health = "Storage requires attention. New time is not being credited."
+        reportHealth("Storage requires attention. New time is not being credited.")
         ready = false; timer?.invalidate(); presencePolicy.reset(); presenceState = .hidden; discord.clear()
     }
     private func publishPresence() {
