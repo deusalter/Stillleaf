@@ -35,7 +35,7 @@ jobs:
       - name: Native implementation build
         run: swift build -c release
       - name: Native dashboard and menu panel previews
-        run: .build/release/BooksPresence --render-native-chrome "$RUNNER_TEMP/native-chrome"
+        run: bash scripts/run-native-chrome-preview.sh .build/release/BooksPresence "$RUNNER_TEMP/native-chrome"
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}
         with:
@@ -116,7 +116,7 @@ jobs:
           ditto -x -k "$RUNNER_TEMP/modern-package/Stillleaf-arm64.zip" "$RUNNER_TEMP/modern-fallback"
           app="$RUNNER_TEMP/modern-fallback/Stillleaf.app/Contents/MacOS/BooksPresence"
           "$app" --self-test-ui
-          "$app" --render-native-chrome "$RUNNER_TEMP/modern-fallback-captures"
+          bash scripts/run-native-chrome-preview.sh "$app" "$RUNNER_TEMP/modern-fallback-captures"
           python3 scripts/reader-review-fixture.py "$RUNNER_TEMP/modern-fallback.epub" --chapters 3
           "$app" --self-test-epub "$RUNNER_TEMP/modern-fallback.epub"
       - uses: actions/upload-artifact@v4

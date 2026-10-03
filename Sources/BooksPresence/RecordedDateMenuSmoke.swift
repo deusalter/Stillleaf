@@ -124,9 +124,14 @@ private struct RecordedDateFocusProbe: View {
 }
 
 /// The one focus binding is test-only. Captures use the actual window focus
-/// engine; no isFocused environment override or system preference is changed.
+/// engine and native Keyboard Navigation, enabled/restored by the CI wrapper.
+/// No isFocused environment override changes the control's appearance.
 @MainActor
 func checkRecordedDateKeyboardFocus(directory: URL, dark: Bool) async throws {
+    print("native-year-date-focus: Keyboard Navigation enabled=\(NSApp.isFullKeyboardAccessEnabled)")
+    guard NSApp.isFullKeyboardAccessEnabled else {
+        throw RecordedDateMenuSmokeError.failed("Enable Keyboard Navigation before launching the native focus check; use the preview wrapper that restores the runner preference afterward")
+    }
     let state = RecordedDateFocusProbeState()
     let dates = [Date(timeIntervalSince1970: 1_700_100_000), Date(timeIntervalSince1970: 1_700_000_000)]
     let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 360, height: 210),
@@ -144,7 +149,10 @@ func checkRecordedDateKeyboardFocus(directory: URL, dark: Bool) async throws {
     try await captureNativeWindow(window, to: directory.appendingPathComponent("year-date-unfocused-\(appearance).png"))
     state.requested = true
     try await Task.sleep(nanoseconds: 120_000_000)
-    guard state.focused else { throw RecordedDateMenuSmokeError.failed("Date button did not accept actual keyboard focus") }
+    guard state.focused else {
+        print("native-year-date-focus: keyWindow=\(window.isKeyWindow) responder=\(String(describing: window.firstResponder))")
+        throw RecordedDateMenuSmokeError.failed("Date button did not accept actual keyboard focus with Keyboard Navigation enabled")
+    }
     try await captureNativeWindow(window, to: directory.appendingPathComponent("year-date-focused-\(appearance).png"))
 
     func findAnchor(_ view: NSView?) -> RecordedDateMenuAnchorView? {
