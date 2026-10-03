@@ -47,6 +47,7 @@ extension View {
 
 private struct NativeDashboardWindowBackground: ViewModifier {
     @ViewBuilder func body(content: Content) -> some View {
+        #if compiler(>=6.2)
         if #available(macOS 26.0, *) {
             // The detail column already paints its paper. Clear SwiftUI's
             // separate window-container fill so the native sidebar's glass
@@ -55,6 +56,9 @@ private struct NativeDashboardWindowBackground: ViewModifier {
         } else {
             content
         }
+        #else
+        content
+        #endif
     }
 }
 
