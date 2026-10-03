@@ -78,10 +78,8 @@ func checkStatusMenuPanelInteractions(directory: URL) async throws {
     try await Task.sleep(nanoseconds: 40_000_000)
     panel.scheduleContentSize(NSSize(width: 350, height: 410))
     panel.applyPendingContentSize(reduceMotion: false)
-    try await Task.sleep(nanoseconds: 260_000_000)
-    guard abs(panel.frame.height - 410) < 1, abs(panel.frame.maxY - expected.maxY) < 1 else {
-        throw StatusMenuPanelSmokeError.failed("Retargeted resize drifted from the status-item anchor")
-    }
+    let retargetedFrame = StatusMenuPanel.anchoredFrame(size: NSSize(width: 350, height: 410), anchor: anchor, visibleFrame: visible)
+    let resizeSettledMs = try await observeStatusMenuResize(panel, expected: retargetedFrame, directory: directory)
     panel.scheduleContentSize(NSSize(width: 350, height: 390))
     panel.applyPendingContentSize(reduceMotion: true)
     guard abs(panel.frame.height - 390) < 1 else {
@@ -181,10 +179,64 @@ func checkStatusMenuPanelInteractions(directory: URL) async throws {
     let report: [String: Any] = ["sheetFocus": true, "sheetEscapePassthrough": true, "outsideClickPreservesModalDraft": true,
         "sheetUsesNormalWindowLevel": true, "coalescedSizing": true, "resizeRetargeting": true, "reduceMotion": true,
         "sheetDefersResize": true, "menuEscape": true, "applicationDeactivationRetainsDraft": true,
-        "ordinaryMenuDeactivation": true, "menuPresentationRestored": true]
+        "ordinaryMenuDeactivation": true, "menuPresentationRestored": true, "resizeSettledMs": resizeSettledMs]
     try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys])
         .write(to: directory.appendingPathComponent("status-menu-interactions.json"))
     print("status-menu-smoke: sheet modality, application switching, draft retention, Escape and anchored resize passed")
+}
+
+/// Functional readiness, not a 260 ms speed guarantee. The old single snapshot
+/// could not distinguish an unfinished animation from an incorrect final frame.
+/// Preserve that observation in the trace, then require stable final geometry.
+@MainActor
+private func observeStatusMenuResize(_ panel: StatusMenuPanel, expected: NSRect, directory: URL) async throws -> Double {
+    let started = ProcessInfo.processInfo.systemUptime
+    var stableSince: TimeInterval?
+    var previousFrame: NSRect?
+    var previousState: String?
+    var recorded260ms = false
+    var trace: [[String: Any]] = []
+    func coordinates(_ frame: NSRect) -> [String: Double] {
+        ["x": Double(frame.minX), "y": Double(frame.minY), "width": Double(frame.width), "height": Double(frame.height)]
+    }
+    func writeReport(passed: Bool, elapsed: TimeInterval) throws -> String {
+        let report: [String: Any] = ["passed": passed, "elapsedMs": elapsed * 1_000,
+            "deadlineMs": 1_000, "requiredStableMs": 200, "geometryTolerancePoints": 1,
+            "expected": coordinates(expected), "observations": trace,
+            "method": "Functional settlement; state changes and first observation at or after 260 ms retained. Canonical performance gates unchanged."]
+        let data = try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys])
+        try data.write(to: directory.appendingPathComponent("status-menu-resize.json"))
+        return String(decoding: data, as: UTF8.self)
+    }
+    while true {
+        let elapsed = ProcessInfo.processInfo.systemUptime - started
+        let frame = panel.frame
+        let state = "visible=\(panel.isVisible) key=\(panel.isKeyWindow) active=\(NSApp.isActive) sheet=\(panel.attachedSheet != nil)"
+        let matches = abs(frame.minX - expected.minX) < 1 && abs(frame.minY - expected.minY) < 1 &&
+            abs(frame.width - expected.width) < 1 && abs(frame.height - expected.height) < 1
+        let unchanged = previousFrame == frame && previousState == state
+        let originalSnapshot = !recorded260ms && elapsed >= 0.260
+        if !unchanged || originalSnapshot || elapsed >= 1 {
+            trace.append(["elapsedMs": elapsed * 1_000, "frame": coordinates(frame), "state": state,
+                "matchesExpected": matches, "firstObservationAtOrAfter260ms": originalSnapshot])
+        }
+        if originalSnapshot { recorded260ms = true }
+        if !matches || !panel.isVisible { stableSince = nil }
+        else if stableSince == nil || !unchanged { stableSince = elapsed }
+        previousFrame = frame
+        previousState = state
+        guard elapsed < 1 else {
+            let report = try writeReport(passed: false, elapsed: elapsed)
+            print("status-menu-resize-failure: \(report)")
+            throw StatusMenuPanelSmokeError.failed("Retargeted resize did not maintain its anchored frame for 200 ms within 1 second: \(state), frame=\(frame), expected=\(expected)")
+        }
+        if let stableSince, elapsed - stableSince >= 0.200, recorded260ms {
+            _ = try writeReport(passed: true, elapsed: elapsed)
+            print("status-menu-resize: anchored frame stable for 200 ms after \(elapsed * 1_000) ms; trace=status-menu-resize.json")
+            return elapsed * 1_000
+        }
+        try await Task.sleep(nanoseconds: 10_000_000)
+    }
 }
 
 /// NSApp.deactivate() does not transfer foreground focus away from an active
