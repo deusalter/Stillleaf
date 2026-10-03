@@ -125,26 +125,35 @@ struct AtlasMonthView: View {
     @State private var selected: Date?
     @Environment(\.colorScheme) private var scheme
     private var dark: Bool { scheme == .dark }
-    private var selectedDate: Date { selected ?? navigation.calendar.startOfDay(for: navigation.anchor) }
-    private var selectedDay: AtlasDayPresentation? { presentation.daysByKey[navigation.dayKey(for: selectedDate)] }
     private var ids: [String] { presentation.creditedBookIDs }
     var body: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(alignment: .top, spacing: 24) { calendar.frame(minWidth: 440); detail.frame(width: 220) }
-            VStack(alignment: .leading, spacing: 24) { calendar; detail }
-        }
-    }
-    private var calendar: some View {
+        let calendar = navigation.calendar
+        let selectedDate = selected ?? calendar.startOfDay(for: navigation.anchor)
+        let selectedDay = presentation.daysByKey[navigation.dayKey(for: selectedDate)]
+        // Day cells and detail rows share one calendar/selection snapshot. In
+        // particular, the detail must not reformat its day key for every book.
+        let daysByDate = Dictionary(uniqueKeysWithValues: presentation.daysByKey.values.map { ($0.day.date, $0) })
         let formatter = DateFormatter(); formatter.locale = .current
         let weekdayNames = formatter.shortWeekdaySymbols ?? []
-        let firstWeekday = navigation.calendar.firstWeekday
+        let grid = monthCalendar(calendar: calendar, selectedDate: selectedDate,
+                                 today: calendar.startOfDay(for: Date()), daysByDate: daysByDate,
+                                 cells: navigation.monthCells, weekdayNames: weekdayNames)
+        let details = detail(selectedDate: selectedDate, selectedDay: selectedDay)
+        return ViewThatFits(in: .horizontal) {
+            HStack(alignment: .top, spacing: 24) { grid.frame(minWidth: 440); details.frame(width: 220) }
+            VStack(alignment: .leading, spacing: 24) { grid; details }
+        }
+    }
+    private func monthCalendar(calendar: Calendar, selectedDate: Date, today: Date,
+                               daysByDate: [Date: AtlasDayPresentation], cells: [CalendarMonthCell], weekdayNames: [String]) -> some View {
+        let firstWeekday = calendar.firstWeekday
         return AtlasPanel(title: AtlasStyle.date(navigation.periodStart, zone: navigation.timezoneID, pattern: "MMMM"), note: "Time by book") {
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(minimum: 42), spacing: 8), count: 7), spacing: 14) {
                 ForEach(0..<7, id: \.self) { index in
                     Text(weekdayNames[(firstWeekday - 1 + index) % 7]).font(.caption).foregroundStyle(AtlasStyle.muted(dark)).padding(.bottom, 8)
                 }
-                ForEach(navigation.monthCells) { cell in
-                    if cell.isInMonth { dayCell(cell.date) }
+                ForEach(cells) { cell in
+                    if cell.isInMonth { dayCell(cell.date, prepared: daysByDate[cell.date], calendar: calendar, selectedDate: selectedDate, today: today) }
                     else { Color.clear.frame(height: 77).accessibilityHidden(true) }
                 }
             }
@@ -152,12 +161,11 @@ struct AtlasMonthView: View {
             Text("Ring segments show each book’s share of recorded time.").font(.caption2).foregroundStyle(AtlasStyle.muted(dark))
         }
     }
-    private func dayCell(_ date: Date) -> some View {
-        let prepared = presentation.daysByKey[navigation.dayKey(for: date)]
+    private func dayCell(_ date: Date, prepared: AtlasDayPresentation?, calendar: Calendar, selectedDate: Date, today: Date) -> some View {
         let day = prepared?.day
         let entries = (day?.books ?? []).filter { $0.creditedSeconds > 0 }
-        let future = date > navigation.calendar.startOfDay(for: Date())
-        let isSelected = navigation.isSameDay(date, selectedDate)
+        let future = date > today
+        let isSelected = calendar.isDate(date, inSameDayAs: selectedDate)
         let seconds = day?.creditedSeconds ?? 0
         let pages = prepared?.pages ?? 0
         let names = entries.map { entry in "\(presentation.booksByID[entry.bookID]?.title ?? "Unknown book"): \(ReadingFormat.duration(entry.creditedSeconds))" }.joined(separator: ", ")
@@ -165,7 +173,7 @@ struct AtlasMonthView: View {
             VStack(spacing: 9) {
                 ZStack {
                     AtlasTimeRing(entries: entries, pending: (day?.uncertainSeconds ?? 0) > 0).frame(width: 43, height: 43)
-                    Text("\(navigation.calendar.component(.day, from: date))").font(.system(size: 12)).monospacedDigit()
+                    Text("\(calendar.component(.day, from: date))").font(.system(size: 12)).monospacedDigit()
                 }
                 Text(seconds > 0 ? ReadingFormat.duration(seconds) : (day?.uncertainSeconds ?? 0) > 0 ? "Review" : pages > 0 ? "\(pages)p" : "—")
                     .font(.system(size: 10)).foregroundStyle(AtlasStyle.muted(dark)).lineLimit(1)
@@ -177,7 +185,7 @@ struct AtlasMonthView: View {
             .accessibilityLabel("\(AtlasStyle.date(date, zone: navigation.timezoneID, pattern: "EEEE, MMMM d")), \(ReadingFormat.duration(seconds)) recorded, \(pages) pages. \(names). \(ReadingFormat.duration(day?.uncertainSeconds ?? 0)) awaiting review.")
             .accessibilityAddTraits(isSelected ? .isSelected : []).help(names.isEmpty ? "No credited time" : names)
     }
-    private var detail: some View {
+    private func detail(selectedDate: Date, selectedDay: AtlasDayPresentation?) -> some View {
         let selectedIDs = selectedDay?.bookIDs ?? []
         return VStack(alignment: .leading, spacing: 22) {
             HStack {

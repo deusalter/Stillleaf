@@ -198,6 +198,9 @@ public struct HistoryAtlasPeriod {
         func fraction(_ date: Date) -> Double { date.timeIntervalSince(period.start) / max(1, period.duration) }
         monthPositions = navigation.scale == .year ? navigation.yearMonths.map(fraction) : []
         if navigation.scale == .year {
+            // The cutoff is shared by every book/date. Calendar conversion is
+            // substantially more expensive than comparing absolute instants.
+            let today = calendar.startOfDay(for: now)
             var activity: [String: [AtlasYearMark]] = [:], pending: [String: [Double]] = [:]
             var recordedDates: [String: Set<Date>] = [:]
             var firstDates: [String: Date] = [:], lastActive: [String: Date] = [:], lastPending: [String: Date] = [:]
@@ -238,7 +241,7 @@ public struct HistoryAtlasPeriod {
                 AtlasYearRow(id: id, creditedSeconds: seconds[id] ?? 0, pages: totals.byBook[id] ?? 0,
                     activity: activity[id] ?? [], pending: pending[id] ?? [], finishes: (finishes[id] ?? []).map(fraction),
                     target: lastActive[id] ?? lastPending[id] ?? finishes[id]?.first.map { calendar.startOfDay(for: $0) } ?? period.start,
-                    recordedDates: (recordedDates[id] ?? []).filter { $0 <= calendar.startOfDay(for: now) }.sorted(by: >))
+                    recordedDates: (recordedDates[id] ?? []).filter { $0 <= today }.sorted(by: >))
             }
         } else { yearRows = [] }
     }

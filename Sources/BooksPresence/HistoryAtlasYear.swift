@@ -62,22 +62,19 @@ struct AtlasYearView: View {
         let seconds = row.creditedSeconds, pages = row.pages, finished = row.finishes
         let target = row.target
         return HStack(spacing: 16) {
-            HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 5) {
                 Button { select(target) } label: {
-                    BookCoverView(book: presentation.booksByID[id], size: .compact)
-                        .scaleEffect(0.62).frame(width: 33, height: 46)
-                }.buttonStyle(.plain).accessibilityHidden(true)
-                    .focusable(false)
-                VStack(alignment: .leading, spacing: 5) {
-                    Button { select(target) } label: {
+                    HStack(spacing: 10) {
+                        BookCoverView(book: presentation.booksByID[id], size: .compact)
+                            .scaleEffect(0.62).frame(width: 33, height: 46)
                         Text(title(id)).font(.system(size: 13, weight: .medium)).lineLimit(3)
                             .multilineTextAlignment(.leading)
-                    }.buttonStyle(.plain)
-                        .accessibilityLabel("\(title(id)), \(activity.count) recorded days, \(pages) pages, \(ReadingFormat.duration(seconds)) recorded. \(finished.isEmpty ? "" : "Finished this year.") Open latest day.")
-                    RecordedDateMenu(dates: row.recordedDates, timezoneID: navigation.timezoneID,
-                                     bookTitle: title(id), select: select)
-                        .fixedSize()
-                }
+                    }.contentShape(Rectangle())
+                }.buttonStyle(.plain)
+                    .accessibilityLabel("\(title(id)), \(activity.count) recorded days, \(pages) pages, \(ReadingFormat.duration(seconds)) recorded. \(finished.isEmpty ? "" : "Finished this year.") Open latest day.")
+                RecordedDateMenu(dates: row.recordedDates, timezoneID: navigation.timezoneID,
+                                 bookTitle: title(id), select: select)
+                    .fixedSize().padding(.leading, 43)
             }.frame(width: 170, alignment: .leading)
             GeometryReader { geometry in
                 Canvas { context, size in
