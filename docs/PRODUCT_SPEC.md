@@ -61,13 +61,7 @@ Support a user-started manual reading mode for paper books or deliberate side-by
 
 Lack of keyboard/mouse input alone must not stop ordinary reading. Page changes provide useful evidence when available, but cannot prove attention.
 
-For suspiciously long periods with neither navigation nor relevant interaction:
-
-* Use a configurable conservative threshold.
-* Record the uncertain interval separately.
-* Exclude it from default credited totals pending review.
-* Offer one unobtrusive review when the user returns.
-* Allow the user to confirm, trim, or discard it.
+Continue crediting eligible foreground reading during long static pages. Do not impose an inactivity threshold or require readers to approve recorded time.
 
 Clearly describe all automatic time as inferred reading activity. Do not claim perfect attention detection.
 
@@ -82,7 +76,7 @@ Store enough structured evidence to reconstruct and audit totals:
 * Start/end timestamps, timezone context, and durations.
 * Tracking-state transitions and pause reasons.
 * Observed page/location/progress changes.
-* Metadata source, observation time, and uncertainty.
+* Metadata source, observation time, and confidence.
 * Periodic recovery checkpoints.
 * Manual records, corrections, exclusions, and goal changes.
 * Cover references and provenance.
@@ -93,7 +87,7 @@ Use append-only original observations and explicit correction records where prac
 
 Use monotonic elapsed time within a running interval and wall-clock timestamps for calendar placement. Never derive trusted elapsed durations solely from wall-clock subtraction.
 
-Persist bounded checkpoints, such as every 15 seconds while tracking, plus state changes. On crash recovery, credit only durably evidenced time and mark the remaining tail uncertain. Never count downtime until the next launch.
+Persist bounded checkpoints, such as every 15 seconds while tracking, plus state changes. On crash recovery, credit only durably evidenced time and record the recovery without inventing the missing tail. Never count downtime until the next launch.
 
 Prevent overlapping intervals, duplicate event processing, and double counting after restart or import.
 
@@ -132,7 +126,7 @@ Use an explicit configurable calendar timezone, initially the Mac’s timezone. 
 
 Persist goal changes with effective dates. By default, changing the goal affects today and future days without silently rewriting past qualification rules.
 
-Recompute affected totals and streaks correctly after session corrections. Flag provisional streaks if they depend on unresolved intervals.
+Recompute affected totals and streaks correctly after session corrections.
 
 Keep manual additions visibly identified. Allow transparent correction of missed tracking without hidden “streak repair.”
 
@@ -144,8 +138,9 @@ Provide:
 * History: calendar and daily/weekly/monthly totals.
 * Library: covers, per-book time, first/last read dates, progress when reliable.
 * Book detail: session timeline and observed progress history.
-* Session review: adjust start/end, split, reassign, exclude, or delete.
-* Data health: permission failures, tracking gaps, uncertain intervals, last successful capture.
+* Reading sessions: optional edits to adjust start/end, split, reassign, exclude or delete.
+* Reviews: private written book reviews and optional ratings.
+* Data health: permission failures, tracking gaps, last successful capture.
 * Settings and export.
 
 Make every total traceable to its contributing sessions. Distinguish “zero reading recorded” from a known tracking outage.

@@ -91,7 +91,7 @@ struct HistoryPresentation {
         let earliest = min(intervals.map(\.start).min() ?? now, Calendar.current.date(byAdding: .day, value: -365, to: now)!)
         let days = ReadingStatistics.daily(intervals: intervals, goals: archive.goals, timezoneID: timezoneID, from: earliest, through: now)
         let key = ReadingStatistics.dayKey(now, timezoneID: timezoneID)
-        let today = days.first { $0.day == key } ?? DailyTotal(day: key, creditedSeconds: 0, uncertainSeconds: 0, manualSeconds: 0, goalMinutes: goalMinutes)
+        let today = days.first { $0.day == key } ?? DailyTotal(day: key, creditedSeconds: 0, manualSeconds: 0, goalMinutes: goalMinutes)
         let streak = ReadingStatistics.streak(days: days, today: key)
         let pageEvidence = PageStatistics.snapshot(events: events, effectiveIntervals: intervals, merges: merges)
         let pageDays = pageEvidence.daily(goals: archive.goals, timezoneID: timezoneID, from: earliest, through: now)
@@ -105,7 +105,7 @@ struct HistoryPresentation {
         })
         let dailyGoalStreak = ReadingStatistics.streak(days: days.map { day in
             DailyTotal(day: day.day, creditedSeconds: goalProgressByDay[day.day]?.reached == true ? 60 : 0,
-                uncertainSeconds: day.uncertainSeconds, manualSeconds: 0, goalMinutes: 1)
+                manualSeconds: 0, goalMinutes: 1)
         }, today: key)
         let annualBookGoal = ReadingGoals.annualTarget(year: goalYear, events: archive.events)
         let annualBooksFinished = ReadingGoals.finishedCount(year: goalYear, timezoneID: timezoneID,

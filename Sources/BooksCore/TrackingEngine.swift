@@ -6,11 +6,6 @@ public final class TrackingEngine {
         get { configuredTimezoneID }
         set { if TimeZone(identifier: newValue) != nil { configuredTimezoneID = newValue } }
     }
-    public var uncertaintyThreshold: TimeInterval {
-        get { configuredUncertaintyThreshold }
-        set { configuredUncertaintyThreshold = max(0, newValue) }
-    }
-
     private struct ActiveState {
         var book: BookRecord
         var mode: ReadingMode
@@ -18,12 +13,9 @@ public final class TrackingEngine {
         var timezoneID: String
         var lastDate: Date
         var lastUptime: TimeInterval
-        var lastEvidenceUptime: TimeInterval
-        var lastProgressSignature: String?
         var segmentStart: Date
         var segmentEnd: Date
         var segmentDuration: TimeInterval
-        var segmentDisposition: IntervalDisposition
         var sessionCreditedSeconds: TimeInterval
     }
 
@@ -40,21 +32,19 @@ public final class TrackingEngine {
     private let maximumTickGap: TimeInterval = 5
     private let resumablePause: TimeInterval = 120
     private var configuredTimezoneID: String
-    private var configuredUncertaintyThreshold: TimeInterval
     private var active: ActiveState?
     private var resume: ResumeState?
     private var lastStoredProgress: [String: String] = [:]
     private var wallClockWatermark: Date?
     private var clockHoldReported = false
 
-    public init(store: ReadingStore, timezoneID: String, uncertaintyThreshold: TimeInterval = 1200, checkpointSeconds: TimeInterval = 15) throws {
+    public init(store: ReadingStore, timezoneID: String, checkpointSeconds: TimeInterval = 15) throws {
         guard TimeZone(identifier: timezoneID) != nil else { throw ReadingStoreError.invalidData("unknown timezone \(timezoneID)") }
-        guard uncertaintyThreshold.isFinite, uncertaintyThreshold >= 0, checkpointSeconds.isFinite, checkpointSeconds > 0 else {
-            throw ReadingStoreError.invalidData("tracking durations must be finite and nonnegative")
+        guard checkpointSeconds.isFinite, checkpointSeconds > 0 else {
+            throw ReadingStoreError.invalidData("checkpoint duration must be finite and positive")
         }
         self.store = store
         self.configuredTimezoneID = timezoneID
-        self.configuredUncertaintyThreshold = uncertaintyThreshold
         self.checkpointSeconds = checkpointSeconds
         let storedIntervals = try store.effectiveIntervals()
         self.wallClockWatermark = storedIntervals.map(\.end).max()
@@ -71,12 +61,9 @@ public final class TrackingEngine {
         if var current = active {
             let sameReading = eligible && current.book.id == input.book!.id && current.mode == input.mode
             if sameReading {
-                let outcome = try advance(&current, to: input.date, uptime: input.uptime, evidence: isEvidence(input, comparedWith: current))
+                let outcome = try advance(&current, to: input.date, uptime: input.uptime)
                 if outcome == .continued {
                     current.book = input.book!
-                    if input.progress?.reliable == true {
-                        current.lastProgressSignature = navigationSignature(input.progress) ?? current.lastProgressSignature
-                    }
                     active = current
                     updateSnapshot(from: current)
                     return
@@ -88,8 +75,7 @@ public final class TrackingEngine {
                 return
             }
 
-            let evidence = isEvidence(input, comparedWith: current)
-            _ = try advance(&current, to: input.date, uptime: input.uptime, evidence: evidence)
+            _ = try advance(&current, to: input.date, uptime: input.uptime)
             active = current
             let reason = input.pauseReason ?? .stopped
             try finishActive(at: active!.lastDate, reason: reason, allowResume: !eligible)
@@ -108,7 +94,7 @@ public final class TrackingEngine {
 
     public func stop(date: Date = Date(), uptime: TimeInterval = ProcessInfo.processInfo.systemUptime, reason: PauseReason = .stopped) throws {
         if var current = active {
-            _ = try advance(&current, to: date, uptime: uptime, evidence: false)
+            _ = try advance(&current, to: date, uptime: uptime)
             active = current
             try finishActive(at: current.lastDate, reason: reason, allowResume: false)
         }
@@ -120,7 +106,7 @@ public final class TrackingEngine {
 
     public func checkpoint(date: Date = Date(), uptime: TimeInterval = ProcessInfo.processInfo.systemUptime) throws {
         guard var current = active else { return }
-        let outcome = try advance(&current, to: date, uptime: uptime, evidence: false, automaticCheckpoint: false)
+        let outcome = try advance(&current, to: date, uptime: uptime, automaticCheckpoint: false)
         active = current
         guard outcome == .continued else {
             try finishActive(at: current.lastDate, reason: outcome.pauseReason, allowResume: false)
@@ -144,41 +130,22 @@ public final class TrackingEngine {
         }
     }
 
-    private func advance(_ state: inout ActiveState, to date: Date, uptime: TimeInterval, evidence: Bool, automaticCheckpoint: Bool = true) throws -> AdvanceOutcome {
+    private func advance(_ state: inout ActiveState, to date: Date, uptime: TimeInterval, automaticCheckpoint: Bool = true) throws -> AdvanceOutcome {
         let monotonicDelta = uptime - state.lastUptime
         let wallDelta = date.timeIntervalSince(state.lastDate)
         guard monotonicDelta >= 0 else { return .clockDiscontinuity }
         guard monotonicDelta <= maximumTickGap else { return .outage }
         guard wallDelta >= 0, !(monotonicDelta > 0 && wallDelta <= 0), abs(wallDelta - monotonicDelta) <= 2 else { return .clockDiscontinuity }
 
-        var remaining = monotonicDelta
-        var cursorDate = state.lastDate
-        let wallScale = monotonicDelta > 0 ? wallDelta / monotonicDelta : 1
-        while remaining > 0 {
-            let sinceEvidence = max(0, state.lastUptime - state.lastEvidenceUptime + (monotonicDelta - remaining))
-            let creditRemaining = max(0, configuredUncertaintyThreshold - sinceEvidence)
-            let disposition: IntervalDisposition = creditRemaining > 0 ? .credited : .uncertain
-            let step = disposition == .credited ? min(remaining, creditRemaining) : remaining
-            if state.segmentDuration > 0 && state.segmentDisposition != disposition {
-                try persistSegment(&state, eventKind: "trackingCheckpoint", eventDate: cursorDate, eventDetail: checkpointDetail(state))
-            }
-            if state.segmentDuration == 0 {
-                state.segmentStart = cursorDate
-                state.segmentEnd = cursorDate
-                state.segmentDisposition = disposition
-            }
-            state.segmentDuration += step
-            cursorDate = cursorDate.addingTimeInterval(step * wallScale)
-            state.segmentEnd = cursorDate
-            remaining -= step
-            if disposition == .credited { state.sessionCreditedSeconds += step }
-            if automaticCheckpoint && state.segmentDuration >= checkpointSeconds {
-                try persistSegment(&state, eventKind: "trackingCheckpoint", eventDate: cursorDate, eventDetail: checkpointDetail(state))
-            }
+        if state.segmentDuration == 0 { state.segmentStart = state.lastDate }
+        state.segmentDuration += monotonicDelta
+        state.segmentEnd = date
+        state.sessionCreditedSeconds += monotonicDelta
+        if automaticCheckpoint && state.segmentDuration >= checkpointSeconds {
+            try persistSegment(&state, eventKind: "trackingCheckpoint", eventDate: date, eventDetail: checkpointDetail(state))
         }
         state.lastDate = date
         state.lastUptime = uptime
-        if evidence { state.lastEvidenceUptime = uptime }
         return .continued
     }
 
@@ -201,12 +168,11 @@ public final class TrackingEngine {
         }
         clockHoldReported = false
         let sessionID = reuseSessionID ?? UUID().uuidString
-        let signature = input.progress?.reliable == true ? navigationSignature(input.progress) : nil
         let priorCredited = reuseSessionID == nil ? 0 : try store.effectiveIntervals().filter { $0.sessionID == sessionID && $0.disposition == .credited }.reduce(0) { $0 + $1.duration }
-        var state = ActiveState(book: book, mode: input.mode, sessionID: sessionID, timezoneID: configuredTimezoneID,
-                                lastDate: input.date, lastUptime: input.uptime, lastEvidenceUptime: input.uptime,
-                                lastProgressSignature: signature, segmentStart: input.date, segmentEnd: input.date,
-                                segmentDuration: 0, segmentDisposition: .credited, sessionCreditedSeconds: priorCredited)
+        let state = ActiveState(book: book, mode: input.mode, sessionID: sessionID, timezoneID: configuredTimezoneID,
+                                lastDate: input.date, lastUptime: input.uptime,
+                                segmentStart: input.date, segmentEnd: input.date,
+                                segmentDuration: 0, sessionCreditedSeconds: priorCredited)
         let event = AuditEvent(date: input.date, kind: "trackingStarted", bookID: book.id, sessionID: sessionID,
                                detail: checkpointDetail(state))
         try store.appendCheckpoint(interval: nil, event: event)
@@ -218,9 +184,6 @@ public final class TrackingEngine {
         snapshot.sessionID = sessionID
         snapshot.pauseReason = nil
         snapshot.sessionSeconds = priorCredited
-        // Silence a Swift warning while retaining var for symmetry with restoration code.
-        state.lastProgressSignature = signature
-        active = state
     }
 
     private func finishActive(at date: Date, reason: PauseReason, allowResume: Bool) throws {
@@ -243,7 +206,7 @@ public final class TrackingEngine {
         if state.segmentDuration > 0 {
             interval = ReadingInterval(sessionID: state.sessionID, bookID: state.book.id, start: state.segmentStart,
                                        end: state.segmentEnd, duration: state.segmentDuration, timezoneID: state.timezoneID,
-                                       mode: state.mode, disposition: state.segmentDisposition)
+                                       mode: state.mode)
         } else { interval = nil }
         let event = AuditEvent(date: eventDate, kind: eventKind, bookID: state.book.id, sessionID: state.sessionID, detail: eventDetail)
         try store.appendCheckpoint(interval: interval, event: event)
@@ -260,16 +223,8 @@ public final class TrackingEngine {
         return prior.sessionID
     }
 
-    private func isEvidence(_ input: TrackingInput, comparedWith state: ActiveState) -> Bool {
-        if input.relevantActivity { return true }
-        // Native relocation includes restore, jump and reflow. It is position only.
-        guard input.progress?.source != "stillleaf-epub-location",
-              input.progress?.reliable == true, let signature = navigationSignature(input.progress) else { return false }
-        return signature != state.lastProgressSignature
-    }
-
     /// A final reader position is useful even after its window loses focus.
-    /// Persist it without advancing a tracking session or treating it as activity.
+    /// Persist it without advancing a tracking session.
     public func recordPosition(_ progress: ProgressObservation) throws {
         let signature = storedProgressSignature(progress)
         guard lastStoredProgress[progress.bookID] != signature else { return }
@@ -291,7 +246,7 @@ public final class TrackingEngine {
     }
 
     private func updateSnapshot(from state: ActiveState) {
-        snapshot.phase = state.segmentDisposition == .uncertain ? .uncertain : .reading
+        snapshot.phase = .reading
         snapshot.book = state.book
         snapshot.mode = state.mode
         snapshot.sessionID = state.sessionID

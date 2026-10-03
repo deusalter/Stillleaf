@@ -49,7 +49,7 @@ func runAudiobookSmoke(previews: URL) async throws {
     try require(model.audiobookProgress(in: secondGroup)?.positionSeconds == 8100, "split lost position link")
     let target = BookRecord(id: "other", title: "Other book")
     try store.saveBook(target); model.refresh()
-    model.reviewInterval(second, start: second.start, end: second.end, bookID: target.id, disposition: .credited)
+    model.editInterval(second, start: second.start, end: second.end, bookID: target.id, disposition: .credited)
     let reassigned = model.readingSessions.first { $0.bookID == target.id }!
     try require(model.audiobookProgress(in: reassigned) == nil, "reassignment leaked another book position")
     model.deleteBook(target)

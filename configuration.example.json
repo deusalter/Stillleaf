@@ -1,7 +1,6 @@
 {
   "dailyGoalMinutes": 20,
   "calendarTimezone": "America/Los_Angeles",
-  "uncertaintyThresholdMinutes": 20,
   "checkpointSeconds": 15,
   "discordEnabled": false,
   "discordApplicationID": "",

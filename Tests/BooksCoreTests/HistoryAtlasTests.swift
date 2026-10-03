@@ -26,14 +26,13 @@ final class HistoryAtlasTests: XCTestCase {
     func testMergeIdentityMatchesSessionGroupingAndExclusionsDoNotColorRings() {
         let start = date("2026-09-26T08:00:00Z")
         let credit = ReadingInterval(sessionID: "source-session", bookID: "source", start: start, end: start.addingTimeInterval(600), duration: 600, timezoneID: "UTC", mode: .automatic)
-        let pending = ReadingInterval(sessionID: "pending", bookID: "target", start: start.addingTimeInterval(1200), end: start.addingTimeInterval(1800), duration: 600, timezoneID: "UTC", mode: .manual, disposition: .uncertain)
+        let manual = ReadingInterval(sessionID: "manual", bookID: "target", start: start.addingTimeInterval(1200), end: start.addingTimeInterval(1800), duration: 600, timezoneID: "UTC", mode: .manual)
         let excluded = ReadingInterval(sessionID: "excluded", bookID: "source", start: start.addingTimeInterval(3600), end: start.addingTimeInterval(4200), duration: 600, timezoneID: "UTC", mode: .manual, disposition: .excluded)
         let merges = [BookMerge(sourceID: "source", targetID: "target")]
-        let intervals = [credit, pending, excluded], period = DateInterval(start: start, duration: 86400)
+        let intervals = [credit, manual, excluded], period = DateInterval(start: start, duration: 86400)
         let days = HistoryAtlas.days(intervals: intervals, merges: merges, period: period, timezoneID: "UTC")
         XCTAssertEqual(days[0].books.map(\.bookID), ["target"])
-        XCTAssertEqual(days[0].creditedSeconds, 600)
-        XCTAssertEqual(days[0].uncertainSeconds, 600)
+        XCTAssertEqual(days[0].creditedSeconds, 1200)
         let groups = ReadingSessionGrouping.groups(intervals: intervals, merges: merges)
         XCTAssertTrue(groups.allSatisfy { $0.bookID == days[0].books[0].bookID })
         XCTAssertEqual(HistoryAtlas.slices(intervals: intervals, merges: merges, period: period).count, 3)
@@ -42,7 +41,7 @@ final class HistoryAtlasTests: XCTestCase {
     func testHistoricalAudioUsesSourceSessionAndExcludesNextMidnight() {
         let start = date("2026-09-26T23:00:00Z"), midnight = date("2026-09-27T00:00:00Z")
         let interval = ReadingInterval(sessionID: "corrected", bookID: "audio-edition", start: start, end: midnight.addingTimeInterval(3600), duration: 7200, timezoneID: "UTC", mode: .listening, audioSessionID: "original")
-        let group = ReadingSessionGroup(id: "g", bookID: "linked-text", start: start, end: interval.end, intervals: [interval], creditedSeconds: 7200, uncertainSeconds: 0)
+        let group = ReadingSessionGroup(id: "g", bookID: "linked-text", start: start, end: interval.end, intervals: [interval], creditedSeconds: 7200)
         let position = AudiobookProgress(positionSeconds: 1800, durationSeconds: 10000)
         let observations = [
             ProgressObservation(bookID: "audio-edition", observedAt: start.addingTimeInterval(1800), source: "audio", audio: position, sessionID: "original"),

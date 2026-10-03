@@ -28,7 +28,7 @@ public enum ReadingStatistics {
                 goalIndex += 1
             }
             dayStarts.append(dayStart)
-            output.append(DailyTotal(day: key, creditedSeconds: 0, uncertainSeconds: 0, manualSeconds: 0, goalMinutes: activeGoal))
+            output.append(DailyTotal(day: key, creditedSeconds: 0, manualSeconds: 0, goalMinutes: activeGoal))
             dayStart = nextDay
         }
         guard !dayStarts.isEmpty, let endExclusive = calendar.date(byAdding: .day, value: 1, to: last) else { return output }
@@ -56,7 +56,7 @@ public enum ReadingStatistics {
                     if interval.disposition == .credited {
                         output[index].creditedSeconds += share
                         if interval.mode == .manual { output[index].manualSeconds += share }
-                    } else if interval.disposition == .uncertain { output[index].uncertainSeconds += share }
+                    }
                 }
                 index += 1
             } while index < dayStarts.count && dayStarts[index] < boundedEnd
@@ -74,7 +74,7 @@ public enum ReadingStatistics {
         }
 
         guard let todayIndex = ordered.lastIndex(where: { $0.day == today }) else {
-            return StreakSummary(current: 0, longest: longest, todayPending: true, provisional: false)
+            return StreakSummary(current: 0, longest: longest, todayPending: true)
         }
         let todayPending = !ordered[todayIndex].qualifies
         var cursor = todayPending ? todayIndex - 1 : todayIndex
@@ -84,9 +84,7 @@ public enum ReadingStatistics {
             cursor -= 1
         }
 
-        // Any unresolved day can alter the current or historical longest run after review.
-        let provisional = ordered.contains { $0.uncertainSeconds > 0 }
-        return StreakSummary(current: current, longest: longest, todayPending: todayPending, provisional: provisional)
+        return StreakSummary(current: current, longest: longest, todayPending: todayPending)
     }
 
     private static func calendar(_ timezoneID: String) -> Calendar {

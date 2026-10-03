@@ -258,12 +258,12 @@ final class PageTurnTests: XCTestCase {
         let day = Date(timeIntervalSince1970: 1_704_067_200) // 2024-01-01 UTC
         let intervals = [
             ReadingInterval(id: "kept", sessionID: "kept", bookID: "source", start: day, end: day.addingTimeInterval(10), duration: 10, timezoneID: "UTC", mode: .automatic),
-            ReadingInterval(id: "uncertain", sessionID: "uncertain", bookID: "target", start: day.addingTimeInterval(20), end: day.addingTimeInterval(30), duration: 10, timezoneID: "UTC", mode: .automatic, disposition: .uncertain),
+            ReadingInterval(id: "second", sessionID: "second", bookID: "target", start: day.addingTimeInterval(20), end: day.addingTimeInterval(30), duration: 10, timezoneID: "UTC", mode: .automatic),
             ReadingInterval(id: "excluded", sessionID: "excluded", bookID: "target", start: day.addingTimeInterval(40), end: day.addingTimeInterval(50), duration: 10, timezoneID: "UTC", mode: .automatic, disposition: .excluded)
         ]
         let events = [
             turn(id: "one", date: intervals[0].end, book: "source", session: "kept", from: 1, to: 2, visible: 1),
-            turn(id: "two", date: intervals[1].end, book: "target", session: "uncertain", from: 10, to: 12, visible: 2),
+            turn(id: "two", date: intervals[1].end, book: "target", session: "second", from: 10, to: 12, visible: 2),
             turn(id: "excluded", date: intervals[2].end, book: "target", session: "excluded", from: 20, to: 21, visible: 1),
             turn(id: "outside", date: day.addingTimeInterval(15), book: "target", session: "kept", from: 2, to: 3, visible: 1)
         ]
@@ -326,9 +326,9 @@ final class PageTurnTests: XCTestCase {
         let intervals = [
             ReadingInterval(id: "credited-source", sessionID: "credited", bookID: "source", start: start,
                             end: start.addingTimeInterval(120), duration: 120, timezoneID: "UTC", mode: .automatic),
-            ReadingInterval(id: "uncertain-target", sessionID: "uncertain", bookID: "target",
+            ReadingInterval(id: "excluded-target", sessionID: "excluded", bookID: "target",
                             start: start.addingTimeInterval(120), end: start.addingTimeInterval(180), duration: 60,
-                            timezoneID: "UTC", mode: .automatic, disposition: .uncertain),
+                            timezoneID: "UTC", mode: .automatic, disposition: .excluded),
             ReadingInterval(id: "other", sessionID: "other", bookID: "other", start: start.addingTimeInterval(180),
                             end: start.addingTimeInterval(240), duration: 60, timezoneID: "UTC", mode: .automatic),
             ReadingInterval(id: "manual-target", sessionID: "manual", bookID: "target", start: start.addingTimeInterval(240),
@@ -337,7 +337,7 @@ final class PageTurnTests: XCTestCase {
         let events = [
             turn(id: "credited-one", date: start.addingTimeInterval(30), book: "source", session: "credited", from: 1, to: 2, visible: 1),
             turn(id: "credited-two", date: start.addingTimeInterval(60), book: "source", session: "credited", from: 2, to: 4, visible: 2),
-            turn(id: "uncertain", date: start.addingTimeInterval(150), book: "target", session: "uncertain", from: 4, to: 6, visible: 2),
+            turn(id: "excluded", date: start.addingTimeInterval(150), book: "target", session: "excluded", from: 4, to: 6, visible: 2),
             turn(id: "manual", date: start.addingTimeInterval(300), book: "target", session: "manual", from: 6, to: 8, visible: 2)
         ]
         let merges = [BookMerge(sourceID: "source", targetID: "target")]

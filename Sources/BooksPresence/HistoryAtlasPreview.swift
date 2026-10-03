@@ -14,7 +14,7 @@ func renderHistoryAtlasPreviews(to destination: URL) throws {
     try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
     var calendar = Calendar(identifier: .gregorian); calendar.timeZone = TimeZone(identifier: "America/Los_Angeles")!
     let anchor = calendar.date(byAdding: .day, value: -1, to: calendar.startOfDay(for: Date()))!
-    for fixture in ["standard", "dense", "sparse", "empty", "review", "merged"] {
+    for fixture in ["standard", "dense", "sparse", "empty", "excluded", "merged"] {
         let support = root.appendingPathComponent(fixture)
         let store = try ReadingStore(url: support.appendingPathComponent("history.sqlite"))
         let titles = ["The Remains of the Day", "The Summer Book", "The Left Hand of Darkness", "Invisible Cities", "The Sea, the Sea", "A Room of One’s Own", "The Waves", "Piranesi", "The Book of the New Sun: The Shadow of the Torturer", "Middlemarch", "The Odyssey", "The Secret Garden"]
@@ -67,7 +67,7 @@ func renderHistoryAtlasPreviews(to destination: URL) throws {
             for (index, book) in books.enumerated() {
                 try record(book, date: anchor, hour: 7 + index, minutes: fixture == "dense" ? 40 : 20,
                     pages: fixture == "dense" && book.resolvedFormat != .audiobook ? 12 : 0,
-                    disposition: fixture == "review" ? .uncertain : .credited, suffix: fixture)
+                    disposition: fixture == "excluded" ? .excluded : .credited, suffix: fixture)
             }
             if fixture == "merged" {
                 let target = BookRecord(id: "atlas-target", title: "The Remains of the Day — linked edition", author: "Kazuo Ishiguro")

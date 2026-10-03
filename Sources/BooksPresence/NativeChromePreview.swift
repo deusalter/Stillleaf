@@ -25,12 +25,12 @@ private enum NativeChromeCaptureError: Error { case renderFailed }
             // Hosting installs toolbar items asynchronously. Check real readiness for
             // the modern-built package on older runtimes, not a fixed capture delay.
             let deadline = Date().addingTimeInterval(3)
-            while Date() < deadline && window.toolbar?.items.filter({ $0.itemIdentifier.rawValue.contains("toggleSidebar") }).count != 1 {
+            while Date() < deadline && dashboardSidebarToggleButtons(in: window).count != 1 {
                 try await Task.sleep(nanoseconds: 20_000_000)
             }
             let identifiers = window.toolbar?.items.map { $0.itemIdentifier.rawValue } ?? []
             print("native-dashboard-toolbar: installed=\(window.toolbar != nil) items=\(identifiers)")
-            guard window.toolbar != nil, identifiers.filter({ $0.contains("toggleSidebar") }).count == 1 else { throw NativeChromeCaptureError.renderFailed }
+            guard window.toolbar != nil, dashboardSidebarToggleButtons(in: window).count == 1 else { throw NativeChromeCaptureError.renderFailed }
             try await captureNativeWindow(window, to: directory.appendingPathComponent("dashboard-\(dark ? "dark" : "light")-\(opaque ? "opaque" : "system").png"))
             window.contentViewController = nil; window.close()
             // An app-owned text backdrop exercises popover readability without
@@ -93,6 +93,7 @@ private enum NativeChromeCaptureError: Error { case renderFailed }
             "compact-year-\(dark ? "dark" : "light").png"))
         yearWindow.contentViewController = nil; yearWindow.close()
         try await checkRecordedDateKeyboardFocus(directory: directory, dark: dark)
+        try await checkDashboardSidebarNavigation(model: model, directory: directory, dark: dark)
     }
     try await checkStatusMenuPanelInteractions(directory: directory)
     #if compiler(>=6.2)

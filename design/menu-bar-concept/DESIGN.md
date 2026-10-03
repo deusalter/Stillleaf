@@ -25,9 +25,9 @@ One 18 pt-radius surface combines today's page count, dotted progress arc, goal,
 
 ## Behavior required for implementation
 
-- Preserve the real snapshot phase: reading, uncertain, or paused with its reason. Keep inferred-activity wording; do not imply verified comprehension.
+- Preserve the real snapshot phase: reading or paused with its reason. Keep inferred-activity wording; do not imply verified comprehension.
 - No current book: show “Ready when you are” and the existing placeholder; retain today's metrics. Never label a previous book as actively reading.
-- Manual session: primary action becomes “Stop manual reading.” Starting uses the existing sheet. Keep manual/uncertain time labels when applicable.
+- Manual session: primary action becomes “Stop manual reading.” Starting uses the existing sheet. Keep manual time labels when applicable.
 - Accessibility or Discord setup needed: insert the existing actionable setup notice above the footer. Let panel height grow within screen limits; scroll the body if needed while keeping actions available.
 - Discord switch controls preference only. It must not imply current publication. Preserve reader-open gating.
 - Clamp arc fill to 100% while keeping actual page total. Show “Goal reached” at the target and the surplus beyond it. If no goal exists, show pages today without a progress fraction or arc fill.

@@ -9,18 +9,15 @@ public struct ReadingSessionGroup: Identifiable, Equatable {
     public var end: Date
     public var intervals: [ReadingInterval]
     public var creditedSeconds: Double
-    public var uncertainSeconds: Double
 
     public init(id: String, bookID: String, start: Date, end: Date,
-                intervals: [ReadingInterval], creditedSeconds: Double,
-                uncertainSeconds: Double) {
+                intervals: [ReadingInterval], creditedSeconds: Double) {
         self.id = id
         self.bookID = bookID
         self.start = start
         self.end = end
         self.intervals = intervals
         self.creditedSeconds = creditedSeconds
-        self.uncertainSeconds = uncertainSeconds
     }
 }
 
@@ -60,14 +57,12 @@ public enum ReadingSessionGrouping {
                 group.intervals.append(interval)
                 group.end = max(group.end, interval.end)
                 if interval.disposition == .credited { group.creditedSeconds += interval.duration }
-                else if interval.disposition == .uncertain { group.uncertainSeconds += interval.duration }
                 current = group
             } else {
                 finish()
                 current = ReadingSessionGroup(id: interval.id, bookID: resolvedBookID,
                     start: interval.start, end: interval.end, intervals: [interval],
-                    creditedSeconds: interval.disposition == .credited ? interval.duration : 0,
-                    uncertainSeconds: interval.disposition == .uncertain ? interval.duration : 0)
+                    creditedSeconds: interval.duration)
             }
         }
         finish()
@@ -111,7 +106,7 @@ public enum ReadingSessionGrouping {
             if group.intervals.contains(where: {
                 $0.mode != .automatic || $0.sessionID == activeSessionID || correctedIntervalIDs.contains($0.id)
             }) { return true }
-            if group.creditedSeconds + group.uncertainSeconds >= 120 { return true }
+            if group.creditedSeconds >= 120 { return true }
             var candidates: [AuditEvent] = []
             for sessionID in Set(group.intervals.map(\.sessionID)) {
                 let key = EventKey(bookID: resolver.resolve(group.bookID), sessionID: sessionID)

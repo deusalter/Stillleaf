@@ -5,7 +5,6 @@ import BooksCore
 struct AtlasYearView: View {
     let navigation: CalendarNavigation
     let presentation: HistoryAtlasPeriod
-    private var days: [AtlasDay] { presentation.days }
     let select: (Date) -> Void
     let selectMonth: (Date) -> Void
     @Environment(\.colorScheme) private var scheme
@@ -47,7 +46,6 @@ struct AtlasYearView: View {
     @ViewBuilder private var legend: some View {
         Label("Recorded day", systemImage: "rectangle.fill").font(.caption)
         Label("Finished", systemImage: "diamond.fill").font(.caption)
-        if days.contains(where: { $0.uncertainSeconds > 0 }) { Label("Awaiting review", systemImage: "rectangle.dashed").font(.caption) }
         Text("Faint spans connect a book’s first and latest session.").font(.caption2).foregroundStyle(AtlasStyle.muted(dark))
     }
     private var monthLinks: some View {
@@ -62,7 +60,7 @@ struct AtlasYearView: View {
         }.foregroundStyle(AtlasStyle.muted(dark))
     }
     private func yearRow(_ row: AtlasYearRow, period: DateInterval, calendar: Calendar, chartWidth: CGFloat) -> some View {
-        let id = row.id, activity = row.activity, pending = row.pending
+        let id = row.id, activity = row.activity
         let seconds = row.creditedSeconds, pages = row.pages, finished = row.finishes
         return HStack(spacing: 16) {
             RecordedDateMenu(dates: row.recordedDates, timezoneID: navigation.timezoneID,
@@ -93,10 +91,6 @@ struct AtlasYearView: View {
                     let start = CGFloat(mark.start) * size.width
                     context.fill(Path(CGRect(x: start, y: 30, width: max(1, CGFloat(mark.end - mark.start) * size.width - 0.3), height: 21)), with: .color(color))
                 }
-                for fraction in pending {
-                    let x = CGFloat(fraction) * size.width
-                    context.stroke(Path(CGRect(x: x, y: 32, width: 2, height: 17)), with: .color(color.opacity(0.7)), lineWidth: 0.7)
-                }
                 for fraction in finished {
                     let x = CGFloat(fraction) * size.width
                     var diamond = Path(); diamond.move(to: CGPoint(x: x, y: 17)); diamond.addLine(to: CGPoint(x: x + 5, y: 22))
@@ -118,7 +112,7 @@ struct AtlasYearView: View {
                     Text(pages.formatted()).font(.callout.weight(.medium)); Text("pages").font(.caption2)
                 } else if seconds > 0 {
                     Text(ReadingFormat.duration(seconds)).font(.callout.weight(.medium)); Text("recorded").font(.caption2)
-                } else { Text(finished.isEmpty ? "Review" : "Finished").font(.caption) }
+                } else { Text(finished.isEmpty ? "—" : "Finished").font(.caption) }
             }.foregroundStyle(AtlasStyle.muted(dark)).frame(width: 74, alignment: .trailing)
         }.frame(height: 76)
     }

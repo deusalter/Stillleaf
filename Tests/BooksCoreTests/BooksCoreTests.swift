@@ -31,23 +31,36 @@ final class BooksCoreTests: XCTestCase {
         XCTAssertFalse(intervals.contains { $0.start < start.addingTimeInterval(64) && $0.end > start.addingTimeInterval(4) })
     }
 
-    func testUncertainTimeIsSeparatedAndActivityDoesNotRetroactivelyCreditIt() throws {
+    func testContinuousReadingBeyondTwentyMinutesNeedsNoActivityConfirmation() throws {
         let store = try makeStore()
-        let engine = try TrackingEngine(store: store, timezoneID: "UTC", uncertaintyThreshold: 3, checkpointSeconds: 15)
+        let engine = try TrackingEngine(store: store, timezoneID: "UTC", checkpointSeconds: 15)
         let book = BookRecord(id: "book", title: "Synthetic")
         let start = Date(timeIntervalSince1970: 1_700_000_000)
-        try engine.process(input(start, 10, book))
-        try tick(engine, book: book, date: start, uptime: 10, seconds: 6)
-        try engine.process(TrackingInput(date: start.addingTimeInterval(7), uptime: 17, book: book, relevantActivity: true))
-        try engine.process(input(start.addingTimeInterval(8), 18, book))
-        try engine.stop(date: start.addingTimeInterval(8), uptime: 18)
-
+        try engine.process(input(start, 100, book))
+        try tick(engine, book: book, date: start, uptime: 100, seconds: 1_800)
+        XCTAssertEqual(engine.snapshot.phase, .reading)
+        XCTAssertEqual(engine.snapshot.sessionSeconds, 1_800, accuracy: 0.001)
+        try engine.stop(date: start.addingTimeInterval(1_800), uptime: 1_900)
         let intervals = try store.effectiveIntervals()
-        let credited = intervals.filter { $0.disposition == .credited }.reduce(0) { $0 + $1.duration }
-        let uncertain = intervals.filter { $0.disposition == .uncertain }.reduce(0) { $0 + $1.duration }
-        XCTAssertEqual(credited, 4, accuracy: 0.001)
-        XCTAssertEqual(uncertain, 4, accuracy: 0.001)
-        XCTAssertEqual(engine.snapshot.sessionSeconds, credited, accuracy: 0.001)
+        XCTAssertTrue(intervals.allSatisfy { $0.disposition == .credited })
+        XCTAssertEqual(intervals.reduce(0) { $0 + $1.duration }, 1_800, accuracy: 0.001)
+        XCTAssertEqual(Set(intervals.map(\.sessionID)).count, 1)
+    }
+
+    func testSamplingOutageStartsFreshWithoutCreditingTheGap() throws {
+        let store = try makeStore()
+        let engine = try TrackingEngine(store: store, timezoneID: "UTC")
+        let book = BookRecord(id: "book", title: "Synthetic")
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        try engine.process(input(start, 100, book))
+        try engine.process(input(start.addingTimeInterval(1), 101, book))
+        try engine.process(input(start.addingTimeInterval(61), 161, book))
+        try engine.process(input(start.addingTimeInterval(62), 162, book))
+        try engine.stop(date: start.addingTimeInterval(62), uptime: 162)
+        let intervals = try store.effectiveIntervals()
+        XCTAssertEqual(intervals.reduce(0) { $0 + $1.duration }, 2, accuracy: 0.001)
+        XCTAssertEqual(Set(intervals.map(\.sessionID)).count, 2)
+        XCTAssertFalse(intervals.contains { $0.start < start.addingTimeInterval(61) && $0.end > start.addingTimeInterval(1) })
     }
 
     func testCrashRecoveryCreditsOnlyDurableCheckpointAndMarksUnknownTail() throws {
@@ -259,9 +272,9 @@ final class BooksCoreTests: XCTestCase {
         XCTAssertTrue(streak.todayPending)
     }
 
-    func testUnreliableRepeatedProgressIsStoredOnceAndDoesNotResetUncertainty() throws {
+    func testUnreliableRepeatedProgressIsStoredOnceWhileEligibleTimeIsCredited() throws {
         let store = try makeStore()
-        let engine = try TrackingEngine(store: store, timezoneID: "UTC", uncertaintyThreshold: 2, checkpointSeconds: 15)
+        let engine = try TrackingEngine(store: store, timezoneID: "UTC", checkpointSeconds: 15)
         let book = BookRecord(id: "book", title: "Synthetic")
         let start = Date(timeIntervalSince1970: 1_700_000_000)
         try engine.process(TrackingInput(date: start, uptime: 1, book: book, progress: ProgressObservation(id: "p0", bookID: book.id, observedAt: start, page: 10, source: "catalog", reliable: false)))
@@ -271,7 +284,7 @@ final class BooksCoreTests: XCTestCase {
         }
         try engine.stop(date: start.addingTimeInterval(4), uptime: 5)
         XCTAssertEqual(try store.archive().progress.count, 1)
-        XCTAssertEqual(try store.effectiveIntervals().filter { $0.disposition == .uncertain }.reduce(0) { $0 + $1.duration }, 2, accuracy: 0.001)
+        XCTAssertEqual(try store.effectiveIntervals().filter { $0.disposition == .credited }.reduce(0) { $0 + $1.duration }, 4, accuracy: 0.001)
     }
 
     func testInsertionOrderWinsWhenWallClockMovesBackward() throws {

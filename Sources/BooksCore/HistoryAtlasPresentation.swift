@@ -67,7 +67,6 @@ public struct AtlasSessionPresentation: Identifiable {
     public let session: ReadingSessionGroup
     public let slices: [AtlasTimeSlice]
     public let creditedSeconds: Double
-    public let uncertainSeconds: Double
     public let pages: Int
     public let manualPages: Int
     public let listening: Bool
@@ -93,7 +92,6 @@ public struct AtlasYearRow: Identifiable {
     public let creditedSeconds: Double
     public let pages: Int
     public let activity: [AtlasYearMark]
-    public let pending: [Double]
     public let finishes: [Double]
     public let target: Date
     /// Exact local dates for keyboard-accessible chart navigation, newest first.
@@ -161,7 +159,7 @@ public struct HistoryAtlasPeriod {
             if navigation.scale == .month {
                 for id in ids {
                     let group = ReadingSessionGroup(id: id, bookID: id, start: day.date, end: end,
-                        intervals: intervalsByBook[id] ?? [], creditedSeconds: 0, uncertainSeconds: 0)
+                        intervals: intervalsByBook[id] ?? [], creditedSeconds: 0)
                     positions[id] = HistoryAtlas.audioPosition(in: group,
                         observations: observationsByBook[id] ?? [], during: dayPeriod)
                 }
@@ -184,7 +182,6 @@ public struct HistoryAtlasPeriod {
                 let parts = group.intervals.compactMap { slicesByInterval[$0.id] }
                 return AtlasSessionPresentation(session: group, slices: parts,
                     creditedSeconds: parts.filter { $0.interval.disposition == .credited }.reduce(0) { $0 + $1.seconds },
-                    uncertainSeconds: parts.filter { $0.interval.disposition == .uncertain }.reduce(0) { $0 + $1.seconds },
                     pages: source.pageEvidence.pages(from: period.start, through: period.end, bookID: group.bookID, within: group.intervals),
                     manualPages: source.pageEvidence.pages(from: period.start, through: period.end,
                         bookID: group.bookID, within: group.intervals, manualOnly: true),
@@ -201,9 +198,9 @@ public struct HistoryAtlasPeriod {
             // The cutoff is shared by every book/date. Calendar conversion is
             // substantially more expensive than comparing absolute instants.
             let today = calendar.startOfDay(for: now)
-            var activity: [String: [AtlasYearMark]] = [:], pending: [String: [Double]] = [:]
+            var activity: [String: [AtlasYearMark]] = [:]
             var recordedDates: [String: Set<Date>] = [:]
-            var firstDates: [String: Date] = [:], lastActive: [String: Date] = [:], lastPending: [String: Date] = [:]
+            var firstDates: [String: Date] = [:], lastActive: [String: Date] = [:]
             for day in days {
                 let end = calendar.date(byAdding: .day, value: 1, to: day.date) ?? day.date
                 for book in day.books {
@@ -212,8 +209,7 @@ public struct HistoryAtlasPeriod {
                     if book.creditedSeconds > 0 {
                         activity[book.bookID, default: []].append(AtlasYearMark(start: fraction(day.date), end: fraction(end)))
                         lastActive[book.bookID] = day.date
-                    } else if book.uncertainSeconds > 0 { pending[book.bookID, default: []].append(fraction(day.date)) }
-                    if book.uncertainSeconds > 0 { lastPending[book.bookID] = day.date }
+                    }
                 }
                 // Qualified page evidence can exist without recorded time. Keep
                 // its book and active day visible without manufacturing seconds.
@@ -239,8 +235,8 @@ public struct HistoryAtlasPeriod {
                 return (source.booksByID[$0]?.title ?? "Unknown book").localizedStandardCompare(source.booksByID[$1]?.title ?? "Unknown book") == .orderedAscending
             }.map { id in
                 AtlasYearRow(id: id, creditedSeconds: seconds[id] ?? 0, pages: totals.byBook[id] ?? 0,
-                    activity: activity[id] ?? [], pending: pending[id] ?? [], finishes: (finishes[id] ?? []).map(fraction),
-                    target: lastActive[id] ?? lastPending[id] ?? finishes[id]?.first.map { calendar.startOfDay(for: $0) } ?? period.start,
+                    activity: activity[id] ?? [], finishes: (finishes[id] ?? []).map(fraction),
+                    target: lastActive[id] ?? finishes[id]?.first.map { calendar.startOfDay(for: $0) } ?? period.start,
                     recordedDates: (recordedDates[id] ?? []).filter { $0 <= today }.sorted(by: >))
             }
         } else { yearRows = [] }

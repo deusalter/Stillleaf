@@ -166,7 +166,7 @@ enum ReadingType { static let pageTitle, sectionLabel, bookTitle(size:), numeral
   - Keep `focusable`, `onMoveCommand`, labels and identifiers.
 - [ ] **Step 3: Today.**
   - Layout: `ScrollView { VStack(spacing: 36) { PageHeader("Today", subtitle: <weekday, month day>) { tracking capsule }; DailyReadingOverview (the one surface card); ReadingSection("This year") { AnnualReadingGoalView content, no card }; ReadingSection("Last read" / "Your current read", accessory: Book details button) { cover .hero (140×210), New York 28pt title … }; FinishedBookPrompt; journal actions row } .readingPage() }`.
-  - Streak colour becomes the accent; warning stays for "awaiting review".
+  - Streak colour becomes the accent.
 - [ ] **Step 4: Library.**
   - The header trailing holds the Import/Add buttons.
   - One control row: segmented shelf (fixed width 360), a flexible spacer, search (240) and the sort menu (plain, no surface).

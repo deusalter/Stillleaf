@@ -17,7 +17,6 @@ func runSettingsDraftSmoke(model: AppModel) throws {
     }
 
     drafts.annualEnabledDraft = false
-    drafts.uncertaintyDraft = "20"
     drafts.timezoneDraft = "Etc/UTC"
     drafts.dailyUnitDraft = .minutes
     drafts.pageGoalDraft = ""

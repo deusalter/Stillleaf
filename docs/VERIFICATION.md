@@ -9,7 +9,7 @@ The passed local and CI entries below are the previous baseline. That baseline r
 | Check | Result |
 |---|---|
 | Direct full native build (`scripts/build-local.sh`) | Passed with installed Swift 5.8.1 / macOS 13 SDK |
-| Core behavioral harness (`scripts/core-smoke.swift`) | Passed: timing, pause exclusion, uncertainty, recovery, correction/deletion, import idempotency/atomicity, backup/restore, DST and goals |
+| Core behavioral harness (`scripts/core-smoke.swift`) | Passed: timing, pause exclusion, recovery, correction/deletion, import idempotency/atomicity, backup/restore, DST and goals |
 | Discord protocol harness (`scripts/discord-smoke.swift`) | Passed: supported payloads, Unix seconds, image-key filtering, fragmented/multiple frames and clear framing; no real publish |
 | Native model/view check (`BooksPresence --self-test-ui`) | Passed: isolated synthetic manual addition, split/delete preservation and Today/History/Library/Review/popover view layout; no screen capture |
 | App packaging | Passed; app includes both linked libraries and diagnostic |
@@ -41,7 +41,7 @@ Review corrected an inclusive calendar end boundary, labels using the wrong time
 
 ## Bounds and recovery semantics
 
-Within supported operation, ticks are no more than five seconds apart. Checkpoints occur at 15 seconds of accumulated time, so a crash's uncommitted tail is less than 20 seconds under that cadence. A tick gap exceeding five seconds is an outage; that gap is not credited. A persisted start/checkpoint without a closing marker produces a recovery event with an **unknown** tail duration, never estimated downtime. Uncertain time is separate and excluded until reviewed.
+Within supported operation, ticks are no more than five seconds apart. Checkpoints occur at 15 seconds of accumulated time, so a crash's uncommitted tail is less than 20 seconds under that cadence. A tick gap exceeding five seconds is an outage; that gap is not credited. A persisted start/checkpoint without a closing marker produces a recovery event with an **unknown** tail duration, never estimated downtime.
 
 If the wall clock moves backward behind previously recorded time, tracking holds with a clock-discontinuity reason until placement can resume without overlap. This may leave a visible gap; it does not invent trusted wall-clock durations or stop with a database-overlap error.
 
@@ -130,7 +130,7 @@ Following feedback that the 1.3.7 transitions felt slow, 1.3.8 makes dashboard s
 
 The 1.3.8 motion changes did not address the user's click-before-transition pause. A new `--benchmark-ui` developer command creates isolated synthetic history (60 books, 2,000 intervals and 2,000 page events), replaces the destination in a native hosting window, and times synchronous construction, layout and display. It excludes fixture preparation and animation waits and never opens the user's database. This measures destination work, not end-to-end input latency or compositor frame rate.
 
-Before the fix, three passes measured month layout at 371–554 ms, year at 1,178–1,214 ms and Settings at 240–290 ms. A sampling profile showed repeated `HistoryView.pageTurns` calls spending most of their time in `PageStatistics.qualified`: each page event scanned the entire effective interval history. Qualification now builds a book/session index and uses binary search with prefix maximum ends. This retains start-exclusive/end-inclusive boundaries, overlapping-input membership, book merges, uncertain intervals, exclusions and manual corrections. Differential regression coverage compares indexed results with the original linear membership predicate, including a long session, gaps and boundaries.
+Before the fix, three passes measured month layout at 371–554 ms, year at 1,178–1,214 ms and Settings at 240–290 ms. A sampling profile showed repeated `HistoryView.pageTurns` calls spending most of their time in `PageStatistics.qualified`: each page event scanned the entire effective interval history. Qualification now builds a book/session index and uses binary search with prefix maximum ends. This retains start-exclusive/end-inclusive boundaries, overlapping-input membership, book merges, exclusions and manual corrections. Differential regression coverage compares indexed results with the original linear membership predicate, including a long session, gaps and boundaries.
 
 Calendar summaries now select civil-day keys once per view evaluation and reuse constant-time daily page lookups. Settings no longer constructs hundreds of native time-zone picker items on entry: a searchable popover creates a lazy list when opened. It still edits the draft and requires Apply reading changes to persist the chosen zone.
 

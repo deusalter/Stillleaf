@@ -65,13 +65,13 @@ struct ReadingRecordsSheet: View {
     @State private var editing: ReadingInterval?
     var body: some View {
         VStack(spacing: 0) {
-            ReadingSheetHeader(title: "Reading records", subtitle: "Optional corrections and unconfirmed reading time.", close: { dismiss() })
+            ReadingSheetHeader(title: "Reading records", subtitle: "Optional edits to saved reading sessions.", close: { dismiss() })
                 .padding(.horizontal, 30).padding(.top, 24)
-            ReviewView(model: model, present: { destination in
+            ReadingSessionsView(model: model, present: { destination in
                 if case .review(let interval) = destination { editing = interval }
             }, showsHeading: false)
         }.frame(width: 880, height: 680)
         .background(ReadingPalette.paper).foregroundStyle(ReadingPalette.ink)
-        .sheet(item: $editing) { interval in IntervalReviewEditor(model: model, interval: interval).readingMotionAccessibility() }
+        .sheet(item: $editing) { interval in ReadingSessionEditor(model: model, interval: interval).readingMotionAccessibility() }
     }
 }

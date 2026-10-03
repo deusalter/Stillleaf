@@ -258,7 +258,6 @@ struct ActivityStateLabel: View {
         let symbol: String
         switch snapshot.phase {
         case .reading: text = "Reading now"; symbol = "record.circle"
-        case .uncertain: text = "Time awaiting review"; symbol = "clock.badge.questionmark"
         case .paused: text = "Paused • \(activityPauseSummary(snapshot.pauseReason))"; symbol = "pause.circle"
         }
         return Label(text, systemImage: symbol)
@@ -282,22 +281,6 @@ private func activityPauseSummary(_ reason: PauseReason?) -> String {
     case .recovery: return "Recovering"
     case .clockDiscontinuity: return "Clock changed"
     case nil: return "Waiting for reading"
-    }
-}
-
-struct UncertainNotice: View {
-    let count: Int
-    let review: () -> Void
-    var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "clock.badge.questionmark").foregroundStyle(ReadingPalette.ochre)
-            Text("\(count) interval\(count == 1 ? "" : "s") need review before they count toward your totals.")
-            Spacer()
-            Button("Review", action: review)
-        }
-        .font(.callout)
-        .padding(14)
-        .background(ReadingPalette.ochre.opacity(0.12), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 }
 

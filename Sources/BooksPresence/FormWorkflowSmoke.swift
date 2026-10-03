@@ -28,14 +28,14 @@ func checkFormSaveResults() throws {
     }
     var failRecovery = false
     let model = try AppModel(support: root, defaults: defaults, startTracking: false,
-        makeTrackingEngine: { store, zone, threshold in
+        makeTrackingEngine: { store, zone in
             if failRecovery { throw FormWorkflowSmokeError.failed("Synthetic postcommit tracker recovery failure") }
-            return try TrackingEngine(store: store, timezoneID: zone, uncertaintyThreshold: threshold)
+            return try TrackingEngine(store: store, timezoneID: zone)
         })
     defer { model.shutdown() }
     let future = Date().addingTimeInterval(3600)
     guard !model.addManual(title: "Future", author: "", start: end, end: future), model.errorMessage != nil,
-          !model.reviewInterval(interval, start: interval.start, end: future, bookID: source.id, disposition: .credited),
+          !model.editInterval(interval, start: interval.start, end: future, bookID: source.id, disposition: .credited),
           !model.splitInterval(interval, at: interval.end),
           !model.mergeBooks(source: source, target: audio),
           !model.mergeBooks(source: audio, target: target),
@@ -60,7 +60,7 @@ func checkFormSaveResults() throws {
     let failures = [
         model.startManual(title: "Rejected start", author: ""),
         model.addManual(title: "Rejected addition", author: "", start: earlierEnd.addingTimeInterval(-600), end: earlierEnd),
-        model.reviewInterval(interval, start: interval.start, end: interval.end, bookID: source.id, disposition: .excluded),
+        model.editInterval(interval, start: interval.start, end: interval.end, bookID: source.id, disposition: .excluded),
         model.splitInterval(interval, at: interval.start.addingTimeInterval(900)),
         model.mergeBooks(source: source, target: target),
         model.deleteSession(interval.sessionID)
@@ -77,7 +77,7 @@ func checkFormSaveResults() throws {
         }
     }
     guard model.addManual(title: "Saved addition", author: "", start: earlierEnd.addingTimeInterval(-600), end: earlierEnd),
-          model.reviewInterval(interval, start: interval.start, end: interval.end, bookID: source.id, disposition: .excluded),
+          model.editInterval(interval, start: interval.start, end: interval.end, bookID: source.id, disposition: .excluded),
           let revised = model.intervals.first(where: { $0.sessionID == interval.sessionID }),
           model.splitInterval(revised, at: revised.start.addingTimeInterval(900)),
           model.mergeBooks(source: source, target: target),
@@ -94,7 +94,7 @@ func checkFormSaveResults() throws {
           let committedBook = model.books.first(where: { $0.title == "Saved before recovery failed" }),
           let committedInterval = model.intervals.first(where: { $0.bookID == committedBook.id }),
           model.intervals.filter({ $0.bookID == committedBook.id }).count == 1,
-          model.reviewInterval(committedInterval, start: committedInterval.start, end: committedInterval.end,
+          model.editInterval(committedInterval, start: committedInterval.start, end: committedInterval.end,
                                bookID: committedBook.id, disposition: .excluded),
           model.trackingRecoveryMessage?.contains("saved changes are intact") == true,
           let corrected = model.intervals.first(where: { $0.bookID == committedBook.id }), corrected.disposition == .excluded,

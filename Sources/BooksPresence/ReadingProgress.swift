@@ -109,10 +109,6 @@ struct DailyReadingOverview: View {
                     overviewStat(value: "\(model.dailyGoalStreak.current) \(model.dailyGoalStreak.current == 1 ? "day" : "days")", title: "Goal streak", symbol: "flame", color: ReadingPalette.accent)
                 }
                 ReadingWeekStrip(model: model)
-                if model.dailyGoalStreak.provisional || model.today.uncertainSeconds > 0 {
-                    Label("Some time is awaiting review", systemImage: "clock.badge.questionmark")
-                        .font(.caption).foregroundStyle(ReadingPalette.ochre)
-                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -220,13 +216,6 @@ struct MenuReadingGoal: View {
             if model.today.manualSeconds > 0 {
                 Text("Includes \(ReadingFormat.duration(model.today.manualSeconds)) manual time")
                     .font(.caption2).foregroundStyle(ReadingPalette.secondaryInk)
-            }
-            if model.today.uncertainSeconds > 0 {
-                Label("\(ReadingFormat.duration(model.today.uncertainSeconds)) awaiting review", systemImage: "clock.badge.questionmark")
-                    .font(.caption2).foregroundStyle(ReadingPalette.ochre)
-            } else if model.dailyGoalStreak.provisional {
-                Text("Streak is provisional until pending time is reviewed.")
-                    .font(.caption2).foregroundStyle(ReadingPalette.ochre)
             }
         }
         .padding(.vertical, 8)

@@ -27,9 +27,9 @@ final class HistoryAtlasPresentationTests: XCTestCase {
         let start = date("2026-03-08T07:30:00Z")
         var cross = interval("cross", start: start, duration: 10800, bookID: "source")
         cross.duration = 5400
-        let pending = interval("pending", start: date("2026-03-09T08:00:00Z"), disposition: .uncertain)
+        let later = interval("later", start: date("2026-03-09T08:00:00Z"))
         let excluded = interval("excluded", start: start.addingTimeInterval(600), disposition: .excluded)
-        let input = source([cross, pending, excluded], merges: [BookMerge(sourceID: "source", targetID: "b")])
+        let input = source([cross, later, excluded], merges: [BookMerge(sourceID: "source", targetID: "b")])
         for scale in CalendarScale.allCases {
             let navigation = CalendarNavigation(timezoneID: "America/Los_Angeles", anchor: start, scale: scale)
             let prepared = HistoryAtlasPeriod(source: input, navigation: navigation)
@@ -92,23 +92,22 @@ final class HistoryAtlasPresentationTests: XCTestCase {
         XCTAssertEqual(prepared.daysByKey["2026-09-27"]?.positionsByBook["b"]?.positionSeconds, 3600)
     }
 
-    func testYearRowsKeepDSTWidthsPendingMarksCompletionOnlyBooksAndTargets() {
+    func testYearRowsKeepDSTWidthsRecordedDaysCompletionOnlyBooksAndTargets() {
         let start = date("2026-11-01T07:00:00Z")
         let credited = interval("credit", start: start, duration: 90000)
-        let pending = interval("pending", start: start.addingTimeInterval(90000), disposition: .uncertain)
+        let later = interval("later", start: start.addingTimeInterval(90000))
         let finish = date("2026-11-04T12:00:00Z")
         let events = [AuditEvent(date: finish, kind: "bookCompleted", bookID: "done", detail: "Synthetic",
             completion: BookCompletionEvidence(finishedAt: finish, source: "manual", imported: false))]
-        let input = source([credited, pending], events: events,
+        let input = source([credited, later], events: events,
             books: [BookRecord(id: "b", title: "Book"), BookRecord(id: "done", title: "Done")])
         let navigation = CalendarNavigation(timezoneID: "America/Los_Angeles", anchor: start, scale: .year)
         let prepared = HistoryAtlasPeriod(source: input, navigation: navigation, now: finish)
         XCTAssertEqual(prepared.yearRows.map(\.id), ["b", "done"])
         let row = prepared.yearRows[0]
-        XCTAssertEqual(row.activity.count, 1)
+        XCTAssertEqual(row.activity.count, 2)
         XCTAssertEqual((row.activity[0].end - row.activity[0].start) * navigation.period.duration, 90000, accuracy: 0.001)
-        XCTAssertEqual(row.pending.count, 1)
-        XCTAssertEqual(row.target, start) // Latest credited day retains precedence over later pending day.
+        XCTAssertEqual(row.target, start.addingTimeInterval(90000))
         XCTAssertEqual(row.recordedDates, [start.addingTimeInterval(90000), start])
         XCTAssertEqual(prepared.yearRows[1].finishes.count, 1)
         XCTAssertEqual(prepared.yearRows[1].target, navigation.calendar.startOfDay(for: finish))

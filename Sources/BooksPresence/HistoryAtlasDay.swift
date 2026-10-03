@@ -5,7 +5,7 @@ import BooksCore
 struct AtlasDayView: View {
     let navigation: CalendarNavigation
     let presentation: HistoryAtlasPeriod
-    let review: (ReadingInterval) -> Void
+    let editSession: (ReadingInterval) -> Void
     @State private var selectedBook: String?
     @Environment(\.colorScheme) private var scheme
     private var dark: Bool { scheme == .dark }
@@ -22,10 +22,6 @@ struct AtlasDayView: View {
                 AtlasPanel(title: "Session map", note: "Local time") {
                     AtlasDayLanes(booksByID: presentation.booksByID, navigation: navigation, slicesByBook: presentation.displaySlicesByBook,
                         firstSliceStart: presentation.displayStart, bookIDs: bookIDs) { selectedBook = $0 }
-                    if evidence.contains(where: { $0.interval.disposition == .uncertain }) {
-                        Text("Outlined spans await review and are excluded from recorded-time totals.")
-                            .font(.caption).foregroundStyle(AtlasStyle.muted(dark))
-                    }
                 }
                 HStack {
                     Text(selectedBook.map { title($0) } ?? "Sessions").font(.system(size: 14, weight: .semibold)).accessibilityAddTraits(.isHeader)
@@ -34,7 +30,7 @@ struct AtlasDayView: View {
                 }
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 24, alignment: .top)], alignment: .leading, spacing: 24) {
                     ForEach(presentation.sessions.filter { selectedBook == nil || $0.session.bookID == selectedBook }) { session in
-                        AtlasSessionCard(booksByID: presentation.booksByID, timezoneID: navigation.timezoneID, presentation: session, period: period, review: review)
+                        AtlasSessionCard(booksByID: presentation.booksByID, timezoneID: navigation.timezoneID, presentation: session, period: period, editSession: editSession)
                     }
                 }
             }
@@ -46,7 +42,7 @@ struct AtlasDayView: View {
                             Text(title(slice.bookID)).font(.callout)
                             Spacer()
                             Text(ReadingFormat.duration(slice.seconds)).font(.caption)
-                            Button("Review") { review(slice.interval) }.buttonStyle(AtlasButtonStyle())
+                            Button("Edit") { editSession(slice.interval) }.buttonStyle(AtlasButtonStyle())
                         }.padding(.vertical, 5)
                     }
                 }.font(.caption).foregroundStyle(AtlasStyle.muted(dark))
@@ -105,7 +101,6 @@ private struct AtlasDayLanes: View {
             ForEach(bookIDs, id: \.self) { id in
                 let row = slicesByBook[id] ?? []
                 let credited = row.filter { $0.interval.disposition == .credited }.reduce(0) { $0 + $1.seconds }
-                let awaiting = row.filter { $0.interval.disposition == .uncertain }.reduce(0) { $0 + $1.seconds }
                 Button { select(id) } label: {
                     HStack(spacing: 16) {
                         VStack(alignment: .leading, spacing: 6) {
@@ -126,13 +121,12 @@ private struct AtlasDayLanes: View {
                                 let width = min(size.width - start, max(2, x(slice.end, in: plot, width: size.width) - start))
                                 let rect = CGRect(x: start, y: 23, width: width, height: 24)
                                 let mark = Path(roundedRect: rect, cornerRadius: 5)
-                                if slice.interval.disposition == .credited { context.fill(mark, with: .color(AtlasStyle.book(id, dark: dark))) }
-                                else { context.stroke(mark, with: .color(AtlasStyle.book(id, dark: dark)), style: StrokeStyle(lineWidth: 1.5, dash: [3, 2])) }
+                                context.fill(mark, with: .color(AtlasStyle.book(id, dark: dark)))
                             }
                         }.frame(height: 76).accessibilityHidden(true)
                     }.contentShape(Rectangle())
                 }.buttonStyle(.plain)
-                .accessibilityLabel("\(booksByID[id]?.title ?? "Unknown book"), \(ReadingFormat.duration(credited)) recorded, \(ReadingFormat.duration(awaiting)) awaiting review. Show sessions.")
+                .accessibilityLabel("\(booksByID[id]?.title ?? "Unknown book"), \(ReadingFormat.duration(credited)) recorded. Show sessions.")
                 .help("Show sessions for this book. Short spans have a minimum two-point hit mark; session detail shows exact time.")
             }
         }
@@ -147,13 +141,12 @@ private struct AtlasSessionCard: View {
     let presentation: AtlasSessionPresentation
     private var session: ReadingSessionGroup { presentation.session }
     let period: DateInterval
-    let review: (ReadingInterval) -> Void
+    let editSession: (ReadingInterval) -> Void
     @Environment(\.colorScheme) private var scheme
     private var dark: Bool { scheme == .dark }
     var body: some View {
         let parts = presentation.slices
         let credited = presentation.creditedSeconds
-        let uncertain = presentation.uncertainSeconds
         let pages = presentation.pages
         let listening = presentation.listening
         VStack(alignment: .leading, spacing: 15) {
@@ -165,7 +158,6 @@ private struct AtlasSessionCard: View {
                 if pages > 0 { Text("\(pages) pages").font(.callout.weight(.medium)) }
                 Text("\(ReadingFormat.duration(credited)) \(listening ? "listening" : "recorded")").font(.caption)
             }
-            if uncertain > 0 { Text("\(ReadingFormat.duration(uncertain)) awaiting review").font(.caption).foregroundStyle(AtlasStyle.muted(dark)) }
             if let position = presentation.position {
                 Text("Position \(position.description)").font(.caption).foregroundStyle(AtlasStyle.muted(dark))
             }
@@ -177,10 +169,10 @@ private struct AtlasSessionCard: View {
                         HStack(alignment: .top, spacing: 8) {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text("\(time(slice.start)) – \(time(slice.end))")
-                                Text("\(ReadingFormat.duration(slice.seconds)) · \(slice.interval.disposition == .credited ? "Credited" : "Awaiting review")")
+                                Text("\(ReadingFormat.duration(slice.seconds)) · \(slice.interval.disposition == .credited ? "Credited" : "Excluded")")
                             }.font(.caption).foregroundStyle(AtlasStyle.muted(dark))
                             Spacer(minLength: 0)
-                            Button("Review") { review(slice.interval) }.buttonStyle(AtlasButtonStyle())
+                            Button("Edit") { editSession(slice.interval) }.buttonStyle(AtlasButtonStyle())
                         }
                     }
                 }.padding(.top, 12)

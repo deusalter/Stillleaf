@@ -276,7 +276,7 @@ struct BookDetailView: View {
     @ObservedObject var model: AppModel
     let book: BookRecord
     @Environment(\.dismiss) private var dismiss
-    @State private var reviewInterval: ReadingInterval?
+    @State private var editingInterval: ReadingInterval?
     @State private var deleteBookConfirmation = false
     @State private var completionEntry: FinishedBookEntry?
     @State private var deleteSessionID: String?
@@ -339,7 +339,7 @@ struct BookDetailView: View {
         .foregroundStyle(ReadingPalette.ink)
         .buttonStyle(ReadingButtonStyle())
         .sheet(item: $completionEntry) { CompletionReviewSheet(model: model, entry: $0).readingMotionAccessibility() }
-        .sheet(item: $reviewInterval) { IntervalReviewEditor(model: model, interval: $0) }
+        .sheet(item: $editingInterval) { ReadingSessionEditor(model: model, interval: $0) }
         .sheet(isPresented: $mergePresented) { MergeBooksView(model: model, source: currentBook) }
         .sheet(isPresented: $editingDates) {
             if let entry = finishedEntry {
@@ -465,7 +465,7 @@ struct BookDetailView: View {
                             pages: model.pages(in: group),
                             audio: model.audiobookProgress(in: group),
                             isAudiobook: group.intervals.contains { model.isListening($0) },
-                            review: { reviewInterval = $0 },
+                            editSession: { editingInterval = $0 },
                             delete: { deleteSessionID = $0 }
                         )
                     }
@@ -648,7 +648,7 @@ private struct BookDetailSessionGroup: View {
     let pages: Int
     let audio: AudiobookProgress?
     let isAudiobook: Bool
-    let review: (ReadingInterval) -> Void
+    let editSession: (ReadingInterval) -> Void
     let delete: (String) -> Void
 
     var body: some View {
@@ -657,7 +657,7 @@ private struct BookDetailSessionGroup: View {
                 ForEach(group.intervals) { interval in
                     BookDetailSessionFragment(
                         interval: interval,
-                        review: { review(interval) },
+                        editSession: { editSession(interval) },
                         delete: { delete(interval.sessionID) }
                     )
                     if interval.id != (group.intervals.last?.id ?? "") { Divider() }
@@ -685,7 +685,7 @@ private struct BookDetailSessionGroup: View {
 
 private struct BookDetailSessionFragment: View {
     let interval: ReadingInterval
-    let review: () -> Void
+    let editSession: () -> Void
     let delete: () -> Void
 
     var body: some View {
@@ -698,7 +698,7 @@ private struct BookDetailSessionFragment: View {
             Spacer()
             Text(ReadingFormat.duration(interval.duration))
                 .font(.caption).monospacedDigit().foregroundStyle(ReadingPalette.fadedInk)
-            Button("Review", action: review).controlSize(.small)
+            Button("Edit", action: editSession).controlSize(.small)
             Button(role: .destructive, action: delete) { Image(systemName: "trash") }
                 .accessibilityLabel("Delete session")
         }
@@ -730,7 +730,7 @@ struct ProgressDescription: View {
 struct SessionRow: View {
     let interval: ReadingInterval
     let pageTurns: Int
-    let review: () -> Void
+    let editSession: () -> Void
     let delete: () -> Void
     var body: some View {
         HStack(spacing: 14) {
@@ -744,7 +744,7 @@ struct SessionRow: View {
                 Text(ReadingFormat.observedPages(pageTurns)).monospacedDigit()
                 Text(ReadingFormat.duration(interval.duration)).font(.caption).monospacedDigit().foregroundStyle(ReadingPalette.secondaryInk)
             }
-            Button("Review", action: review).controlSize(.small)
+            Button("Edit", action: editSession).controlSize(.small)
             Button(role: .destructive, action: delete) { Image(systemName: "trash") }
                 .buttonStyle(ReadingButtonStyle(iconOnly: true)).accessibilityLabel("Delete session")
         }

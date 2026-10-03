@@ -14,7 +14,7 @@ struct HistoryAtlasBenchmark {
             let start = origin.addingTimeInterval(Double(index) * 600)
             let interval = ReadingInterval(id: "i\(index)", sessionID: "s\(index / 10)", bookID: books[(index / 10) % books.count].id,
                 start: start, end: start.addingTimeInterval(60), duration: 60,
-                timezoneID: "UTC", mode: .automatic, disposition: index % 29 == 0 ? .uncertain : .credited)
+                timezoneID: "UTC", mode: .automatic)
             intervals.append(interval)
             events.append(AuditEvent(id: "e\(index)", date: interval.end, kind: "pageTurn", bookID: interval.bookID,
                 sessionID: interval.sessionID, detail: "Synthetic benchmark", pageTurn: PageTurnEvidence(fromPage: index + 1,
@@ -50,7 +50,7 @@ struct HistoryAtlasBenchmark {
 
     static func consume(_ value: HistoryAtlasPeriod) -> Double {
         Double(value.pages) + value.creditedSeconds
-            + Double(value.yearRows.reduce(0) { $0 + $1.activity.count + $1.pending.count })
+            + Double(value.yearRows.reduce(0) { $0 + $1.activity.count })
     }
 
     static func legacyQuery(source: HistoryAtlasSource, navigation: CalendarNavigation) -> Double {
@@ -85,11 +85,10 @@ struct HistoryAtlasBenchmark {
             var marks = 0
             for id in Set(days.flatMap(\.books).map(\.bookID)) {
                 let activity = days.filter { $0.books.contains { $0.bookID == id && $0.creditedSeconds > 0 } }
-                let pending = days.filter { $0.books.contains { $0.bookID == id && $0.uncertainSeconds > 0 } }
                 _ = days.flatMap(\.books).filter { $0.bookID == id }.reduce(0) { $0 + $1.creditedSeconds }
                 _ = source.pageEvidence.pages(from: period.start, through: period.end, bookID: id)
                 for day in activity { _ = navigation.calendar.date(byAdding: .day, value: 1, to: day.date) }
-                marks += activity.count + pending.filter { day in !activity.contains { $0.key == day.key } }.count
+                marks += activity.count
             }
             return Double(pages + marks) + seconds
         }
@@ -100,7 +99,6 @@ struct HistoryAtlasBenchmark {
     private struct LegacyBook {
         let bookID: String
         var creditedSeconds = 0.0
-        var uncertainSeconds = 0.0
     }
     private struct LegacyDay {
         let date: Date
@@ -127,7 +125,6 @@ struct HistoryAtlasBenchmark {
                 let seconds = slice.seconds * end.timeIntervalSince(start) / slice.end.timeIntervalSince(slice.start)
                 var entry = bins[day]?[slice.bookID] ?? LegacyBook(bookID: slice.bookID)
                 if slice.interval.disposition == .credited { entry.creditedSeconds += seconds }
-                else { entry.uncertainSeconds += seconds }
                 bins[day, default: [:]][slice.bookID] = entry
                 start = end
             }

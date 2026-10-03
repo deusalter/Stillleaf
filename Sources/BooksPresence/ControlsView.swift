@@ -391,7 +391,7 @@ struct SettingsView: View {
                             numericEditor(label: "Daily goal minutes", value: $drafts.goalDraft, range: 1...1_440, stepperValue: goalBinding)
                         }
                     }
-                    Text(drafts.dailyUnitDraft == .pages ? "Tracked and manually logged pages. Changes apply from today." : "Tracked and manually logged minutes. Unconfirmed time waits for review.")
+                    Text(drafts.dailyUnitDraft == .pages ? "Tracked and manually logged pages. Changes apply from today." : "Tracked and manually logged minutes. Changes apply from today.")
                         .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -452,20 +452,11 @@ struct SettingsView: View {
                             TimeZoneChooser(selection: $drafts.timezoneDraft)
                             Text("Determines when a new reading day begins.").font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
                         }
-                        Hairline()
-                        HStack {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("Review unconfirmed time after").font(.headline)
-                                Text("Reading without fresh evidence is kept for review.").font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
-                            }
-                            Spacer()
-                            numericEditor(label: "Review threshold minutes", value: $drafts.uncertaintyDraft, range: 1...240, stepperValue: uncertaintyBinding)
-                        }
                     }.padding(.top, 14)
                 } label: {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Advanced reading").font(.headline)
-                        Text("Time zone and unconfirmed reading time")
+                        Text("Calendar time zone")
                             .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
                     }
                 }
@@ -620,7 +611,7 @@ struct SettingsView: View {
             || (drafts.annualEnabledDraft && drafts.annualGoalDraft != String(model.annualBookGoal ?? 12))
             || drafts.pageGoalDraft != String(Int(model.pageGoal.rounded()))
             || drafts.goalDraft != String(Int(model.goalMinutes.rounded()))
-            || drafts.uncertaintyDraft != String(Int(model.uncertaintyMinutes.rounded())) || drafts.timezoneDraft != model.timezoneID)
+            || drafts.timezoneDraft != model.timezoneID)
     }
     private var discordDirty: Bool {
         drafts.didLoadDrafts && (drafts.discordApplicationIDDraft != model.discordApplicationID || drafts.discordAssetKeyDraft != model.discordAssetKey)
@@ -682,13 +673,6 @@ struct SettingsView: View {
     private var annualGoalBinding: Binding<Int> {
         Binding(get: { Int(drafts.annualGoalDraft) ?? 12 }, set: { drafts.annualGoalDraft = String($0); clearFeedback() })
     }
-    private var uncertaintyBinding: Binding<Int> {
-        Binding(get: { Int(drafts.uncertaintyDraft) ?? 20 }, set: { value in
-            drafts.uncertaintyDraft = String(value)
-            clearFeedback()
-        })
-    }
-
     private var readingDraftsAreValid: Bool {
         drafts.readingValuesAreValid
     }
@@ -722,7 +706,7 @@ struct SettingsView: View {
                     .font(.callout)
                     .foregroundStyle(applyFailed ? ReadingPalette.ochre : ReadingPalette.moss)
             } else if !valid {
-                Text("Use 1–10,000 pages or yearly books, 1–1,440 goal minutes, and 1–240 review minutes.")
+                Text("Use 1–10,000 pages or yearly books, 1–1,440 goal minutes, and a valid time zone.")
                     .font(.caption)
                     .foregroundStyle(ReadingPalette.secondaryInk)
             }
@@ -764,12 +748,12 @@ struct SettingsView: View {
     }
 
     private func applyReadingDrafts() {
-        guard readingDraftsAreValid, let uncertainty = Int(drafts.uncertaintyDraft) else {
-            applyFeedback = "Choose a page goal from 1–10,000 pages, a time goal from 1–1,440 minutes, a review threshold from 1–240 minutes, and a valid time zone."
+        guard readingDraftsAreValid else {
+            applyFeedback = "Choose a page goal from 1–10,000 pages, a time goal from 1–1,440 minutes, and a valid time zone."
             applyFailed = true
             return
         }
-        let previous = (model.pageGoal, model.goalMinutes, model.dailyGoalUnit, model.annualBookGoal, model.uncertaintyMinutes, model.timezoneID)
+        let previous = (model.pageGoal, model.goalMinutes, model.dailyGoalUnit, model.annualBookGoal, model.timezoneID)
         model.dailyGoalUnit = drafts.dailyUnitDraft
         model.annualBookGoal = drafts.annualEnabledDraft ? Int(drafts.annualGoalDraft) : nil
         // An invalid hidden unit must neither block the active goal nor replace
@@ -780,12 +764,11 @@ struct SettingsView: View {
         if let goal = Int(drafts.goalDraft), (1...1_440).contains(goal) {
             model.goalMinutes = Double(goal)
         }
-        model.uncertaintyMinutes = Double(uncertainty)
         model.timezoneID = drafts.timezoneDraft
         model.saveSettings()
         if model.errorMessage != nil {
             model.pageGoal = previous.0; model.goalMinutes = previous.1; model.dailyGoalUnit = previous.2
-            model.annualBookGoal = previous.3; model.uncertaintyMinutes = previous.4; model.timezoneID = previous.5
+            model.annualBookGoal = previous.3; model.timezoneID = previous.4
         } else { reloadReadingDrafts() }
         showResult(success: "Reading settings applied.")
     }

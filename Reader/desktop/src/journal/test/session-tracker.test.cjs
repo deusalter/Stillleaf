@@ -5,7 +5,7 @@ const start = Date.parse("2026-09-24T12:00:00Z");
 function fixture(options = {}) {
   const batches = []; let id = 0;
   const tracker = new SessionTracker({persist: batch => batches.push(batch), makeId: () => `fixture-${++id}`, ...options});
-  const sample = (seconds, changes = {}) => tracker.sample({date: start + seconds * 1000, uptime: seconds, bookId: "book-a", eligible: true, activity: false, ...changes});
+  const sample = (seconds, changes = {}) => tracker.sample({date: start + seconds * 1000, uptime: seconds, bookId: "book-a", eligible: true, ...changes});
   return {tracker, batches, sample, intervals: () => batches.flatMap(x => x.intervals), events: () => batches.flatMap(x => x.events)};
 }
 function total(intervals, disposition) { return intervals.filter(x => !disposition || x.disposition === disposition).reduce((sum,x) => sum + x.duration, 0); }
@@ -15,7 +15,7 @@ function noOverlap(intervals) {
 }
 test("trusted samples checkpoint exact segments, with identity and no pages", () => {
   const f = fixture({timezoneId:"America/Los_Angeles"});
-  for (let t = 0; t <= 20; t++) f.sample(t, {activity: t % 5 === 0});
+  for (let t = 0; t <= 20; t++) f.sample(t);
   f.tracker.stop({date:start+20000,uptime:20});
   assert.deepEqual(f.intervals().map(x=>x.duration),[15,5]);
   for (const interval of f.intervals()) {
@@ -61,13 +61,15 @@ test("startup durable watermark rejects replay credit", () => {
   const f=fixture({durableThrough:start+10000});
   assert.equal(f.sample(0).phase,"paused");assert.equal(f.sample(11).phase,"reading");assert.equal(total(f.intervals()),0);
 });
-test("uncertainty splits exactly; restored or reflowed locators provide no evidence", () => {
-  const f=fixture({uncertaintySeconds:3,checkpointSeconds:15});
-  f.sample(0);for(let t=1;t<=6;t++) f.sample(t,{locator:{progression:t/10},cause:t%2?"restore":"layout"});
-  f.tracker.checkpoint({date:start+6000,uptime:6});
-  assert.equal(total(f.intervals(),"credited"),3);assert.equal(total(f.intervals(),"uncertain"),3);
-  f.sample(7,{activity:true});f.sample(8);f.tracker.stop({date:start+8000,uptime:8});
-  assert.equal(total(f.intervals(),"credited"),4);assert.equal(total(f.intervals(),"uncertain"),4);noOverlap(f.intervals());
+test("uninterrupted foreground reading stays credited beyond the former inactivity limit", () => {
+  const f=fixture();
+  f.sample(0);for(let t=1;t<=1800;t++) f.sample(t,{locator:{progression:t/1801},cause:t%2?"restore":"layout"});
+  assert.equal(f.tracker.snapshot.phase,"reading");
+  assert.equal(f.tracker.snapshot.creditedSeconds,1800);
+  f.tracker.stop({date:start+1800000,uptime:1800});
+  assert.equal(total(f.intervals(),"credited"),1800);
+  assert.ok(f.intervals().every(row=>row.disposition==="credited" && row.pages===undefined));
+  noOverlap(f.intervals());
 });
 test("persistence failure does not advance internal timing; retry remains nonoverlapping", () => {
   let fail=false; const batches=[];
@@ -79,6 +81,6 @@ test("persistence failure does not advance internal timing; retry remains nonove
 });
 test("invalid explicit clocks and eligibility fail before persistence", () => {
   const f=fixture();
-  for(const change of [{uptime:-1},{uptime:NaN},{date:Infinity},{eligible:1},{activity:undefined}]) assert.throws(()=>f.sample(0,change));
+  for(const change of [{uptime:-1},{uptime:NaN},{date:Infinity},{eligible:1}]) assert.throws(()=>f.sample(0,change));
   assert.equal(f.batches.length,0);
 });

@@ -35,7 +35,7 @@ final class ReadingTrackingSourceTests: XCTestCase {
                 let progress = try XCTUnwrap(position.observation(bookID: book.id, spine: ["one.xhtml"],
                     date: start.addingTimeInterval(Double(second))))
                 try engine.process(TrackingInput(date: progress.observedAt, uptime: Double(100 + second),
-                    book: book, mode: .automatic, relevantActivity: true, progress: progress))
+                    book: book, mode: .automatic, progress: progress))
                 presence.observe(bookID: book.id, navigationToken: nil, relevantActivity: true,
                     uptime: Double(100 + second))
                 XCTAssertEqual(engine.snapshot.phase, .reading)
@@ -86,7 +86,7 @@ final class ReadingTrackingSourceTests: XCTestCase {
         presence.observe(bookID: book.id, navigationToken: "1", relevantActivity: true, uptime: 100)
         XCTAssertEqual(presence.state(for: engine.snapshot, book: book, enabled: true, readerOpen: true, uptime: 100), .hidden)
         XCTAssertEqual(source(appleBooks: true, access: true), .appleBooks)
-        try engine.process(TrackingInput(date: start.addingTimeInterval(1), uptime: 101, book: book, relevantActivity: true))
+        try engine.process(TrackingInput(date: start.addingTimeInterval(1), uptime: 101, book: book))
         XCTAssertEqual(engine.snapshot.phase, .reading)
         XCTAssertNil(engine.snapshot.pauseReason)
     }

@@ -26,8 +26,8 @@ final class AppModel: ObservableObject {
     private var lastStorePurchaseCheck = Date.distantPast
     private var pendingLinkOffers: [String] = []
     @Published private(set) var days: [DailyTotal] = []
-    @Published private(set) var today = DailyTotal(day: "", creditedSeconds: 0, uncertainSeconds: 0, manualSeconds: 0, goalMinutes: 20)
-    @Published private(set) var streak = StreakSummary(current: 0, longest: 0, todayPending: true, provisional: false)
+    @Published private(set) var today = DailyTotal(day: "", creditedSeconds: 0, manualSeconds: 0, goalMinutes: 20)
+    @Published private(set) var streak = StreakSummary(current: 0, longest: 0, todayPending: true)
     @Published private(set) var currentPagePosition: ReaderPagePosition?
     var currentPage: Int? { currentPagePosition?.page }
     var currentTotalPages: Int? { currentPagePosition?.totalPages }
@@ -37,7 +37,7 @@ final class AppModel: ObservableObject {
     }
     @Published private(set) var todayPages = 0
     @Published private(set) var sessionPages = 0
-    @Published private(set) var pageStreak = StreakSummary(current: 0, longest: 0, todayPending: true, provisional: false)
+    @Published private(set) var pageStreak = StreakSummary(current: 0, longest: 0, todayPending: true)
     @Published private(set) var pageDays: [DailyPageTotal] = []
     @Published private(set) var finishedBooks: [FinishedBookEntry] = []
     @Published private(set) var historyAtlasSource: HistoryAtlasSource?
@@ -74,7 +74,7 @@ final class AppModel: ObservableObject {
     @Published var dailyGoalUnit: DailyGoalUnit = .pages
     @Published var annualBookGoal: Int?
     @Published private(set) var annualBooksFinished = 0
-    @Published private(set) var dailyGoalStreak = StreakSummary(current: 0, longest: 0, todayPending: true, provisional: false)
+    @Published private(set) var dailyGoalStreak = StreakSummary(current: 0, longest: 0, todayPending: true)
     private var goalProgressByDay: [String: DailyGoalProgress] = [:]
     private var goalHistory: [GoalChange] = []
     private var bookReviewCache: [String: String] = [:]
@@ -90,7 +90,6 @@ final class AppModel: ObservableObject {
     }
     var todayGoal: DailyGoalProgress { dailyGoal(on: today.day) }
     @Published var timezoneID = TimeZone.current.identifier
-    @Published var uncertaintyMinutes: Double = 20
     @Published var launchAtLogin = false
 
     private var pageDaysByKey: [String: DailyPageTotal] = [:]
@@ -128,7 +127,6 @@ final class AppModel: ObservableObject {
         displayedIntervalsCache = sorted
         return sorted
     }
-    var uncertainIntervals: [ReadingInterval] { displayIntervals.filter { $0.disposition == .uncertain } }
     private func originalIDs(for interval: ReadingInterval) -> [String] {
         guard interval.id.hasPrefix("group:") else { return [interval.id] }
         return intervals.filter { $0.sessionID == interval.sessionID && $0.bookID == interval.bookID && $0.disposition == interval.disposition && $0.start >= interval.start && $0.end <= interval.end }.map(\.id)
@@ -141,7 +139,7 @@ final class AppModel: ObservableObject {
     private let support: URL
     private let store: ReadingStore
     private let historyReader: (URL) throws -> (archive: HistoryArchive, intervals: [ReadingInterval])
-    private let makeTrackingEngine: (ReadingStore, String, TimeInterval) throws -> TrackingEngine
+    private let makeTrackingEngine: (ReadingStore, String) throws -> TrackingEngine
     private let accessibilityStatus: () -> Bool
     private var engine: TrackingEngine
     private let captures: BooksCapture
@@ -151,7 +149,6 @@ final class AppModel: ObservableObject {
     private var readerWindow: BooksReaderWindow?
     private let readerCheckQueue = DispatchQueue(label: "Stillleaf.reader-liveness", qos: .utility)
     private var readerCheckInFlight = false
-    private var readingActivityEvidence = ReadingActivityEvidence()
     private var pageTurnTracker = PageTurnTracker()
     private var readerPagination = ReaderPagination()
     private let publicCoverResolver = PublicCoverResolver()
@@ -215,8 +212,8 @@ final class AppModel: ObservableObject {
     init(support: URL, defaults: UserDefaults = .standard, startTracking: Bool = true,
          accessibilityStatus: @escaping () -> Bool = { BooksCapture.isTrusted },
          historyReader: @escaping (URL) throws -> (archive: HistoryArchive, intervals: [ReadingInterval]) = ReadingStore.readSnapshot,
-         makeTrackingEngine: @escaping (ReadingStore, String, TimeInterval) throws -> TrackingEngine = {
-             try TrackingEngine(store: $0, timezoneID: $1, uncertaintyThreshold: $2)
+         makeTrackingEngine: @escaping (ReadingStore, String) throws -> TrackingEngine = {
+             try TrackingEngine(store: $0, timezoneID: $1)
          }) throws {
         self.historyReader = historyReader
         self.makeTrackingEngine = makeTrackingEngine
@@ -229,13 +226,11 @@ final class AppModel: ObservableObject {
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: support.path)
         store = try ReadingStore(url: support.appendingPathComponent("history.sqlite"))
         let zone = defaults.string(forKey: "timezoneID").flatMap { TimeZone(identifier: $0) }?.identifier ?? TimeZone.current.identifier
-        let uncertain = defaults.object(forKey: "uncertaintyMinutes") as? Double ?? 20
-        engine = try makeTrackingEngine(store, zone, max(1, uncertain) * 60)
+        engine = try makeTrackingEngine(store, zone)
         covers = try CoverCache(directory: support.appendingPathComponent("Covers"))
         captures = BooksCapture(covers: covers)
         accessibilityGranted = accessibilityStatus()
         timezoneID = zone
-        uncertaintyMinutes = max(1, uncertain)
         trackingEnabled = defaults.object(forKey: "trackingEnabled") as? Bool ?? true
         discordEnabled = defaults.bool(forKey: "discordEnabled")
         discordApplicationID = defaults.string(forKey: "discordApplicationID") ?? ""
@@ -669,13 +664,11 @@ final class AppModel: ObservableObject {
         let previousPhase = snapshot.phase
         let previousBookID = snapshot.book?.id
         do {
-            var readingActivity = relevant
             if let book, reason == nil, !book.trackingExcluded {
                 hasPageNavigationSignal = navigationToken != nil
-                readingActivity = readingActivityEvidence.observe(bookID: book.id, navigationToken: navigationToken, relevantActivity: relevant)
                 presencePolicy.observe(bookID: book.id, navigationToken: navigationToken, relevantActivity: relevant, uptime: uptime)
             }
-            try engine.process(TrackingInput(date: sampleDate, uptime: uptime, book: book, mode: mode, pauseReason: reason, relevantActivity: readingActivity, progress: progress))
+            try engine.process(TrackingInput(date: sampleDate, uptime: uptime, book: book, mode: mode, pauseReason: reason, progress: progress))
             snapshot = engine.snapshot
             var recordedPageTurn = false
             if mode == .automatic, reason == nil, let book, book.source != "stillleaf-epub", let sessionID = snapshot.sessionID,
@@ -1228,7 +1221,7 @@ final class AppModel: ObservableObject {
         defer { rebuildingTracker = false }
         do {
             try audiobookPlayer.close()
-            engine = try makeTrackingEngine(store, timezoneID, uncertaintyMinutes * 60)
+            engine = try makeTrackingEngine(store, timezoneID)
             snapshot = engine.snapshot
             trackingRecoveryRequired = false
             trackingRecoveryMessage = nil
@@ -1245,7 +1238,7 @@ final class AppModel: ObservableObject {
         try audiobookPlayer.pause()
         captureGeneration += 1
         historyGeneration += 1
-        try engine.stop(); snapshot = engine.snapshot; pageTurnTracker.reset(); readerPagination.reset(); currentPagePosition = nil; readingActivityEvidence = ReadingActivityEvidence(); presencePolicy.reset(); presenceState = .hidden; discord.clear()
+        try engine.stop(); snapshot = engine.snapshot; pageTurnTracker.reset(); readerPagination.reset(); currentPagePosition = nil; presencePolicy.reset(); presenceState = .hidden; discord.clear()
     }
     @discardableResult
     func startManual(title: String, author: String) -> Bool {
@@ -1450,7 +1443,7 @@ final class AppModel: ObservableObject {
     func saveSettings() {
         guard annualBookGoal.map({ (1...10_000).contains($0) }) ?? true,
               pageGoal.isFinite, pageGoal >= 1, pageGoal <= 10_000, pageGoal.rounded() == pageGoal,
-              goalMinutes.isFinite, goalMinutes >= 1, goalMinutes <= 1440, TimeZone(identifier: timezoneID) != nil, uncertaintyMinutes.isFinite, uncertaintyMinutes >= 1, uncertaintyMinutes <= 240 else { errorMessage = "Choose a whole-page goal from 1–10,000, a time goal from 1–1440 minutes, a valid timezone, and an uncertainty threshold from 1–240 minutes."; return }
+              goalMinutes.isFinite, goalMinutes >= 1, goalMinutes <= 1440, TimeZone(identifier: timezoneID) != nil else { errorMessage = "Choose a whole-page goal from 1–10,000, a time goal from 1–1440 minutes, and a valid timezone."; return }
         perform {
             let timezoneChanged = engine.timezoneID != timezoneID
             if timezoneChanged { try stopForMutation() }
@@ -1463,10 +1456,9 @@ final class AppModel: ObservableObject {
                 annualGoal: AnnualGoalEvidence(year: goalYear, books: annualBookGoal)) : nil
             try store.setReadingGoals(daily: daily, annual: annual, calendarChange: calendarChange)
             engine.timezoneID = timezoneID
-            engine.uncertaintyThreshold = uncertaintyMinutes * 60
             savedGoal = goalMinutes; savedPageGoal = pageGoal; savedDailyGoalUnit = dailyGoalUnit
             defaults.set(pageGoal, forKey: "pageGoal")
-            defaults.set(goalMinutes, forKey: "goalMinutes"); defaults.set(timezoneID, forKey: "timezoneID"); defaults.set(uncertaintyMinutes, forKey: "uncertaintyMinutes")
+            defaults.set(goalMinutes, forKey: "goalMinutes"); defaults.set(timezoneID, forKey: "timezoneID")
             defaults.set(discordApplicationID, forKey: "discordApplicationID"); defaults.set(discordAssetKey, forKey: "discordAssetKey")
             defaults.set(automaticPublicCovers, forKey: "automaticPublicCovers")
             defaults.set(syncAppleBooksHistoryEnabled, forKey: "syncAppleBooksHistoryEnabled")
@@ -1502,7 +1494,7 @@ final class AppModel: ObservableObject {
         }
     }
     @discardableResult
-    func reviewInterval(_ interval: ReadingInterval, start: Date, end: Date, bookID: String, disposition: IntervalDisposition) -> Bool {
+    func editInterval(_ interval: ReadingInterval, start: Date, end: Date, bookID: String, disposition: IntervalDisposition) -> Bool {
         guard end > start, end <= Date() else { errorMessage = "Use an end time after the start and no later than now."; return false }
         return perform(afterCommit: resetEngineAfterMutation) {
             try stopForMutation()
@@ -1510,7 +1502,7 @@ final class AppModel: ObservableObject {
             let unchanged = abs(start.timeIntervalSince(interval.start)) < 0.001 && abs(end.timeIntervalSince(interval.end)) < 0.001
             let duration = unchanged ? interval.duration : end.timeIntervalSince(start)
             let revised = ReadingInterval(sessionID: interval.sessionID, bookID: bookID, start: start, end: end, duration: duration, timezoneID: interval.timezoneID, mode: unchanged ? interval.mode : .manual, disposition: disposition, audioSessionID: interval.audioSessionID ?? (isListening(interval) ? interval.sessionID : nil))
-            try store.correct(IntervalCorrection(originalIDs: originalIDs(for: interval), replacements: [revised], reason: "User reviewed timing, assignment or credit status."))
+            try store.correct(IntervalCorrection(originalIDs: originalIDs(for: interval), replacements: [revised], reason: "User corrected timing, assignment or credit status."))
         }
     }
     @discardableResult
@@ -1524,7 +1516,6 @@ final class AppModel: ObservableObject {
             try store.correct(IntervalCorrection(originalIDs: originalIDs(for: interval), replacements: [first, second], reason: "User split a reading interval into two sessions."))
         }
     }
-    func resolveUncertain(_ interval: ReadingInterval, confirm: Bool) { reviewInterval(interval, start: interval.start, end: interval.end, bookID: interval.bookID, disposition: confirm ? .credited : .excluded) }
     @discardableResult
     func deleteSession(_ sessionID: String) -> Bool { perform(afterCommit: resetEngineAfterMutation) { try stopForMutation(); defer { try? removeManagedBackups() }; try store.deleteSession(sessionID) } }
     func deleteBook(_ book: BookRecord) {

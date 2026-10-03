@@ -19,7 +19,7 @@ struct RecordedDateMenu<Label: View>: View {
         .buttonStyle(RecordedDateMenuButtonStyle())
         .disabled(dates.isEmpty)
         .accessibilityLabel("Choose a recorded date for \(bookTitle)")
-        .accessibilityHint("Opens recorded days, pending days, and finish dates")
+        .accessibilityHint("Opens recorded days and finish dates")
         .background {
             if isPresented {
                 RecordedDateMenuAnchor(dates: dates, timezoneID: timezoneID,

@@ -21,9 +21,11 @@ struct DashboardView: View {
     @ObservedObject private var theme = ThemeStore.shared
     @State private var deleteAllConfirmation = false
     @State private var uninstallConfirmation = false
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
             DashboardSidebar(selection: $section, model: model, troubleshoot: { sheet = .trackingHelp })
                 .id(theme.revision)
                 .navigationSplitViewColumnWidth(min: 205, ideal: 225, max: 260)
@@ -55,6 +57,12 @@ struct DashboardView: View {
             .background(ReadingPalette.paper)
             .foregroundStyle(ReadingPalette.ink)
             .buttonStyle(ReadingButtonStyle())
+            .nativeNavigationBackdrop()
+        }
+        .nativeDashboardSidebarToggle(isCollapsed: columnVisibility == .detailOnly) {
+            withAnimation(reduceMotion ? nil : ReadingMotion.selection) {
+                columnVisibility = columnVisibility == .detailOnly ? .all : .detailOnly
+            }
         }
         .readingMotionAccessibility()
         .onAppear { acceptNavigationRequest() }
@@ -104,7 +112,7 @@ struct DashboardView: View {
         case .book(let book):
             BookDetailView(model: model, book: book)
         case .review(let interval):
-            IntervalReviewEditor(model: model, interval: interval)
+            ReadingSessionEditor(model: model, interval: interval)
         case .merge(let source):
             MergeBooksView(model: model, source: source)
         case .restore:
@@ -228,7 +236,7 @@ struct PopoverView: View {
                     Text(model.dailyGoalStreak.todayPending ? "Goal streak · today still open" : "Goal streak")
                         .font(.caption2).foregroundStyle(ReadingPalette.fadedInk)
                 }.frame(maxWidth: .infinity, alignment: .leading)
-                .help(model.dailyGoalStreak.provisional ? "This streak is provisional until pending time is reviewed." : "Consecutive days that met your daily goal.")
+                .help("Consecutive days that met your daily goal.")
             }
             if let pace = ReadingFormat.pagesPerMinute(model.sessionPagesPerMinute) {
                 Label(pace, systemImage: "gauge.with.dots.needle.50percent")
@@ -395,7 +403,6 @@ private struct DashboardSidebar: View {
     private var trackingStatus: String {
         if !model.trackingEnabled { return "Tracking paused" }
         if model.snapshot.phase == .reading { return "Reading now" }
-        if model.snapshot.phase == .uncertain { return "Review suggested" }
         switch model.snapshot.pauseReason {
         case .permissionLost: return "Apple Books access needed"
         case .background: return "Waiting for Books"

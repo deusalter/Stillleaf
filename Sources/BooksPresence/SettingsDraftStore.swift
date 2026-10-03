@@ -11,7 +11,6 @@ final class SettingsDraftStore: ObservableObject {
     @Published var dailyUnitDraft: DailyGoalUnit = .pages
     @Published var annualEnabledDraft = false
     @Published var annualGoalDraft = "12"
-    @Published var uncertaintyDraft = "20"
     @Published var timezoneDraft = TimeZone.current.identifier
     @Published var discordApplicationIDDraft = ""
     @Published var discordAssetKeyDraft = "books"
@@ -20,7 +19,7 @@ final class SettingsDraftStore: ObservableObject {
 
     private var readingValues: [String] {
         [pageGoalDraft, goalDraft, dailyUnitDraft.rawValue, String(annualEnabledDraft),
-         annualGoalDraft, uncertaintyDraft, timezoneDraft]
+         annualGoalDraft, timezoneDraft]
     }
 
     private var sharingValues: [String] { [discordApplicationIDDraft, discordAssetKeyDraft] }
@@ -39,7 +38,6 @@ final class SettingsDraftStore: ObservableObject {
         annualGoalDraft = String(model.annualBookGoal ?? 12)
         pageGoalDraft = String(Int(model.pageGoal.rounded()))
         goalDraft = String(Int(model.goalMinutes.rounded()))
-        uncertaintyDraft = String(Int(model.uncertaintyMinutes.rounded()))
         timezoneDraft = model.timezoneID
         loadedReadingValues = readingValues
     }
@@ -71,7 +69,6 @@ final class SettingsDraftStore: ObservableObject {
         let activeGoal = dailyUnitDraft == .pages ? pageGoalDraft : goalDraft
         let activeRange = dailyUnitDraft == .pages ? 1...10_000 : 1...1_440
         guard let goal = Int(activeGoal), activeRange.contains(goal),
-              let uncertainty = Int(uncertaintyDraft), (1...240).contains(uncertainty),
               TimeZone(identifier: timezoneDraft) != nil else { return false }
         return !annualEnabledDraft || Int(annualGoalDraft).map { (1...10_000).contains($0) } == true
     }

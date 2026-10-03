@@ -42,14 +42,14 @@ test("SQL sink failure and event identity conflicts roll back all inserted inter
   assert.throws(()=>f.store.appendTrackingBatch({intervals:batch.intervals,events:[event("not-inserted")]}),/fixture disk error/);
   assert.equal(f.store.events("trackingCheckpoint").length,1);assert.equal(f.store.trackingWatermark(),null);
 });
-test("date boundary splits trustworthy duration proportionally and excludes uncertain goals",t=>{
+test("date boundary splits duration proportionally and credits legacy pending time",t=>{
   const f=fixture(t,{timeZone:"America/Los_Angeles"});
   f.store.addManualEntry({bookId:"book",day:"2026-09-24",timeZone:"America/Los_Angeles",pages:5,minutes:7,recordedAt:"2026-09-25T12:00:00Z"});
   f.store.appendTrackingBatch({intervals:[interval("boundary","2026-09-25T06:59:00Z","2026-09-25T07:01:00Z",{duration:100}),interval("uncertain","2026-09-25T07:01:00Z","2026-09-25T07:02:00Z",{disposition:"uncertain"})],events:[]});
   const before=f.store.dailyProgress("2026-09-24"),after=f.store.dailyProgress("2026-09-25");
   assert.equal(before.creditedSeconds,50);assert.equal(before.minutes,7+50/60);assert.equal(before.pages,5);
-  assert.equal(after.creditedSeconds,50);assert.equal(after.uncertainSeconds,60);assert.equal(after.minutes,50/60);assert.equal(after.pages,0);
-  assert.equal(f.store.dailyProgress("2026-09-25","UTC").creditedSeconds,100);
+  assert.equal(after.creditedSeconds,110);assert.equal(after.uncertainSeconds,undefined);assert.equal(after.minutes,110/60);assert.equal(after.pages,0);
+  assert.equal(f.store.dailyProgress("2026-09-25","UTC").creditedSeconds,160);
 });
 test("DST day uses real 23-hour civil window instead of a fixed 24 hours",t=>{
   const f=fixture(t,{timeZone:"America/Los_Angeles"});
@@ -64,11 +64,11 @@ test("overlap and fabricated pages reject, preserving existing manual goals",t=>
 });
 test("SessionTracker uses adapter atomically and recovered watermark holds rollback",t=>{
   const f=fixture(t),tracker=new SessionTracker({persist:batch=>f.store.appendTrackingBatch(batch),timezoneId:"UTC"});
-  for(let second=0;second<=20;second++) tracker.sample({date:Date.parse(at)+second*1000,uptime:second,bookId:"book",eligible:true,activity:false});
+  for(let second=0;second<=20;second++) tracker.sample({date:Date.parse(at)+second*1000,uptime:second,bookId:"book",eligible:true});
   tracker.stop({date:Date.parse(at)+20000,uptime:20});
   assert.equal(f.restart().trackingIntervals().reduce((n,x)=>n+x.duration,0),20);
   const restored=new SessionTracker({persist:batch=>f.store.appendTrackingBatch(batch),durableThrough:Date.parse(f.store.trackingWatermark())});
-  assert.equal(restored.sample({date:Date.parse(at),uptime:0,bookId:"book",eligible:true,activity:false}).phase,"paused");
+  assert.equal(restored.sample({date:Date.parse(at),uptime:0,bookId:"book",eligible:true}).phase,"paused");
 });
 
 test("failed migration rolls back schema and keeps validated original backup",t=>{
@@ -83,4 +83,23 @@ test("one session cannot silently change its book or source",t=>{
   const f=fixture(t);f.store.appendTrackingBatch({intervals:[interval("first",at,"2026-09-24T12:00:15Z")],events:[]});
   assert.throws(()=>f.store.appendTrackingBatch({intervals:[interval("second","2026-09-24T12:00:15Z","2026-09-24T12:00:30Z",{source:"different-source"})],events:[]}),/session identity conflicts/);
   assert.equal(f.store.trackingIntervals().length,1);
+});
+
+test("legacy SQLite pending rows normalize without changing IDs or exclusions across reopen and replay",t=>{
+  const f=fixture(t);
+  const pending=interval("legacy-pending",at,"2026-09-24T12:01:00.000Z",{disposition:"uncertain"});
+  const excluded=interval("excluded","2026-09-24T12:01:00.000Z","2026-09-24T12:02:00.000Z",{disposition:"excluded"});
+  // Insert actual old column and payload values, bypassing the new write normalizer.
+  for(const item of [pending,excluded]) f.store.db.prepare("INSERT INTO tracking_intervals VALUES(?,?,?,?,?,?,?,?,?,?,?)").run(item.id,item.sessionId,item.bookId,item.start,item.end,item.duration,item.timezoneId,item.mode,item.source,item.disposition,JSON.stringify(item));
+  f.store.setReview({bookId:"book",text:"Keep this book review.",recordedAt:at});
+  const reopened=f.restart();
+  assert.deepEqual(reopened.trackingIntervals(),[{...pending,disposition:"credited"},excluded]);
+  assert.equal(reopened.dailyProgress("2026-09-24").creditedSeconds,60);
+  assert.equal(reopened.dailyProgress("2026-09-24").pages,0);
+  assert.equal(reopened.appendTrackingBatch({intervals:[pending,excluded],events:[]}).insertedIntervals,0);
+  assert.equal(reopened.appendTrackingBatch({intervals:[{...pending,disposition:"credited"}],events:[]}).insertedIntervals,0);
+  assert.throws(()=>reopened.appendTrackingBatch({intervals:[{...excluded,disposition:"credited"}],events:[]}),/identity conflicts/);
+  assert.equal(reopened.db.prepare("SELECT payload FROM tracking_intervals WHERE interval_id=?").get(pending.id).payload,JSON.stringify(pending),"read compatibility leaves original evidence intact");
+  assert.equal(f.restart().dailyProgress("2026-09-24").creditedSeconds,60);
+  assert.equal(f.store.review("book"),"Keep this book review.");
 });

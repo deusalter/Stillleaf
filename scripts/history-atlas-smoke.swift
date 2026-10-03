@@ -18,7 +18,7 @@ var excluded = interval; excluded.disposition = .excluded
 require(HistoryAtlas.days(intervals: [excluded], merges: [], period: period, timezoneID: "America/Los_Angeles").allSatisfy { $0.creditedSeconds == 0 }, "Excluded time colored a ring")
 let midnight = date("2026-09-27T00:00:00Z"), audioStart = midnight.addingTimeInterval(-3600)
 let audioInterval = ReadingInterval(sessionID: "corrected", bookID: "audio", start: audioStart, end: midnight.addingTimeInterval(3600), duration: 7200, timezoneID: "UTC", mode: .listening, audioSessionID: "original")
-let group = ReadingSessionGroup(id: "audio-group", bookID: "linked-text", start: audioStart, end: audioInterval.end, intervals: [audioInterval], creditedSeconds: 7200, uncertainSeconds: 0)
+let group = ReadingSessionGroup(id: "audio-group", bookID: "linked-text", start: audioStart, end: audioInterval.end, intervals: [audioInterval], creditedSeconds: 7200)
 let historical = AudiobookProgress(positionSeconds: 100, durationSeconds: 1000)
 let observations = [ProgressObservation(bookID: "audio", observedAt: audioStart.addingTimeInterval(600), source: "audio", audio: historical, sessionID: "original"), ProgressObservation(bookID: "audio", observedAt: midnight, source: "audio", audio: AudiobookProgress(positionSeconds: 900, durationSeconds: 1000), sessionID: "original")]
 require(HistoryAtlas.audioPosition(in: group, observations: observations, during: DateInterval(start: audioStart, end: midnight)) == historical, "Historical audio leaked a newer position")

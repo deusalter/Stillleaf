@@ -17,7 +17,7 @@ Observed in the shared checkout around commit `25383608ce10b21476bac9c915cfb69e5
 | Evidence inspected | Implication |
 |---|---|
 | `Package.swift`: macOS 13, Swift tools 5.8; `BooksCore`, `BooksPlatform`, native application targets | There is no existing multiplatform reader target. SwiftUI/AppKit screens and platform adapters cannot simply run on Windows/Android. |
-| `BooksCore/Models.swift`, `TrackingEngine.swift`, `ReadingStore.swift` | Reuse interval credit, uncertainty, corrections, goals and transactional SQLite storage. Progress already has optional fraction/location fields. Archive version 1 is explicitly validated; new reader data needs deliberate versioning and migrations. |
+| `BooksCore/Models.swift`, `TrackingEngine.swift`, `ReadingStore.swift` | Reuse interval credit, corrections, goals and transactional SQLite storage. Progress already has optional fraction/location fields. Archive version 1 is explicitly validated; new reader data needs deliberate versioning and migrations. |
 | `TrackingEngine.navigationSignature` includes page, total, fraction and location | Simply injecting renderer relocation events can wrongly renew activity after reflow or restoration. Introduce navigation cause and eligibility before connecting events. |
 | `BooksPresence/AppModel.swift`, `ReadingPresencePolicy.swift` | Orchestration/presence currently depends on an Apple Books reader receipt. Built-in reading needs its own document/lifecycle receipt; it must not require Accessibility permission or an open Books window. Preserve the existing external-reader gate. |
 | `ReaderPagination.swift`, `PageTurns.swift` | Current page accounting is explicitly layout-sensitive. Do not reuse it as cross-device EPUB completion or normalize historical pages silently. |
@@ -66,11 +66,11 @@ Proposed event envelope: source/document/session identity, sequence number, mono
 |---|---|
 | Current position | Last durable locator. Navigation updates it, including backwards movement. |
 | Progress percentage | Approximate location in this edition, with a versioned calculation. A jump updates position, not amount read. |
-| Time | Inferred eligible time while the book is visible/active. Retain pause, uncertainty, lock/sleep and crash rules. No proof of attention. |
+| Time | Inferred eligible time while the book is visible/active. Retain pause, lock/sleep and crash rules. No proof of attention. |
 | Screen pages | Layout-dependent navigation, if shown. Do not sum with printed page labels or existing Apple Books pages as if equivalent. |
 | Completion / rereading | Explicit completion and separately identifiable reading episodes. Reaching the end or importing a finished book creates no historical time. |
 
-Use **time goals for built-in EPUB MVP** and show position separately. Keep historical/manual page counts with their provenance. Later normalized positions or content coverage need a defined algorithm and honest labeling; they are not printed pages or proof every word was read. Searching ahead, rotating a phone, resizing a window and reopening a chapter must credit zero pages. Long static reading may become uncertain without being discarded; screen-reader navigation must count as relevant interaction where observable.
+Use **time goals for built-in EPUB MVP** and show position separately. Keep historical/manual page counts with their provenance. Later normalized positions or content coverage need a defined algorithm and honest labeling; they are not printed pages or proof every word was read. Searching ahead, rotating a phone, resizing a window and reopening a chapter must credit zero pages. Long static reading continues to count while the reader remains eligible; screen-reader navigation supplies progress evidence where observable.
 
 On phones, checkpoint on lifecycle transitions, stop credit on background/lock, and never credit elapsed suspension as reading. Handle abrupt termination without relying on a final callback. External-reader availability is platform-specific: this investigation establishes no phone equivalent of the Mac Apple Books observer. Manual entry/import remains the fallback for unsupported connections.
 

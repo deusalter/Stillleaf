@@ -68,7 +68,7 @@ let archive = try store.archive()
 let effective = try store.effectiveIntervals()
 require(PageStatistics.pages(events: archive.events, effectiveIntervals: effective, merges: []) == 2, "SQLite native content payload roundtrip")
 let timeStore = try ReadingStore(url: temp.appendingPathComponent("time.sqlite"))
-let engine = try TrackingEngine(store: timeStore, timezoneID: "UTC", uncertaintyThreshold: 1)
+let engine = try TrackingEngine(store: timeStore, timezoneID: "UTC")
 let textBook = BookRecord(id: "native", title: "Native", source: "stillleaf-epub")
 for second in 0...4 {
     try engine.process(TrackingInput(date: date.addingTimeInterval(Double(second)), uptime: 100 + Double(second), book: textBook,
@@ -76,7 +76,7 @@ for second in 0...4 {
 }
 try engine.stop(date: date.addingTimeInterval(4), uptime: 104)
 let time = try timeStore.effectiveIntervals()
-require(time.filter { $0.disposition == .credited }.reduce(0) { $0 + $1.duration } == 1, "relocation does not renew native activity credit")
+require(time.filter { $0.disposition == .credited }.reduce(0) { $0 + $1.duration } == 4, "eligible elapsed reading remains credited independently of relocation")
 require(time.reduce(0) { $0 + $1.duration } == 4, "time remains elapsed duration independent of percentage")
 // Prepared queries must preserve coverage before date/group clipping, even for
 // aliases, tied timestamps, manual corrections, and excluded fragments.

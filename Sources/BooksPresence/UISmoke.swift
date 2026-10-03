@@ -318,7 +318,7 @@ func runUISmoke() throws {
         ("annual-goal", AnyView(AnnualReadingGoalView(model: model, openBook: { _ in }))),
         ("manual-start", AnyView(ManualStartView(model: model))),
         ("manual-add", AnyView(ManualAdditionView(model: model))),
-        ("review-editor", AnyView(IntervalReviewEditor(model: model, interval: interval))),
+        ("session-editor", AnyView(ReadingSessionEditor(model: model, interval: interval))),
         ("merge", AnyView(MergeBooksView(model: model, source: manualBook))),
         ("restore", AnyView(RestoreConfirmationView(model: model)))
     ]

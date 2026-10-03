@@ -15,7 +15,7 @@
 - Never modify Apple Books databases or bypass DRM.
 - No screen capture, OCR, book prose, keystrokes, unrelated app titles, or default library rescans.
 - Automatic time is inferred reading activity. No title-only identity matches or credit for background/library windows.
-- Monotonic timing, bounded checkpoints, no downtime credit; uncertainty excluded until reviewed.
+- Monotonic timing, bounded checkpoints and no downtime credit.
 - Local history and covers never enter Git. Synthetic fixtures only.
 - No invented API claims, test evidence, commit dates, or attribution footers.
 

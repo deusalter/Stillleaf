@@ -10,7 +10,7 @@ When sharing is enabled during eligible reading, the activity uses Discord's sup
 
 The implementation follows Discord's [RPC IPC transport](https://github.com/discord/discord-api-docs/blob/main/developers/topics/rpc.mdx): it searches the documented local `discord-ipc-0` through `discord-ipc-9` paths, sends the version-1 handshake, handles framed partial reads and writes plus ping/pong, backs off reconnections, and limits activity updates. Discord documents `SET_ACTIVITY` types 0, 2, 3, and 5; Stillleaf uses 0 and does not invent a `Reading` type.
 
-Explicit manual sessions remain independent of Books foreground status, for paper books and deliberate side-by-side reading; they use the manual session’s existing interaction/uncertainty rules.
+Explicit manual sessions remain independent of Books foreground status, for paper books and deliberate side-by-side reading; they use the manual session’s pause, lock and sleep rules.
 
 An application ID is required before a real publish can be attempted. It identifies the developer application; it is not a bot/account token, and the owner can differ from the person signed into Discord desktop. This repository does not include the user’s local configuration. A local handshake has returned READY with a user-supplied ID; rendering is a separate end-to-end check. Discord may also reject an unapproved application or a client configuration; the app surfaces a status message and continues local tracking.
 

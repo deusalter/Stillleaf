@@ -42,7 +42,7 @@ struct AtlasWeekView: View {
             }
             if !bookIDs.isEmpty { AtlasLegend(booksByID: presentation.booksByID, bookIDs: bookIDs) }
             if days.allSatisfy({ $0.creditedSeconds == 0 }) {
-                Text("No credited time this week. Select a day to see any pages or records awaiting review.")
+                Text("No recorded time this week. Select a day to see its pages and saved sessions.")
                     .font(.caption).foregroundStyle(AtlasStyle.muted(dark))
             }
         }
@@ -74,10 +74,9 @@ struct AtlasWeekView: View {
                     Text(future ? "—" : pages.formatted()).font(.callout.weight(.medium))
                     Text("pages").font(.caption2).foregroundStyle(AtlasStyle.muted(dark))
                 }.padding(.top, 5)
-                if day.uncertainSeconds > 0 { Image(systemName: "clock.badge.questionmark").font(.caption).accessibilityHidden(true) }
             }.frame(maxWidth: .infinity).contentShape(Rectangle()).opacity(future ? 0.35 : 1)
         }.buttonStyle(.plain).disabled(future)
-            .accessibilityLabel("\(AtlasStyle.date(day.date, zone: navigation.timezoneID, pattern: "EEEE, MMMM d")), \(ReadingFormat.duration(day.creditedSeconds)) recorded, \(pages) pages, \(ReadingFormat.duration(day.uncertainSeconds)) awaiting review. Open day.")
+            .accessibilityLabel("\(AtlasStyle.date(day.date, zone: navigation.timezoneID, pattern: "EEEE, MMMM d")), \(ReadingFormat.duration(day.creditedSeconds)) recorded, \(pages) pages. Open day.")
             .help(entries.isEmpty ? "Open day" : detail(entries))
     }
     private func detail(_ entries: [AtlasBookTime]) -> String {
@@ -99,7 +98,6 @@ struct AtlasWeekView: View {
 
 struct AtlasTimeRing: View {
     let entries: [AtlasBookTime]
-    var pending = false
     @Environment(\.colorScheme) private var scheme
     private var total: Double { entries.reduce(0) { $0 + $1.creditedSeconds } }
     var body: some View {
@@ -112,8 +110,6 @@ struct AtlasTimeRing: View {
                         .stroke(AtlasStyle.book(entry.bookID, dark: scheme == .dark), style: StrokeStyle(lineWidth: 3.5, lineCap: .butt))
                         .rotationEffect(.degrees(-90))
                 }
-            } else if pending {
-                Circle().stroke(AtlasStyle.muted(scheme == .dark), style: StrokeStyle(lineWidth: 2, dash: [2, 3]))
             }
         }.accessibilityHidden(true)
     }
@@ -186,17 +182,17 @@ struct AtlasMonthView: View {
         return Button { selected = date } label: {
             VStack(spacing: 9) {
                 ZStack {
-                    AtlasTimeRing(entries: entries, pending: (day?.uncertainSeconds ?? 0) > 0).frame(width: 43, height: 43)
+                    AtlasTimeRing(entries: entries).frame(width: 43, height: 43)
                     Text("\(calendar.component(.day, from: date))").font(.system(size: 12)).monospacedDigit()
                 }
-                Text(seconds > 0 ? ReadingFormat.duration(seconds) : (day?.uncertainSeconds ?? 0) > 0 ? "Review" : pages > 0 ? "\(pages)p" : "—")
+                Text(seconds > 0 ? ReadingFormat.duration(seconds) : pages > 0 ? "\(pages)p" : "—")
                     .font(.system(size: 10)).foregroundStyle(AtlasStyle.muted(dark)).lineLimit(1)
             }.frame(maxWidth: .infinity).padding(.vertical, 8)
                 .background(isSelected ? AtlasStyle.accent(dark).opacity(0.09) : .clear, in: RoundedRectangle(cornerRadius: 12))
                 .overlay(RoundedRectangle(cornerRadius: 12).stroke(isSelected ? AtlasStyle.accent(dark) : .clear, lineWidth: 1))
                 .contentShape(Rectangle()).opacity(future ? 0.3 : 1)
         }.buttonStyle(.plain).disabled(future)
-            .accessibilityLabel("\(AtlasStyle.date(date, zone: navigation.timezoneID, pattern: "EEEE, MMMM d")), \(ReadingFormat.duration(seconds)) recorded, \(pages) pages. \(names). \(ReadingFormat.duration(day?.uncertainSeconds ?? 0)) awaiting review.")
+            .accessibilityLabel("\(AtlasStyle.date(date, zone: navigation.timezoneID, pattern: "EEEE, MMMM d")), \(ReadingFormat.duration(seconds)) recorded, \(pages) pages. \(names).")
             .accessibilityAddTraits(isSelected ? .isSelected : []).help(names.isEmpty ? "No credited time" : names)
     }
     private func detail(selectedDate: Date, selectedDay: AtlasDayPresentation?) -> some View {
@@ -215,9 +211,6 @@ struct AtlasMonthView: View {
                     AtlasBookLabel(booksByID: presentation.booksByID, id: id, detail: (pages > 0 ? "\(pages) pages\n" : "") + "\(ReadingFormat.duration(time?.creditedSeconds ?? 0)) recorded", small: true)
                     if let position = selectedDay?.positionsByBook[id] {
                         Text("Recorded position\n\(position.description)").font(.caption).foregroundStyle(AtlasStyle.muted(dark))
-                    }
-                    if let time, time.uncertainSeconds > 0 {
-                        Text("\(ReadingFormat.duration(time.uncertainSeconds)) awaiting review").font(.caption).foregroundStyle(AtlasStyle.muted(dark))
                     }
                 }
             }

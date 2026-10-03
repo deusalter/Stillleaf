@@ -161,7 +161,7 @@ func renderUIPreviews(to destination: URL) throws {
         previews.append(("manual-start", AnyView(ManualStartView(model: model))))
         previews.append(("manual-add", AnyView(ManualAdditionView(model: model))))
         if let interval = model.displayIntervals.first {
-            previews.append(("review-editor", AnyView(IntervalReviewEditor(model: model, interval: interval))))
+            previews.append(("session-editor", AnyView(ReadingSessionEditor(model: model, interval: interval))))
         }
         for (name, view) in previews {
             if let filter, !filter.contains(name) { continue }
@@ -172,7 +172,7 @@ func renderUIPreviews(to destination: URL) throws {
 "manual-start": NSSize(width: 470, height: 350),
                 "book-format-text": NSSize(width: 680, height: 120), "book-format-audiobook": NSSize(width: 680, height: 310),
                 "audio-log": NSSize(width: 602, height: 690), "audio-playback": NSSize(width: 550, height: 190),
-                "manual-add": NSSize(width: 500, height: 510), "review-editor": NSSize(width: 560, height: 600),
+                "manual-add": NSSize(width: 500, height: 510), "session-editor": NSSize(width: 560, height: 600),
                 "book-detail": NSSize(width: 760, height: 720), "troubleshooting": NSSize(width: 740, height: 650),
                 "rating-quarter": NSSize(width: 320, height: 200), "rating-zero": NSSize(width: 320, height: 200), "rating-empty": NSSize(width: 320, height: 200),
                 "written-review": NSSize(width: 590, height: 540), "popover-minutes": NSSize(width: 350, height: 580),
@@ -273,7 +273,7 @@ func seedPreviewHistory(at support: URL) throws {
         let duration = Double(12 + (offset * 13) % 48) * 60
         let book = books[offset % books.count]
         let mode: ReadingMode = offset % 4 == 0 ? .manual : .automatic
-        let disposition: IntervalDisposition = offset % 13 == 0 ? .uncertain : .credited
+        let disposition: IntervalDisposition = .credited
         let interval = ReadingInterval(sessionID: "preview-session-\(offset)", bookID: book.id,
                                        start: start, end: start.addingTimeInterval(duration), duration: duration,
                                        timezoneID: calendar.timeZone.identifier, mode: mode, disposition: disposition)

@@ -6,7 +6,7 @@ struct HistoryView: View {
     @ObservedObject var model: AppModel
     @State private var navigation: CalendarNavigation
     private let benchmarkReady: ((HistoryAtlasKey) -> Void)?
-    @State private var reviewInterval: ReadingInterval?
+    @State private var editingInterval: ReadingInterval?
     @StateObject private var atlas = HistoryAtlasController()
     @Environment(\.colorScheme) private var scheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -62,7 +62,7 @@ struct HistoryView: View {
             guard let source else { return }
             await atlas.load(source: source, navigation: requested, reduceMotion: reduceMotion)
         }
-        .sheet(item: $reviewInterval) { interval in IntervalReviewEditor(model: model, interval: interval) }
+        .sheet(item: $editingInterval) { interval in ReadingSessionEditor(model: model, interval: interval) }
     }
     private func historyContent(_ displayed: HistoryAtlasDisplay, request: HistoryAtlasKey?, requested: CalendarNavigation) -> some View {
         let prepared = displayed.presentation
@@ -112,7 +112,7 @@ struct HistoryView: View {
         let prepared = displayed.presentation
         switch committed.scale {
         case .day:
-            AtlasDayView(navigation: committed, presentation: prepared, review: { reviewInterval = $0 })
+            AtlasDayView(navigation: committed, presentation: prepared, editSession: { editingInterval = $0 })
         case .week:
             AtlasWeekView(navigation: committed, presentation: prepared, select: { selectDay($0) })
         case .month:
@@ -219,7 +219,7 @@ struct DayContributionRow: View {
     @ObservedObject var model: AppModel
     let contribution: DayContribution
     let timezoneID: String
-    let review: () -> Void
+    let editSession: () -> Void
     private var book: BookRecord? {
         let resolvedID = BookMergeResolver(merges: model.merges).resolvedID(for: contribution.interval.bookID)
         return model.books.first { $0.id == resolvedID }
@@ -227,7 +227,6 @@ struct DayContributionRow: View {
     private var treatment: String {
         switch contribution.interval.disposition {
         case .credited: return contribution.interval.mode == .manual ? "Manual credited" : "Credited"
-        case .uncertain: return "Awaiting review"
         case .excluded: return "Excluded from totals"
         }
     }
@@ -241,7 +240,7 @@ struct DayContributionRow: View {
                 Text("\(treatment): \(ReadingFormat.observedPages(pageTurns))").font(.callout).monospacedDigit()
                 Text("Time on this day: \(ReadingFormat.duration(contribution.clippedSeconds))").font(.caption).monospacedDigit().foregroundStyle(ReadingPalette.secondaryInk)
             }
-            Spacer(minLength: 0); Button("Review", action: review).controlSize(.small)
+            Spacer(minLength: 0); Button("Edit", action: editSession).controlSize(.small)
         }.padding(.vertical, 4)
     }
 }

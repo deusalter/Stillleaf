@@ -2,8 +2,13 @@ import SwiftUI
 import AppKit
 
 private struct NativePreviewOpaque: EnvironmentKey { static let defaultValue: Bool? = nil }
+private struct NativeNavigationBackdropInstalled: EnvironmentKey { static let defaultValue = false }
 extension EnvironmentValues {
     var nativePreviewOpaque: Bool? { get { self[NativePreviewOpaque.self] } set { self[NativePreviewOpaque.self] = newValue } }
+    fileprivate var nativeNavigationBackdropInstalled: Bool {
+        get { self[NativeNavigationBackdropInstalled.self] }
+        set { self[NativeNavigationBackdropInstalled.self] = newValue }
+    }
 }
 
 private struct NativeSidebarSurface: ViewModifier {
@@ -34,13 +39,76 @@ extension View {
     func nativePopoverSurface() -> some View { modifier(NativePopoverSurface()) }
     func nativeMenuSurface(hovering: Bool) -> some View { modifier(NativeMenuSurface(hovering: hovering)) }
     func nativeNavigationBackdrop() -> some View { modifier(NativeNavigationBackdrop()) }
+    func nativeDashboardSidebarToggle(isCollapsed: Bool, toggle: @escaping () -> Void) -> some View {
+        modifier(NativeDashboardSidebarToggle(isCollapsed: isCollapsed, toggle: toggle))
+    }
+}
+
+private struct NativeDashboardSidebarToggle: ViewModifier {
+    let isCollapsed: Bool
+    let toggle: () -> Void
+
+    @ViewBuilder func body(content: Content) -> some View {
+        if #available(macOS 14.0, *) {
+            content
+                .toolbar(removing: .sidebarToggle)
+                .toolbar {
+                    // A root navigation item stays ahead of the title. The
+                    // system's split-view toggle migrates with its column.
+                    ToolbarItem(id: "dashboard-sidebar-toggle", placement: .navigation) {
+                        DashboardSidebarToggleButton(isCollapsed: isCollapsed, toggle: toggle)
+                            .frame(width: 32, height: 28)
+                    }
+                }
+        } else {
+            // macOS 13 does not expose the default-item removal API. Keep its
+            // native toggle rather than present duplicate controls there.
+            content
+        }
+    }
+}
+
+/// An AppKit control keeps native toolbar focus, Return/Space activation and
+/// the standard sidebar keyboard equivalent while SwiftUI owns visibility.
+private struct DashboardSidebarToggleButton: NSViewRepresentable {
+    let isCollapsed: Bool
+    let toggle: () -> Void
+
+    func makeNSView(context: Context) -> NSButton {
+        let button = NSButton(image: NSImage(systemSymbolName: "sidebar.left", accessibilityDescription: "Sidebar")!,
+                              target: context.coordinator, action: #selector(Coordinator.performToggle))
+        button.identifier = NSUserInterfaceItemIdentifier("dashboard-sidebar-toggle")
+        button.setAccessibilityIdentifier("dashboard-sidebar-toggle")
+        button.bezelStyle = .texturedRounded
+        button.imagePosition = .imageOnly
+        button.keyEquivalent = "s"
+        button.keyEquivalentModifierMask = [.command, .control]
+        return button
+    }
+
+    func updateNSView(_ button: NSButton, context: Context) {
+        context.coordinator.toggle = toggle
+        let title = isCollapsed ? "Show sidebar" : "Hide sidebar"
+        button.toolTip = title
+        button.setAccessibilityLabel(title)
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(toggle: toggle) }
+
+    final class Coordinator: NSObject {
+        var toggle: () -> Void
+        init(toggle: @escaping () -> Void) { self.toggle = toggle }
+        @objc func performToggle() { toggle() }
+    }
 }
 
 private struct NativeNavigationBackdrop: ViewModifier {
+    @Environment(\.nativeNavigationBackdropInstalled) private var installed
     @ViewBuilder func body(content: Content) -> some View {
         #if compiler(>=6.2)
         if #available(macOS 26.0, *) {
-            content.backgroundExtensionEffect()
+            if installed { content }
+            else { content.backgroundExtensionEffect().environment(\.nativeNavigationBackdropInstalled, true) }
         } else {
             content
         }
