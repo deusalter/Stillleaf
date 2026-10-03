@@ -129,8 +129,11 @@ func checkDashboardSidebarNavigation(model: AppModel, directory: URL, dark: Bool
         let systemToggleCount = window.toolbar?.items.filter { $0.itemIdentifier.rawValue.lowercased().contains("togglesidebar") }.count ?? 0
         guard systemToggleCount == 0 else { throw DashboardSidebarSmokeError.failed("Duplicate system sidebar toggle remained") }
         if !reducedMotion {
+            try writeSidebarMaterialDiagnostics(window: window, to: directory.appendingPathComponent("sidebar-\(appearance)-material.json"))
             backdrop.backgroundColor = NSColor(calibratedRed: 0.12, green: 0.37, blue: 0.76, alpha: 1)
             try await captureNativeWindow(window, to: directory.appendingPathComponent("sidebar-cool-backdrop-\(appearance).png"), contextWindow: backdrop)
+            window.orderOut(nil)
+            try await captureSidebarMaterialReferences(backdrop: backdrop, directory: directory, dark: dark)
         }
         let report: [String: Any] = ["expanded": NSStringFromRect(before), "collapsed": NSStringFromRect(collapsed),
             "reopened": NSStringFromRect(after), "keyboardEquivalent": true, "spaceActivation": true, "reduceMotion": reducedMotion,
@@ -139,5 +142,91 @@ func checkDashboardSidebarNavigation(model: AppModel, directory: URL, dark: Bool
         try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys])
             .write(to: directory.appendingPathComponent("sidebar-toggle-\(appearance)-\(mode).json"))
         print("sidebar-toggle: fixed native position, pointer and keyboard passed; \(appearance) \(mode)")
+    }
+}
+
+/// Public AppKit state lets the capture distinguish an opaque OS accessibility
+/// fallback from an app-painted background or the wrong sampling mode.
+@MainActor
+private func writeSidebarMaterialDiagnostics(window: NSWindow, to url: URL) throws {
+    let workspace = NSWorkspace.shared
+    var views: [[String: Any]] = []
+    func visit(_ view: NSView, depth: Int) {
+        var record: [String: Any] = [
+            "depth": depth, "class": NSStringFromClass(type(of: view)),
+            "frame": NSStringFromRect(view.frame), "bounds": NSStringFromRect(view.bounds),
+            "opaque": view.isOpaque, "hidden": view.isHidden, "alpha": view.alphaValue,
+            "appearance": view.effectiveAppearance.name.rawValue,
+            "layerClass": view.layer.map { NSStringFromClass(type(of: $0)) } ?? "none",
+            "layerBackground": String(describing: view.layer?.backgroundColor),
+            "layerOpaque": view.layer?.isOpaque ?? false
+        ]
+        if let material = view as? NSVisualEffectView {
+            record["material"] = material.material.rawValue
+            record["blendingMode"] = material.blendingMode == .behindWindow ? "behindWindow" : "withinWindow"
+            record["state"] = material.state.rawValue
+            record["emphasized"] = material.isEmphasized
+        }
+        #if compiler(>=6.2)
+        if #available(macOS 26.0, *), let glass = view as? NSGlassEffectView {
+            record["glassStyle"] = String(describing: glass.style)
+            record["glassTint"] = String(describing: glass.tintColor)
+        }
+        #endif
+        views.append(record)
+        for child in view.subviews { visit(child, depth: depth + 1) }
+    }
+    if let root = window.contentView?.superview { visit(root, depth: 0) }
+    let report: [String: Any] = [
+        "actualReduceTransparency": workspace.accessibilityDisplayShouldReduceTransparency,
+        "actualIncreaseContrast": workspace.accessibilityDisplayShouldIncreaseContrast,
+        "actualReduceMotion": workspace.accessibilityDisplayShouldReduceMotion,
+        "windowOpaque": window.isOpaque, "windowBackground": String(describing: window.backgroundColor),
+        "windowAlpha": window.alphaValue, "windowFrame": NSStringFromRect(window.frame),
+        "windowKey": window.isKeyWindow, "appActive": NSApp.isActive,
+        "views": views
+    ]
+    try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]).write(to: url)
+    print("sidebar-material: actual reduceTransparency=\(workspace.accessibilityDisplayShouldReduceTransparency) increaseContrast=\(workspace.accessibilityDisplayShouldIncreaseContrast) reduceMotion=\(workspace.accessibilityDisplayShouldReduceMotion)")
+}
+
+/// A native material with no SwiftUI hierarchy provides an independent control
+/// for the same compositor capture and actual system accessibility settings.
+@MainActor
+private func captureSidebarMaterialReferences(backdrop: NSWindow, directory: URL, dark: Bool) async throws {
+    let originalColor = backdrop.backgroundColor
+    defer { backdrop.backgroundColor = originalColor }
+    var references: [(String, NSView)] = []
+    let bounds = NSRect(x: 0, y: 0, width: 280, height: 240)
+    let material = NSVisualEffectView(frame: bounds)
+    material.material = .sidebar
+    material.blendingMode = .behindWindow
+    material.state = .active
+    references.append(("appkit-sidebar", material))
+    #if compiler(>=6.2)
+    if #available(macOS 26.0, *) {
+        let glass = NSGlassEffectView(frame: bounds)
+        glass.contentView = NSView(frame: bounds)
+        references.append(("appkit-glass", glass))
+    }
+    #endif
+    for (name, view) in references {
+        let window = NSWindow(contentRect: bounds, styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+        window.contentView = view
+        window.makeKeyAndOrderFront(nil)
+        defer { window.close() }
+        let appearance = dark ? "dark" : "light"
+        for (colorName, color) in [
+            ("warm", NSColor(calibratedRed: 0.83, green: 0.40, blue: 0.21, alpha: 1)),
+            ("cool", NSColor(calibratedRed: 0.12, green: 0.37, blue: 0.76, alpha: 1))
+        ] {
+            backdrop.backgroundColor = color
+            try await captureNativeWindow(window, to: directory.appendingPathComponent("\(name)-\(appearance)-\(colorName).png"), contextWindow: backdrop)
+        }
+        try writeSidebarMaterialDiagnostics(window: window, to: directory.appendingPathComponent("\(name)-\(appearance)-material.json"))
     }
 }
