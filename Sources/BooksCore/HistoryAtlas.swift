@@ -13,7 +13,6 @@ public struct AtlasTimeSlice: Identifiable, Equatable {
 public struct AtlasBookTime: Identifiable, Equatable {
     public let bookID: String
     public var creditedSeconds: Double = 0
-    public var uncertainSeconds: Double = 0
     public var id: String { bookID }
 }
 
@@ -23,7 +22,6 @@ public struct AtlasDay: Identifiable, Equatable {
     public var books: [AtlasBookTime]
     public var id: String { key }
     public var creditedSeconds: Double { books.reduce(0) { $0 + $1.creditedSeconds } }
-    public var uncertainSeconds: Double { books.reduce(0) { $0 + $1.uncertainSeconds } }
 }
 
 public enum HistoryAtlas {
@@ -57,7 +55,7 @@ public enum HistoryAtlas {
     }
 
     /// One pass over each overlapping interval, split at calendar midnights. Excluded
-    /// records remain reviewable via slices but never color a time chart or a ring.
+    /// records remain inspectable via slices but never color a time chart or a ring.
     public static func days(intervals: [ReadingInterval], merges: [BookMerge], period: DateInterval,
                             timezoneID: String) -> [AtlasDay] {
         days(slices: slices(intervals: intervals, merges: merges, period: period), period: period, timezoneID: timezoneID)
@@ -93,7 +91,6 @@ public enum HistoryAtlas {
                 let seconds = slice.seconds * end.timeIntervalSince(start) / slice.end.timeIntervalSince(slice.start)
                 var entry = bins[day]?[slice.bookID] ?? AtlasBookTime(bookID: slice.bookID)
                 if slice.interval.disposition == .credited { entry.creditedSeconds += seconds }
-                else { entry.uncertainSeconds += seconds }
                 bins[day, default: [:]][slice.bookID] = entry
                 start = end
                 index += 1

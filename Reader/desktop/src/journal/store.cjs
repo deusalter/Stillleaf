@@ -22,6 +22,10 @@ function dayBoundary(day, zone) {
   return low;
 }
 const uuid = () => crypto.randomUUID();
+// Decode legacy pending time without rewriting its recorded duration or identity.
+// Explicit exclusions remain exclusions on reads, exports and repeated imports.
+const disposition = value => value === "uncertain" ? "credited" : value;
+const trackedInterval = value => ({...value, disposition: disposition(value.disposition)});
 function row(value) {
   return value ? { ...value } : null;
 }
@@ -300,8 +304,8 @@ class JournalStore {
       for (const field of ["id","sessionId","source"]) v.identity(item[field], field);
       const start = v.instant(item.start), end = v.instant(item.end), wall = (Date.parse(end) - Date.parse(start)) / 1000;
       const duration = v.number(item.duration, Number.MIN_VALUE, 366 * 86400, "tracked duration");
-      if (end <= start || duration > wall + 2 || !["automatic","manual"].includes(item.mode) || !["credited","uncertain"].includes(item.disposition)) throw Error("Invalid tracked interval");
-      return {id:item.id, sessionId:item.sessionId, bookId:item.bookId, source:item.source, mode:item.mode, timezoneId:v.timezone(item.timezoneId), start, end, duration, disposition:item.disposition};
+      if (end <= start || duration > wall + 2 || !["automatic","manual"].includes(item.mode) || !["credited","excluded"].includes(disposition(item.disposition))) throw Error("Invalid tracked interval");
+      return {id:item.id, sessionId:item.sessionId, bookId:item.bookId, source:item.source, mode:item.mode, timezoneId:v.timezone(item.timezoneId), start, end, duration, disposition:disposition(item.disposition)};
     });
     const events = batch.events.map(item => {
       if (!item || !["trackingStarted","trackingCheckpoint","trackingPaused","trackingClockHold","trackingRecovery"].includes(item.kind)) throw Error("Invalid tracking event");
@@ -316,7 +320,7 @@ class JournalStore {
       let inserted = 0;
       for (const item of intervals) {
         const payload = JSON.stringify(item), existing = this.db.prepare("SELECT payload FROM tracking_intervals WHERE interval_id=?").get(item.id);
-        if (existing) { if (existing.payload !== payload) throw Error("Tracking interval identity conflicts"); continue; }
+        if (existing) { if (JSON.stringify(trackedInterval(JSON.parse(existing.payload))) !== payload) throw Error("Tracking interval identity conflicts"); continue; }
         const session = this.db.prepare("SELECT book_id,source,mode,timezone_id FROM tracking_intervals WHERE session_id=? LIMIT 1").get(item.sessionId);
         if (session && (session.book_id !== item.bookId || session.source !== item.source || session.mode !== item.mode || session.timezone_id !== item.timezoneId)) throw Error("Tracking session identity conflicts");
         if (this.db.prepare("SELECT interval_id FROM tracking_intervals WHERE start_at<? AND end_at>? LIMIT 1").get(item.end,item.start)) throw Error("Tracking intervals overlap");
@@ -329,7 +333,7 @@ class JournalStore {
   }
   trackingIntervals(bookId) {
     if (bookId !== undefined) this.requireBook(bookId);
-    return this.db.prepare("SELECT payload FROM tracking_intervals" + (bookId === undefined ? "" : " WHERE book_id=?") + " ORDER BY start_at,interval_id").all(...(bookId === undefined ? [] : [bookId])).map(x => JSON.parse(x.payload));
+    return this.db.prepare("SELECT payload FROM tracking_intervals" + (bookId === undefined ? "" : " WHERE book_id=?") + " ORDER BY start_at,interval_id").all(...(bookId === undefined ? [] : [bookId])).map(x => trackedInterval(JSON.parse(x.payload)));
   }
   trackingWatermark(bookId) {
     if (bookId !== undefined) this.requireBook(bookId);
@@ -538,14 +542,13 @@ class JournalStore {
         .get(civil);
     const zone = v.timezone(timeZone), nextDay = new Date(Date.parse(civil + "T00:00:00Z") + 86400000).toISOString().slice(0,10);
     const from = dayBoundary(civil,zone), through = dayBoundary(nextDay,zone);
-    let creditedSeconds = 0, uncertainSeconds = 0, automaticSeconds = 0, trackedManualSeconds = 0;
+    let creditedSeconds = 0, automaticSeconds = 0, trackedManualSeconds = 0;
     const tracked = this.db.prepare("SELECT start_at,end_at,duration,disposition,mode FROM tracking_intervals WHERE start_at<? AND end_at>?").all(new Date(through).toISOString(),new Date(from).toISOString());
     for (const interval of tracked) {
       const start = Date.parse(interval.start_at), end = Date.parse(interval.end_at);
       const overlap = Math.max(0, Math.min(end,through) - Math.max(start,from));
       const share = interval.duration * overlap / (end-start);
-      if (interval.disposition === "uncertain") uncertainSeconds += share;
-      else { creditedSeconds += share; if (interval.mode === "automatic") automaticSeconds += share; else trackedManualSeconds += share; }
+      if (disposition(interval.disposition) === "credited") { creditedSeconds += share; if (interval.mode === "automatic") automaticSeconds += share; else trackedManualSeconds += share; }
     }
     totals.minutes += creditedSeconds / 60;
     const unit = goal?.unit ?? "minutes",
@@ -560,7 +563,7 @@ class JournalStore {
       fraction: Math.min(1, value / target),
       reached: value >= target,
       evidence: tracked.length ? "dated-manual-and-tracked" : "dated-manual",
-      timeZone: zone, creditedSeconds, uncertainSeconds, automaticSeconds, trackedManualSeconds, trackingIntervals: tracked.length,
+      timeZone: zone, creditedSeconds, automaticSeconds, trackedManualSeconds, trackingIntervals: tracked.length,
       minutesTarget: goal?.minutes ?? 20,
       pagesTarget: goal?.pages ?? null,
     };

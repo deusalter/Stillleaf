@@ -24,23 +24,27 @@ struct TodayView: View {
                         .background(ReadingPalette.accent.opacity(0.10), in: Capsule())
                         .fixedSize()
                 }
-                DailyReadingOverview(model: model)
-                AnnualReadingGoalView(model: model, openBook: { present(.book($0)) })
+                // Keep the next reading action above the tall goal summaries,
+                // including at the dashboard's minimum window height.
+                featuredReading
                 if let entry = model.pendingCompletion, model.snapshot.phase != .reading, !model.manualActive {
                     FinishedBookPrompt(model: model, entry: entry)
                 }
-                featuredReading
                 ReadingSection("Manual reading") {
                     HStack(spacing: 10) {
                         if model.manualActive {
                             Button("Stop manual reading") { model.stopManual() }
+                                .buttonStyle(ReadingButtonStyle(emphasis: .primary))
                         } else {
                             Button("Read manually") { present(.manualStart) }
                         }
                         Button { present(.manualAdd) } label: { Label("Add time", systemImage: "plus") }
                     }
+                    .buttonStyle(ReadingButtonStyle(glass: false))
                     .controlSize(.small)
                 }
+                DailyReadingOverview(model: model)
+                AnnualReadingGoalView(model: model, openBook: { present(.book($0)) })
             }
             .readingPage()
         }
@@ -52,9 +56,9 @@ struct TodayView: View {
     }
 
     private var featuredReading: some View {
-        ReadingSection(model.snapshot.book == nil ? "Last read" : "Your current read", accessory: {
+        ReadingSection(featuredBook == nil ? "Your next read" : (model.snapshot.book == nil ? "Last read" : "Your current read"), accessory: {
             if let book = featuredBook {
-                Button("Book details") { present(.book(book)) }.controlSize(.small)
+                Button("Book details") { present(.book(book)) }.buttonStyle(ReadingButtonStyle(glass: false)).controlSize(.small)
             }
         }) {
             HStack(alignment: .center, spacing: 28) {
@@ -91,11 +95,13 @@ struct TodayView: View {
                         Text("Start reading").font(ReadingType.bookTitle(26))
                         Text("Import an EPUB to read here, or pick up a book from your library.")
                             .font(.callout).foregroundStyle(ReadingPalette.secondaryInk)
-                        HStack(spacing: 10) {
-                            Button { model.epubLibrary.chooseFiles() } label: { Label("Import EPUBs", systemImage: "square.and.arrow.down") }
-                                .buttonStyle(ReadingButtonStyle(emphasis: .primary))
-                            Button { model.showDashboard(section: .library) } label: { Label("Browse library", systemImage: "books.vertical") }
-                            Button("Open Apple Books") { openBooks() }
+                        ReadingGlassGroup {
+                            HStack(spacing: 10) {
+                                Button { model.epubLibrary.chooseFiles() } label: { Label("Import EPUBs", systemImage: "square.and.arrow.down") }
+                                    .buttonStyle(ReadingButtonStyle(emphasis: .primary))
+                                Button { model.showDashboard(section: .library) } label: { Label("Browse library", systemImage: "books.vertical") }
+                                Button("Open Apple Books") { openBooks() }
+                            }
                         }.padding(.top, 5)
                     }.frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -109,26 +115,29 @@ struct TodayView: View {
         let preparing = model.preparingAppleBooksIDs.contains(book.id)
         let inAppleBooks = model.appleBooksAssetID(for: book) != nil
         let readsHere = model.hasEPUB(book) || model.canReadAppleBooksCopy(book) || model.hasImportedEPUB(book)
-        HStack(spacing: 10) {
-            if model.hasEPUB(book) {
-                Button { model.readEPUB(book) } label: { Label("Continue reading", systemImage: "book") }
-                    .buttonStyle(ReadingButtonStyle(emphasis: .primary))
-            } else if model.canReadAppleBooksCopy(book) {
-                // Books added to Apple Books open here; store purchases stay in Apple Books.
-                Button { model.readFromAppleBooks(book) } label: { Label(preparing ? "Opening…" : "Read in Stillleaf", systemImage: "book") }
-                    .buttonStyle(ReadingButtonStyle(emphasis: .primary)).disabled(preparing)
-                    .help("Open the copy Apple Books keeps of this book. Apple Books is not changed.")
-            } else if model.hasImportedEPUB(book) {
-                Button { model.epubLibrary.chooseFiles() } label: { Label("Import to read", systemImage: "square.and.arrow.down") }
-                    .buttonStyle(ReadingButtonStyle(emphasis: .primary))
-            } else if !inAppleBooks {
-                Button { model.showDashboard(section: .library) } label: { Label("Browse library", systemImage: "books.vertical") }
-                    .buttonStyle(ReadingButtonStyle(emphasis: .primary))
-            }
-            // A store purchase reads only in Apple Books, so that becomes the main action.
-            if inAppleBooks {
-                Button { openBooks() } label: { Label("Open in Apple Books", systemImage: "book") }
-                    .buttonStyle(ReadingButtonStyle(emphasis: readsHere ? .secondary : .primary))
+        ReadingGlassGroup {
+            HStack(spacing: 10) {
+                if model.hasEPUB(book) {
+                    Button { model.readEPUB(book) } label: { Label(model.isOpeningEPUB(book) ? "Opening…" : "Continue reading", systemImage: "book") }
+                        .disabled(model.isOpeningEPUB(book))
+                        .buttonStyle(ReadingButtonStyle(emphasis: .primary))
+                } else if model.canReadAppleBooksCopy(book) {
+                    // Books added to Apple Books open here; store purchases stay in Apple Books.
+                    Button { model.readFromAppleBooks(book) } label: { Label(preparing ? "Opening…" : "Read in Stillleaf", systemImage: "book") }
+                        .buttonStyle(ReadingButtonStyle(emphasis: .primary)).disabled(preparing)
+                        .help("Open the copy Apple Books keeps of this book. Apple Books is not changed.")
+                } else if model.hasImportedEPUB(book) {
+                    Button { model.epubLibrary.chooseFiles() } label: { Label("Import to read", systemImage: "square.and.arrow.down") }
+                        .buttonStyle(ReadingButtonStyle(emphasis: .primary))
+                } else if !inAppleBooks {
+                    Button { model.showDashboard(section: .library) } label: { Label("Browse library", systemImage: "books.vertical") }
+                        .buttonStyle(ReadingButtonStyle(emphasis: .primary))
+                }
+                // A store purchase reads only in Apple Books, so that becomes the main action.
+                if inAppleBooks {
+                    Button { openBooks() } label: { Label("Open in Apple Books", systemImage: "book") }
+                        .buttonStyle(ReadingButtonStyle(emphasis: readsHere ? .secondary : .primary))
+                }
             }
         }
     }
@@ -249,7 +258,6 @@ struct ActivityStateLabel: View {
         let symbol: String
         switch snapshot.phase {
         case .reading: text = "Reading now"; symbol = "record.circle"
-        case .uncertain: text = "Time awaiting review"; symbol = "clock.badge.questionmark"
         case .paused: text = "Paused • \(activityPauseSummary(snapshot.pauseReason))"; symbol = "pause.circle"
         }
         return Label(text, systemImage: symbol)
@@ -273,22 +281,6 @@ private func activityPauseSummary(_ reason: PauseReason?) -> String {
     case .recovery: return "Recovering"
     case .clockDiscontinuity: return "Clock changed"
     case nil: return "Waiting for reading"
-    }
-}
-
-struct UncertainNotice: View {
-    let count: Int
-    let review: () -> Void
-    var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "clock.badge.questionmark").foregroundStyle(ReadingPalette.ochre)
-            Text("\(count) interval\(count == 1 ? "" : "s") need review before they count toward your totals.")
-            Spacer()
-            Button("Review", action: review)
-        }
-        .font(.callout)
-        .padding(14)
-        .background(ReadingPalette.ochre.opacity(0.12), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 }
 

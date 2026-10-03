@@ -65,7 +65,7 @@ public struct ReaderPreferences: Codable, Equatable {
 
 - `tick()` gets a reader branch: if a Stillleaf reader window is key, `NSApp.isActive` is true, and the window is not miniaturized, call `apply(book:mode: .reader, …)`. Otherwise the reader contributes nothing, and the existing Books path runs unchanged. Lock, sleep and pause still apply through `commonPauseReason()`.
 - **Page evidence** comes straight from the bridge rather than the Accessibility-derived `PageTurnTracker`. Paginated modes count forward turns: 1 per single-page turn and 2 per spread turn. Scroll mode counts viewport heights scrolled forward and labels them "page-equivalents". A bound rejects skimming (e.g. more than 8 pages within 2 s), and TOC or slider jumps never count. Record each turn as a `pageTurn` event whose `PageTurnEvidence` source reads "Stillleaf reader".
-- Activity evidence comes from turns and scrolls inside the reader; the uncertainty threshold behaves exactly as for Books.
+- Turns and scrolls supply progress evidence inside the reader; time follows the same foreground, pause, lock and sleep rules as Books.
 - **Discord:** `publishPresence()` treats an open reader window as `readerOpen` without the Accessibility window check. Paginated modes show "page X of Y (this layout)"; scroll mode shows the chapter title.
 - **Popover:** "Continue reading" opens the most recent reader book at its saved locator.
 

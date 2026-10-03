@@ -176,7 +176,13 @@ function returnFromJump(){return queueNavigation(async()=>{
 })}
 function followPublicationLink(event){
  const anchor=event.target?.closest?.('a[href]');if(!anchor)return;
- event.preventDefault();event.stopImmediatePropagation();
+ // Own link activation before Readium's bubbling pointer handler, which treats
+ // any primary pointer (including its middle/right buttons) as a tap. Preserve
+ // the separate contextmenu default while blocking alternate navigation paths.
+ event.stopImmediatePropagation();
+ if(event.type==='pointerup'&&(event.button!==0||event.metaKey||event.ctrlKey||event.altKey||event.shiftKey))return;
+ event.preventDefault();
+ if(event.type==='auxclick'||event.metaKey||event.ctrlKey||event.altKey||event.shiftKey)return;
  if(event.type==='click'&&event.detail!==0)return;
  const locator=linkLocator({href:anchor.getAttribute('href')});
  if(locator)void go(locator);else notice('This link cannot be opened in this reader.');
@@ -353,7 +359,7 @@ function renderAppearanceControls(){
  if(focused)fonts.querySelector(`[data-font="${focused}"]`)?.focus();
  const margins=$('margins');
  if(!margins.childElementCount)for(const [id,m]of Object.entries(MARGINS)){const b=document.createElement('button');b.dataset.margins=id;b.setAttribute('role','radio');b.textContent=m.label;b.onclick=()=>void setPreferences({margins:id,sideMargin:null});margins.append(b)}
- for(const b of margins.children){const on=state?.preferences.sideMargin==null&&b.dataset.margins===(state?.preferences.margins??'normal');b.setAttribute('aria-checked',String(on));b.tabIndex=on?0:-1}
+ for(const b of margins.children){const on=state?.preferences.sideMargin==null&&b.dataset.margins===(state?.preferences.margins??'normal');b.setAttribute('aria-checked',String(on));b.tabIndex=b.dataset.margins===(state?.preferences.margins??'normal')?0:-1}
 }
 function syncAppearance(){
  if(!state)return;
@@ -673,6 +679,13 @@ async function crossScrollBoundary(wnd,delta,event){
  event.preventDefault();setBoundaryBusy(true);
  try{await go({href:input.readingOrder[next].href,type:'text/html',locations:{progression:delta>0?0:1}},false)}finally{setTimeout(()=>setBoundaryBusy(false),200)}
 }
+function keyboardTurn(event,direction){
+ event.preventDefault();
+ // A held key may drive the next turn once the previous one settles, but cannot
+ // build a backlog that keeps moving after release. Separate presses still queue.
+ if(event.repeat&&queuedTurns>0){pageSlide.hurry();return}
+ void turn(direction);
+}
 function keyboard(event){
  if(event.defaultPrevented||event.altKey||event.metaKey||event.ctrlKey||event.shiftKey)return;
  const tag=event.target?.tagName;if(['INPUT','TEXTAREA','SELECT'].includes(tag)||event.target?.isContentEditable)return;
@@ -680,10 +693,10 @@ function keyboard(event){
  if(document.querySelector('dialog[open]'))return;
  if(event.key==='ArrowRight'||event.key==='ArrowLeft'){
   const rtl=input?.readingProgression==='rtl'||navigator?.readingProgression==='rtl';
-  event.preventDefault();turn((event.key==='ArrowRight')!==rtl?'next':'previous');
+  keyboardTurn(event,(event.key==='ArrowRight')!==rtl?'next':'previous');
  }
  if(!state?.preferences.scroll&&(event.key==='PageDown'||event.key==='PageUp')){
-  event.preventDefault();turn(event.key==='PageDown'?'next':'previous');
+  keyboardTurn(event,event.key==='PageDown'?'next':'previous');
  }
 }
 window.addEventListener('keydown',keyboard);
@@ -738,7 +751,7 @@ async function installNavigator(location,settings=readiumPreferences()){
    readerScrolled:(delta,height)=>{if(generation===lifecycle)trackContinuousScroll(delta,height)},
    readerAnchorChanged:locator=>{if(generation===lifecycle&&performance.now()>=quietUntil&&!reflowCount&&!resizing)stableAnchor=clone(locator)},
    textSelected:value=>{if(generation===lifecycle)selected(value)},
-   frameLoaded:wnd=>{if(!wnd.CSS?.highlights&&navigator)navigator.decorationsAvailable=false;if(!frames.has(wnd)){frames.add(wnd);observeChapterPages(wnd,generation);for(const type of ["wheel","scroll","keydown","pointerdown"])wnd.addEventListener(type,backgroundActivity,{capture:true,passive:true});installPageTurnWheel(wnd,{gesture:pageTurnGesture,enabled:()=>Boolean(state&&!state.preferences.scroll&&!document.querySelector('dialog[open]')),rtl:()=>input?.readingProgression==='rtl'||navigator?.readingProgression==='rtl',turn});wnd.document.addEventListener('keydown',keyboard);if(navigator?.kind!=='continuous'){let anchorTimer;wnd.addEventListener('wheel',event=>{void crossScrollBoundary(wnd,event.deltaY,event);clearTimeout(anchorTimer);if(!boundaryBusy)anchorTimer=setTimeout(()=>{if(!reflowCount&&!resizing)stableAnchor=visibleAnchor()},100)},{passive:false});}wnd.document.addEventListener('keydown',event=>{if(navigator?.kind!=='continuous'&&['ArrowDown','PageDown','ArrowUp','PageUp'].includes(event.key)&&!['INPUT','TEXTAREA','SELECT'].includes(event.target?.tagName)){void crossScrollBoundary(wnd,['ArrowDown','PageDown'].includes(event.key)?1:-1,event);setTimeout(()=>{if(!boundaryBusy&&!reflowCount&&!resizing)stableAnchor=visibleAnchor()},100)}});wnd.document.addEventListener('pointerup',followPublicationLink,true);wnd.addEventListener('scroll',()=>trackScroll(wnd),{passive:true});wnd.document.addEventListener('click',followPublicationLink,true);wnd.document.addEventListener('keyup',()=>{const text=wnd.getSelection()?.toString();if(text&&lastLocator&&navigator?.kind!=='continuous')selected({text,locator:Locator.deserialize({...lastLocator,text:{highlight:text}})});});}},
+   frameLoaded:wnd=>{if(!wnd.CSS?.highlights&&navigator)navigator.decorationsAvailable=false;if(!frames.has(wnd)){frames.add(wnd);observeChapterPages(wnd,generation);for(const type of ["wheel","scroll","keydown","pointerdown"])wnd.addEventListener(type,backgroundActivity,{capture:true,passive:true});installPageTurnWheel(wnd,{gesture:pageTurnGesture,enabled:()=>Boolean(state&&!state.preferences.scroll&&!document.querySelector('dialog[open]')),rtl:()=>input?.readingProgression==='rtl'||navigator?.readingProgression==='rtl',turn});wnd.document.addEventListener('keydown',keyboard);if(navigator?.kind!=='continuous'){let anchorTimer;wnd.addEventListener('wheel',event=>{void crossScrollBoundary(wnd,event.deltaY,event);clearTimeout(anchorTimer);if(!boundaryBusy)anchorTimer=setTimeout(()=>{if(!reflowCount&&!resizing)stableAnchor=visibleAnchor()},100)},{passive:false});}wnd.document.addEventListener('keydown',event=>{if(navigator?.kind!=='continuous'&&['ArrowDown','PageDown','ArrowUp','PageUp'].includes(event.key)&&!['INPUT','TEXTAREA','SELECT'].includes(event.target?.tagName)){void crossScrollBoundary(wnd,['ArrowDown','PageDown'].includes(event.key)?1:-1,event);setTimeout(()=>{if(!boundaryBusy&&!reflowCount&&!resizing)stableAnchor=visibleAnchor()},100)}});wnd.document.addEventListener('pointerup',followPublicationLink,true);wnd.addEventListener('scroll',()=>trackScroll(wnd),{passive:true});wnd.document.addEventListener('click',followPublicationLink,true);wnd.document.addEventListener('auxclick',followPublicationLink,true);wnd.document.addEventListener('keyup',()=>{const text=wnd.getSelection()?.toString();if(text&&lastLocator&&navigator?.kind!=='continuous')selected({text,locator:Locator.deserialize({...lastLocator,text:{highlight:text}})});});}},
    error:error=>{notice(error.message);emit('error',{message:error.message})}
   };
   navigator=input.experimentalContinuous&&settings.scroll?new ContinuousNavigator($('reader'),input,pool,listeners,location,settings):new EpubNavigator($('reader'),publication,listeners,positions,location?engineLocator(location):undefined,{preferences:settings,defaults:{}});
@@ -783,17 +796,19 @@ let nativeDefinitionCache;
 function nativeDefinitions(){
  if(nativeDefinitionCache)return nativeDefinitionCache;
  const choice=(key,label,items)=>({key,label,kind:'choice',options:items.map(([value,label])=>({value:JSON.stringify(value),label}))});
- const result=[choice('theme','Page theme',[['system','System'],['custom','Custom'],...THEMES.map(x=>[x.id,x.label])]),choice('fontFamily','Typeface',FONTS.map(x=>[x.id,x.label])),choice('margins','Margins',Object.entries(MARGINS).map(([key,value])=>[key,value.label])),choice('columns','Pages',[['one','Single page'],['two','Facing pages']]),choice('fontWeight','Text weight',[[null,'Original'],[400,'Regular'],[700,'Bold']]),choice('textAlign','Alignment',[['publisher','Original'],['start','Start'],['justify','Justified']]),choice('hyphens','Hyphenation',[[null,'Original'],[true,'On'],[false,'Off']])];
+ const result=[choice('theme','Page theme',[['system','System'],...THEMES.map(x=>[x.id,x.label])]),choice('fontFamily','Typeface',FONTS.map(x=>[x.id,x.label])),choice('margins','Margins',Object.entries(MARGINS).map(([key,value])=>[key,value.label])),choice('columns','Pages',[['one','Single page'],['two','Facing pages']]),choice('fontWeight','Text weight',[[null,'Original'],[400,'Regular'],[700,'Bold']]),choice('textAlign','Alignment',[['publisher','Original'],['start','Start'],['justify','Justified']]),choice('hyphens','Hyphenation',[[null,'Original'],[true,'On'],[false,'Off']])];
  for(const [id,key,label]of [['font-size','fontSize','Text size'],['line-height','lineHeight','Line spacing'],['measure','measure','Line width'],['content-width','contentWidth','Page width'],['side-margin','sideMargin','Side margins'],['letter-spacing','letterSpacing','Letter spacing'],['word-spacing','wordSpacing','Word spacing']]){const e=$(id);result.push({key,label,kind:'number',min:Number(e.min),max:Number(e.max),step:Number(e.step),nullable:key==='sideMargin'})}
  for(const [key,label]of [['scroll','Continuous scrolling'],['immersive','Focus reading']])result.push({key,label,kind:'toggle'});
  for(const [key,label]of [['backgroundColor','Page color'],['textColor','Text color']])result.push({key,label,kind:'color'});
  return nativeDefinitionCache=result;
 }
 const nativeChrome=nativeChromeAdapter({edition:()=>input?.editionId,ready:()=>Boolean(state&&navigator&&!opening),current:()=>clone(state?.preferences??{}),definitions:nativeDefinitions,
- status:()=>({bookmarked:Boolean(lastLocator&&state?.bookmarks.some(x=>samePlace(x.locator,lastLocator))),dialogOpen:Boolean(document.querySelector('dialog[open]'))}),
+ status:()=>({effectiveAppearance:{backgroundColor:currentTheme().background,textColor:currentTheme().text},bookmarked:Boolean(lastLocator&&state?.bookmarks.some(x=>samePlace(x.locator,lastLocator))),dialogOpen:Boolean(document.querySelector('dialog[open]'))}),
  visibility:(active,closing=false)=>{document.body.classList.toggle('native-chrome',active);if(state&&!closing)return setPreferences({})},
  perform:async(command,payload)=>{
   if(command==='preferences'){
+   // A named preset replaces custom gutters, matching the web appearance control.
+   if(Object.hasOwn(payload,'margins')&&!Object.hasOwn(payload,'sideMargin'))payload={...payload,sideMargin:null};
    if(typeof payload.backgroundColor==='string'||typeof payload.textColor==='string'){
     const base=currentTheme();payload={backgroundColor:base.background,textColor:base.text,...payload,theme:'custom'};
    }

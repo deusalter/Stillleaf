@@ -28,7 +28,7 @@ check(visible([interval("manual", mode: .manual)]).count == 1, "Manual time-only
 check(visible([interval("import", mode: .imported)]).count == 1, "Imported entry must remain")
 check(visible([interval("long", duration: 120)]).count == 1, "Two-minute time-only reading must remain")
 check(visible([interval("short", duration: 119)]).isEmpty, "Short empty automatic group should disappear")
-check(visible([interval("review", duration: 120, disposition: .uncertain)]).count == 1, "Meaningful uncertain evidence must remain reviewable")
+check(visible([interval("reading", duration: 120)]).count == 1, "Meaningful recorded time must remain visible")
 let turn = AuditEvent(date: tiny.end, kind: "pageTurn", bookID: "book", sessionID: "tiny", detail: "fixture",
     pageTurn: PageTurnEvidence(fromPage: 1, toPage: 2, pagesRead: 1, visiblePages: 1, layoutSignature: "fixture"))
 check(visible([tiny], events: [turn]).count == 1, "Observed reading must remain")

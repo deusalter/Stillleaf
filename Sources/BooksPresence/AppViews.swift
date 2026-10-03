@@ -16,44 +16,57 @@ struct DashboardView: View {
         self.initialSettingsCategory = initialSettingsCategory
     }
     @State private var sheet: DashboardSheet?
+    @StateObject private var settingsDrafts = SettingsDraftStore()
+    @StateObject private var libraryBrowsing = LibraryBrowseState()
     @ObservedObject private var theme = ThemeStore.shared
     @State private var deleteAllConfirmation = false
     @State private var uninstallConfirmation = false
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.nativePreviewReduceMotion) private var previewReduceMotion
 
     var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
             DashboardSidebar(selection: $section, model: model, troubleshoot: { sheet = .trackingHelp })
                 .id(theme.revision)
+                .frame(minWidth: 205, idealWidth: 225, maxWidth: 260)
+                .nativeSidebarToolbar()
                 .navigationSplitViewColumnWidth(min: 205, ideal: 225, max: 260)
         } detail: {
             VStack(spacing: 0) {
-                if let error = model.errorMessage, !error.isEmpty {
+                if let error = model.errorMessage ?? model.trackingRecoveryMessage, !error.isEmpty {
                     ErrorBanner(message: error, refresh: { model.refresh() })
                 }
                 Group {
                     switch section {
                     case .today: TodayView(model: model, present: { sheet = $0 })
                     case .history: HistoryView(model: model, initialScale: initialCalendarScale)
-                    case .library: LibraryView(model: model, present: { sheet = $0 })
+                    case .library: LibraryView(model: model, present: { sheet = $0 }, browsing: libraryBrowsing)
                     case .review: PersonalReviewsView(model: model)
                     case .timeline: ReadingTimelineView(model: model, present: { sheet = $0 })
                     case .health: HealthView(model: model)
-                    case .settings: SettingsView(model: model, present: { sheet = $0 }, deleteAll: { deleteAllConfirmation = true }, uninstall: { uninstallConfirmation = true }, initialCategory: model.settingsCategoryRequest ?? initialSettingsCategory)
+                    case .settings: SettingsView(model: model, present: { sheet = $0 }, deleteAll: { deleteAllConfirmation = true }, uninstall: { uninstallConfirmation = true }, initialCategory: model.settingsCategoryRequest ?? initialSettingsCategory, drafts: settingsDrafts)
                         .id(model.settingsCategoryRequest)
                     }
                 }
                 // A theme change re-keys only the rendered content, inside the entrance, so it
-                // swaps instantly instead of replaying the fade. Settings owns unsaved drafts
-                // and re-keys its own content instead.
+                // swaps instantly instead of replaying the fade. Settings re-keys its
+                // rendered content while the dashboard retains its unsaved drafts.
                 .id(Self.contentKey(for: section, revision: theme.revision))
                 .readingEntrance()
                 .id(section)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .background(ReadingPalette.paper)
+            .background(ReadingPalette.paper, ignoresSafeAreaEdges: .vertical)
             .foregroundStyle(ReadingPalette.ink)
             .buttonStyle(ReadingButtonStyle())
         }
+        .nativeDashboardSidebarToggle(isCollapsed: columnVisibility == .detailOnly) {
+            withAnimation((previewReduceMotion ?? reduceMotion) ? nil : ReadingMotion.selection) {
+                columnVisibility = columnVisibility == .detailOnly ? .all : .detailOnly
+            }
+        }
+        .nativeDashboardWindowBackground()
         .readingMotionAccessibility()
         .onAppear { acceptNavigationRequest() }
         .onChange(of: model.dashboardSectionRequest) { _ in acceptNavigationRequest() }
@@ -102,7 +115,7 @@ struct DashboardView: View {
         case .book(let book):
             BookDetailView(model: model, book: book)
         case .review(let interval):
-            IntervalReviewEditor(model: model, interval: interval)
+            ReadingSessionEditor(model: model, interval: interval)
         case .merge(let source):
             MergeBooksView(model: model, source: source)
         case .restore:
@@ -226,7 +239,7 @@ struct PopoverView: View {
                     Text(model.dailyGoalStreak.todayPending ? "Goal streak · today still open" : "Goal streak")
                         .font(.caption2).foregroundStyle(ReadingPalette.fadedInk)
                 }.frame(maxWidth: .infinity, alignment: .leading)
-                .help(model.dailyGoalStreak.provisional ? "This streak is provisional until pending time is reviewed." : "Consecutive days that met your daily goal.")
+                .help("Consecutive days that met your daily goal.")
             }
             if let pace = ReadingFormat.pagesPerMinute(model.sessionPagesPerMinute) {
                 Label(pace, systemImage: "gauge.with.dots.needle.50percent")
@@ -338,7 +351,7 @@ private struct DashboardSidebar: View {
                         Button { selection = item } label: {
                             Label(item.title, systemImage: item.symbol)
                                 .font(.system(size: 13, weight: selection == item ? .semibold : .medium))
-                                .foregroundStyle(selection == item ? ReadingPalette.ink : ReadingPalette.secondaryInk)
+                                .foregroundStyle(ReadingPalette.ink)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(.horizontal, 12).padding(.vertical, 11)
                                 .background {
@@ -372,16 +385,16 @@ private struct DashboardSidebar: View {
                 if model.appleBooksTrackingNeedsAccess || model.snapshot.pauseReason == .captureFailure {
                     Button(action: troubleshoot) {
                         Label(trackingStatus, systemImage: "exclamationmark.circle")
-                            .font(.system(size: 11, weight: .medium)).foregroundStyle(ReadingPalette.warning)
+                            .font(.system(size: 11, weight: .medium)).foregroundStyle(ReadingPalette.ink)
                     }.buttonStyle(.plain).help("Open tracking help")
                 } else {
                     HStack(spacing: 6) {
                         Circle().fill(model.snapshot.phase == .reading ? ReadingPalette.accent : ReadingPalette.secondaryInk).frame(width: 6, height: 6)
-                        Text(trackingStatus).font(.system(size: 11, weight: .medium)).foregroundStyle(ReadingPalette.secondaryInk)
+                        Text(trackingStatus).font(.system(size: 11, weight: .medium)).foregroundStyle(ReadingPalette.ink)
                     }
                 }
                 Text("History stored on this Mac")
-                    .font(.system(size: 10)).foregroundStyle(ReadingPalette.secondaryInk)
+                    .font(.system(size: 10)).foregroundStyle(ReadingPalette.ink)
             }
 
             .padding(.horizontal, 16).padding(.bottom, 16)
@@ -393,7 +406,6 @@ private struct DashboardSidebar: View {
     private var trackingStatus: String {
         if !model.trackingEnabled { return "Tracking paused" }
         if model.snapshot.phase == .reading { return "Reading now" }
-        if model.snapshot.phase == .uncertain { return "Review suggested" }
         switch model.snapshot.pauseReason {
         case .permissionLost: return "Apple Books access needed"
         case .background: return "Waiting for Books"

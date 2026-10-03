@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 import BooksCore
 import BooksPlatform
@@ -7,7 +8,9 @@ import CSQLite
 /// Explicit developer-only self-check. Uses temporary synthetic history and an isolated defaults suite.
 @MainActor
 func runUISmoke() throws {
+    try checkFormSaveResults()
     try checkHistoryDateFormatting()
+    try checkLibraryHistorySummary()
     let root = FileManager.default.temporaryDirectory.appendingPathComponent("BooksPresence-ui-check-\(UUID().uuidString)")
     let suite = "BooksPresence.UIValidation.\(UUID().uuidString)"
     let defaults = UserDefaults(suiteName: suite)!
@@ -16,6 +19,8 @@ func runUISmoke() throws {
     try checkHistoryRefreshPerformance(at: root.appendingPathComponent("performance"))
     try seedUISmokeHistory(at: root)
     let model = try AppModel(support: root, defaults: defaults, startTracking: false)
+    try checkUnchangedHealthUpdates(model)
+    try runSettingsDraftSmoke(model: model)
     guard let atlasSource = model.historyAtlasSource else { throw BooksAccessErrorForUI.failed("History source was not published") }
     try runHistoryAtlasNavigationSmoke(source: atlasSource)
     guard model.manualPages(forBookID: "smoke-pages-a") == 7 else {
@@ -313,7 +318,7 @@ func runUISmoke() throws {
         ("annual-goal", AnyView(AnnualReadingGoalView(model: model, openBook: { _ in }))),
         ("manual-start", AnyView(ManualStartView(model: model))),
         ("manual-add", AnyView(ManualAdditionView(model: model))),
-        ("review-editor", AnyView(IntervalReviewEditor(model: model, interval: interval))),
+        ("session-editor", AnyView(ReadingSessionEditor(model: model, interval: interval))),
         ("merge", AnyView(MergeBooksView(model: model, source: manualBook))),
         ("restore", AnyView(RestoreConfirmationView(model: model)))
     ]
@@ -388,6 +393,28 @@ func runUISmoke() throws {
     }
     model.shutdown()
     print("ui-smoke: model correction/deletion and native view layout checks passed (synthetic data; no screenshots)")
+}
+
+@MainActor
+private func checkUnchangedHealthUpdates(_ model: AppModel) throws {
+    let original = model.health
+    var invalidations = 0
+    let subscription = model.objectWillChange.sink { invalidations += 1 }
+    defer { subscription.cancel(); model.reportHealth(original) }
+    for _ in 0..<60 { model.reportHealth(original) }
+    guard invalidations == 0 else {
+        throw BooksAccessErrorForUI.failed("Unchanged tracker status invalidated the dashboard")
+    }
+    model.reportHealth("Synthetic capture unavailable")
+    guard invalidations == 1, model.health == "Synthetic capture unavailable" else {
+        throw BooksAccessErrorForUI.failed("A real tracker status change did not publish immediately")
+    }
+    for _ in 0..<60 { model.reportHealth("Synthetic capture unavailable") }
+    model.reportHealth(original)
+    guard invalidations == 2, model.health == original else {
+        throw BooksAccessErrorForUI.failed("Repeated status or recovery published incorrectly")
+    }
+    print("ui-smoke: 120 identical tracker status reports emit zero dashboard invalidations; failure and recovery each publish immediately")
 }
 
 /// Uses its own history and defaults so saving the tour's goal cannot disturb the main fixture.
@@ -606,7 +633,8 @@ private func checkHistoryRefreshPerformance(at root: URL) throws {
     release.signal()
     try pumpHistoryRefresh { asyncModel.historyRefreshIsIdle }
     guard asyncModel.books == model.books, asyncModel.events == model.events,
-          asyncModel.todayPages == model.todayPages, asyncModel.libraryProgressObservations == expected else {
+          asyncModel.todayPages == model.todayPages, asyncModel.libraryProgressObservations == expected,
+          asyncModel.librarySummary == model.librarySummary else {
         throw BooksAccessErrorForUI.failed("Background presentation differs from synchronous history")
     }
     print("ui-smoke: background refresh enqueue \(requestMS) ms; main-queue heartbeat ran while snapshot worker was gated")
@@ -632,7 +660,8 @@ private func checkHistoryRefreshPerformance(at root: URL) throws {
     guard asyncModel.books.isEmpty else { throw BooksAccessErrorForUI.failed("Delete did not publish synchronously") }
     release.signal()
     try pumpHistoryRefresh { asyncModel.historyRefreshIsIdle }
-    guard asyncModel.books.isEmpty, asyncModel.events.isEmpty, asyncModel.libraryProgressObservations.isEmpty else {
+    guard asyncModel.books.isEmpty, asyncModel.events.isEmpty, asyncModel.libraryProgressObservations.isEmpty,
+          asyncModel.librarySummary == LibraryHistorySummary() else {
         throw BooksAccessErrorForUI.failed("Stale worker resurrected deleted history")
     }
     // Restore while idle, then change timezone during a captured read. It must retry.

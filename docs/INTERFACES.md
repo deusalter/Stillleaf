@@ -25,15 +25,14 @@ Swift 5.8, macOS 13+. No external dependencies. All app state and the core engin
 - `func restore(from url: URL) throws` (validate, replace atomically; core does not delete external user backups)
 
 `public final class TrackingEngine`
-- `init(store: ReadingStore, timezoneID: String, uncertaintyThreshold: TimeInterval = 1200, checkpointSeconds: TimeInterval = 15) throws`
+- `init(store: ReadingStore, timezoneID: String, checkpointSeconds: TimeInterval = 15) throws`
 - `var snapshot: TrackerSnapshot { get }`
 - `var timezoneID: String { get set }`
-- `var uncertaintyThreshold: TimeInterval { get set }`
 - `func process(_ input: TrackingInput) throws`
 - `func stop(date: Date = Date(), uptime: TimeInterval = ProcessInfo.processInfo.systemUptime, reason: PauseReason = .stopped) throws`
 - `func checkpoint(date: Date = Date(), uptime: TimeInterval = ProcessInfo.processInfo.systemUptime) throws`
 
-Engine inputs come at most once per second and immediately on ineligibility. Credited interval fragments persist at most every 15 seconds plus transitions. Interruption gap up to 120 seconds may share the session ID but is excluded. Suspicious no-evidence time beyond threshold is uncertain; interaction resumes credited time, never retroactively confirms uncertainty. Tick gaps beyond a bounded allowance are outages, never fully credited. No downtime on recovery; record uncheckpointed tail uncertainty without inventing its duration. Manual mode still respects lock/sleep/pause, independent of Books foreground/access.
+Engine inputs come at most once per second and immediately on ineligibility. Credited interval fragments persist at most every 15 seconds plus transitions. Interruption gap up to 120 seconds may share the session ID but is excluded. Eligible time remains credited during long static pages. Tick gaps beyond a bounded allowance are outages, never fully credited. No downtime on recovery; record recovery without inventing the uncheckpointed tail duration. Manual mode still respects lock/sleep/pause, independent of Books foreground/access.
 
 `public enum ReadingStatistics`
 - `static func dayKey(_ date: Date, timezoneID: String) -> String`
@@ -53,8 +52,8 @@ Published read-only presentation fields (views can read):
 - `snapshot: TrackerSnapshot`, `books: [BookRecord]`, `intervals: [ReadingInterval]`, `events: [AuditEvent]`, `progress: [ProgressObservation]`, `merges: [BookMerge]`
 - `days: [DailyTotal]`, `today: DailyTotal`, `streak: StreakSummary`
 - `health: String`, `lastCapture: Date?`, `errorMessage: String?`, `discordStatus: String`
-Published settings with bindings: `trackingEnabled: Bool`, `discordEnabled: Bool`, `discordApplicationID: String`, `discordAssetKey: String`, `goalMinutes: Double`, `timezoneID: String`, `uncertaintyMinutes: Double`, `launchAtLogin: Bool`.
-Computed `uncertainIntervals: [ReadingInterval]`, `manualActive: Bool`.
+Published settings with bindings: `trackingEnabled: Bool`, `discordEnabled: Bool`, `discordApplicationID: String`, `discordAssetKey: String`, `goalMinutes: Double`, `timezoneID: String`, `launchAtLogin: Bool`.
+Computed `manualActive: Bool`.
 Actions:
 - `func startManual(title: String, author: String)` / `func startManual(book: BookRecord)` / `func stopManual()`
 - `func addManual(title: String, author: String, start: Date, end: Date)`
@@ -62,9 +61,8 @@ Actions:
 - `func saveSettings()` (goal change effective today; register/unregister login; persist settings)
 - `func setBookExclusions(_ book: BookRecord, tracking: Bool, sharing: Bool)`
 - `func chooseCover(for book: BookRecord)` (file panel)
-- `func reviewInterval(_ interval: ReadingInterval, start: Date, end: Date, bookID: String, disposition: IntervalDisposition)`
+- `func editInterval(_ interval: ReadingInterval, start: Date, end: Date, bookID: String, disposition: IntervalDisposition)`
 - `func splitInterval(_ interval: ReadingInterval, at: Date)`
-- `func resolveUncertain(_ interval: ReadingInterval, confirm: Bool)`
 - `func deleteSession(_ sessionID: String)` / `func deleteBook(_ book: BookRecord)` / `func deleteAllData()`
 - `func mergeBooks(source: BookRecord, target: BookRecord)` / `func unmerge(_ merge: BookMerge)`
 - `func exportJSON()` / `func importJSON()` / `func exportCSV()` / `func backup()` / `func restore()`

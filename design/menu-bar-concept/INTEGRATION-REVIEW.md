@@ -7,20 +7,16 @@ The main “Build BooksPresence tracker” task (01a0b198-8af7-74e1-b400-0907587
 Main checkout: `/Users/abhinavnamboori/Documents/ChatGPT/Apple Books RPC`.
 
 - `PopoverView` now uses the sea-glass design, enlarged serif book title, compact daily goal surface, distinct session/streak metrics, real reading state, and existing app actions.
-- `MenuReadingGoal` preserves actual totals, clamps visual progress, omits the arc when no goal exists, includes manual time and uncertain-time notices, and exposes accessible progress text.
+- `MenuReadingGoal` preserves actual totals, clamps visual progress, omits the arc when no goal exists, includes manual time notices, and exposes accessible progress text.
 - `DottedReadingArc` now scales fixed dot diameters and row spacing for the smaller panel while preserving homepage dimensions.
 - Shared `ReadingButtonStyle`, `ReadingPalette.onAccent`, and reduced-motion handling remain authoritative over the HTML approximation.
 - Panel and native clipping agree on 22 pt corners. The body scrolls within a capped height while header/footer remain available.
 
 Accepted visual differences from the concept: two-row compact arc, native button sizes, activity state within the book row, actual session time, and “Daily reading” copy. None changes the intended hierarchy or requires a user decision.
 
-Flagged for main owner: the provisional-streak explanation should remain available when uncertain time and provisional streak coexist. `else if` currently favors the uncertain-time label. A separate help explanation or independent label can resolve this without extra visual clutter.
-
 ## Native render review completed
 
 Reviewed `popover-light.png`, `popover-dark.png`, `popover-manual-light.png`, and `popover-setup-dark.png` in the main checkout's `.local/design-seaglass/` directory. Standard light/dark layouts visually match the homepage. Titles, compact double-dot arc, actual over-goal totals, manual time qualifier, and controls render without clipping in these standard previews.
-
-The main owner confirmed provisional streak information now also appears independently in Goal streak help.
 
 Two review findings were acknowledged by the integration owner:
 

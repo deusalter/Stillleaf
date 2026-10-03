@@ -184,7 +184,7 @@ function openRecords(book) {
     seconds < 60
       ? `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format(seconds)} ${seconds === 1 ? "second" : "seconds"}`
       : `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format(seconds / 60)} ${seconds === 60 ? "minute" : "minutes"}`;
-  for (const disposition of ["credited", "uncertain"]) {
+  for (const disposition of ["credited", "excluded"]) {
     const rows = intervals.filter((entry) => entry.disposition === disposition);
     if (!rows.length) continue;
     const group = node("section", undefined, "tracked-record-group");
@@ -193,14 +193,14 @@ function openRecords(book) {
         "h3",
         disposition === "credited"
           ? "Counted reading time"
-          : "Uncertain reading time",
+          : "Excluded reading time",
       ),
     );
     group.append(
       node(
         "p",
         duration(rows.reduce((sum, row) => sum + row.duration, 0)) +
-          (disposition === "uncertain"
+          (disposition === "excluded"
             ? " · Not counted toward goals"
             : " · Counted toward time goals"),
       ),

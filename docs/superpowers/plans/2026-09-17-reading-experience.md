@@ -24,7 +24,7 @@ Self-critique: the existing oversized cards bury the primary activity. This desi
 
 - Keep the macOS 13 deployment target and direct compiler build.
 - Never mutate reading records to navigate the calendar.
-- Honor configured timezone, calendar midnight, DST, goals, uncertainty and merge semantics.
+- Honor configured timezone, calendar midnight, DST, goals and merge semantics.
 - Use real native controls, accessible labels, and reduced-motion support.
 - Root owns Git, integration, AppViews.swift, TodayView.swift and UISmoke.swift.
 - Calendar worker owns HistoryView.swift plus a new CalendarNavigation.swift and its tests.

@@ -269,14 +269,14 @@ test("curated journal hierarchy, quarter-star pointer/keyboard and light/dark/na
     .getByRole("button", { name: "Reading records", exact: true })
     .click();
   assert.match(await page.locator("#records").textContent(), /18 minutes/);
-  assert.equal(await page.locator(".tracked-record-group").count(), 2);
+  assert.equal(await page.locator(".tracked-record-group").count(), 1);
   assert.match(
     await page.locator("#records").textContent(),
-    /3 minutes.*Counted toward time goals/,
+    /4 minutes.*Counted toward time goals/,
   );
-  assert.match(
+  assert.doesNotMatch(
     await page.locator("#records").textContent(),
-    /1 minute.*Not counted toward goals/,
+    /Uncertain|Pending|Not counted toward goals/,
   );
   assert.doesNotMatch(
     await page.locator("#records-list").textContent(),

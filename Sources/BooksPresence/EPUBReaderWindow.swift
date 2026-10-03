@@ -425,14 +425,21 @@ private final class EPUBReaderBridge: NSObject, WKScriptMessageHandler {
     }
 }
 
+/// Flush fixture progress independently of buffered stdout, including before a stuck WebKit await.
+private func readerSmokeCheckpoint(_ phase: String) {
+    FileHandle.standardError.write(Data("epub-reader-smoke-stage: \(phase)\n".utf8))
+}
+
 /// Fixture-only CLI check. Never uses the app's production store or preferences.
 @MainActor
 func runEPUBReaderSmoke(fixture: URL) async throws {
+    readerSmokeCheckpoint("native command queue")
     try await runNativeReaderQueueSmoke()
     let temporary = FileManager.default.temporaryDirectory.appendingPathComponent("Stillleaf-reader-smoke-" + UUID().uuidString)
     try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: temporary) }
     let importer = EPUBPublicationImporter(directory: temporary.appendingPathComponent("Publications"))
+    readerSmokeCheckpoint("fixture import")
     let imported = try await Task.detached { try importer.importPublication(from: fixture) }.value
     let defaultsName = "Stillleaf.reader-smoke." + UUID().uuidString
     let defaults = UserDefaults(suiteName: defaultsName)!
@@ -440,6 +447,7 @@ func runEPUBReaderSmoke(fixture: URL) async throws {
     let model = try AppModel(support: temporary, defaults: defaults, startTracking: false)
     var presentations = 0
     model.dashboardAction = { presentations += 1 }
+    readerSmokeCheckpoint("library import and duplicate handling")
     model.epubLibrary.enqueue([fixture, fixture])
     let importDeadline = Date().addingTimeInterval(20)
     while model.epubLibrary.queue.isBusy && Date() < importDeadline { try await Task.sleep(nanoseconds: 50_000_000) }
@@ -456,6 +464,7 @@ func runEPUBReaderSmoke(fixture: URL) async throws {
         throw EPUBImportError.invalid("Merging an imported edition hid its EPUB actions or created reading time.")
     }
     for terminating in [false, true] {
+        readerSmokeCheckpoint(terminating ? "queued reset during quit" : "queued reset during close")
         let raceState = temporary.appendingPathComponent(terminating ? "QueuedResetQuit" : "QueuedResetClose")
         let raceReader = try await EPUBReaderWindow(publication: imported.publication, directory: imported.directory, stateDirectory: raceState)
         raceReader.window?.setFrameOrigin(NSPoint(x: -20_000, y: -20_000)); raceReader.window?.orderBack(nil)
@@ -466,11 +475,13 @@ func runEPUBReaderSmoke(fixture: URL) async throws {
             throw EPUBImportError.invalid("Close/Quit did not durably save queued Reset.")
         }
     }
+    readerSmokeCheckpoint("activation during failed close")
     let activationState = temporary.appendingPathComponent("ActivationCloseKeepOpen")
     let activationReader = try await EPUBReaderWindow(publication: imported.publication, directory: imported.directory, stateDirectory: activationState)
     activationReader.window?.setFrameOrigin(NSPoint(x: -20_000, y: -20_000)); activationReader.window?.orderBack(nil)
     try await activationReader.testWaitUntilReady()
     try await activationReader.testActivationDuringFailedClose(stateDirectory: activationState)
+    readerSmokeCheckpoint("main reader creation")
     let state = temporary.appendingPathComponent("ReaderState")
     let reader = try await EPUBReaderWindow(publication: imported.publication, directory: imported.directory, stateDirectory: state)
     defer { reader.window?.close() }
@@ -479,6 +490,7 @@ func runEPUBReaderSmoke(fixture: URL) async throws {
     }
     reader.window?.setFrameOrigin(NSPoint(x: -20_000, y: -20_000))
     reader.window?.orderBack(nil)
+    readerSmokeCheckpoint("initial chapter render")
     let deadline = Date().addingTimeInterval(20)
     var rendered = false
     while Date() < deadline {
@@ -489,14 +501,19 @@ func runEPUBReaderSmoke(fixture: URL) async throws {
         let detail = (try? await reader.testDiagnostic()) ?? "No page diagnostics"
         throw EPUBImportError.invalid("Native reader did not render imported chapter text: \(detail)")
     }
+    readerSmokeCheckpoint("fixture assets")
     guard try await reader.testFixtureAssets() else {
         throw EPUBImportError.invalid("Chapter stylesheet or image did not load through the reader scheme.")
     }
+    readerSmokeCheckpoint("native controls")
     try await reader.testNativeChrome()
+    readerSmokeCheckpoint("render stability")
     try await reader.testRenderStability()
+    readerSmokeCheckpoint("page evidence")
     try await reader.testPageEvidence()
     try reader.testProgressDeliveryBurst()
     if let index = CommandLine.arguments.firstIndex(of: "--reader-artifacts"), index + 1 < CommandLine.arguments.count {
+        readerSmokeCheckpoint("review snapshots")
         try await reader.testRenderReviewSnapshots(directory: URL(fileURLWithPath: CommandLine.arguments[index + 1]))
     }
     let locationURL = state.appendingPathComponent(imported.publication.id + ".json")
@@ -507,13 +524,17 @@ func runEPUBReaderSmoke(fixture: URL) async throws {
           let href = locator["href"] as? String, imported.publication.spine.contains(href) else {
         throw EPUBImportError.invalid("Reader location was not persisted through the authenticated bridge.")
     }
+    readerSmokeCheckpoint("durable note")
     try await reader.testAddDurableNote()
+    readerSmokeCheckpoint("reading modes")
     var expectedPreferences = try await reader.testReadingModes()
     if CommandLine.arguments.contains("--reader-appearance-review") {
         guard let index = CommandLine.arguments.firstIndex(of: "--reader-artifacts"), index + 1 < CommandLine.arguments.count else { throw EPUBImportError.invalid("Appearance proof needs an artifact directory.") }
+        readerSmokeCheckpoint("appearance scenarios")
         try await reader.testAppearanceReview(directory: URL(fileURLWithPath: CommandLine.arguments[index + 1]))
         expectedPreferences = try await reader.testPreferences()
     }
+    readerSmokeCheckpoint("durable close")
     guard await reader.requestClose() else { throw EPUBImportError.invalid("Reader close did not complete.") }
     let closedState = try JSONSerialization.jsonObject(with: Data(contentsOf: locationURL)) as? [String: Any]
     guard let notes = closedState?["annotations"] as? [[String: Any]],
@@ -521,6 +542,7 @@ func runEPUBReaderSmoke(fixture: URL) async throws {
           (closedState?["bookmarks"] as? [Any])?.count == 1 else {
         throw EPUBImportError.invalid("Immediate close lost the latest note or bookmark.")
     }
+    readerSmokeCheckpoint("restore saved reader")
     let second = try await EPUBReaderWindow(publication: imported.publication, directory: imported.directory, stateDirectory: state)
     defer { second.window?.close() }
     second.window?.setFrameOrigin(NSPoint(x: -20_000, y: -20_000)); second.window?.orderBack(nil)
@@ -538,6 +560,7 @@ func runEPUBReaderSmoke(fixture: URL) async throws {
           try await second.testBookmarkCount() == 1 else {
         throw EPUBImportError.invalid("Reopened reader lost reading preferences or bookmark.")
     }
+    readerSmokeCheckpoint("failed draft save and cancelled quit")
     try await second.testEditDraft()
     let manager = EPUBReaderWindows(stateDirectory: state)
     manager.testAdopt(second)
@@ -551,6 +574,7 @@ func runEPUBReaderSmoke(fixture: URL) async throws {
     try await second.testChooseDraft("keep-draft")
     guard !(await cancelledClose.value) else { throw EPUBImportError.invalid("Keep editing did not cancel native close.") }
     guard !manager.isTerminating else { throw EPUBImportError.invalid("Cancelled Quit left the reader manager locked.") }
+    readerSmokeCheckpoint("recovered draft save")
     try await second.testRestoreDraftSaving()
     let savedClose = Task { await manager.closeAll() }
     guard await savedClose.value else { throw EPUBImportError.invalid("Autosaving the recovered draft did not complete native close.") }
@@ -558,6 +582,7 @@ func runEPUBReaderSmoke(fixture: URL) async throws {
     guard (draftSaved?["annotations"] as? [[String: Any]])?.last?["note"] as? String == "Native draft preserved" else {
         throw EPUBImportError.invalid("Native close did not durably save the note draft.")
     }
+    readerSmokeCheckpoint("optional continuous proof")
     if CommandLine.arguments.contains("--reader-experimental-continuous") {
         guard imported.publication.spine.count >= 12 else { throw EPUBImportError.invalid("Continuous eviction proof needs a 12-chapter synthetic fixture.") }
         let experimental = try await EPUBReaderWindow(publication: imported.publication, directory: imported.directory, stateDirectory: state)
@@ -913,6 +938,7 @@ private extension EPUBReaderWindow {
         window.appearanceTarget={href:book.readingOrder[0].href,type:'text/html',locations:{cssSelector:'body > p:nth-of-type(2)'},text:{highlight:'She had meant to read only a few pages.'}};
         await api.go(window.appearanceTarget);return true;
         """
+        readerSmokeCheckpoint("appearance fixture preparation")
         let _: Any = try await withCheckedThrowingContinuation { continuation in
             webView.callAsyncJavaScript(prepare, arguments: ["payload": payload], in: nil, in: .page) { result in continuation.resume(with: result) }
         }
@@ -928,6 +954,7 @@ private extension EPUBReaderWindow {
             ("appearance-focus", 1400, 900, "literata", "midnight", false, "one", 1.5, true, true)
         ]
         for (name, width, height, font, theme, scroll, columns, scale, immersive, wide) in scenarios {
+            readerSmokeCheckpoint("\(name): layout and fonts")
             window?.setContentSize(NSSize(width: width, height: height))
             try await Task.sleep(nanoseconds: 400_000_000)
             let script = """
@@ -961,6 +988,7 @@ private extension EPUBReaderWindow {
             let text = output as? String ?? "{}"
             let record = try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any] ?? [:]
             try Data(text.utf8).write(to: directory.appendingPathComponent(name + "-metrics.json"))
+            readerSmokeCheckpoint("\(name): snapshot")
             let picture: NSImage = try await withCheckedThrowingContinuation { continuation in
                 webView.takeSnapshot(with: nil) { image, error in
                     if let image { continuation.resume(returning: image) }
@@ -978,6 +1006,7 @@ private extension EPUBReaderWindow {
                 }) else { throw EPUBImportError.invalid("Appearance continuous geometry failed: \(text)") }
             }
             records.append(record)
+            readerSmokeCheckpoint("\(name): validated")
         }
         let data = try JSONSerialization.data(withJSONObject: records, options: [.prettyPrinted, .sortedKeys])
         try data.write(to: directory.appendingPathComponent("appearance-summary.json"))

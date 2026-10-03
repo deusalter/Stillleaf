@@ -21,8 +21,8 @@ func sameHistory(_ lhs: HistoryArchive, _ rhs: HistoryArchive) -> Bool {
         && lhs.progress == rhs.progress && lhs.merges == rhs.merges
 }
 
-func input(_ date: Date, _ uptime: Double, _ book: BookRecord, activity: Bool = false) -> TrackingInput {
-    TrackingInput(date: date, uptime: uptime, book: book, relevantActivity: activity)
+func input(_ date: Date, _ uptime: Double, _ book: BookRecord) -> TrackingInput {
+    TrackingInput(date: date, uptime: uptime, book: book)
 }
 
 func tick(_ engine: TrackingEngine, book: BookRecord, start: Date, uptime: Double, seconds: Int) throws {
@@ -175,20 +175,19 @@ do {
     let fractionalArchive = try fractionalStore.archive()
     try require(fractionalArchive.events.filter { $0.id == fractionalEvent.id }.count == 1 && fractionalArchive.intervals.count == 1,
                 "fractional timestamp duplicate was not canonicalized")
-    var engine: TrackingEngine? = try TrackingEngine(store: store, timezoneID: "UTC", uncertaintyThreshold: 3, checkpointSeconds: 3)
+    var engine: TrackingEngine? = try TrackingEngine(store: store, timezoneID: "UTC", checkpointSeconds: 3)
     try engine!.process(input(start, 100, book))
     try tick(engine!, book: book, start: start, uptime: 100, seconds: 5)
     try engine!.process(TrackingInput(date: start.addingTimeInterval(5), uptime: 105, pauseReason: .background))
     try require(engine!.snapshot.phase == .paused && engine!.snapshot.book == book && engine!.snapshot.mode == .automatic,
                 "background pause discarded the last reading snapshot")
-    try engine!.process(input(start.addingTimeInterval(65), 165, book, activity: true))
+    try engine!.process(input(start.addingTimeInterval(65), 165, book))
     try tick(engine!, book: book, start: start.addingTimeInterval(65), uptime: 165, seconds: 2)
     try engine!.checkpoint(date: start.addingTimeInterval(67), uptime: 167)
     engine = nil
 
     let intervalsBeforeRecovery = try store.effectiveIntervals()
-    try near(intervalsBeforeRecovery.filter { $0.disposition == .credited }.reduce(0) { $0 + $1.duration }, 5, "credited monotonic time")
-    try near(intervalsBeforeRecovery.filter { $0.disposition == .uncertain }.reduce(0) { $0 + $1.duration }, 2, "uncertain monotonic time")
+    try near(intervalsBeforeRecovery.filter { $0.disposition == .credited }.reduce(0) { $0 + $1.duration }, 7, "credited monotonic time")
     try require(!intervalsBeforeRecovery.contains { $0.start < start.addingTimeInterval(65) && $0.end > start.addingTimeInterval(5) }, "pause gap was counted")
 
     _ = try TrackingEngine(store: store, timezoneID: "UTC")

@@ -75,7 +75,7 @@ AppModel prioritizes the focused native reader and invalidates in-flight externa
 captures. Native/external page coordinates are not claimed to be interchangeable.
 
 Time stays in `ReadingInterval.duration` / creditedSeconds. Native relocation is
-not activity evidence in TrackingEngine. Existing foreground/input/uncertainty
+not activity evidence in TrackingEngine. Existing foreground, pause, lock and sleep
 rules remain responsible for time; elapsed time is never calculated from pages.
 Manual page adjustments remain explicit corrections, separate from deduplication.
 

@@ -21,7 +21,7 @@ for i in 0..<3280 {
     intervals.append(ReadingInterval(id: session, sessionID: session, bookID: book, start: date,
         end: date.addingTimeInterval(duration), duration: duration == 0 ? 120 : duration / 2,
         timezoneID: "UTC", mode: i % 3 == 0 ? .manual : .automatic,
-        disposition: i % 13 == 0 ? .excluded : i % 7 == 0 ? .uncertain : .credited))
+        disposition: i % 13 == 0 ? .excluded : .credited))
     events.append(AuditEvent(date: date.addingTimeInterval(duration), kind: "pageTurn", bookID: book,
         sessionID: session, detail: "Synthetic fixture", pageTurn: PageTurnEvidence(fromPage: i + 1,
         toPage: i + 3, pagesRead: 2, visiblePages: 1, layoutSignature: "fixture")))
@@ -48,7 +48,7 @@ for zone in ["UTC", "America/Los_Angeles", "Asia/Kolkata", "Australia/Lord_Howe"
     #if LEGACY_COMPARISON
     let old = LegacyReadingStatistics.daily(intervals: intervals, goals: goals, timezoneID: zone, from: start, through: end)
     check(days.count == old.count && zip(days, old).allSatisfy { a, b in
-        a.day == b.day && a.creditedSeconds == b.creditedSeconds && a.uncertainSeconds == b.uncertainSeconds && a.manualSeconds == b.manualSeconds && a.goalMinutes == b.goalMinutes
+        a.day == b.day && a.creditedSeconds == b.creditedSeconds && a.manualSeconds == b.manualSeconds && a.goalMinutes == b.goalMinutes
     }, "Legacy daily equivalence: \(zone)")
     check(snapshot.daily(goals: goals, timezoneID: zone, from: start, through: end) ==
         LegacyPageStatistics.daily(events: events, effectiveIntervals: intervals, goals: goals, merges: merges, timezoneID: zone, from: start, through: end), "Legacy page daily equivalence")

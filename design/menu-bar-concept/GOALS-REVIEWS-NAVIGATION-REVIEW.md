@@ -19,7 +19,7 @@ These are native layout/source observations, not installed-app interaction or pe
 - Library, Timeline, and Reviews are separate primary destinations.
 - Library defaults to all known/configured/imported books and retains useful shelf filters and sorting.
 - Timeline is a large vertically scrolling chronology of completed books, with prominent completion dates and visible ratings. No Recent sort control.
-- Reviews means personal written book reviews. Tracking diagnostics and uncertain/session correction rows belong in secondary Troubleshooting or contextual correction actions. The Reviews badge must not count uncertain intervals.
+- Reviews means personal written book reviews. Tracking diagnostics and optional session corrections belong in secondary Troubleshooting or contextual correction actions. The Reviews badge represents written book reviews only.
 - History remains a reading-activity calendar, distinct from completed-book chronology.
 - Zero-page session clutter must not leak into personal Reviews or Timeline. This does not authorize deleting source history or suppressing meaningful time-only sessions from correction tools.
 

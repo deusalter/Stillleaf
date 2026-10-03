@@ -2,39 +2,45 @@ import SwiftUI
 import BooksCore
 import UniformTypeIdentifiers
 
+/// Dashboard-owned browsing choices survive visiting another destination or
+/// changing the theme, without keeping an offscreen Library view alive.
+@MainActor
+final class LibraryBrowseState: ObservableObject {
+    @Published var shelf = LibraryShelf.all
+    @Published var search = ""
+    @Published var sort = LibrarySort.recent
+}
+
 @MainActor
 struct LibraryView: View {
     @ObservedObject var model: AppModel
     let present: (DashboardSheet) -> Void
-    @State private var shelf = LibraryShelf.all
-    @State private var search = ""
-    @State private var sort = LibrarySort.recent
+    @StateObject private var browsing: LibraryBrowseState
+
+    init(model: AppModel, present: @escaping (DashboardSheet) -> Void, browsing: LibraryBrowseState? = nil) {
+        self.model = model
+        self.present = present
+        _browsing = StateObject(wrappedValue: browsing ?? LibraryBrowseState())
+    }
     @State private var removingBook: BookRecord?
     @State private var removingEPUB: BookRecord?
     @State private var loggingAudio = false
 
     var body: some View {
-        let resolver = BookMergeResolver(merges: model.merges)
-        let books = model.books.filter { resolver.resolvedID(for: $0.id) == $0.id }
-        let finishedIDs = Set(model.finishedBooks.map { resolver.resolvedID(for: $0.id) })
-        let recent = model.intervals.reduce(into: [String: Date]()) { result, interval in
-            let id = resolver.resolvedID(for: interval.bookID)
-            result[id] = max(result[id] ?? .distantPast, interval.end)
-        }
-        let finishes = model.finishedBooks.reduce(into: [String: Date]()) { result, entry in
-            guard let date = entry.finishedAt else { return }
-            let id = resolver.resolvedID(for: entry.id)
-            result[id] = max(result[id] ?? .distantPast, date)
-        }
+        let summary = model.librarySummary
+        let books = summary.books
+        let finishedIDs = summary.finishedIDs
+        let recent = summary.recent
+        let finishes = summary.finishes
         let positions = model.libraryProgressObservations
         let visible = books.filter { book in
-            (shelf == .all || (shelf == .finished ? finishedIDs.contains(book.id) : !finishedIDs.contains(book.id)))
-                && (search.isEmpty || book.title.localizedCaseInsensitiveContains(search) || (book.author ?? "").localizedCaseInsensitiveContains(search))
+            (browsing.shelf == .all || (browsing.shelf == .finished ? finishedIDs.contains(book.id) : !finishedIDs.contains(book.id)))
+                && (browsing.search.isEmpty || book.title.localizedCaseInsensitiveContains(browsing.search) || (book.author ?? "").localizedCaseInsensitiveContains(browsing.search))
         }.sorted { lhs, rhs in
-            switch sort {
+            switch browsing.sort {
             case .recent:
-                let left = shelf == .finished ? finishes[lhs.id] : recent[lhs.id]
-                let right = shelf == .finished ? finishes[rhs.id] : recent[rhs.id]
+                let left = browsing.shelf == .finished ? finishes[lhs.id] : recent[lhs.id]
+                let right = browsing.shelf == .finished ? finishes[rhs.id] : recent[rhs.id]
                 if left != right { return (left ?? .distantPast) > (right ?? .distantPast) }
             case .author:
                 let order = (lhs.author ?? "").localizedStandardCompare(rhs.author ?? "")
@@ -72,10 +78,14 @@ struct LibraryView: View {
                     }
                 }
                 if visible.isEmpty {
-                    ReadingEmptyState(title: search.isEmpty ? (shelf == .finished ? "Stories to look back on" : "Your next chapter awaits") : "No matching books",
-                        symbol: "books.vertical",
-                        message: search.isEmpty ? (shelf == .finished ? "Books you mark finished will appear here." : "Import an EPUB, open a book in Apple Books, or add a reading session to start your shelf.") : "Try another title or author.")
-                        .padding(.vertical, 35)
+                    VStack(spacing: 16) {
+                        ReadingEmptyState(title: browsing.search.isEmpty ? (browsing.shelf == .finished ? "Stories to look back on" : "Your next chapter awaits") : "No matching books",
+                            symbol: "books.vertical",
+                            message: browsing.search.isEmpty ? (browsing.shelf == .finished ? "Books you mark finished will appear here." : "Import an EPUB, open a book in Apple Books, or add a reading session to start your shelf.") : "Try another title or author.")
+                        if !browsing.search.isEmpty || browsing.shelf != .all {
+                            Button("Show all books") { browsing.search = ""; browsing.shelf = .all }
+                        }
+                    }.padding(.vertical, 35)
                 } else {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 168, maximum: 210), spacing: 28, alignment: .topLeading)],
                               alignment: .leading, spacing: 36) {
@@ -86,7 +96,8 @@ struct LibraryView: View {
                                     rating: model.rating(for: book.id), progress: positions[book.id]) { present(.book(book)) }
                                 HStack {
                                     if model.hasImportedEPUB(book) && model.hasEPUB(book) {
-                                        Button("Read") { model.readEPUB(book) }.controlSize(.small)
+                                        Button(model.isOpeningEPUB(book) ? "Opening…" : "Read") { model.readEPUB(book) }
+                                            .controlSize(.small).disabled(model.isOpeningEPUB(book))
                                     } else if model.canReadAppleBooksCopy(book) {
                                         // Books added to Apple Books by the reader open here; store purchases stay in Apple Books.
                                         Button(model.preparingAppleBooksIDs.contains(book.id) ? "Opening…" : "Read here") { model.readFromAppleBooks(book) }
@@ -121,10 +132,7 @@ struct LibraryView: View {
             }
             .readingPage()
         }
-        // Let shelf colors reach the system sidebar's glass instead of giving
-        // it a second glass layer over an empty, flat column.
-        .background(ReadingPalette.paper)
-        .nativeNavigationBackdrop()
+        .background(ReadingPalette.paper, ignoresSafeAreaEdges: .vertical)
         .buttonStyle(ReadingButtonStyle())
         .sheet(isPresented: $loggingAudio) { AudiobookLogView(model: model) }
         .onDrop(of: [UTType.fileURL.identifier], isTargeted: nil) { model.epubLibrary.acceptDrop($0) }
@@ -155,49 +163,49 @@ extension LibraryView {
     fileprivate func shelfPicker(books: [BookRecord], finishedIDs: Set<String>) -> some View {
         let title: (LibraryShelf) -> String = { item in
             switch item {
-            case .reading: return "Reading · \(books.filter { !finishedIDs.contains($0.id) }.count)"
-            case .finished: return "Finished · \(books.filter { finishedIDs.contains($0.id) }.count)"
+            case .reading: return "Reading · \(model.librarySummary.readingCount)"
+            case .finished: return "Finished · \(model.librarySummary.finishedCount)"
             case .all: return "All books · \(books.count)"
             }
         }
         return Menu {
-            Picker("Bookshelf", selection: $shelf) {
+            Picker("Bookshelf", selection: $browsing.shelf) {
                 ForEach([LibraryShelf.all, .reading, .finished], id: \.self) { item in
                     Text(title(item)).tag(item)
                 }
             }
         } label: {
-            Text(title(shelf)).lineLimit(1)
+            Text(title(browsing.shelf)).lineLimit(1)
         }
         .menuStyle(ReadingMenuStyle())
-        .accessibilityLabel("Bookshelf").accessibilityValue(title(shelf))
+        .accessibilityLabel("Bookshelf").accessibilityValue(title(browsing.shelf))
     }
 
     fileprivate var searchAndSort: some View {
         HStack(spacing: 10) {
-            TextField("Find a title or author", text: $search)
-                .textFieldStyle(ReadingTextFieldStyle()).frame(minWidth: 180, maxWidth: 260)
+            ReadingSearchField(label: "Search library", placeholder: "Find a title or author", text: $browsing.search)
+                .frame(minWidth: 180, maxWidth: 260)
             Menu {
                 ForEach(LibrarySort.allCases, id: \.self) { value in
-                    Button { sort = value } label: {
-                        if sort == value {
+                    Button { browsing.sort = value } label: {
+                        if browsing.sort == value {
                             Label(value.rawValue, systemImage: "checkmark")
                         } else {
                             Text(value.rawValue)
                         }
                     }
-                    .accessibilityAddTraits(sort == value ? .isSelected : [])
+                    .accessibilityAddTraits(browsing.sort == value ? .isSelected : [])
                 }
-            } label: { Label(sort.rawValue, systemImage: "arrow.up.arrow.down") }
+            } label: { Label(browsing.sort.rawValue, systemImage: "arrow.up.arrow.down") }
             .menuStyle(ReadingMenuStyle())
             .accessibilityLabel("Sort books")
-            .accessibilityValue(sort.rawValue)
+            .accessibilityValue(browsing.sort.rawValue)
         }
     }
 }
 
-private enum LibraryShelf: Hashable { case reading, finished, all }
-private enum LibrarySort: String, CaseIterable { case recent = "Recent", title = "Title", author = "Author" }
+enum LibraryShelf: Hashable { case reading, finished, all }
+enum LibrarySort: String, CaseIterable { case recent = "Recent", title = "Title", author = "Author" }
 
 struct BookLibraryCard: View {
     let book: BookRecord
@@ -225,24 +233,25 @@ struct BookLibraryCard: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(book.title).font(ReadingType.bookTitle(16))
-                        .lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                        .lineLimit(2, reservesSpace: true).fixedSize(horizontal: false, vertical: true)
                     Text(book.author?.isEmpty == false ? book.author! : "Author unavailable")
                         .font(.caption).foregroundStyle(ReadingPalette.secondaryInk).lineLimit(1)
                     HStack(spacing: 6) {
                         Text(progressLabel.primary)
                             .font(.callout.weight(.semibold)).foregroundStyle(ReadingPalette.accent)
+                            .lineLimit(1)
                         if let rating {
                             Label(rating.formatted(.number.precision(.fractionLength(0...2))), systemImage: "star.fill")
                                 .font(.caption.weight(.medium)).foregroundStyle(ReadingPalette.accent)
                         }
                     }.padding(.top, 2)
-                    if let detail = progressLabel.detail {
-                        Text(detail).font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
-                    }
-                    if date != nil || progress == nil || finished {
-                        Text(date.map { "\(finished ? "Finished" : "Last read") \($0.formatted(date: .abbreviated, time: .omitted))" } ?? (finished ? "Date unavailable" : "No reading recorded yet"))
-                            .font(.caption2).foregroundStyle(ReadingPalette.secondaryInk).lineLimit(1)
-                    }
+                    Text(progressLabel.detail ?? " ").font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
+                        .lineLimit(2, reservesSpace: true)
+                        .accessibilityHidden(progressLabel.detail == nil)
+                    let showsDate = date != nil || progress == nil || finished
+                    Text(showsDate ? (date.map { "\(finished ? "Finished" : "Last read") \($0.formatted(date: .abbreviated, time: .omitted))" } ?? (finished ? "Date unavailable" : "No reading recorded yet")) : " ")
+                        .font(.caption2).foregroundStyle(ReadingPalette.secondaryInk).lineLimit(1)
+                        .accessibilityHidden(!showsDate)
                 }
                 .padding(.horizontal, 2)
             }
@@ -264,7 +273,7 @@ struct BookDetailView: View {
     @ObservedObject var model: AppModel
     let book: BookRecord
     @Environment(\.dismiss) private var dismiss
-    @State private var reviewInterval: ReadingInterval?
+    @State private var editingInterval: ReadingInterval?
     @State private var deleteBookConfirmation = false
     @State private var completionEntry: FinishedBookEntry?
     @State private var deleteSessionID: String?
@@ -327,7 +336,7 @@ struct BookDetailView: View {
         .foregroundStyle(ReadingPalette.ink)
         .buttonStyle(ReadingButtonStyle())
         .sheet(item: $completionEntry) { CompletionReviewSheet(model: model, entry: $0).readingMotionAccessibility() }
-        .sheet(item: $reviewInterval) { IntervalReviewEditor(model: model, interval: $0) }
+        .sheet(item: $editingInterval) { ReadingSessionEditor(model: model, interval: $0) }
         .sheet(isPresented: $mergePresented) { MergeBooksView(model: model, source: currentBook) }
         .sheet(isPresented: $editingDates) {
             if let entry = finishedEntry {
@@ -453,7 +462,7 @@ struct BookDetailView: View {
                             pages: model.pages(in: group),
                             audio: model.audiobookProgress(in: group),
                             isAudiobook: group.intervals.contains { model.isListening($0) },
-                            review: { reviewInterval = $0 },
+                            editSession: { editingInterval = $0 },
                             delete: { deleteSessionID = $0 }
                         )
                     }
@@ -636,7 +645,7 @@ private struct BookDetailSessionGroup: View {
     let pages: Int
     let audio: AudiobookProgress?
     let isAudiobook: Bool
-    let review: (ReadingInterval) -> Void
+    let editSession: (ReadingInterval) -> Void
     let delete: (String) -> Void
 
     var body: some View {
@@ -645,7 +654,7 @@ private struct BookDetailSessionGroup: View {
                 ForEach(group.intervals) { interval in
                     BookDetailSessionFragment(
                         interval: interval,
-                        review: { review(interval) },
+                        editSession: { editSession(interval) },
                         delete: { delete(interval.sessionID) }
                     )
                     if interval.id != (group.intervals.last?.id ?? "") { Divider() }
@@ -673,7 +682,7 @@ private struct BookDetailSessionGroup: View {
 
 private struct BookDetailSessionFragment: View {
     let interval: ReadingInterval
-    let review: () -> Void
+    let editSession: () -> Void
     let delete: () -> Void
 
     var body: some View {
@@ -686,7 +695,7 @@ private struct BookDetailSessionFragment: View {
             Spacer()
             Text(ReadingFormat.duration(interval.duration))
                 .font(.caption).monospacedDigit().foregroundStyle(ReadingPalette.fadedInk)
-            Button("Review", action: review).controlSize(.small)
+            Button("Edit", action: editSession).controlSize(.small)
             Button(role: .destructive, action: delete) { Image(systemName: "trash") }
                 .accessibilityLabel("Delete session")
         }
@@ -718,7 +727,7 @@ struct ProgressDescription: View {
 struct SessionRow: View {
     let interval: ReadingInterval
     let pageTurns: Int
-    let review: () -> Void
+    let editSession: () -> Void
     let delete: () -> Void
     var body: some View {
         HStack(spacing: 14) {
@@ -732,7 +741,7 @@ struct SessionRow: View {
                 Text(ReadingFormat.observedPages(pageTurns)).monospacedDigit()
                 Text(ReadingFormat.duration(interval.duration)).font(.caption).monospacedDigit().foregroundStyle(ReadingPalette.secondaryInk)
             }
-            Button("Review", action: review).controlSize(.small)
+            Button("Edit", action: editSession).controlSize(.small)
             Button(role: .destructive, action: delete) { Image(systemName: "trash") }
                 .buttonStyle(ReadingButtonStyle(iconOnly: true)).accessibilityLabel("Delete session")
         }

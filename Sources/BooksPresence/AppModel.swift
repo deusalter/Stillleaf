@@ -19,14 +19,15 @@ final class AppModel: ObservableObject {
     @Published private(set) var progress: [ProgressObservation] = []
     @Published private(set) var merges: [BookMerge] = []
     @Published private(set) var preparingAppleBooksIDs = Set<String>()
+    @Published private(set) var openingEPUBIDs = Set<String>()
     /// Apple Books asset IDs of store purchases, which only Apple Books can open.
     @Published private(set) var appleBooksStorePurchaseIDs = Set<String>()
     private var storePurchaseCheckInFlight = false
     private var lastStorePurchaseCheck = Date.distantPast
     private var pendingLinkOffers: [String] = []
     @Published private(set) var days: [DailyTotal] = []
-    @Published private(set) var today = DailyTotal(day: "", creditedSeconds: 0, uncertainSeconds: 0, manualSeconds: 0, goalMinutes: 20)
-    @Published private(set) var streak = StreakSummary(current: 0, longest: 0, todayPending: true, provisional: false)
+    @Published private(set) var today = DailyTotal(day: "", creditedSeconds: 0, manualSeconds: 0, goalMinutes: 20)
+    @Published private(set) var streak = StreakSummary(current: 0, longest: 0, todayPending: true)
     @Published private(set) var currentPagePosition: ReaderPagePosition?
     var currentPage: Int? { currentPagePosition?.page }
     var currentTotalPages: Int? { currentPagePosition?.totalPages }
@@ -36,7 +37,7 @@ final class AppModel: ObservableObject {
     }
     @Published private(set) var todayPages = 0
     @Published private(set) var sessionPages = 0
-    @Published private(set) var pageStreak = StreakSummary(current: 0, longest: 0, todayPending: true, provisional: false)
+    @Published private(set) var pageStreak = StreakSummary(current: 0, longest: 0, todayPending: true)
     @Published private(set) var pageDays: [DailyPageTotal] = []
     @Published private(set) var finishedBooks: [FinishedBookEntry] = []
     @Published private(set) var historyAtlasSource: HistoryAtlasSource?
@@ -47,6 +48,9 @@ final class AppModel: ObservableObject {
     @Published private(set) var health = "Starting the local tracker…"
     @Published private(set) var lastCapture: Date?
     @Published var errorMessage: String?
+    @Published private(set) var trackingRecoveryRequired = false
+    @Published private(set) var trackingRecoveryMessage: String?
+    private var rebuildingTracker = false
     @Published private(set) var discordStatus = "Discord sharing is off."
     @Published private(set) var lastDiscordResult: String?
     @Published private(set) var accessibilityGranted = false
@@ -70,7 +74,7 @@ final class AppModel: ObservableObject {
     @Published var dailyGoalUnit: DailyGoalUnit = .pages
     @Published var annualBookGoal: Int?
     @Published private(set) var annualBooksFinished = 0
-    @Published private(set) var dailyGoalStreak = StreakSummary(current: 0, longest: 0, todayPending: true, provisional: false)
+    @Published private(set) var dailyGoalStreak = StreakSummary(current: 0, longest: 0, todayPending: true)
     private var goalProgressByDay: [String: DailyGoalProgress] = [:]
     private var goalHistory: [GoalChange] = []
     private var bookReviewCache: [String: String] = [:]
@@ -86,7 +90,6 @@ final class AppModel: ObservableObject {
     }
     var todayGoal: DailyGoalProgress { dailyGoal(on: today.day) }
     @Published var timezoneID = TimeZone.current.identifier
-    @Published var uncertaintyMinutes: Double = 20
     @Published var launchAtLogin = false
 
     private var pageDaysByKey: [String: DailyPageTotal] = [:]
@@ -99,6 +102,7 @@ final class AppModel: ObservableObject {
     private var sessionPagesCache: [String: Int] = [:]
     private var bookRatings: [String: Double] = [:]
     private var libraryPositions: [String: ProgressObservation] = [:]
+    private(set) var librarySummary = LibraryHistorySummary()
     private var pageEvidenceCache: PageStatistics.Snapshot?
     private var pageEvidence: PageStatistics.Snapshot {
         if let cached = pageEvidenceCache { return cached }
@@ -123,7 +127,6 @@ final class AppModel: ObservableObject {
         displayedIntervalsCache = sorted
         return sorted
     }
-    var uncertainIntervals: [ReadingInterval] { displayIntervals.filter { $0.disposition == .uncertain } }
     private func originalIDs(for interval: ReadingInterval) -> [String] {
         guard interval.id.hasPrefix("group:") else { return [interval.id] }
         return intervals.filter { $0.sessionID == interval.sessionID && $0.bookID == interval.bookID && $0.disposition == interval.disposition && $0.start >= interval.start && $0.end <= interval.end }.map(\.id)
@@ -136,6 +139,7 @@ final class AppModel: ObservableObject {
     private let support: URL
     private let store: ReadingStore
     private let historyReader: (URL) throws -> (archive: HistoryArchive, intervals: [ReadingInterval])
+    private let makeTrackingEngine: (ReadingStore, String) throws -> TrackingEngine
     private let accessibilityStatus: () -> Bool
     private var engine: TrackingEngine
     private let captures: BooksCapture
@@ -145,7 +149,6 @@ final class AppModel: ObservableObject {
     private var readerWindow: BooksReaderWindow?
     private let readerCheckQueue = DispatchQueue(label: "Stillleaf.reader-liveness", qos: .utility)
     private var readerCheckInFlight = false
-    private var readingActivityEvidence = ReadingActivityEvidence()
     private var pageTurnTracker = PageTurnTracker()
     private var readerPagination = ReaderPagination()
     private let publicCoverResolver = PublicCoverResolver()
@@ -208,8 +211,12 @@ final class AppModel: ObservableObject {
 
     init(support: URL, defaults: UserDefaults = .standard, startTracking: Bool = true,
          accessibilityStatus: @escaping () -> Bool = { BooksCapture.isTrusted },
-         historyReader: @escaping (URL) throws -> (archive: HistoryArchive, intervals: [ReadingInterval]) = ReadingStore.readSnapshot) throws {
+         historyReader: @escaping (URL) throws -> (archive: HistoryArchive, intervals: [ReadingInterval]) = ReadingStore.readSnapshot,
+         makeTrackingEngine: @escaping (ReadingStore, String) throws -> TrackingEngine = {
+             try TrackingEngine(store: $0, timezoneID: $1)
+         }) throws {
         self.historyReader = historyReader
+        self.makeTrackingEngine = makeTrackingEngine
         self.accessibilityStatus = accessibilityStatus
         self.support = support
         self.defaults = defaults
@@ -219,13 +226,11 @@ final class AppModel: ObservableObject {
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: support.path)
         store = try ReadingStore(url: support.appendingPathComponent("history.sqlite"))
         let zone = defaults.string(forKey: "timezoneID").flatMap { TimeZone(identifier: $0) }?.identifier ?? TimeZone.current.identifier
-        let uncertain = defaults.object(forKey: "uncertaintyMinutes") as? Double ?? 20
-        engine = try TrackingEngine(store: store, timezoneID: zone, uncertaintyThreshold: max(1, uncertain) * 60)
+        engine = try makeTrackingEngine(store, zone)
         covers = try CoverCache(directory: support.appendingPathComponent("Covers"))
         captures = BooksCapture(covers: covers)
         accessibilityGranted = accessibilityStatus()
         timezoneID = zone
-        uncertaintyMinutes = max(1, uncertain)
         trackingEnabled = defaults.object(forKey: "trackingEnabled") as? Bool ?? true
         discordEnabled = defaults.bool(forKey: "discordEnabled")
         discordApplicationID = defaults.string(forKey: "discordApplicationID") ?? ""
@@ -293,13 +298,16 @@ final class AppModel: ObservableObject {
         audiobookPlayer.timezoneID = { [weak self] in self?.timezoneID ?? TimeZone.current.identifier }
         audiobookPlayer.willPlay = { [weak self] in
             guard let self else { return }
+            guard !self.trackingRecoveryRequired else {
+                throw ReadingStoreError.invalidData("Tracking is paused while the tracker recovers. Choose Try again in the dashboard, then retry playback.")
+            }
             // Stop the reading tracker before the audio clock starts: no double credit.
             try self.stopForMutation()
             self.manualBook = nil
         }
         audiobookPlayer.shouldCredit = { [weak self] id in
             guard let self, let book = self.books.first(where: { $0.id == id }) else { return false }
-            return self.trackingEnabled && !book.trackingExcluded
+            return self.trackingEnabled && !self.trackingRecoveryRequired && !book.trackingExcluded
         }
         audiobookPlayer.persist = { [weak self] observation, interval in
             guard let self, let book = self.books.first(where: { $0.id == observation.bookID }) else {
@@ -427,11 +435,18 @@ final class AppModel: ObservableObject {
     }
     var hasNativeReaderCommands: Bool { epubReaders.hasCommandReader }
     func performReaderControl(_ command: String) { epubReaders.performControl(command) }
+    func isOpeningEPUB(_ book: BookRecord) -> Bool {
+        guard !openingEPUBIDs.isEmpty else { return false }
+        let resolver = BookMergeResolver(merges: merges)
+        let canonicalID = resolver.resolvedID(for: book.id)
+        return openingEPUBIDs.contains { resolver.resolvedID(for: "epub:" + $0) == canonicalID }
+    }
     func readEPUB(_ book: BookRecord) {
-        guard let publication = chooseEPUB(book), !epubLibrary.removingIDs.contains(publication.id),
-              !transferringReaderState.contains(publication.id) else { return }
+        guard !isOpeningEPUB(book), let publication = chooseEPUB(book), !epubLibrary.removingIDs.contains(publication.id),
+              !transferringReaderState.contains(publication.id), openingEPUBIDs.insert(publication.id).inserted else { return }
         cancelExternalCoverLookups()
         Task {
+            defer { openingEPUBIDs.remove(publication.id) }
             do { try await epubReaders.open(publication, directory: epubLibrary.directory.appendingPathComponent(publication.id)) }
             catch { errorMessage = error.localizedDescription }
         }
@@ -554,13 +569,21 @@ final class AppModel: ObservableObject {
         if stopped { audiobookPlayer.pauseReportingErrors(); suspended.insert(key); pause(reason) } else { suspended.remove(key); tick() }
     }
     private func commonPauseReason() -> PauseReason? {
+        if trackingRecoveryRequired { return .captureFailure }
         if !trackingEnabled { return .disabled }
         if suspended.contains("lock") || suspended.contains("session") || !SystemEligibility.unlocked { return .locked }
         if !suspended.isEmpty || !SystemEligibility.displayAwake { return .displayAsleep }
         return nil
     }
+    /// The tracker reports its status every second. Publishing identical text
+    /// would invalidate every dashboard observing this model while idle.
+    func reportHealth(_ message: String) {
+        guard health != message else { return }
+        health = message
+    }
+
     private func tick() {
-        guard ready else { return }
+        guard ready, !trackingRecoveryRequired else { return }
         if Date().timeIntervalSince(lastHistorySync) > 30 { syncAppleBooksHistory() }
         if Date().timeIntervalSince(lastStorePurchaseCheck) > 60 { refreshStorePurchases() }
         let trusted = accessibilityStatus()
@@ -588,10 +611,10 @@ final class AppModel: ObservableObject {
                   health: "Reading in Stillleaf. Position comes from the reader; sequential content coverage and active time are recorded separately.")
             return
         case .appleBooksNeedsAccess:
-            health = "Apple Books tracking needs Accessibility access. Import an EPUB into Stillleaf to record reading progress and time without it."
+            reportHealth("Apple Books tracking needs Accessibility access. Import an EPUB into Stillleaf to record reading progress and time without it.")
             pause(.permissionLost); return
         case .idle:
-            health = "Ready to read in Stillleaf. Import an EPUB to record progress and active reading time without Accessibility access."
+            reportHealth("Ready to read in Stillleaf. Import an EPUB to record progress and active reading time without Accessibility access.")
             // Input in Discord or another app is not evidence of reading.
             lastInputUptime = ProcessInfo.processInfo.systemUptime - SystemEligibility.secondsSinceInput
             pause(.background); return
@@ -599,7 +622,7 @@ final class AppModel: ObservableObject {
             break
         }
         if captureInFlight {
-            if Date().timeIntervalSince(captureStarted) > 2 { health = "Books capture is delayed; tracking is paused until fresh evidence arrives."; pause(.captureFailure) }
+            if Date().timeIntervalSince(captureStarted) > 2 { reportHealth("Books capture is delayed; tracking is paused until fresh evidence arrives."); pause(.captureFailure) }
             return
         }
         captureInFlight = true; captureStarted = Date()
@@ -632,7 +655,7 @@ final class AppModel: ObservableObject {
                     || value.source != prior.source || value.reliable != prior.reliable
             } ?? true
         } ?? false
-        self.health = health; latestProgress = progress
+        reportHealth(health); latestProgress = progress
         let uptime = ProcessInfo.processInfo.systemUptime
         let sampleDate = Date()
         let latestInput = uptime - SystemEligibility.secondsSinceInput
@@ -641,13 +664,11 @@ final class AppModel: ObservableObject {
         let previousPhase = snapshot.phase
         let previousBookID = snapshot.book?.id
         do {
-            var readingActivity = relevant
             if let book, reason == nil, !book.trackingExcluded {
                 hasPageNavigationSignal = navigationToken != nil
-                readingActivity = readingActivityEvidence.observe(bookID: book.id, navigationToken: navigationToken, relevantActivity: relevant)
                 presencePolicy.observe(bookID: book.id, navigationToken: navigationToken, relevantActivity: relevant, uptime: uptime)
             }
-            try engine.process(TrackingInput(date: sampleDate, uptime: uptime, book: book, mode: mode, pauseReason: reason, relevantActivity: readingActivity, progress: progress))
+            try engine.process(TrackingInput(date: sampleDate, uptime: uptime, book: book, mode: mode, pauseReason: reason, progress: progress))
             snapshot = engine.snapshot
             var recordedPageTurn = false
             if mode == .automatic, reason == nil, let book, book.source != "stillleaf-epub", let sessionID = snapshot.sessionID,
@@ -721,7 +742,7 @@ final class AppModel: ObservableObject {
     }
     private func trackingFailure(_ error: Error) {
         errorMessage = "Tracking stopped because evidence could not be saved: \(error)"
-        health = "Storage requires attention. New time is not being credited."
+        reportHealth("Storage requires attention. New time is not being credited.")
         ready = false; timer?.invalidate(); presencePolicy.reset(); presenceState = .hidden; discord.clear()
     }
     private func publishPresence() {
@@ -862,9 +883,13 @@ final class AppModel: ObservableObject {
     }
 
     /// Explicit edits retain immediate read-after-write behavior and supersede queued reads.
-    func refresh() {
+    func refresh(recoverTracking: Bool = true) {
         refreshGeneration += 1
         refreshPending = false
+        if recoverTracking, trackingRecoveryRequired, !rebuildingTracker {
+            do { try resetEngineAfterMutation(); errorMessage = nil }
+            catch { /* The recovery status remains visible without masquerading as a failed save. */ }
+        }
         do {
             let archive = try store.archive()
             applyHistory(HistoryPresentation(archive: archive, effectiveIntervals: try store.effectiveIntervals(),
@@ -873,6 +898,7 @@ final class AppModel: ObservableObject {
     }
 
     private func applyHistory(_ prepared: HistoryPresentation) {
+        librarySummary = prepared.librarySummary
         displayedIntervalsCache = nil; sessionGroupsCache = nil
         durableVisibleSessionIDs = nil; visibleSessionGroupsCache = nil
         bookPaceCache.removeAll(keepingCapacity: true); sessionPaceCache.removeAll(keepingCapacity: true)
@@ -1177,31 +1203,58 @@ final class AppModel: ObservableObject {
             appleHistoryStatus = "Synced \(records.count) finished books from Apple Books."
         } catch { appleHistoryStatus = "Could not save Apple Books history: \(error.localizedDescription)" }
     }
-    private func perform(_ action: () throws -> Void) {
+    @discardableResult
+    private func perform(afterCommit: (() throws -> Void)? = nil, _ action: () throws -> Void) -> Bool {
         refreshGeneration += 1; refreshPending = false
-        do { try action(); errorMessage = nil; refresh() }
-        catch { errorMessage = String(describing: error) }
+        do { try action() }
+        catch { errorMessage = String(describing: error); return false }
+        errorMessage = nil
+        // The record is durable now. A failed tracker rebuild must not invite
+        // another save with new record IDs or stale correction inputs.
+        do { try afterCommit?() }
+        catch { /* The mutation committed; resetEngineAfterMutation publishes recovery status separately. */ }
+        refresh(recoverTracking: false)
+        return true
     }
     private func resetEngineAfterMutation() throws {
-        try audiobookPlayer.close()
-        engine = try TrackingEngine(store: store, timezoneID: timezoneID, uncertaintyThreshold: uncertaintyMinutes * 60)
-        snapshot = engine.snapshot
+        rebuildingTracker = true
+        defer { rebuildingTracker = false }
+        do {
+            try audiobookPlayer.close()
+            engine = try makeTrackingEngine(store, timezoneID)
+            snapshot = engine.snapshot
+            trackingRecoveryRequired = false
+            trackingRecoveryMessage = nil
+        } catch {
+            trackingRecoveryRequired = true
+            trackingRecoveryMessage = "Your saved changes are intact. Tracking is paused because the tracker could not recover. Choose Try again to retry recovery. \(error)"
+            snapshot.phase = .paused; snapshot.pauseReason = .captureFailure
+            presencePolicy.reset(); presenceState = .hidden; discord.clear()
+            throw error
+        }
     }
     private func stopForMutation() throws {
         refreshGeneration += 1; refreshPending = false
         try audiobookPlayer.pause()
         captureGeneration += 1
         historyGeneration += 1
-        try engine.stop(); snapshot = engine.snapshot; pageTurnTracker.reset(); readerPagination.reset(); currentPagePosition = nil; readingActivityEvidence = ReadingActivityEvidence(); presencePolicy.reset(); presenceState = .hidden; discord.clear()
+        try engine.stop(); snapshot = engine.snapshot; pageTurnTracker.reset(); readerPagination.reset(); currentPagePosition = nil; presencePolicy.reset(); presenceState = .hidden; discord.clear()
     }
-    func startManual(title: String, author: String) {
+    @discardableResult
+    func startManual(title: String, author: String) -> Bool {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { errorMessage = "Enter a book title."; return }
-        startManual(book: BookRecord(id: "manual:\(UUID().uuidString)", title: trimmed, author: author.isEmpty ? nil : author))
+        guard !trimmed.isEmpty else { errorMessage = "Enter a book title."; return false }
+        return startManual(book: BookRecord(id: "manual:\(UUID().uuidString)", title: trimmed, author: author.isEmpty ? nil : author))
     }
-    func startManual(book: BookRecord) {
-        perform { try stopForMutation(); try store.saveBook(book); manualBook = book }
+    @discardableResult
+    func startManual(book: BookRecord) -> Bool {
+        guard !trackingRecoveryRequired else {
+            errorMessage = "Tracking is paused while the tracker recovers. Choose Try again in the dashboard, then start manual reading."
+            return false
+        }
+        guard perform({ try stopForMutation(); try store.saveBook(book); manualBook = book }) else { return false }
         tick()
+        return true
     }
     func stopManual() { perform { try stopForMutation(); manualBook = nil }; tick() }
     func canonicalLibraryBook(_ book: BookRecord) -> BookRecord? {
@@ -1252,7 +1305,7 @@ final class AppModel: ObservableObject {
     @discardableResult
     func logAudiobook(book: BookRecord?, title: String = "", author: String = "", audio: AudiobookProgress,
                       start: Date?, end: Date) -> Bool {
-        do {
+        return perform(afterCommit: resetEngineAfterMutation) {
             guard audio.isValid, end <= Date(), start.map({ $0 < end }) ?? true else {
                 throw ReadingStoreError.invalidData("Use a position within the total duration and a past session ending after its start.")
             }
@@ -1274,9 +1327,7 @@ final class AppModel: ObservableObject {
                 source: "manual-audio", reliable: true, audio: audio, sessionID: interval?.sessionID)
             if audiobookPlayer.bookID == record.id { try audiobookPlayer.close() }
             try store.saveAudiobook(record, progress: observation, interval: interval)
-            try resetEngineAfterMutation(); errorMessage = nil; refresh()
-            return true
-        } catch { errorMessage = String(describing: error); return false }
+        }
     }
 
     func chooseAudiobook(for book: BookRecord? = nil) {
@@ -1349,16 +1400,16 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func addManual(title: String, author: String, start: Date, end: Date) {
-        guard end > start, end <= Date(), !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { errorMessage = "Manual records need a title and a past end time after the start."; return }
-        perform {
+    @discardableResult
+    func addManual(title: String, author: String, start: Date, end: Date) -> Bool {
+        guard end > start, end <= Date(), !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { errorMessage = "Manual records need a title and a past end time after the start."; return false }
+        return perform(afterCommit: resetEngineAfterMutation) {
             try stopForMutation()
             let book = BookRecord(id: "manual:\(UUID().uuidString)", title: title, author: author.isEmpty ? nil : author)
             var archive = HistoryArchive(); archive.books = [book]
             archive.intervals = [ReadingInterval(sessionID: UUID().uuidString, bookID: book.id, start: start, end: end, duration: end.timeIntervalSince(start), timezoneID: timezoneID, mode: .manual)]
             archive.events = [AuditEvent(kind: "manualAddition", bookID: book.id, sessionID: archive.intervals[0].sessionID, detail: "User-entered reading time; elapsed duration supplied manually.")]
             try importArchive(archive)
-            try resetEngineAfterMutation()
         }
     }
     private func importArchive(_ archive: HistoryArchive) throws {
@@ -1392,7 +1443,7 @@ final class AppModel: ObservableObject {
     func saveSettings() {
         guard annualBookGoal.map({ (1...10_000).contains($0) }) ?? true,
               pageGoal.isFinite, pageGoal >= 1, pageGoal <= 10_000, pageGoal.rounded() == pageGoal,
-              goalMinutes.isFinite, goalMinutes >= 1, goalMinutes <= 1440, TimeZone(identifier: timezoneID) != nil, uncertaintyMinutes.isFinite, uncertaintyMinutes >= 1, uncertaintyMinutes <= 240 else { errorMessage = "Choose a whole-page goal from 1–10,000, a time goal from 1–1440 minutes, a valid timezone, and an uncertainty threshold from 1–240 minutes."; return }
+              goalMinutes.isFinite, goalMinutes >= 1, goalMinutes <= 1440, TimeZone(identifier: timezoneID) != nil else { errorMessage = "Choose a whole-page goal from 1–10,000, a time goal from 1–1440 minutes, and a valid timezone."; return }
         perform {
             let timezoneChanged = engine.timezoneID != timezoneID
             if timezoneChanged { try stopForMutation() }
@@ -1405,10 +1456,9 @@ final class AppModel: ObservableObject {
                 annualGoal: AnnualGoalEvidence(year: goalYear, books: annualBookGoal)) : nil
             try store.setReadingGoals(daily: daily, annual: annual, calendarChange: calendarChange)
             engine.timezoneID = timezoneID
-            engine.uncertaintyThreshold = uncertaintyMinutes * 60
             savedGoal = goalMinutes; savedPageGoal = pageGoal; savedDailyGoalUnit = dailyGoalUnit
             defaults.set(pageGoal, forKey: "pageGoal")
-            defaults.set(goalMinutes, forKey: "goalMinutes"); defaults.set(timezoneID, forKey: "timezoneID"); defaults.set(uncertaintyMinutes, forKey: "uncertaintyMinutes")
+            defaults.set(goalMinutes, forKey: "goalMinutes"); defaults.set(timezoneID, forKey: "timezoneID")
             defaults.set(discordApplicationID, forKey: "discordApplicationID"); defaults.set(discordAssetKey, forKey: "discordAssetKey")
             defaults.set(automaticPublicCovers, forKey: "automaticPublicCovers")
             defaults.set(syncAppleBooksHistoryEnabled, forKey: "syncAppleBooksHistoryEnabled")
@@ -1443,31 +1493,31 @@ final class AppModel: ObservableObject {
             if manualBook?.id == book.id { manualBook = updated }
         }
     }
-    func reviewInterval(_ interval: ReadingInterval, start: Date, end: Date, bookID: String, disposition: IntervalDisposition) {
-        guard end > start, end <= Date() else { errorMessage = "Use an end time after the start and no later than now."; return }
-        perform {
+    @discardableResult
+    func editInterval(_ interval: ReadingInterval, start: Date, end: Date, bookID: String, disposition: IntervalDisposition) -> Bool {
+        guard end > start, end <= Date() else { errorMessage = "Use an end time after the start and no later than now."; return false }
+        return perform(afterCommit: resetEngineAfterMutation) {
             try stopForMutation()
             // Unchanged bounds retain measured elapsed time; adjusted bounds are an explicit manual correction.
             let unchanged = abs(start.timeIntervalSince(interval.start)) < 0.001 && abs(end.timeIntervalSince(interval.end)) < 0.001
             let duration = unchanged ? interval.duration : end.timeIntervalSince(start)
             let revised = ReadingInterval(sessionID: interval.sessionID, bookID: bookID, start: start, end: end, duration: duration, timezoneID: interval.timezoneID, mode: unchanged ? interval.mode : .manual, disposition: disposition, audioSessionID: interval.audioSessionID ?? (isListening(interval) ? interval.sessionID : nil))
-            try store.correct(IntervalCorrection(originalIDs: originalIDs(for: interval), replacements: [revised], reason: "User reviewed timing, assignment or credit status."))
-            try resetEngineAfterMutation()
+            try store.correct(IntervalCorrection(originalIDs: originalIDs(for: interval), replacements: [revised], reason: "User corrected timing, assignment or credit status."))
         }
     }
-    func splitInterval(_ interval: ReadingInterval, at date: Date) {
-        guard date > interval.start, date < interval.end else { errorMessage = "Split time must be inside this interval."; return }
-        perform {
+    @discardableResult
+    func splitInterval(_ interval: ReadingInterval, at date: Date) -> Bool {
+        guard date > interval.start, date < interval.end else { errorMessage = "Split time must be inside this interval."; return false }
+        return perform(afterCommit: resetEngineAfterMutation) {
             try stopForMutation()
             let fraction = date.timeIntervalSince(interval.start) / interval.end.timeIntervalSince(interval.start)
             let first = ReadingInterval(sessionID: interval.sessionID, bookID: interval.bookID, start: interval.start, end: date, duration: interval.duration * fraction, timezoneID: interval.timezoneID, mode: interval.mode, disposition: interval.disposition, audioSessionID: interval.audioSessionID ?? (isListening(interval) ? interval.sessionID : nil))
             let second = ReadingInterval(sessionID: UUID().uuidString, bookID: interval.bookID, start: date, end: interval.end, duration: interval.duration * (1 - fraction), timezoneID: interval.timezoneID, mode: interval.mode, disposition: interval.disposition, audioSessionID: interval.audioSessionID ?? (isListening(interval) ? interval.sessionID : nil))
             try store.correct(IntervalCorrection(originalIDs: originalIDs(for: interval), replacements: [first, second], reason: "User split a reading interval into two sessions."))
-            try resetEngineAfterMutation()
         }
     }
-    func resolveUncertain(_ interval: ReadingInterval, confirm: Bool) { reviewInterval(interval, start: interval.start, end: interval.end, bookID: interval.bookID, disposition: confirm ? .credited : .excluded) }
-    func deleteSession(_ sessionID: String) { perform { try stopForMutation(); defer { try? removeManagedBackups() }; try store.deleteSession(sessionID); try resetEngineAfterMutation() } }
+    @discardableResult
+    func deleteSession(_ sessionID: String) -> Bool { perform(afterCommit: resetEngineAfterMutation) { try stopForMutation(); defer { try? removeManagedBackups() }; try store.deleteSession(sessionID) } }
     func deleteBook(_ book: BookRecord) {
         perform {
             try stopForMutation(); if manualBook?.id == book.id { manualBook = nil }
@@ -1508,12 +1558,13 @@ final class AppModel: ObservableObject {
         let dir = support.appendingPathComponent("Covers")
         for file in try FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) where !referenced.contains(file.path) { try FileManager.default.removeItem(at: file) }
     }
-    func mergeBooks(source: BookRecord, target: BookRecord) {
+    @discardableResult
+    func mergeBooks(source: BookRecord, target: BookRecord) -> Bool {
         guard source.resolvedFormat != .audiobook, target.resolvedFormat != .audiobook else {
             errorMessage = "Keep audiobook editions separate so their audio files and content positions remain accessible."
-            return
+            return false
         }
-        perform { try stopForMutation(); try store.merge(BookMerge(sourceID: source.id, targetID: target.id)) } }
+        return perform { try stopForMutation(); try store.merge(BookMerge(sourceID: source.id, targetID: target.id)) } }
     func unmerge(_ merge: BookMerge) { perform { try stopForMutation(); try store.merge(BookMerge(sourceID: merge.sourceID, targetID: merge.targetID, active: false)) } }
 
     private func saveURL(name: String, type: UTType) -> URL? {

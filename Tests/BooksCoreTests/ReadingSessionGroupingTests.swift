@@ -8,7 +8,7 @@ final class ReadingSessionGroupingTests: XCTestCase {
         let intervals = [
             interval("checkpoint-a", session: "same", start: 0, end: 1, duration: 1),
             interval("checkpoint-b", session: "same", start: 1, end: 5, duration: 4),
-            interval("pause-a", session: "same", start: 6, end: 10, duration: 4, disposition: .uncertain),
+            interval("pause-a", session: "same", start: 6, end: 10, duration: 4),
             interval("pause-b", session: "new", start: 14, end: 21, duration: 7)
         ]
         let groups = ReadingSessionGrouping.groups(intervals: intervals.shuffled(), merges: [])
@@ -17,9 +17,7 @@ final class ReadingSessionGroupingTests: XCTestCase {
         XCTAssertEqual(groups[0].intervals.map(\.id), ["checkpoint-a", "checkpoint-b", "pause-a", "pause-b"])
         XCTAssertEqual(groups[0].start, origin)
         XCTAssertEqual(groups[0].end, origin.addingTimeInterval(21))
-        XCTAssertEqual(groups[0].creditedSeconds, 12)
-        XCTAssertEqual(groups[0].uncertainSeconds, 4)
-        XCTAssertEqual(groups[0].creditedSeconds + groups[0].uncertainSeconds, 16)
+        XCTAssertEqual(groups[0].creditedSeconds, 16)
     }
 
     func testExactMaximumBreakAndOtherActivitySeparateGroups() {

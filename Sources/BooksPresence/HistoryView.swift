@@ -6,7 +6,7 @@ struct HistoryView: View {
     @ObservedObject var model: AppModel
     @State private var navigation: CalendarNavigation
     private let benchmarkReady: ((HistoryAtlasKey) -> Void)?
-    @State private var reviewInterval: ReadingInterval?
+    @State private var editingInterval: ReadingInterval?
     @StateObject private var atlas = HistoryAtlasController()
     @Environment(\.colorScheme) private var scheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -17,47 +17,36 @@ struct HistoryView: View {
         _navigation = State(initialValue: CalendarNavigation(timezoneID: model.timezoneID, anchor: anchor, scale: initialScale))
     }
     private var dark: Bool { scheme == .dark }
-    private var requestKey: HistoryAtlasKey? {
-        model.historyAtlasSource.map { HistoryAtlasKey(source: $0, navigation: navigation) }
+    private var requestedNavigation: CalendarNavigation {
+        var requested = navigation
+        requested.timezoneID = model.timezoneID
+        return requested
     }
-    private var presentation: HistoryAtlasPeriod? {
-        guard let prepared = atlas.presentation, let requested = requestKey,
-              prepared.key.timezoneID == requested.timezoneID, prepared.key.scale == requested.scale,
-              prepared.key.period == requested.period, prepared.key.today == requested.today,
-              prepared.key.localeID == requested.localeID else { return nil }
-        // Keep this period's last committed snapshot during an archive refresh so
-        // month/day selection survives. A different period never displays old data.
-        return prepared
+    private var requestKey: HistoryAtlasKey? {
+        model.historyAtlasSource.map { HistoryAtlasKey(source: $0, navigation: requestedNavigation) }
     }
     var body: some View {
-        ScrollView {
+        // Resolve the request once for this render. Repeated computed-property
+        // reads otherwise rebuild calendars/period keys in both adaptive layouts.
+        let requested = requestedNavigation
+        let source = model.historyAtlasSource
+        let request = source.map { HistoryAtlasKey(source: $0, navigation: requested) }
+        let displayed = atlas.displayed
+        let visible = displayed.flatMap { candidate in
+            request.flatMap { candidate.canRetain(for: $0) ? candidate.navigation : nil }
+        } ?? requested
+        let visibleTitle = Self.title(for: visible)
+        return ScrollView {
             VStack(alignment: .leading, spacing: 26) {
                 Text("History").font(.system(size: 17, weight: .semibold)).accessibilityAddTraits(.isHeader)
                 ViewThatFits(in: .horizontal) {
-                    HStack(alignment: .firstTextBaseline) { periodTitle; Spacer(minLength: 16); navigationButtons }
-                    VStack(alignment: .leading, spacing: 14) { periodTitle; navigationButtons }
+                    HStack(alignment: .firstTextBaseline) { periodTitle(visibleTitle); Spacer(minLength: 16); navigationButtons }
+                    VStack(alignment: .leading, spacing: 14) { periodTitle(visibleTitle); navigationButtons }
                 }
-                if let prepared = presentation {
-                    ViewThatFits(in: .horizontal) {
-                        HStack(spacing: 25) { summary(pages: prepared.pages, seconds: prepared.creditedSeconds, activeDays: prepared.activeDays); Spacer(minLength: 0); goal }
-                        VStack(alignment: .leading, spacing: 12) { HStack(spacing: 22) { summary(pages: prepared.pages, seconds: prepared.creditedSeconds, activeDays: prepared.activeDays) }; goal }
-                    }
-                    Group {
-                        switch navigation.scale {
-                        case .day:
-                            AtlasDayView(navigation: navigation, presentation: prepared, review: { reviewInterval = $0 })
-                        case .week:
-                            AtlasWeekView(navigation: navigation, presentation: prepared, select: { selectDay($0) })
-                        case .month:
-                            AtlasMonthView(navigation: navigation, presentation: prepared, select: { selectDay($0) })
-                        case .year:
-                            AtlasYearView(navigation: navigation, presentation: prepared, select: { selectDay($0) }, selectMonth: { navigation.select($0, scale: .month) })
-                        }
-                    }.id("\(navigation.scale.rawValue)-\(navigation.periodStart)-\(model.timezoneID)")
-                        .transition(reduceMotion ? .identity : .opacity)
-                        .onAppear { benchmarkReady?(prepared.key) }
+                if let displayed {
+                    historyContent(displayed, request: request, requested: requested)
                 } else {
-                    ProgressView("Preparing history…").controlSize(.small)
+                    ProgressView("Preparing \(visibleTitle)…").controlSize(.small)
                         .frame(maxWidth: .infinity, minHeight: 260, alignment: .topLeading)
                         .padding(.top, 20)
                 }
@@ -67,43 +56,122 @@ struct HistoryView: View {
             .frame(maxWidth: 1120, alignment: .leading)
             .padding(.horizontal, 32).padding(.vertical, 30).frame(maxWidth: .infinity, alignment: .top)
         }
-        .background(AtlasStyle.canvas(dark)).foregroundStyle(AtlasStyle.ink(dark)).tint(AtlasStyle.accent(dark))
+        .background(AtlasStyle.canvas(dark), ignoresSafeAreaEdges: .vertical).foregroundStyle(AtlasStyle.ink(dark)).tint(AtlasStyle.accent(dark))
         .onChange(of: model.timezoneID) { navigation.timezoneID = $0 }
-        .task(id: requestKey) {
-            guard let source = model.historyAtlasSource else { return }
-            await atlas.load(source: source, navigation: navigation, reduceMotion: reduceMotion)
+        .task(id: request) {
+            guard let source else { return }
+            await atlas.load(source: source, navigation: requested, reduceMotion: reduceMotion)
         }
-        .sheet(item: $reviewInterval) { interval in IntervalReviewEditor(model: model, interval: interval) }
+        .sheet(item: $editingInterval) { interval in ReadingSessionEditor(model: model, interval: interval) }
     }
-    private var periodTitle: some View {
-        Text(navigation.scale == .day ? AtlasStyle.date(navigation.periodStart, zone: model.timezoneID, pattern: "EEEE, MMMM d, yyyy") : navigation.title)
+    private func historyContent(_ displayed: HistoryAtlasDisplay, request: HistoryAtlasKey?, requested: CalendarNavigation) -> some View {
+        let prepared = displayed.presentation
+        let canReveal = request.map { displayed.canRetain(for: $0) } ?? false
+        let current = prepared.key == request
+        let periodID = "\(prepared.key.scale.rawValue)-\(prepared.key.period.start)-\(prepared.key.timezoneID)"
+        let dailyGoal = prepared.key.scale == .day
+            ? model.dailyGoal(on: displayed.navigation.dayKey(for: prepared.key.period.start)) : nil
+        return VStack(alignment: .leading, spacing: 26) {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 25) {
+                    summary(pages: prepared.pages, seconds: prepared.creditedSeconds, activeDays: prepared.activeDays, scale: displayed.navigation.scale)
+                    Spacer(minLength: 0); goal(dailyGoal)
+                }
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(spacing: 22) { summary(pages: prepared.pages, seconds: prepared.creditedSeconds, activeDays: prepared.activeDays, scale: displayed.navigation.scale) }
+                    goal(dailyGoal)
+                }
+            }
+            .opacity(canReveal ? 1 : 0).accessibilityHidden(!canReveal)
+            ZStack(alignment: .topLeading) {
+                chart(displayed)
+                    .id(periodID)
+                    .transition(reduceMotion ? .identity : .opacity)
+                    .onAppear { reportReady(prepared.key) }
+                    .onChange(of: prepared.key) { reportReady($0) }
+            }
+            // Only the chart swaps with a fade. Its last footprint stays in the
+            // scroll view while pending; summary/header geometry never animates.
+            .animation(reduceMotion || !displayed.animatesPeriodChange ? nil : ReadingMotion.entrance, value: periodID)
+            .opacity(canReveal ? (current ? 1 : 0.55) : 0)
+            .disabled(!current).allowsHitTesting(current)
+            .accessibilityHidden(!canReveal)
+        }
+        .overlay(alignment: .topLeading) {
+            if !current {
+                ProgressView("Updating to \(Self.title(for: requested))…")
+                    .controlSize(.small).font(.callout)
+                    .padding(12)
+                    .background(ReadingPalette.surface, in: RoundedRectangle(cornerRadius: 10))
+                    .accessibilityIdentifier("history-updating")
+            }
+        }
+    }
+    @ViewBuilder private func chart(_ displayed: HistoryAtlasDisplay) -> some View {
+        let committed = displayed.navigation
+        let prepared = displayed.presentation
+        switch committed.scale {
+        case .day:
+            AtlasDayView(navigation: committed, presentation: prepared, editSession: { editingInterval = $0 })
+        case .week:
+            AtlasWeekView(navigation: committed, presentation: prepared, select: { selectDay($0) })
+        case .month:
+            AtlasMonthView(navigation: committed, presentation: prepared, select: { selectDay($0) })
+        case .year:
+            AtlasYearView(navigation: committed, presentation: prepared, select: { selectDay($0) }, selectMonth: { navigation.select($0, scale: .month) })
+        }
+    }
+    private func reportReady(_ key: HistoryAtlasKey) {
+        guard key == requestKey else { return }
+        benchmarkReady?(key)
+    }
+    private func periodTitle(_ title: String) -> some View {
+        Text(title)
             .font(.system(size: 30, weight: .regular, design: .serif)).tracking(-0.7)
             .fixedSize(horizontal: false, vertical: true).accessibilityAddTraits(.isHeader)
     }
-    private var navigationButtons: some View {
-        HStack(spacing: 7) {
-            Menu {
-                Picker("Timescale", selection: Binding(get: { navigation.scale }, set: { navigation.setScale($0) })) {
-                    ForEach(CalendarScale.allCases) { scale in Text(scale.title).tag(scale) }
-                }.pickerStyle(.inline)
-            } label: {
-                Text(navigation.scale.title).font(.system(size: 12, weight: .medium))
-            }.menuStyle(.borderlessButton).fixedSize()
-                .accessibilityLabel("History timescale").accessibilityValue(navigation.scale.title)
-                .help("Choose day, week, month, or year")
-            Rectangle().fill(AtlasStyle.rule(dark)).frame(width: 1, height: 16).padding(.horizontal, 4)
-                .accessibilityHidden(true)
-            Button { navigation.move(by: -1) } label: { Image(systemName: "chevron.left") }
-                .accessibilityLabel("Previous \(navigation.scale.title.lowercased())")
-            Button { if canMoveForward { navigation.move(by: 1) } } label: { Image(systemName: "chevron.right") }
-                .disabled(!canMoveForward).accessibilityLabel("Next \(navigation.scale.title.lowercased())")
-            Button("Today") { navigation.goToToday() }
-        }.buttonStyle(AtlasButtonStyle())
+    static func title(for navigation: CalendarNavigation) -> String {
+        let period = navigation.period
+        func format(_ date: Date, _ pattern: String) -> String {
+            AtlasStyle.date(date, zone: navigation.timezoneID, pattern: pattern)
+        }
+        switch navigation.scale {
+        case .day: return format(period.start, "EEEE, MMMM d, yyyy")
+        case .week:
+            let calendar = navigation.calendar
+            let finalDay = calendar.date(byAdding: .day, value: -1, to: period.end) ?? period.end
+            let sameYear = calendar.component(.year, from: period.start) == calendar.component(.year, from: finalDay)
+            return "\(format(period.start, sameYear ? "MMM d" : "MMM d, yyyy")) – \(format(finalDay, "MMM d, yyyy"))"
+        case .month: return format(period.start, "MMMM yyyy")
+        case .year: return format(period.start, "yyyy")
+        }
     }
-    @ViewBuilder private func summary(pages: Int, seconds: Double, activeDays: Int) -> some View {
+    private var navigationButtons: some View {
+        ReadingGlassGroup {
+            HStack(spacing: 7) {
+                Menu {
+                    Picker("Timescale", selection: Binding(get: { navigation.scale }, set: { navigation.setScale($0) })) {
+                        ForEach(CalendarScale.allCases) { scale in Text(scale.title).tag(scale) }
+                    }.pickerStyle(.inline)
+                } label: {
+                    Text(navigation.scale.title).font(.system(size: 12, weight: .medium))
+                }.menuStyle(.borderlessButton).fixedSize()
+                    .accessibilityLabel("History timescale").accessibilityValue(navigation.scale.title)
+                    .help("Choose day, week, month, or year")
+                Rectangle().fill(AtlasStyle.rule(dark)).frame(width: 1, height: 16).padding(.horizontal, 4)
+                    .accessibilityHidden(true)
+                Button { navigation.move(by: -1) } label: { Image(systemName: "chevron.left") }
+                    .accessibilityLabel("Previous \(navigation.scale.title.lowercased())")
+                Button { if canMoveForward { navigation.move(by: 1) } } label: { Image(systemName: "chevron.right") }
+                    .disabled(!canMoveForward).accessibilityLabel("Next \(navigation.scale.title.lowercased())")
+                Button("Today") { navigation.goToToday() }
+            }.buttonStyle(AtlasButtonStyle())
+        }
+    }
+    @ViewBuilder private func summary(pages: Int, seconds: Double, activeDays: Int, scale: CalendarScale) -> some View {
         if pages > 0 { metric(pages.formatted(), "pages") }
         metric(ReadingFormat.duration(seconds), "recorded")
-        if navigation.scale != .day { metric("\(activeDays)", activeDays == 1 ? "active day" : "active days") }
+        if scale != .day { metric("\(activeDays)", activeDays == 1 ? "active day" : "active days") }
     }
     private func metric(_ value: String, _ label: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 5) {
@@ -111,9 +179,8 @@ struct HistoryView: View {
             Text(label).font(.caption).foregroundStyle(AtlasStyle.muted(dark))
         }.accessibilityElement(children: .combine)
     }
-    @ViewBuilder private var goal: some View {
-        if navigation.scale == .day {
-            let progress = model.dailyGoal(on: navigation.dayKey(for: navigation.periodStart))
+    @ViewBuilder private func goal(_ progress: DailyGoalProgress?) -> some View {
+        if let progress {
             Text(progress.reached ? "✓ Daily goal reached" : progress.summary).font(.caption)
                 .foregroundStyle(AtlasStyle.accent(dark)).accessibilityLabel("Daily goal: \(progress.summary)")
         }
@@ -152,7 +219,7 @@ struct DayContributionRow: View {
     @ObservedObject var model: AppModel
     let contribution: DayContribution
     let timezoneID: String
-    let review: () -> Void
+    let editSession: () -> Void
     private var book: BookRecord? {
         let resolvedID = BookMergeResolver(merges: model.merges).resolvedID(for: contribution.interval.bookID)
         return model.books.first { $0.id == resolvedID }
@@ -160,7 +227,6 @@ struct DayContributionRow: View {
     private var treatment: String {
         switch contribution.interval.disposition {
         case .credited: return contribution.interval.mode == .manual ? "Manual credited" : "Credited"
-        case .uncertain: return "Awaiting review"
         case .excluded: return "Excluded from totals"
         }
     }
@@ -174,7 +240,7 @@ struct DayContributionRow: View {
                 Text("\(treatment): \(ReadingFormat.observedPages(pageTurns))").font(.callout).monospacedDigit()
                 Text("Time on this day: \(ReadingFormat.duration(contribution.clippedSeconds))").font(.caption).monospacedDigit().foregroundStyle(ReadingPalette.secondaryInk)
             }
-            Spacer(minLength: 0); Button("Review", action: review).controlSize(.small)
+            Spacer(minLength: 0); Button("Edit", action: editSession).controlSize(.small)
         }.padding(.vertical, 4)
     }
 }

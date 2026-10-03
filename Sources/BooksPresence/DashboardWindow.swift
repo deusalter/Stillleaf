@@ -21,6 +21,15 @@ final class DashboardWindow: NSWindow {
     }
 
     private func updateCanvas() {
+        if #available(macOS 26.0, *) {
+            // The detail view owns its opaque paper. Keep the window behind
+            // the system glass sidebar clear so it can sample its backdrop;
+            // another app-painted canvas here flattens that material.
+            isOpaque = false
+            backgroundColor = .clear
+            return
+        }
+        isOpaque = true
         backgroundColor = NSColor(name: nil) { appearance in
             let snapshot = ThemeSnapshot.current()
             let dark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua

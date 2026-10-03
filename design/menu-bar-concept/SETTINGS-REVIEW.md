@@ -17,7 +17,7 @@ Reviewed `.local/design-seaglass-final/settings-{reading,discord,data}-light.png
 
 Keep the homepage's visual direction. Keep three compact Settings categories and a sticky category header. Remove Health from the main reading sidebar. Retain diagnostics in a clearly dismissible Troubleshooting sheet under Data & privacy, with contextual access from actionable failures.
 
-Bring daily page goal and startup forward. Move optional time goal, uncertainty threshold and time zone into Advanced reading; show the active time-zone summary without expansion. Reduce duplicate presets/range prose. Show Apply/Revert only when fields are dirty, with saving accessible while scrolling and category-specific reset.
+Bring daily page goal and startup forward. Move optional time goal and time zone into Advanced reading; show the active time-zone summary without expansion. Reduce duplicate presets/range prose. Show Apply/Revert only when fields are dirty, with saving accessible while scrolling and category-specific reset.
 
 Discord defaults to sharing/status; setup expands when needed and collapses after configuration. Keep public-cover network/privacy explanation next to its opt-in. Data retains export/import/backup and explains merge versus replacement; removal stays accessible in a separate disclosure with existing confirmation behavior.
 

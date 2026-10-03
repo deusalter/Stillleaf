@@ -127,7 +127,6 @@ struct ReadingDateCalendar: View {
     @Binding var selection: Date?
     @State private var navigation: CalendarNavigation
     @FocusState private var focusedDay: Date?
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let now: Date
 
     init(selection: Binding<Date?>, timezoneID: String, now: Date = Date()) {
@@ -173,6 +172,11 @@ struct ReadingDateCalendar: View {
                     .accessibilityAddTraits(selected ? [.isSelected] : [])
                 }
             }
+            // Reserve six weeks so February and six-row months don't move the
+            // editor footer. Month changes replace dates without shuffling
+            // shared edge dates across rows or moving keyboard focus targets.
+            .frame(minHeight: 230, alignment: .top)
+            .transaction { $0.animation = nil }
             .onMoveCommand { direction in
                 let offset: Int
                 switch direction { case .left: offset = -1; case .right: offset = 1; case .up: offset = -7; case .down: offset = 7; default: return }
@@ -199,7 +203,7 @@ struct ReadingDateCalendar: View {
         day >= ReadingCompletionDates.earliestDate && day <= now && day <= ReadingCompletionDates.latestDate
     }
     private func moveMonth(_ amount: Int) {
-        withAnimation(reduceMotion ? nil : ReadingMotion.entrance) { navigation.move(by: amount) }
+        navigation.move(by: amount)
     }
     private func dayLabel(_ date: Date) -> String {
         let formatter = DateFormatter()

@@ -74,6 +74,36 @@ struct ReadingTextFieldStyle: TextFieldStyle {
     }
 }
 
+struct ReadingSearchField: View {
+    let label: String
+    let placeholder: String
+    @Binding var text: String
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        HStack(spacing: 7) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(ReadingPalette.secondaryInk).accessibilityHidden(true)
+            TextField(placeholder, text: $text)
+                .textFieldStyle(.plain).focused($focused)
+                .accessibilityLabel(label)
+                .onExitCommand { text = "" }
+            if !text.isEmpty {
+                Button { text = ""; focused = true } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .frame(width: 20, height: 20).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain).foregroundStyle(ReadingPalette.secondaryInk)
+                .accessibilityLabel("Clear search").help("Clear search")
+            }
+        }
+        .padding(.horizontal, 11).padding(.vertical, 9)
+        .background(ReadingPalette.surface.opacity(0.7), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous)
+            .stroke(focused ? ReadingPalette.accent : ReadingPalette.border, lineWidth: focused ? 1.5 : 1))
+    }
+}
+
 private struct ReadingFieldBody<Label: View>: View {
     let field: TextField<Label>
     @FocusState private var focused: Bool

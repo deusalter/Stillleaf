@@ -2,34 +2,16 @@ import SwiftUI
 import BooksCore
 
 @MainActor
-struct ReviewView: View {
+struct ReadingSessionsView: View {
     @ObservedObject var model: AppModel
     let present: (DashboardSheet) -> Void
     var showsHeading = true
     @State private var visibleCount = 30
-    @State private var visibleUncertainCount = 30
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 26) {
-                if showsHeading { PageHeading(title: "Reading records", subtitle: "Optional corrections and unconfirmed reading time.") }
-                if model.uncertainIntervals.isEmpty {
-                    ReadingEmptyState(title: "All caught up", symbol: "checkmark.seal", message: "There is no unconfirmed reading time.")
-                        .readingPanel()
-                } else {
-                    LazyVStack(alignment: .leading, spacing: 10) {
-                        Text("Unconfirmed time").font(ReadingType.bookTitle(21))
-                        ForEach(model.uncertainIntervals.sorted { $0.start > $1.start }.prefix(visibleUncertainCount)) { interval in
-                            UncertainIntervalRow(model: model, interval: interval, edit: { present(.review(interval)) })
-                            Divider()
-                        }
-                        if model.uncertainIntervals.count > visibleUncertainCount {
-                            Button("Show more pending reviews") { visibleUncertainCount += 30 }
-                        }
-                    }
-                    .readingPanel()
-                }
-
+                if showsHeading { PageHeading(title: "Reading records", subtitle: "Optional edits to saved reading sessions.") }
                 LazyVStack(alignment: .leading, spacing: 10) {
                     Text("Reading history").font(ReadingType.bookTitle(21))
                     Text("Adjust the book, time, or status of a saved session.")
@@ -38,7 +20,7 @@ struct ReviewView: View {
                         Text("Your saved reading will appear here.").foregroundStyle(ReadingPalette.secondaryInk)
                     } else {
                         ForEach(model.displayIntervals.prefix(visibleCount)) { interval in
-                            ReviewIntervalRow(model: model, interval: interval, edit: { present(.review(interval)) })
+                            ReadingSessionRow(model: model, interval: interval, edit: { present(.review(interval)) })
                             Divider().opacity(0.45)
                         }
                         if model.displayIntervals.count > visibleCount {
@@ -56,33 +38,7 @@ struct ReviewView: View {
 }
 
 @MainActor
-struct UncertainIntervalRow: View {
-    @ObservedObject var model: AppModel
-    let interval: ReadingInterval
-    let edit: () -> Void
-    @State private var discardConfirmation = false
-    var body: some View {
-        HStack(alignment: .center, spacing: 14) {
-            Image(systemName: "clock.badge.questionmark").font(.title3).foregroundStyle(ReadingPalette.ochre)
-            IntervalSummary(interval: interval, book: model.books.first { $0.id == interval.bookID }, pageTurns: model.pages(forSessionID: interval.sessionID))
-            Spacer()
-            Button("Confirm") { model.resolveUncertain(interval, confirm: true) }
-                .buttonStyle(ReadingButtonStyle(emphasis: .primary))
-            Button("Trim", action: edit)
-            Button("Discard", role: .destructive) { discardConfirmation = true }
-        }
-        .controlSize(.small).padding(.vertical, 10)
-        .alert("Discard this uncertain interval?", isPresented: $discardConfirmation) {
-            Button("Discard", role: .destructive) { model.resolveUncertain(interval, confirm: false) }
-            Button("Cancel", role: .cancel) { }
-        } message: {
-            Text("This removes the interval from credited totals. The review decision remains part of the record.")
-        }
-    }
-}
-
-@MainActor
-struct ReviewIntervalRow: View {
+struct ReadingSessionRow: View {
     @ObservedObject var model: AppModel
     let interval: ReadingInterval
     let edit: () -> Void
@@ -123,7 +79,7 @@ struct IntervalSummary: View {
 }
 
 @MainActor
-struct IntervalReviewEditor: View {
+struct ReadingSessionEditor: View {
     @ObservedObject var model: AppModel
     let interval: ReadingInterval
     @Environment(\.dismiss) private var dismiss
@@ -143,38 +99,46 @@ struct IntervalReviewEditor: View {
         _disposition = State(initialValue: interval.disposition)
         _splitAt = State(initialValue: interval.start.addingTimeInterval(interval.duration / 2))
     }
+    @State private var saveError: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ReadingSheetHeader(title: "Review reading", subtitle: nil, close: { dismiss() }).padding(24)
+            ReadingSheetHeader(title: "Edit reading session", subtitle: nil, close: { dismiss() }).padding(24)
+            if let saveError {
+                Text(saveError).font(.caption).foregroundStyle(ReadingPalette.warning)
+                    .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 24).padding(.bottom, 12)
+            }
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     VStack(alignment: .leading, spacing: 12) {
                         ReadingMenuPicker(label: "Book", options: model.books.map(\.id), selection: $bookID) { id in
                             model.books.first { $0.id == id }?.title ?? "Choose a book"
                         }
-                        ReadingDatePicker("Started", selection: $start)
-                        ReadingDatePicker("Finished", selection: $end, minimumDate: start)
-                        ReadingSegmentedControl(label: "Treatment", options: [IntervalDisposition.credited, .uncertain, .excluded], selection: $disposition) { value in
+                        ReadingDatePicker("Started", selection: $start, maximumDate: Date())
+                        ReadingDatePicker("Finished", selection: $end, minimumDate: start, maximumDate: Date())
+                        ReadingSegmentedControl(label: "Treatment", options: [IntervalDisposition.credited, .excluded], selection: $disposition) { value in
                             switch value {
                             case .credited: return "Count this time"
-                            case .uncertain: return "Needs review"
                             case .excluded: return "Exclude"
                             }
                         }
                         Text("\(model.pages(forSessionID: interval.sessionID)) pages saved for this session. Changing its time does not add pages.")
                             .font(.caption).foregroundStyle(ReadingPalette.fadedInk)
+                        if end <= start || end > Date() {
+                            Text("Choose a finish time after the start and no later than now.")
+                                .font(.caption).foregroundStyle(ReadingPalette.warning)
+                        }
                         Button("Save changes") {
-                            model.reviewInterval(interval, start: start, end: end, bookID: bookID, disposition: disposition)
-                            dismiss()
+                            finish(model.editInterval(interval, start: start, end: end, bookID: bookID, disposition: disposition))
                         }
                         .buttonStyle(ReadingButtonStyle(emphasis: .primary))
-                        .disabled(end <= start || bookID.isEmpty)
+                        .keyboardShortcut(.defaultAction)
+                        .disabled(end <= start || end > Date() || bookID.isEmpty)
                     }.readingPanel()
                     VStack(alignment: .leading, spacing: 12) {
                         Text("Split this reading span").font(.headline)
                         ReadingDatePicker("Split at", selection: $splitAt, minimumDate: interval.start, maximumDate: interval.end)
-                        Button("Split reading") { model.splitInterval(interval, at: splitAt); dismiss() }
+                        Button("Split reading") { finish(model.splitInterval(interval, at: splitAt)) }
                             .disabled(splitAt <= interval.start || splitAt >= interval.end)
                     }.readingPanel()
                     HStack(spacing: 12) {
@@ -189,10 +153,14 @@ struct IntervalReviewEditor: View {
         .background(ReadingPalette.paper).foregroundStyle(ReadingPalette.ink)
         .tint(ReadingPalette.moss).buttonStyle(ReadingButtonStyle())
         .alert("Delete this session?", isPresented: $deletionConfirmation) {
-            Button("Delete session", role: .destructive) { model.deleteSession(interval.sessionID); dismiss() }
+            Button("Delete session", role: .destructive) { finish(model.deleteSession(interval.sessionID)) }
             Button("Cancel", role: .cancel) { }
         } message: {
             Text("This permanently removes this session and related correction records.")
         }
+    }
+    private func finish(_ saved: Bool) {
+        if saved { dismiss() }
+        else { saveError = model.errorMessage ?? "Could not save this change. Try again." }
     }
 }

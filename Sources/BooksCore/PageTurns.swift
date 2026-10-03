@@ -267,7 +267,7 @@ public enum PageStatistics {
     }
 
     /// Observed pages divided by confirmed foreground reading minutes. Both
-    /// sides use only credited effective intervals, so uncertain time and its
+    /// sides use only credited effective intervals, so excluded time and its
     /// page evidence cannot make the pace appear faster or slower.
     public static func pagesPerMinute(events: [AuditEvent], effectiveIntervals: [ReadingInterval],
                                       merges: [BookMerge], bookID: String? = nil,
@@ -300,7 +300,7 @@ public enum PageStatistics {
             else { run = 0 }
         }
         guard let todayIndex = ordered.lastIndex(where: { $0.day == today }) else {
-            return StreakSummary(current: 0, longest: longest, todayPending: true, provisional: false)
+            return StreakSummary(current: 0, longest: longest, todayPending: true)
         }
         let todayPending = !ordered[todayIndex].qualifies
         var cursor = todayPending ? todayIndex - 1 : todayIndex
@@ -309,7 +309,7 @@ public enum PageStatistics {
             current += 1
             cursor -= 1
         }
-        return StreakSummary(current: current, longest: longest, todayPending: todayPending, provisional: false)
+        return StreakSummary(current: current, longest: longest, todayPending: todayPending)
     }
 
     /// Visibility callers must resolve novelty before clipping to presentation groups.

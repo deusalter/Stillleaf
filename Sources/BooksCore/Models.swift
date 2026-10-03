@@ -1,9 +1,30 @@
 import Foundation
 
 public enum ReadingMode: String, Codable, CaseIterable { case automatic, manual, imported, listening }
-public enum IntervalDisposition: String, Codable { case credited, uncertain, excluded }
+public enum IntervalDisposition: String, Codable {
+    case credited, excluded
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let value = try container.decode(String.self)
+        // Read old database rows and exports without discarding recorded time.
+        if value == "uncertain" { self = .credited }
+        else if let disposition = Self(rawValue: value) { self = disposition }
+        else { throw DecodingError.dataCorruptedError(in: container, debugDescription: "Unknown interval disposition: \(value)") }
+    }
+}
 public enum PauseReason: String, Codable { case disabled, background, noReadingWindow, locked, displayAsleep, permissionLost, excludedBook, stopped, captureFailure, recovery, clockDiscontinuity }
-public enum TrackerPhase: String, Codable { case paused, reading, uncertain }
+public enum TrackerPhase: String, Codable {
+    case paused, reading
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let value = try container.decode(String.self)
+        if value == "uncertain" { self = .reading }
+        else if let phase = Self(rawValue: value) { self = phase }
+        else { throw DecodingError.dataCorruptedError(in: container, debugDescription: "Unknown tracker phase: \(value)") }
+    }
+}
 public enum DailyGoalUnit: String, Codable { case pages, minutes }
 
 public enum BookFormat: String, Codable, CaseIterable { case text, audiobook }
@@ -138,10 +159,9 @@ public struct TrackingInput {
     public var book: BookRecord?
     public var mode: ReadingMode
     public var pauseReason: PauseReason?
-    public var relevantActivity: Bool
     public var progress: ProgressObservation?
-    public init(date: Date = Date(), uptime: TimeInterval = ProcessInfo.processInfo.systemUptime, book: BookRecord? = nil, mode: ReadingMode = .automatic, pauseReason: PauseReason? = nil, relevantActivity: Bool = false, progress: ProgressObservation? = nil) {
-        self.date = date; self.uptime = uptime; self.book = book; self.mode = mode; self.pauseReason = pauseReason; self.relevantActivity = relevantActivity; self.progress = progress
+    public init(date: Date = Date(), uptime: TimeInterval = ProcessInfo.processInfo.systemUptime, book: BookRecord? = nil, mode: ReadingMode = .automatic, pauseReason: PauseReason? = nil, progress: ProgressObservation? = nil) {
+        self.date = date; self.uptime = uptime; self.book = book; self.mode = mode; self.pauseReason = pauseReason; self.progress = progress
     }
 }
 public struct TrackerSnapshot {
@@ -157,11 +177,10 @@ public struct DailyTotal: Identifiable {
     public var id: String { day }
     public var day: String
     public var creditedSeconds: Double
-    public var uncertainSeconds: Double
     public var manualSeconds: Double
     public var goalMinutes: Double
     public var qualifies: Bool { creditedSeconds >= goalMinutes * 60 }
-    public init(day: String, creditedSeconds: Double, uncertainSeconds: Double, manualSeconds: Double, goalMinutes: Double) { self.day = day; self.creditedSeconds = creditedSeconds; self.uncertainSeconds = uncertainSeconds; self.manualSeconds = manualSeconds; self.goalMinutes = goalMinutes }
+    public init(day: String, creditedSeconds: Double, manualSeconds: Double, goalMinutes: Double) { self.day = day; self.creditedSeconds = creditedSeconds; self.manualSeconds = manualSeconds; self.goalMinutes = goalMinutes }
 }
 public struct DailyPageTotal: Identifiable, Equatable {
     public var id: String { day }
@@ -187,6 +206,5 @@ public struct StreakSummary {
     public var current: Int
     public var longest: Int
     public var todayPending: Bool
-    public var provisional: Bool
-    public init(current: Int, longest: Int, todayPending: Bool, provisional: Bool) { self.current = current; self.longest = longest; self.todayPending = todayPending; self.provisional = provisional }
+    public init(current: Int, longest: Int, todayPending: Bool) { self.current = current; self.longest = longest; self.todayPending = todayPending }
 }

@@ -106,10 +106,13 @@ public struct CalendarNavigation: Equatable {
     }
 
     public var weekDates: [Date] {
-        (0..<7).compactMap { calendar.date(byAdding: .day, value: $0, to: periodStart) }
+        let calendar = self.calendar
+        let start = periodStart
+        return (0..<7).compactMap { calendar.date(byAdding: .day, value: $0, to: start) }
     }
 
     public var yearMonths: [Date] {
+        let calendar = self.calendar
         let start = calendar.dateInterval(of: .year, for: anchor)?.start ?? periodStart
         return (0..<12).compactMap { calendar.date(byAdding: .month, value: $0, to: start) }
     }
@@ -117,6 +120,7 @@ public struct CalendarNavigation: Equatable {
     /// Weekday-aligned cells for the visible month. The grid contains complete
     /// weeks, never more than six (42 cells).
     public var monthCells: [CalendarMonthCell] {
+        let calendar = self.calendar
         let monthStart = calendar.dateInterval(of: .month, for: anchor)?.start ?? periodStart
         guard let monthEnd = calendar.date(byAdding: .month, value: 1, to: monthStart) else { return [] }
         let weekdayOffset = (calendar.component(.weekday, from: monthStart) - calendar.firstWeekday + 7) % 7

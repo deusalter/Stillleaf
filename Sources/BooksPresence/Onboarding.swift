@@ -489,7 +489,7 @@ private struct OnboardingTourStep: View {
                 }
             }
             .frame(maxWidth: 640)
-            Text("Active reading time is inferred from reading activity. Idle stretches wait for your review.")
+            Text("Reading time is recorded while tracking is active. You can edit saved sessions whenever needed.")
                 .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
                 .onboardingReveal(6)
         }

@@ -66,12 +66,13 @@ struct AtlasPanel<Content: View>: View {
     }
 }
 
-struct AtlasButtonStyle: ButtonStyle {
-    @Environment(\.colorScheme) private var scheme
+/// History actions share the dashboard's native disabled, focus, and glass
+/// treatment instead of painting over those interaction states.
+struct AtlasButtonStyle: PrimitiveButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label.font(.system(size: 12, weight: .medium)).padding(.horizontal, 12).padding(.vertical, 8)
-            .background(AtlasStyle.surface(scheme == .dark).opacity(configuration.isPressed ? 0.5 : 1), in: RoundedRectangle(cornerRadius: 8))
-            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(AtlasStyle.rule(scheme == .dark)))
+        Button(configuration)
+            .buttonStyle(ReadingButtonStyle())
+            .controlSize(.small)
     }
 }
 
