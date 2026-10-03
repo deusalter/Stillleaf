@@ -26,13 +26,6 @@ struct AtlasYearView: View {
                   // Every row shares the same fixed label, totals and spacing.
                   // Resolve its plot width once instead of measuring each row.
                   let chartWidth = canvasWidth - 170 - 74 - 2 * 16
-                  let monthSeparators = Path { path in
-                      for fraction in presentation.monthPositions {
-                          let x = CGFloat(fraction) * chartWidth
-                          path.move(to: CGPoint(x: x, y: 0))
-                          path.addLine(to: CGPoint(x: x, y: 76))
-                      }
-                  }
                   ScrollView(.horizontal) {
                     VStack(spacing: 0) {
                         HStack(spacing: 16) {
@@ -40,10 +33,7 @@ struct AtlasYearView: View {
                             monthLinks.frame(width: chartWidth)
                             Color.clear.frame(width: 74, height: 28)
                         }
-                        ForEach(rows) { row in
-                            yearRow(row, period: period, calendar: calendar,
-                                    chartWidth: chartWidth, monthSeparators: monthSeparators)
-                        }
+                        ForEach(rows) { row in yearRow(row, period: period, calendar: calendar, chartWidth: chartWidth) }
                     }.frame(width: canvasWidth)
                   }
                 }.frame(height: CGFloat(rows.count) * 76 + 32)
@@ -71,8 +61,7 @@ struct AtlasYearView: View {
             }
         }.foregroundStyle(AtlasStyle.muted(dark))
     }
-    private func yearRow(_ row: AtlasYearRow, period: DateInterval, calendar: Calendar,
-                         chartWidth: CGFloat, monthSeparators: Path) -> some View {
+    private func yearRow(_ row: AtlasYearRow, period: DateInterval, calendar: Calendar, chartWidth: CGFloat) -> some View {
         let id = row.id, activity = row.activity, pending = row.pending
         let seconds = row.creditedSeconds, pages = row.pages, finished = row.finishes
         return HStack(spacing: 16) {
@@ -90,7 +79,11 @@ struct AtlasYearView: View {
             }
             .accessibilityValue("\(activity.count) recorded days, \(pages) pages, \(ReadingFormat.duration(seconds)) recorded. \(finished.isEmpty ? "" : "Finished this year.")")
             Canvas { context, size in
-                context.stroke(monthSeparators, with: .color(AtlasStyle.rule(dark)), lineWidth: 0.6)
+                for fraction in presentation.monthPositions {
+                    let x = CGFloat(fraction) * size.width
+                    var path = Path(); path.move(to: CGPoint(x: x, y: 0)); path.addLine(to: CGPoint(x: x, y: size.height))
+                    context.stroke(path, with: .color(AtlasStyle.rule(dark)), lineWidth: 0.6)
+                }
                 let color = AtlasStyle.book(id, dark: dark)
                 if let first = activity.first, let last = activity.last {
                     let start = CGFloat(first.start) * size.width, end = CGFloat(last.start) * size.width
