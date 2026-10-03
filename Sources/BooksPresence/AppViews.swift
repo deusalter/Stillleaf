@@ -351,7 +351,7 @@ private struct DashboardSidebar: View {
                         Button { selection = item } label: {
                             Label(item.title, systemImage: item.symbol)
                                 .font(.system(size: 13, weight: selection == item ? .semibold : .medium))
-                                .foregroundStyle(selection == item ? ReadingPalette.ink : ReadingPalette.secondaryInk)
+                                .foregroundStyle(ReadingPalette.ink)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(.horizontal, 12).padding(.vertical, 11)
                                 .background {
@@ -385,16 +385,16 @@ private struct DashboardSidebar: View {
                 if model.appleBooksTrackingNeedsAccess || model.snapshot.pauseReason == .captureFailure {
                     Button(action: troubleshoot) {
                         Label(trackingStatus, systemImage: "exclamationmark.circle")
-                            .font(.system(size: 11, weight: .medium)).foregroundStyle(ReadingPalette.warning)
+                            .font(.system(size: 11, weight: .medium)).foregroundStyle(ReadingPalette.ink)
                     }.buttonStyle(.plain).help("Open tracking help")
                 } else {
                     HStack(spacing: 6) {
                         Circle().fill(model.snapshot.phase == .reading ? ReadingPalette.accent : ReadingPalette.secondaryInk).frame(width: 6, height: 6)
-                        Text(trackingStatus).font(.system(size: 11, weight: .medium)).foregroundStyle(ReadingPalette.secondaryInk)
+                        Text(trackingStatus).font(.system(size: 11, weight: .medium)).foregroundStyle(ReadingPalette.ink)
                     }
                 }
                 Text("History stored on this Mac")
-                    .font(.system(size: 10)).foregroundStyle(ReadingPalette.secondaryInk)
+                    .font(.system(size: 10)).foregroundStyle(ReadingPalette.ink)
             }
 
             .padding(.horizontal, 16).padding(.bottom, 16)
