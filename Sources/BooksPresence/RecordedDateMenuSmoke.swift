@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 
 private enum RecordedDateMenuSmokeError: Error { case failed(String) }
 
@@ -84,4 +85,107 @@ private func checkRecordedDateMenuLifecycle(dates: [Date]) throws {
     guard opened, dismissed, !expired, anchor.activeDateMenu == nil else {
         throw RecordedDateMenuSmokeError.failed("Inserted date-menu anchor did not open and dismiss after cancellation")
     }
+}
+
+@MainActor
+private final class RecordedDateFocusProbeState: ObservableObject {
+    @Published var requested = false
+    var focused = false
+    var selected: Date?
+}
+
+@MainActor
+private struct RecordedDateFocusProbe: View {
+    @ObservedObject var state: RecordedDateFocusProbeState
+    @FocusState private var focused: Bool
+    let dates: [Date]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            Text("Recorded dates").font(.headline)
+            RecordedDateMenu(dates: dates, timezoneID: "UTC", bookTitle: "Keyboard focus fixture", select: { state.selected = $0 }) {
+                HStack(spacing: 10) {
+                    BookCoverView(book: nil, size: .compact)
+                        .scaleEffect(0.62).frame(width: 33, height: 46)
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("Keyboard focus fixture").font(.system(size: 13, weight: .medium)).lineLimit(3)
+                            .multilineTextAlignment(.leading)
+                        RecordedDateMenuCaption(count: dates.count)
+                    }
+                }.frame(width: 170, alignment: .leading)
+            }.focused($focused)
+            Text("Space opens the date menu. Escape closes it.").font(.caption)
+        }
+        .padding(24).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        .background(ReadingPalette.canvas).foregroundStyle(ReadingPalette.ink)
+        .onChange(of: state.requested) { focused = $0 }
+        .onChange(of: focused) { state.focused = $0 }
+    }
+}
+
+/// The one focus binding is test-only. Captures use the actual window focus
+/// engine; no isFocused environment override or system preference is changed.
+@MainActor
+func checkRecordedDateKeyboardFocus(directory: URL, dark: Bool) async throws {
+    let state = RecordedDateFocusProbeState()
+    let dates = [Date(timeIntervalSince1970: 1_700_100_000), Date(timeIntervalSince1970: 1_700_000_000)]
+    let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 360, height: 210),
+                          styleMask: [.titled], backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false
+    window.title = "Recorded date keyboard focus"
+    window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+    window.contentViewController = NSHostingController(rootView: RecordedDateFocusProbe(state: state, dates: dates))
+    defer { window.contentViewController = nil; window.close() }
+    window.makeKeyAndOrderFront(nil)
+    NSApp.activate(ignoringOtherApps: true)
+    try await Task.sleep(nanoseconds: 120_000_000)
+    window.makeFirstResponder(nil)
+    let appearance = dark ? "dark" : "light"
+    try await captureNativeWindow(window, to: directory.appendingPathComponent("year-date-unfocused-\(appearance).png"))
+    state.requested = true
+    try await Task.sleep(nanoseconds: 120_000_000)
+    guard state.focused else { throw RecordedDateMenuSmokeError.failed("Date button did not accept actual keyboard focus") }
+    try await captureNativeWindow(window, to: directory.appendingPathComponent("year-date-focused-\(appearance).png"))
+
+    func findAnchor(_ view: NSView?) -> RecordedDateMenuAnchorView? {
+        guard let view else { return nil }
+        if let anchor = view as? RecordedDateMenuAnchorView { return anchor }
+        return view.subviews.lazy.compactMap { findAnchor($0) }.first
+    }
+    var opened = false, expired = false
+    let deadline = Date().addingTimeInterval(3)
+    let timer = Timer(timeInterval: 0.01, repeats: true) { _ in
+        MainActor.assumeIsolated {
+            let anchor = findAnchor(window.contentView)
+            if Date() >= deadline {
+                expired = true
+                anchor?.activeDateMenu?.cancelTracking()
+            } else if !opened, anchor?.activeDateMenu != nil {
+                opened = true
+                if let escape = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                    timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil,
+                    characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53) {
+                    NSApp.postEvent(escape, atStart: true)
+                }
+            }
+        }
+    }
+    RunLoop.main.add(timer, forMode: .default)
+    RunLoop.main.add(timer, forMode: .eventTracking)
+    defer { timer.invalidate(); findAnchor(window.contentView)?.activeDateMenu?.cancelTracking() }
+    for type in [NSEvent.EventType.keyDown, .keyUp] {
+        guard let space = NSEvent.keyEvent(with: type, location: .zero, modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil,
+            characters: " ", charactersIgnoringModifiers: " ", isARepeat: false, keyCode: 49) else {
+            throw RecordedDateMenuSmokeError.failed("Could not construct the keyboard focus check")
+        }
+        window.sendEvent(space)
+    }
+    while (!opened || findAnchor(window.contentView) != nil), !expired, Date() < deadline {
+        try await Task.sleep(nanoseconds: 10_000_000)
+    }
+    guard opened, !expired, findAnchor(window.contentView) == nil, state.selected == nil, state.focused else {
+        throw RecordedDateMenuSmokeError.failed("Focused date button did not open with Space and return focus after Escape")
+    }
+    print("native-year-date-focus: \(appearance) actual focus, Space opens, Escape cancels, focus retained")
 }

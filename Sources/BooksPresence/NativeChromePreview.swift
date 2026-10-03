@@ -92,6 +92,7 @@ private enum NativeChromeCaptureError: Error { case renderFailed }
         try await captureNativeWindow(yearWindow, to: directory.appendingPathComponent(
             "compact-year-\(dark ? "dark" : "light").png"))
         yearWindow.contentViewController = nil; yearWindow.close()
+        try await checkRecordedDateKeyboardFocus(directory: directory, dark: dark)
     }
     try await checkStatusMenuPanelInteractions(directory: directory)
     #if compiler(>=6.2)

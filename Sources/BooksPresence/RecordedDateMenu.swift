@@ -3,26 +3,21 @@ import SwiftUI
 
 /// Rows remain SwiftUI-only until activated. A native anchor and menu exist
 /// only for the open row, keeping native view preferences out of year layout.
-struct RecordedDateMenu: View {
+struct RecordedDateMenu<Label: View>: View {
     let dates: [Date]
     let timezoneID: String
     let bookTitle: String
     let select: (Date) -> Void
+    @ViewBuilder let label: () -> Label
     @Environment(\.isEnabled) private var isEnabled
     @State private var isPresented = false
-    @FocusState private var focused: Bool
 
     var body: some View {
         Button { isPresented = true } label: {
-            HStack(spacing: 4) {
-                Text("\(dates.count) \(dates.count == 1 ? "date" : "dates")")
-                Image(systemName: "chevron.down").font(.system(size: 8, weight: .medium)).accessibilityHidden(true)
-            }.font(.caption2).foregroundStyle(ReadingPalette.secondaryInk)
-                .contentShape(Rectangle())
+            label().contentShape(Rectangle())
         }
-        .buttonStyle(.plain).focused($focused)
+        .buttonStyle(RecordedDateMenuButtonStyle())
         .disabled(dates.isEmpty)
-        .overlay(RoundedRectangle(cornerRadius: 3).stroke(focused ? ReadingPalette.accent : .clear, lineWidth: 2))
         .accessibilityLabel("Choose a recorded date for \(bookTitle)")
         .accessibilityHint("Opens recorded days, pending days, and finish dates")
         .background {
@@ -33,6 +28,42 @@ struct RecordedDateMenu: View {
             }
         }
         .onChange(of: isEnabled) { if !$0 { isPresented = false } }
+    }
+}
+
+struct RecordedDateMenuCaption: View {
+    let count: Int
+    var body: some View {
+        HStack(spacing: 4) {
+            Text("\(count) \(count == 1 ? "date" : "dates")")
+            Image(systemName: "chevron.down").font(.system(size: 8, weight: .medium)).accessibilityHidden(true)
+        }.font(.caption2).foregroundStyle(ReadingPalette.secondaryInk)
+    }
+}
+
+extension RecordedDateMenu where Label == RecordedDateMenuCaption {
+    init(dates: [Date], timezoneID: String, bookTitle: String, select: @escaping (Date) -> Void) {
+        self.init(dates: dates, timezoneID: timezoneID, bookTitle: bookTitle, select: select,
+                  label: { RecordedDateMenuCaption(count: dates.count) })
+    }
+}
+
+private struct RecordedDateMenuButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        RecordedDateMenuButtonStyleBody(configuration: configuration)
+    }
+}
+
+private struct RecordedDateMenuButtonStyleBody: View {
+    let configuration: ButtonStyleConfiguration
+    @Environment(\.isFocused) private var isFocused
+    @Environment(\.isEnabled) private var isEnabled
+
+    var body: some View {
+        configuration.label
+            .overlay(RoundedRectangle(cornerRadius: 3)
+                .stroke(isFocused ? ReadingPalette.accent : .clear, lineWidth: 2))
+            .opacity(isEnabled ? (configuration.isPressed ? 0.7 : 1) : 0.42)
     }
 }
 

@@ -64,22 +64,20 @@ struct AtlasYearView: View {
     private func yearRow(_ row: AtlasYearRow, period: DateInterval, calendar: Calendar, chartWidth: CGFloat) -> some View {
         let id = row.id, activity = row.activity, pending = row.pending
         let seconds = row.creditedSeconds, pages = row.pages, finished = row.finishes
-        let target = row.target
         return HStack(spacing: 16) {
-            VStack(alignment: .leading, spacing: 5) {
-                Button { select(target) } label: {
-                    HStack(spacing: 10) {
-                        BookCoverView(book: presentation.booksByID[id], size: .compact)
-                            .scaleEffect(0.62).frame(width: 33, height: 46)
+            RecordedDateMenu(dates: row.recordedDates, timezoneID: navigation.timezoneID,
+                             bookTitle: title(id), select: select) {
+                HStack(spacing: 10) {
+                    BookCoverView(book: presentation.booksByID[id], size: .compact)
+                        .scaleEffect(0.62).frame(width: 33, height: 46)
+                    VStack(alignment: .leading, spacing: 5) {
                         Text(title(id)).font(.system(size: 13, weight: .medium)).lineLimit(3)
                             .multilineTextAlignment(.leading)
-                    }.contentShape(Rectangle())
-                }.buttonStyle(.plain)
-                    .accessibilityLabel("\(title(id)), \(activity.count) recorded days, \(pages) pages, \(ReadingFormat.duration(seconds)) recorded. \(finished.isEmpty ? "" : "Finished this year.") Open latest day.")
-                RecordedDateMenu(dates: row.recordedDates, timezoneID: navigation.timezoneID,
-                                 bookTitle: title(id), select: select)
-                    .fixedSize().padding(.leading, 43)
-            }.frame(width: 170, alignment: .leading)
+                        RecordedDateMenuCaption(count: row.recordedDates.count)
+                    }
+                }.frame(width: 170, alignment: .leading)
+            }
+            .accessibilityValue("\(activity.count) recorded days, \(pages) pages, \(ReadingFormat.duration(seconds)) recorded. \(finished.isEmpty ? "" : "Finished this year.")")
             Canvas { context, size in
                 for fraction in presentation.monthPositions {
                     let x = CGFloat(fraction) * size.width
