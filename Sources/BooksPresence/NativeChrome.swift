@@ -19,9 +19,9 @@ private struct NativeSidebarSurface: ViewModifier {
         if (previewOpaque ?? opaque) || contrast == .increased {
             content.background(ReadingPalette.canvas, in: RoundedRectangle(cornerRadius: 20))
         } else {
-            // NavigationSplitView supplies the native sidebar material on
-            // every supported OS. Stacking another material makes it milky.
-            content
+            // Keep the system's single glass surface. A light theme tint
+            // tempers wallpaper colour without adding a second blur layer.
+            content.background(ReadingPalette.canvas.opacity(0.22), in: RoundedRectangle(cornerRadius: 20))
         }
     }
 }
@@ -143,8 +143,8 @@ private struct NativeMenuSurface: ViewModifier {
     }
 }
 
-/// A text-heavy menu needs the system popover material, not a refracting glass
-/// sheet over desktop text. Glass belongs to the controls above this surface.
+/// Use clear glass for the menu shell rather than the strongly blurred popover
+/// material. A neutral backing preserves themed text contrast over dark windows.
 private struct NativePopoverSurface: ViewModifier {
     @Environment(\.accessibilityReduceTransparency) private var opaque
     @Environment(\.colorSchemeContrast) private var contrast
@@ -154,10 +154,22 @@ private struct NativePopoverSurface: ViewModifier {
         if (previewOpaque ?? opaque) || contrast == .increased {
             content.background(ReadingPalette.canvas, in: RoundedRectangle(cornerRadius: 20))
         } else {
-            content.background {
-                PopoverMaterial()
-                    .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            #if compiler(>=6.2)
+            if #available(macOS 26.0, *) {
+                content.glassEffect(.clear, in: .rect(cornerRadius: 20))
+                    .background(ReadingPalette.canvas.opacity(0.68), in: RoundedRectangle(cornerRadius: 20))
+            } else {
+                fallback(content)
             }
+            #else
+            fallback(content)
+            #endif
+        }
+    }
+
+    private func fallback(_ content: Content) -> some View {
+        content.background {
+            PopoverMaterial().clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         }
     }
 }
