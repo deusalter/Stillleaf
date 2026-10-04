@@ -390,8 +390,11 @@ private struct DashboardSidebar: View {
                 VStack(alignment: .leading, spacing: 5) {
                     if model.appleBooksTrackingNeedsAccess || model.snapshot.pauseReason == .captureFailure {
                         Button(action: troubleshoot) {
-                            Label(trackingStatus, systemImage: "exclamationmark.circle")
-                                .font(.system(size: 11, weight: .medium)).foregroundStyle(ReadingPalette.ink)
+                            HStack(spacing: 10) {
+                                Image(systemName: "exclamationmark.circle").frame(width: 18)
+                                Text(trackingStatus)
+                            }
+                            .font(.system(size: 11, weight: .medium)).foregroundStyle(ReadingPalette.ink)
                         }.buttonStyle(.plain).help("Open tracking help")
                     } else {
                         HStack(spacing: 10) {
