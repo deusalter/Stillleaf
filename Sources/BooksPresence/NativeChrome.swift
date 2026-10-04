@@ -19,17 +19,9 @@ private struct NativeSidebarSurface: ViewModifier {
         if (previewOpaque ?? opaque) || contrast == .increased {
             content.background(ReadingPalette.canvas, in: RoundedRectangle(cornerRadius: 20))
         } else {
-            #if compiler(>=6.2)
-            if #available(macOS 26.0, *) {
-                // NavigationSplitView owns the glass on Tahoe. A second glass
-                // effect here produces nested outlines and double refraction.
-                content
-            } else {
-                content.background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20))
-            }
-            #else
-            content.background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20))
-            #endif
+            // NavigationSplitView supplies the native sidebar material on
+            // every supported OS. Stacking another material makes it milky.
+            content
         }
     }
 }
@@ -135,7 +127,7 @@ private struct NativeMenuSurface: ViewModifier {
     @ViewBuilder func body(content: Content) -> some View {
         #if compiler(>=6.2)
         if #available(macOS 26.0, *), !(previewOpaque ?? opaque), contrast != .increased {
-            content.glassEffect(.regular.tint(ReadingPalette.accent.opacity(hovering ? 0.12 : 0.08)), in: .capsule)
+            content.glassEffect(.clear.tint(ReadingPalette.accent.opacity(hovering ? 0.04 : 0)), in: .capsule)
         } else {
             fallback(content)
         }
@@ -163,9 +155,6 @@ private struct NativePopoverSurface: ViewModifier {
         } else {
             content.background {
                 PopoverMaterial()
-                    // Carry the same paper hue into the menu without a second
-                    // refracting surface or desktop text showing through it.
-                    .overlay(ReadingPalette.canvas.opacity(0.55))
                     .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
             }
         }
