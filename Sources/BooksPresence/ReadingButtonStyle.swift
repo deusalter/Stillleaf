@@ -140,10 +140,10 @@ private struct ReadingButtonStyleBody: View {
             .padding(.horizontal, iconOnly ? 9 : (compact ? 10 : 14))
             .padding(.vertical, compact ? 5 : 8)
             .frame(minWidth: iconOnly ? 32 : 0, minHeight: iconOnly ? 32 : (compact ? 28 : 36))
-            .modifier(ReadingButtonSurface(clearGlass: clearGlass, background: background, hovering: hovering))
+            .modifier(ReadingButtonSurface(clearGlass: clearGlass, background: background))
             .overlay {
                 Capsule()
-                    .stroke(isFocused ? ReadingPalette.accent : (primary || clearGlass ? .clear : accent.opacity(contrast == .increased ? 0.7 : (hovering ? 0.3 : 0.16))), lineWidth: isFocused ? 2 : 1)
+                    .stroke(isFocused ? ReadingPalette.accent : (primary ? .clear : accent.opacity(contrast == .increased ? 0.7 : (hovering ? 0.3 : 0.16))), lineWidth: isFocused ? 2 : 1)
             }
             .contentShape(Capsule())
             .opacity(isEnabled ? (configuration.isPressed ? 0.84 : 1) : 0.42)
@@ -157,12 +157,10 @@ private struct ReadingButtonStyleBody: View {
 private struct ReadingButtonSurface: ViewModifier {
     let clearGlass: Bool
     let background: Color
-    let hovering: Bool
-
     @ViewBuilder func body(content: Content) -> some View {
         #if compiler(>=6.2)
         if #available(macOS 26.0, *), clearGlass {
-            content.glassEffect(.clear.tint(ReadingPalette.accent.opacity(hovering ? 0.04 : 0)), in: .capsule)
+            content.glassEffect(.clear, in: .capsule)
         } else {
             content.background(background, in: Capsule())
         }

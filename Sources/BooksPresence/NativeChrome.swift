@@ -127,7 +127,8 @@ private struct NativeMenuSurface: ViewModifier {
     @ViewBuilder func body(content: Content) -> some View {
         #if compiler(>=6.2)
         if #available(macOS 26.0, *), !(previewOpaque ?? opaque), contrast != .increased {
-            content.glassEffect(.clear.tint(ReadingPalette.accent.opacity(hovering ? 0.04 : 0)), in: .capsule)
+            content.glassEffect(.clear, in: .capsule)
+                .overlay(Capsule().stroke(ReadingPalette.accent.opacity(hovering ? 0.24 : 0.14)))
         } else {
             fallback(content)
         }
