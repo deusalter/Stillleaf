@@ -61,10 +61,10 @@ struct ReadingButtonStyle: PrimitiveButtonStyle {
                     .buttonBorderShape(.capsule)
                     .tint(configuration.role == .destructive ? ReadingPalette.warning : ReadingPalette.accent)
             } else if glass {
-                nativeButton(configuration)
-                    .buttonStyle(.glass)
-                    .buttonBorderShape(.capsule)
-                    .tint(ReadingPalette.accent.opacity(0.08))
+                // GlassButtonStyle(.clear) requires the 26.1 SDK. Apply the
+                // public 26.0 effect to the same accessible Button instead.
+                Button(configuration).buttonStyle(ReadingSurfaceButtonStyle(
+                    emphasis: emphasis, iconOnly: iconOnly, clearGlass: true))
             } else {
                 fallback(configuration)
             }
@@ -96,19 +96,20 @@ struct ReadingButtonStyle: PrimitiveButtonStyle {
     }
 
     private func fallback(_ configuration: Configuration) -> some View {
-        Button(configuration).buttonStyle(ReadingFallbackButtonStyle(emphasis: emphasis, iconOnly: iconOnly))
+        Button(configuration).buttonStyle(ReadingSurfaceButtonStyle(emphasis: emphasis, iconOnly: iconOnly))
     }
 }
 
-private struct ReadingFallbackButtonStyle: ButtonStyle {
+private struct ReadingSurfaceButtonStyle: ButtonStyle {
     let emphasis: ReadingButtonStyle.Emphasis
     let iconOnly: Bool
+    var clearGlass = false
     @Environment(\.isEnabled) private var isEnabled
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func makeBody(configuration: Configuration) -> some View {
         ReadingButtonStyleBody(configuration: configuration, emphasis: emphasis, iconOnly: iconOnly,
-                               isEnabled: isEnabled, reduceMotion: reduceMotion)
+                               isEnabled: isEnabled, reduceMotion: reduceMotion, clearGlass: clearGlass)
     }
 }
 
@@ -118,6 +119,7 @@ private struct ReadingButtonStyleBody: View {
     let iconOnly: Bool
     let isEnabled: Bool
     let reduceMotion: Bool
+    let clearGlass: Bool
     @Environment(\.controlSize) private var controlSize
     @Environment(\.isFocused) private var isFocused
     @Environment(\.colorSchemeContrast) private var contrast
@@ -138,7 +140,7 @@ private struct ReadingButtonStyleBody: View {
             .padding(.horizontal, iconOnly ? 9 : (compact ? 10 : 14))
             .padding(.vertical, compact ? 5 : 8)
             .frame(minWidth: iconOnly ? 32 : 0, minHeight: iconOnly ? 32 : (compact ? 28 : 36))
-            .background(background, in: Capsule())
+            .modifier(ReadingButtonSurface(clearGlass: clearGlass, background: background))
             .overlay {
                 Capsule()
                     .stroke(isFocused ? ReadingPalette.accent : (primary ? .clear : accent.opacity(contrast == .increased ? 0.7 : (hovering ? 0.3 : 0.16))), lineWidth: isFocused ? 2 : 1)
@@ -149,5 +151,21 @@ private struct ReadingButtonStyleBody: View {
             .animation(reduceMotion ? nil : ReadingMotion.press, value: configuration.isPressed)
             .animation(reduceMotion ? nil : ReadingMotion.hover, value: isHovering)
             .onHover { isHovering = $0 }
+    }
+}
+
+private struct ReadingButtonSurface: ViewModifier {
+    let clearGlass: Bool
+    let background: Color
+    @ViewBuilder func body(content: Content) -> some View {
+        #if compiler(>=6.2)
+        if #available(macOS 26.0, *), clearGlass {
+            content.glassEffect(.clear, in: .capsule)
+        } else {
+            content.background(background, in: Capsule())
+        }
+        #else
+        content.background(background, in: Capsule())
+        #endif
     }
 }

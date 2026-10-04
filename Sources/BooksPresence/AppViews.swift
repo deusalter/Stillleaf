@@ -159,7 +159,7 @@ struct PopoverView: View {
             }
             if bodyHeight > max(160, maximumHeight - 160) {
                 Label("Scroll for more", systemImage: "arrow.down")
-                    .font(.caption2).foregroundStyle(ReadingPalette.secondaryInk)
+                    .font(.caption2).foregroundStyle(ReadingPalette.ink)
                     .frame(maxWidth: .infinity)
             }
             Hairline()
@@ -198,12 +198,12 @@ struct PopoverView: View {
                         Text(book.title).font(ReadingType.bookTitle(19))
                             .lineLimit(2).accessibilityLabel(book.title)
                         if let author = book.author, !author.isEmpty {
-                            Text(author).font(.caption).foregroundStyle(ReadingPalette.fadedInk).lineLimit(1)
+                            Text(author).font(.caption).foregroundStyle(ReadingPalette.ink).lineLimit(1)
                         }
-                        ActivityStateLabel(snapshot: model.snapshot, compact: true)
+                        ActivityStateLabel(snapshot: model.snapshot, compact: true, onTranslucentSurface: true)
                             .fixedSize(horizontal: false, vertical: true)
                         if let page = model.currentPageText {
-                            Text(page).font(.caption).foregroundStyle(ReadingPalette.fadedInk)
+                            Text(page).font(.caption).foregroundStyle(ReadingPalette.ink)
                         }
                     }
                     Spacer(minLength: 0)
@@ -214,7 +214,7 @@ struct PopoverView: View {
                         .foregroundStyle(ReadingPalette.accent).frame(width: 30, height: 36)
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Open a book to begin").font(.callout.weight(.medium))
-                        ActivityStateLabel(snapshot: model.snapshot, compact: true)
+                        ActivityStateLabel(snapshot: model.snapshot, compact: true, onTranslucentSurface: true)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     Spacer(minLength: 0)
@@ -225,11 +225,11 @@ struct PopoverView: View {
             HStack(alignment: .top, spacing: 20) {
                 if model.manualActive || model.snapshot.book != nil || model.sessionPages > 0 {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("This session").font(.caption).foregroundStyle(ReadingPalette.fadedInk)
+                        Text("This session").font(.caption).foregroundStyle(ReadingPalette.ink)
                         Text("\(model.sessionPages) \(model.sessionPages == 1 ? "page" : "pages")")
                             .font(ReadingType.numeral(20)).monospacedDigit()
                         Text("\(ReadingFormat.duration(model.snapshot.sessionSeconds)) \(model.manualActive ? "manual" : "recorded")")
-                            .font(.caption2).foregroundStyle(ReadingPalette.fadedInk)
+                            .font(.caption2).foregroundStyle(ReadingPalette.ink)
                     }.frame(maxWidth: .infinity, alignment: .leading)
                 }
                 VStack(alignment: .leading, spacing: 4) {
@@ -237,13 +237,13 @@ struct PopoverView: View {
                         .font(ReadingType.numeral(20)).monospacedDigit()
                         .foregroundStyle(ReadingPalette.accent)
                     Text(model.dailyGoalStreak.todayPending ? "Goal streak · today still open" : "Goal streak")
-                        .font(.caption2).foregroundStyle(ReadingPalette.fadedInk)
+                        .font(.caption2).foregroundStyle(ReadingPalette.ink)
                 }.frame(maxWidth: .infinity, alignment: .leading)
                 .help("Consecutive days that met your daily goal.")
             }
             if let pace = ReadingFormat.pagesPerMinute(model.sessionPagesPerMinute) {
                 Label(pace, systemImage: "gauge.with.dots.needle.50percent")
-                    .font(.caption).foregroundStyle(ReadingPalette.fadedInk)
+                    .font(.caption).foregroundStyle(ReadingPalette.ink)
             }
             if model.appleBooksTrackingNeedsAccess {
                 PopoverSetupNotice(icon: "accessibility", title: "Apple Books tracking needs access",
@@ -281,7 +281,7 @@ private struct PopoverSetupNotice<Accessory: View>: View {
                 .frame(width: 18)
             VStack(alignment: .leading, spacing: 4) {
                 Text(title).font(.callout.weight(.semibold))
-                Text(description).font(.caption).foregroundStyle(ReadingPalette.fadedInk)
+                Text(description).font(.caption).foregroundStyle(ReadingPalette.ink)
                     .fixedSize(horizontal: false, vertical: true)
                 accessory()
             }

@@ -253,6 +253,7 @@ struct BookCoverView: View {
 struct ActivityStateLabel: View {
     let snapshot: TrackerSnapshot
     var compact = false
+    var onTranslucentSurface = false
     var body: some View {
         let text: String
         let symbol: String
@@ -262,7 +263,7 @@ struct ActivityStateLabel: View {
         }
         return Label(text, systemImage: symbol)
             .font(compact ? .caption : .callout)
-            .foregroundStyle(snapshot.phase == .reading ? ReadingPalette.moss : ReadingPalette.fadedInk)
+            .foregroundStyle(onTranslucentSurface ? ReadingPalette.ink : (snapshot.phase == .reading ? ReadingPalette.moss : ReadingPalette.fadedInk))
             .accessibilityLabel(snapshot.phase == .paused ? "Tracking paused: \(activityPauseSummary(snapshot.pauseReason))" : text)
     }
 }

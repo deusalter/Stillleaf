@@ -50,7 +50,7 @@ private enum NativeChromeCaptureError: Error { case renderFailed }
             panel.isReleasedWhenClosed = false; panel.title = "Stillleaf — synthetic menu panel"; panel.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
             panel.contentViewController = NSHostingController(rootView: PopoverView(model: model).environment(\.nativePreviewOpaque, opaque))
             panel.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true); try await Task.sleep(nanoseconds: 300_000_000)
-            try await captureNativeWindow(panel, to: directory.appendingPathComponent("panel-\(dark ? "dark" : "light")-\(opaque ? "opaque" : "system").png"))
+            try await captureNativeWindow(panel, to: directory.appendingPathComponent("panel-\(dark ? "dark" : "light")-\(opaque ? "opaque" : "system").png"), contextWindow: backdrop)
             panel.contentViewController = nil; panel.close()
             backdrop.contentViewController = nil; backdrop.close()
             try await checkMenuPickerLayout(directory: directory, dark: dark, opaque: opaque)
