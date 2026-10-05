@@ -21,10 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private var pendingEPUBOverflow = 0
     private var awaitingReaderTermination = false
     func applicationDidFinishLaunching(_ notification: Notification) {
-        signal(SIGTERM, SIG_IGN)
-        let termination = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
-        termination.setEventHandler { NSApp.terminate(nil) }
-        termination.resume(); shutdownSignal = termination
+        shutdownSignal = makeApplicationTerminationSignalSource(application: NSApplication.shared)
         do {
             let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("BooksPresence", isDirectory: true)
             try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])

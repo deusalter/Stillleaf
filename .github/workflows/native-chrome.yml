@@ -41,6 +41,10 @@ jobs:
           "$RUNNER_TEMP/native-chrome-probe"
       - name: Native implementation build
         run: swift build -c release
+      - name: Signal quit with asynchronous save and cancellation
+        run: |
+          swiftc -parse-as-library Sources/BooksPresence/ApplicationTermination.swift scripts/application-termination-smoke.swift -o "$RUNNER_TEMP/application-termination-smoke"
+          "$RUNNER_TEMP/application-termination-smoke"
       - name: Native dashboard and menu panel previews
         run: bash scripts/run-native-chrome-preview.sh .build/release/BooksPresence "$RUNNER_TEMP/native-chrome"
       - uses: actions/upload-artifact@v4

@@ -99,19 +99,32 @@ struct AtlasWeekView: View {
 struct AtlasTimeRing: View {
     let entries: [AtlasBookTime]
     @Environment(\.colorScheme) private var scheme
-    private var total: Double { entries.reduce(0) { $0 + $1.creditedSeconds } }
     var body: some View {
-        ZStack {
-            Circle().stroke(AtlasStyle.rule(scheme == .dark), lineWidth: 3)
+        // Rings are decorative: one drawing keeps dozens of per-book Shape
+        // layouts out of each day cell, while the button owns its accessibility.
+        let total = entries.reduce(0) { $0 + $1.creditedSeconds }
+        return Canvas { context, size in
+            // Canvas clips its drawing bounds; reserve the stroke's overhang
+            // so it matches Circle.stroke's appearance outside the cell frame.
+            let bounds = CGRect(origin: .zero, size: size).insetBy(dx: 2, dy: 2)
+            context.stroke(Path(ellipseIn: bounds), with: .color(AtlasStyle.rule(scheme == .dark)), lineWidth: 3)
             if total > 0 {
-                ForEach(Array(entries.enumerated()), id: \.element.bookID) { index, entry in
-                    let start = entries.prefix(index).reduce(0) { $0 + $1.creditedSeconds } / total
-                    Circle().trim(from: start, to: start + entry.creditedSeconds / total)
-                        .stroke(AtlasStyle.book(entry.bookID, dark: scheme == .dark), style: StrokeStyle(lineWidth: 3.5, lineCap: .butt))
-                        .rotationEffect(.degrees(-90))
+                var elapsed = 0.0
+                for entry in entries {
+                    let start = elapsed / total
+                    elapsed += entry.creditedSeconds
+                    // Trim the same circle path as the original Shape, including
+                    // its twelve-o'clock origin and butt-ended segment strokes.
+                    let segment = Path(ellipseIn: bounds)
+                        .trimmedPath(from: start, to: elapsed / total)
+                        .applying(CGAffineTransform(translationX: size.width / 2, y: size.height / 2)
+                            .rotated(by: -.pi / 2)
+                            .translatedBy(x: -size.width / 2, y: -size.height / 2))
+                    context.stroke(segment, with: .color(AtlasStyle.book(entry.bookID, dark: scheme == .dark)),
+                                   style: StrokeStyle(lineWidth: 3.5, lineCap: .butt))
                 }
             }
-        }.accessibilityHidden(true)
+        }.padding(-2).accessibilityHidden(true)
     }
 }
 

@@ -4,6 +4,11 @@ import BooksCore
 /// Exercised by macOS CI with synthetic data and the real publication controller.
 @MainActor
 func runHistoryAtlasNavigationSmoke(source: HistoryAtlasSource) throws {
+    let ringPeriod = HistoryAtlasPeriod(source: source, navigation: CalendarNavigation(
+        timezoneID: "UTC", anchor: source.intervals.first?.start ?? Date(), scale: .year))
+    let ringEntries = Dictionary(ringPeriod.days.flatMap(\.books).map { ($0.bookID, $0) },
+                                 uniquingKeysWith: { first, _ in first }).values.sorted { $0.bookID < $1.bookID }
+    try checkHistoryRingRendering(entries: Array(ringEntries.prefix(3)))
     try checkCachedHistoryTitles()
     try checkMonthCivilDayIndex()
     try checkRecordedDateMenu()
