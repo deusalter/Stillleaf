@@ -85,7 +85,7 @@ BOOKSPRESENCE_BUILD_DIR=.build/integrated scripts/build-local.sh
 ```
 
 Electron host integration additionally requires `npm --prefix Reader/desktop ci`;
-see [its README](../Reader/desktop/README.md). Browser tests require Chrome and
+see [its README](../../Reader/desktop/README.md). Browser tests require Chrome and
 loopback access. Tests regenerate synthetic screenshot artifacts; keep those
 separate from source changes unless reviewing visuals intentionally.
 
