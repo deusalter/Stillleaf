@@ -20,7 +20,7 @@ struct CompletionReviewSheet: View {
             if let error = model.errorMessage { Text(error).font(.caption).foregroundStyle(ReadingPalette.warning) }
         }
         .padding(24).frame(width: 660)
-        .background(ReadingPalette.paper).foregroundStyle(ReadingPalette.ink)
+        .background(ReadingPalette.canvas).foregroundStyle(ReadingPalette.ink)
         .buttonStyle(ReadingButtonStyle())
         .onChange(of: model.pendingCompletion?.id) { id in if id != entry.id { dismiss() } }
         .onDisappear { model.acknowledgeCompletion(entry) }
@@ -63,7 +63,7 @@ struct FinishedBookPrompt: View {
                 Text(finishDetail).font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
                 Button("Reading dates · optional") { editingDates = true }.controlSize(.small)
                 Text("Already marked as read. You can skip dates and feedback.")
-                    .font(.caption).foregroundStyle(ReadingPalette.fadedInk)
+                    .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
                 Text("Congratulations. How did this one stay with you?")
                     .font(.callout).foregroundStyle(ReadingPalette.secondaryInk)
                 QuarterStarRating(rating: $rating)

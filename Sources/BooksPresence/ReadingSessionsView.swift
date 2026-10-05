@@ -123,7 +123,7 @@ struct ReadingSessionEditor: View {
                             }
                         }
                         Text("\(model.pages(forSessionID: interval.sessionID)) pages saved for this session. Changing its time does not add pages.")
-                            .font(.caption).foregroundStyle(ReadingPalette.fadedInk)
+                            .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
                         if end <= start || end > Date() {
                             Text("Choose a finish time after the start and no later than now.")
                                 .font(.caption).foregroundStyle(ReadingPalette.warning)
@@ -142,7 +142,7 @@ struct ReadingSessionEditor: View {
                             .disabled(splitAt <= interval.start || splitAt >= interval.end)
                     }.readingPanel()
                     HStack(spacing: 12) {
-                        Text("Deleting removes the whole session and its corrections.").font(.caption).foregroundStyle(ReadingPalette.fadedInk)
+                        Text("Deleting removes the whole session and its corrections.").font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
                         Spacer()
                         Button("Delete session", role: .destructive) { deletionConfirmation = true }
                     }.padding(.vertical, 8)
@@ -150,8 +150,8 @@ struct ReadingSessionEditor: View {
             }
         }
         .frame(width: 560, height: 600)
-        .background(ReadingPalette.paper).foregroundStyle(ReadingPalette.ink)
-        .tint(ReadingPalette.moss).buttonStyle(ReadingButtonStyle())
+        .background(ReadingPalette.canvas).foregroundStyle(ReadingPalette.ink)
+        .tint(ReadingPalette.accent).buttonStyle(ReadingButtonStyle())
         .alert("Delete this session?", isPresented: $deletionConfirmation) {
             Button("Delete session", role: .destructive) { finish(model.deleteSession(interval.sessionID)) }
             Button("Cancel", role: .cancel) { }

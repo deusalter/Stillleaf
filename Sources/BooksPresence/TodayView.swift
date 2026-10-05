@@ -171,7 +171,7 @@ struct ActivityStateLabel: View {
         }
         return Label(text, systemImage: symbol)
             .font(compact ? .caption : .callout)
-            .foregroundStyle(onTranslucentSurface ? ReadingPalette.ink : (snapshot.phase == .reading ? ReadingPalette.moss : ReadingPalette.fadedInk))
+            .foregroundStyle(onTranslucentSurface ? ReadingPalette.ink : (snapshot.phase == .reading ? ReadingPalette.accent : ReadingPalette.secondaryInk))
             .accessibilityLabel(snapshot.phase == .paused ? "Tracking paused: \(activityPauseSummary(snapshot.pauseReason))" : text)
     }
 }

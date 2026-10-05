@@ -16,7 +16,7 @@ struct AtlasDayView: View {
         VStack(alignment: .leading, spacing: 26) {
             if bookIDs.isEmpty {
                 AtlasPanel(title: "No reading recorded") {
-                    Text("Choose another day to explore your history.").font(.callout).foregroundStyle(AtlasStyle.muted(dark))
+                    Text("Choose another day to explore your history.").font(.callout).foregroundStyle(ReadingPalette.secondaryInk)
                 }
             } else {
                 AtlasPanel(title: "Session map", note: "Local time") {
@@ -45,7 +45,7 @@ struct AtlasDayView: View {
                             Button("Edit") { editSession(slice.interval) }.buttonStyle(AtlasButtonStyle())
                         }.padding(.vertical, 5)
                     }
-                }.font(.caption).foregroundStyle(AtlasStyle.muted(dark))
+                }.font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
             }
         }
         .onChange(of: presentation.key.revision) { _ in
@@ -92,7 +92,7 @@ private struct AtlasDayLanes: View {
                 GeometryReader { geo in
                     ForEach(Array(ticks.enumerated()), id: \.offset) { index, date in
                         Text(DateText.string(date, zone: navigation.timezoneID, pattern: "ha"))
-                            .font(.system(size: 10)).foregroundStyle(AtlasStyle.muted(dark))
+                            .font(.system(size: 10)).foregroundStyle(ReadingPalette.secondaryInk)
                             .position(x: min(geo.size.width - 18, max(18, tickPositions[index] * geo.size.width)), y: 10)
                             .opacity(geo.size.width < 420 && index % 2 == 1 ? 0 : 1)
                     }
@@ -106,16 +106,16 @@ private struct AtlasDayLanes: View {
                         VStack(alignment: .leading, spacing: 6) {
                             Text(booksByID[id]?.title ?? "Unknown book")
                                 .font(.callout.weight(.medium)).lineLimit(3)
-                            Text(ReadingFormat.duration(credited)).font(.caption).foregroundStyle(AtlasStyle.muted(dark))
+                            Text(ReadingFormat.duration(credited)).font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
                         }.frame(width: 130, alignment: .leading)
                         Canvas { context, size in
                             for fraction in tickPositions {
                                 var path = Path(); let position = fraction * size.width
                                 path.move(to: CGPoint(x: position, y: 0)); path.addLine(to: CGPoint(x: position, y: size.height))
-                                context.stroke(path, with: .color(AtlasStyle.rule(dark)), lineWidth: 0.6)
+                                context.stroke(path, with: .color(ReadingPalette.border), lineWidth: 0.6)
                             }
                             var baseline = Path(); baseline.move(to: CGPoint(x: 0, y: 35)); baseline.addLine(to: CGPoint(x: size.width, y: 35))
-                            context.stroke(baseline, with: .color(AtlasStyle.rule(dark)), lineWidth: 1)
+                            context.stroke(baseline, with: .color(ReadingPalette.border), lineWidth: 1)
                             for slice in row {
                                 let start = x(slice.start, in: plot, width: size.width)
                                 let width = min(size.width - start, max(2, x(slice.end, in: plot, width: size.width) - start))
@@ -150,19 +150,19 @@ private struct AtlasSessionCard: View {
         let pages = presentation.pages
         let listening = presentation.listening
         VStack(alignment: .leading, spacing: 15) {
-            Rectangle().fill(AtlasStyle.rule(dark)).frame(height: 1).accessibilityHidden(true)
+            Rectangle().fill(ReadingPalette.border).frame(height: 1).accessibilityHidden(true)
             Text("\(time(max(session.start, period.start))) – \(time(min(session.end, period.end)))")
-                .font(.caption).foregroundStyle(AtlasStyle.muted(dark))
+                .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
             AtlasBookLabel(booksByID: booksByID, id: session.bookID)
             HStack(spacing: 12) {
                 if pages > 0 { Text("\(pages) pages").font(.callout.weight(.medium)) }
                 Text("\(ReadingFormat.duration(credited)) \(listening ? "listening" : "recorded")").font(.caption)
             }
             if let position = presentation.position {
-                Text("Position \(position.description)").font(.caption).foregroundStyle(AtlasStyle.muted(dark))
+                Text("Position \(position.description)").font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
             }
             let manual = presentation.manualPages
-            if manual > 0 { Text("Includes \(manual) manually added pages").font(.caption).foregroundStyle(AtlasStyle.muted(dark)) }
+            if manual > 0 { Text("Includes \(manual) manually added pages").font(.caption).foregroundStyle(ReadingPalette.secondaryInk) }
             DisclosureGroup("Session details") {
                 VStack(alignment: .leading, spacing: 10) {
                     ForEach(parts) { slice in
@@ -170,13 +170,13 @@ private struct AtlasSessionCard: View {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text("\(time(slice.start)) – \(time(slice.end))")
                                 Text("\(ReadingFormat.duration(slice.seconds)) · \(slice.interval.disposition == .credited ? "Credited" : "Excluded")")
-                            }.font(.caption).foregroundStyle(AtlasStyle.muted(dark))
+                            }.font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
                             Spacer(minLength: 0)
                             Button("Edit") { editSession(slice.interval) }.buttonStyle(AtlasButtonStyle())
                         }
                     }
                 }.padding(.top, 12)
-            }.font(.caption).tint(AtlasStyle.accent(dark))
+            }.font(.caption).tint(ReadingPalette.accent)
         }.frame(maxWidth: .infinity, alignment: .topLeading)
     }
     private func time(_ date: Date) -> String { DateText.string(date, zone: timezoneID, pattern: "h:mm a z") }

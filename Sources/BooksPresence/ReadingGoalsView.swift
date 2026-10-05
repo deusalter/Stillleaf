@@ -87,7 +87,7 @@ struct AnnualReadingGoalView: View {
             VStack(spacing: 12) {
                 if model.annualBookGoal != nil {
                     GeometryReader { geometry in
-                        Capsule().fill(ReadingPalette.progressTrack)
+                        Capsule().fill(ReadingPalette.track)
                             .overlay(alignment: .leading) {
                                 Capsule().fill(ReadingPalette.accent).frame(width: geometry.size.width * progress)
                             }
@@ -108,8 +108,7 @@ struct AnnualReadingGoalView: View {
                 }
             }
         }
-        .padding(24)
-        .background(ReadingPalette.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .readingPanel()
         .help("Books with a confirmed finish date in this calendar year. Undated books are not counted.")
     }
 }

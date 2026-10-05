@@ -150,14 +150,4 @@ enum ReadingPalette {
             nsColor(appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light)
         })
     }
-
-    // Legacy names used across the dashboard; they alias the tokens above.
-    static var paper: Color { canvas }
-    static var sidebar: Color { canvas }
-    static var parchment: Color { elevated }
-    static var fadedInk: Color { secondaryInk }
-    static var moss: Color { accent }
-    static var accentEnd: Color { accent }
-    static var ochre: Color { warning }
-    static var progressTrack: Color { track }
 }

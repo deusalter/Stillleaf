@@ -52,7 +52,7 @@ struct PersonalReviewsView: View {
                     }
                 }
             }
-            .readingPage(maxWidth: 860)
+            .readingPage(maxWidth: ReadingMetrics.listWidth)
         }
         .buttonStyle(ReadingButtonStyle())
         .sheet(item: $selectedBook) { book in BookReviewEditor(model: model, bookID: book.id).readingMotionAccessibility() }
@@ -71,7 +71,7 @@ struct ReadingRecordsSheet: View {
                 if case .review(let interval) = destination { editing = interval }
             }, showsHeading: false)
         }.frame(width: 880, height: 680)
-        .background(ReadingPalette.paper).foregroundStyle(ReadingPalette.ink)
+        .background(ReadingPalette.canvas).foregroundStyle(ReadingPalette.ink)
         .sheet(item: $editing) { interval in ReadingSessionEditor(model: model, interval: interval).readingMotionAccessibility() }
     }
 }

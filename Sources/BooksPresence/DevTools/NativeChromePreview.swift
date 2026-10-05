@@ -153,7 +153,7 @@ private struct MenuPickerWidthPreference: PreferenceKey {
         }
         .padding(24)
         .frame(width: width, height: 180, alignment: .topLeading)
-        .background(ReadingPalette.paper)
+        .background(ReadingPalette.canvas)
         .foregroundStyle(ReadingPalette.ink)
     }
 }

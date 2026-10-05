@@ -15,7 +15,7 @@ struct AtlasYearView: View {
         let rows = presentation.yearRows
         return AtlasPanel(title: "Your year in books", note: "Recorded days and finishes") {
             if rows.isEmpty {
-                Text("No reading or finished books recorded in this year.").font(.callout).foregroundStyle(AtlasStyle.muted(dark))
+                Text("No reading or finished books recorded in this year.").font(.callout).foregroundStyle(ReadingPalette.secondaryInk)
                 monthLinks
             } else {
                 // A horizontal canvas preserves month labels and day hit targets in small
@@ -46,7 +46,7 @@ struct AtlasYearView: View {
     @ViewBuilder private var legend: some View {
         Label("Recorded day", systemImage: "rectangle.fill").font(.caption)
         Label("Finished", systemImage: "diamond.fill").font(.caption)
-        Text("Faint spans connect a book’s first and latest session.").font(.caption2).foregroundStyle(AtlasStyle.muted(dark))
+        Text("Faint spans connect a book’s first and latest session.").font(.caption2).foregroundStyle(ReadingPalette.secondaryInk)
     }
     private var monthLinks: some View {
         HStack(spacing: 0) {
@@ -57,7 +57,7 @@ struct AtlasYearView: View {
                 }.buttonStyle(.plain).disabled(month > Date())
                     .accessibilityLabel("Open \(DateText.string(month, zone: navigation.timezoneID, pattern: "MMMM yyyy"))")
             }
-        }.foregroundStyle(AtlasStyle.muted(dark))
+        }.foregroundStyle(ReadingPalette.secondaryInk)
     }
     private func yearRow(_ row: AtlasYearRow, period: DateInterval, calendar: Calendar, chartWidth: CGFloat) -> some View {
         let id = row.id, activity = row.activity
@@ -80,7 +80,7 @@ struct AtlasYearView: View {
                 for fraction in presentation.monthPositions {
                     let x = CGFloat(fraction) * size.width
                     var path = Path(); path.move(to: CGPoint(x: x, y: 0)); path.addLine(to: CGPoint(x: x, y: size.height))
-                    context.stroke(path, with: .color(AtlasStyle.rule(dark)), lineWidth: 0.6)
+                    context.stroke(path, with: .color(ReadingPalette.border), lineWidth: 0.6)
                 }
                 let color = AtlasStyle.book(id, dark: dark)
                 if let first = activity.first, let last = activity.last {
@@ -113,7 +113,7 @@ struct AtlasYearView: View {
                 } else if seconds > 0 {
                     Text(ReadingFormat.duration(seconds)).font(.callout.weight(.medium)); Text("recorded").font(.caption2)
                 } else { Text(finished.isEmpty ? "—" : "Finished").font(.caption) }
-            }.foregroundStyle(AtlasStyle.muted(dark)).frame(width: 74, alignment: .trailing)
+            }.foregroundStyle(ReadingPalette.secondaryInk).frame(width: 74, alignment: .trailing)
         }.frame(height: 76)
     }
     private func title(_ id: String) -> String { presentation.booksByID[id]?.title ?? "Unknown book" }

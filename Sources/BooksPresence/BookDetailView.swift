@@ -64,8 +64,8 @@ struct BookDetailView: View {
             }
         }
         .frame(width: 760, height: 720)
-        .background(ReadingPalette.paper)
-        .tint(ReadingPalette.moss)
+        .background(ReadingPalette.canvas)
+        .tint(ReadingPalette.accent)
         .foregroundStyle(ReadingPalette.ink)
         .buttonStyle(ReadingButtonStyle())
         .sheet(item: $completionEntry) { CompletionReviewSheet(model: model, entry: $0).readingMotionAccessibility() }
@@ -120,7 +120,7 @@ struct BookDetailView: View {
                     .fixedSize(horizontal: false, vertical: true)
                 Text(currentBook.author?.isEmpty == false ? currentBook.author! : "Author unavailable")
                     .font(.callout)
-                    .foregroundStyle(ReadingPalette.fadedInk)
+                    .foregroundStyle(ReadingPalette.secondaryInk)
                 if let finishedEntry {
                     HStack(spacing: 10) {
                         Label(finishedEntry.finishedAt.map { "Finished \($0.formatted(date: .abbreviated, time: .omitted))" } ?? "Marked finished", systemImage: "checkmark.seal.fill")
@@ -182,10 +182,10 @@ struct BookDetailView: View {
                 }
                 Spacer()
                 Text("\(sessionGroups.count) \(sessionGroups.count == 1 ? "session" : "sessions")")
-                    .font(.caption).foregroundStyle(ReadingPalette.fadedInk)
+                    .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
             }
             if sessionGroups.isEmpty {
-                Text("No sessions have been recorded for this book.").foregroundStyle(ReadingPalette.fadedInk)
+                Text("No sessions have been recorded for this book.").foregroundStyle(ReadingPalette.secondaryInk)
                     .padding(.vertical, 8)
             } else {
                 LazyVStack(spacing: 8) {
@@ -216,7 +216,7 @@ struct BookDetailView: View {
             Divider()
             BookDetailToggleRow(title: "Share with Discord", message: "Allow this title on your Discord card when sharing is on.", isOn: sharingBinding)
             Text("Changing either setting keeps existing history.")
-                .font(.caption).foregroundStyle(ReadingPalette.fadedInk)
+                .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
         }
         .readingPanel()
     }
@@ -226,11 +226,11 @@ struct BookDetailView: View {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Discord artwork").font(ReadingType.bookTitle(19)).foregroundStyle(ReadingPalette.ink)
-                    Text(artworkStatus).font(.caption).foregroundStyle(ReadingPalette.fadedInk)
+                    Text(artworkStatus).font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
                 }
                 Spacer()
                 Image(systemName: model.publicCoverURL(for: currentBook).isEmpty ? "photo.on.rectangle.angled" : "checkmark.seal.fill")
-                    .foregroundStyle(model.publicCoverURL(for: currentBook).isEmpty ? ReadingPalette.fadedInk : ReadingPalette.moss)
+                    .foregroundStyle(model.publicCoverURL(for: currentBook).isEmpty ? ReadingPalette.secondaryInk : ReadingPalette.accent)
             }
             if currentBook.source != "stillleaf-epub" {
             DisclosureGroup("Use a different public cover link") {
@@ -253,12 +253,12 @@ struct BookDetailView: View {
             }
             } else {
                 Text("Reading here uses local cover art only. Discord uses the app's generic artwork; your EPUB cover is never uploaded.")
-                    .font(.caption).foregroundStyle(ReadingPalette.fadedInk)
+                    .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
             }
             DisclosureGroup("Local cover override") {
                 VStack(alignment: .leading, spacing: 7) {
                     Text("This changes the cover saved on this Mac. It is never uploaded or sent to Discord.")
-                        .font(.caption).foregroundStyle(ReadingPalette.fadedInk)
+                        .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
                     Button("Choose local cover image") { model.chooseCover(for: currentBook) }
                         .buttonStyle(ReadingButtonStyle())
                 }
@@ -273,16 +273,16 @@ struct BookDetailView: View {
             VStack(alignment: .leading, spacing: 12) {
                 if let latestReliableProgress {
                     HStack(alignment: .top, spacing: 10) {
-                        Image(systemName: "checkmark.circle.fill").foregroundStyle(ReadingPalette.moss)
+                        Image(systemName: "checkmark.circle.fill").foregroundStyle(ReadingPalette.accent)
                         VStack(alignment: .leading, spacing: 3) {
                             Text("Latest reliable progress").font(.callout.weight(.medium))
                             ProgressDescription(observation: latestReliableProgress)
-                            Text(ReadingFormat.date(latestReliableProgress.observedAt)).font(.caption).foregroundStyle(ReadingPalette.fadedInk)
+                            Text(ReadingFormat.date(latestReliableProgress.observedAt)).font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
                         }
                     }
                 } else {
                     Text("No reliable saved progress is available for this book.")
-                        .font(.callout).foregroundStyle(ReadingPalette.fadedInk)
+                        .font(.callout).foregroundStyle(ReadingPalette.secondaryInk)
                 }
                 Divider()
                 HStack {
@@ -363,7 +363,7 @@ private struct BookDetailToggleRow: View {
         HStack(alignment: .center, spacing: 14) {
             VStack(alignment: .leading, spacing: 3) {
                 Text(title).font(.callout.weight(.medium)).foregroundStyle(ReadingPalette.ink)
-                Text(message).font(.caption).foregroundStyle(ReadingPalette.fadedInk)
+                Text(message).font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
             }
             Spacer(minLength: 12)
             Toggle(title, isOn: isOn).labelsHidden().toggleStyle(.switch)
@@ -399,16 +399,16 @@ private struct BookDetailSessionGroup: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(ReadingFormat.date(group.start)).font(.callout.weight(.semibold)).foregroundStyle(ReadingPalette.ink)
                     Text("Credited \(ReadingFormat.duration(group.creditedSeconds))")
-                        .font(.caption).monospacedDigit().foregroundStyle(ReadingPalette.fadedInk)
+                        .font(.caption).monospacedDigit().foregroundStyle(ReadingPalette.secondaryInk)
                 }
                 Spacer()
                 Text(audio.map { "\($0.fraction.formatted(.percent.precision(.fractionLength(0...1)))) · \($0.description)" } ?? (isAudiobook ? "Listening" : ReadingFormat.observedPages(pages)))
-                    .font(.caption.weight(.medium)).monospacedDigit().foregroundStyle(ReadingPalette.moss)
+                    .font(.caption.weight(.medium)).monospacedDigit().foregroundStyle(ReadingPalette.accent)
             }
             .padding(.vertical, 7)
         }
         .padding(.horizontal, 10)
-        .background(ReadingPalette.paper.opacity(0.62), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .background(ReadingPalette.canvas.opacity(0.62), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
     }
 }
 
@@ -422,11 +422,11 @@ private struct BookDetailSessionFragment: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(ReadingFormat.date(interval.start)).font(.callout.weight(.medium))
                 Text("\(interval.mode.rawValue.capitalized) · \(interval.disposition.rawValue)")
-                    .font(.caption).foregroundStyle(ReadingPalette.fadedInk)
+                    .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
             }
             Spacer()
             Text(ReadingFormat.duration(interval.duration))
-                .font(.caption).monospacedDigit().foregroundStyle(ReadingPalette.fadedInk)
+                .font(.caption).monospacedDigit().foregroundStyle(ReadingPalette.secondaryInk)
             Button("Edit", action: editSession).controlSize(.small)
             Button(role: .destructive, action: delete) { Image(systemName: "trash") }
                 .accessibilityLabel("Delete session")

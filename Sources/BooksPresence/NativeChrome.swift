@@ -17,11 +17,11 @@ private struct NativeSidebarSurface: ViewModifier {
     @Environment(\.nativePreviewOpaque) private var previewOpaque
     @ViewBuilder func body(content: Content) -> some View {
         if (previewOpaque ?? opaque) || contrast == .increased {
-            content.background(ReadingPalette.canvas, in: RoundedRectangle(cornerRadius: 20))
+            content.background(ReadingPalette.canvas, in: RoundedRectangle(cornerRadius: ReadingMetrics.Radius.window))
         } else {
             // Keep the system's single glass surface. A light theme tint
             // tempers wallpaper colour without adding a second blur layer.
-            content.background(ReadingPalette.canvas.opacity(0.22), in: RoundedRectangle(cornerRadius: 20))
+            content.background(ReadingPalette.canvas.opacity(0.22), in: RoundedRectangle(cornerRadius: ReadingMetrics.Radius.window))
         }
     }
 }
@@ -157,12 +157,12 @@ private struct NativePopoverSurface: ViewModifier {
 
     @ViewBuilder func body(content: Content) -> some View {
         if (previewOpaque ?? opaque) || contrast == .increased {
-            content.background(ReadingPalette.canvas, in: RoundedRectangle(cornerRadius: 20))
+            content.background(ReadingPalette.canvas, in: RoundedRectangle(cornerRadius: ReadingMetrics.Radius.window))
         } else {
             #if compiler(>=6.2)
             if #available(macOS 26.0, *) {
-                content.glassEffect(.clear, in: .rect(cornerRadius: 20))
-                    .background(ReadingPalette.canvas.opacity(0.68), in: RoundedRectangle(cornerRadius: 20))
+                content.glassEffect(.clear, in: .rect(cornerRadius: ReadingMetrics.Radius.window))
+                    .background(ReadingPalette.canvas.opacity(0.68), in: RoundedRectangle(cornerRadius: ReadingMetrics.Radius.window))
             } else {
                 fallback(content)
             }
@@ -174,7 +174,7 @@ private struct NativePopoverSurface: ViewModifier {
 
     private func fallback(_ content: Content) -> some View {
         content.background {
-            PopoverMaterial().clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            PopoverMaterial().clipShape(RoundedRectangle(cornerRadius: ReadingMetrics.Radius.window, style: .continuous))
         }
     }
 }

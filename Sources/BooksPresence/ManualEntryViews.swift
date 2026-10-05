@@ -17,7 +17,7 @@ struct ManualStartView: View {
                 TextField("Author (optional)", text: $author)
             }.readingPanel()
             Text("Saved as manual reading time. Pages are not estimated.")
-                .font(.caption).foregroundStyle(ReadingPalette.fadedInk)
+                .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
             if let saveError { Text(saveError).font(.caption).foregroundStyle(ReadingPalette.warning) }
             HStack {
                 Button("Cancel") { dismiss() }
@@ -33,8 +33,8 @@ struct ManualStartView: View {
             }
         }
         .padding(26).frame(width: 470)
-        .background(ReadingPalette.paper).foregroundStyle(ReadingPalette.ink)
-        .tint(ReadingPalette.moss).textFieldStyle(ReadingTextFieldStyle())
+        .background(ReadingPalette.canvas).foregroundStyle(ReadingPalette.ink)
+        .tint(ReadingPalette.accent).textFieldStyle(ReadingTextFieldStyle())
         .buttonStyle(ReadingButtonStyle())
     }
 }
@@ -64,7 +64,7 @@ struct ManualAdditionView: View {
                 ReadingDatePicker("Started", selection: $start, maximumDate: Date())
                 ReadingDatePicker("Finished", selection: $end, minimumDate: start, maximumDate: Date())
                 Text("Saved as manual time. This does not add pages or Apple Books activity.")
-                    .font(.caption).foregroundStyle(ReadingPalette.fadedInk)
+                    .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
             }.readingPanel()
             if end <= start || end > Date() {
                 Text("Choose a finish time after the start and no later than now.")
@@ -86,8 +86,8 @@ struct ManualAdditionView: View {
         }
         .sheet(isPresented: $loggingAudio) { AudiobookLogView(model: model) }
         .padding(26).frame(width: 500)
-        .background(ReadingPalette.paper).foregroundStyle(ReadingPalette.ink)
-        .tint(ReadingPalette.moss).textFieldStyle(ReadingTextFieldStyle())
+        .background(ReadingPalette.canvas).foregroundStyle(ReadingPalette.ink)
+        .tint(ReadingPalette.accent).textFieldStyle(ReadingTextFieldStyle())
         .buttonStyle(ReadingButtonStyle())
     }
 }

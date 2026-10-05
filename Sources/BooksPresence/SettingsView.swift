@@ -79,7 +79,7 @@ struct SettingsView: View {
                         .readingEntrance().id(category)
                         .padding(.bottom, 4)
                 }
-                .readingPage(maxWidth: 820)
+                .readingPage(maxWidth: ReadingMetrics.listWidth)
             }
             if currentCategoryDirty || applyFeedback != nil {
                 Hairline()
@@ -94,7 +94,7 @@ struct SettingsView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
-                .frame(maxWidth: 820).padding(.horizontal, 40).padding(.vertical, 14)
+                .frame(maxWidth: ReadingMetrics.listWidth).padding(.horizontal, ReadingMetrics.pageInset).padding(.vertical, 14)
                 .frame(maxWidth: .infinity)
                 .background(ReadingPalette.canvas, ignoresSafeAreaEdges: .vertical)
                 .id(theme.revision)
@@ -102,8 +102,8 @@ struct SettingsView: View {
         }
         // The dashboard owns drafts across destination and theme changes.
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(ReadingPalette.paper, ignoresSafeAreaEdges: .vertical).foregroundStyle(ReadingPalette.ink)
-        .tint(ReadingPalette.moss).buttonStyle(.bordered)
+        .background(ReadingPalette.canvas, ignoresSafeAreaEdges: .vertical).foregroundStyle(ReadingPalette.ink)
+        .tint(ReadingPalette.accent).buttonStyle(.bordered)
         .onAppear {
             loadDraftsIfNeeded()
             showDiscordConnection = model.discordNeedsSetup
@@ -456,7 +456,7 @@ struct SettingsView: View {
             if let applyFeedback {
                 Label(applyFeedback, systemImage: applyFailed ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
                     .font(.callout)
-                    .foregroundStyle(applyFailed ? ReadingPalette.ochre : ReadingPalette.moss)
+                    .foregroundStyle(applyFailed ? ReadingPalette.warning : ReadingPalette.accent)
             } else if !valid {
                 Text("Use 1–10,000 pages or yearly books, 1–1,440 goal minutes, and a valid time zone.")
                     .font(.caption)
@@ -586,7 +586,7 @@ struct RestoreConfirmationView: View {
         }
         .padding(24)
         .frame(width: 460)
-        .background(ReadingPalette.paper)
+        .background(ReadingPalette.canvas)
         .foregroundStyle(ReadingPalette.ink)
         .buttonStyle(ReadingButtonStyle())
     }

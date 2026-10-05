@@ -59,7 +59,7 @@ struct PopoverView: View {
         .padding(18).frame(width: 350)
         .foregroundStyle(ReadingPalette.ink)
         .nativePopoverSurface()
-        .tint(ReadingPalette.moss).buttonStyle(ReadingButtonStyle())
+        .tint(ReadingPalette.accent).buttonStyle(ReadingButtonStyle())
         .readingMotionAccessibility()
         .sheet(isPresented: $showingManualStart) { ManualStartView(model: model).readingMotionAccessibility() }
     }

@@ -57,7 +57,7 @@ struct DashboardView: View {
                 .id(section)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .background(ReadingPalette.paper, ignoresSafeAreaEdges: .vertical)
+            .background(ReadingPalette.canvas, ignoresSafeAreaEdges: .vertical)
             .foregroundStyle(ReadingPalette.ink)
             .buttonStyle(ReadingButtonStyle())
         }
@@ -73,7 +73,7 @@ struct DashboardView: View {
         .navigationSplitViewStyle(.balanced)
         .frame(minWidth: 920, minHeight: 660)
         .toggleStyle(.switch)
-        .tint(ReadingPalette.moss)
+        .tint(ReadingPalette.accent)
         .sheet(item: $sheet) { item in
             dashboardSheet(item).buttonStyle(ReadingButtonStyle()).readingMotionAccessibility()
         }
@@ -278,6 +278,6 @@ private struct ErrorBanner: View {
         .font(.callout)
         .foregroundStyle(ReadingPalette.ink)
         .padding(.horizontal, 20).padding(.vertical, 10)
-        .background(ReadingPalette.ochre.opacity(0.26))
+        .background(ReadingPalette.warning.opacity(0.26))
     }
 }

@@ -20,9 +20,9 @@ struct HealthView: View {
                 VStack(alignment: .leading, spacing: 18) {
                     HStack(spacing: 14) {
                         Image(systemName: "book.pages")
-                            .font(.system(size: 24, weight: .medium)).foregroundStyle(ReadingPalette.moss)
+                            .font(.system(size: 24, weight: .medium)).foregroundStyle(ReadingPalette.accent)
                             .frame(width: 52, height: 52)
-                            .background(ReadingPalette.moss.opacity(0.09), in: RoundedRectangle(cornerRadius: 16))
+                            .background(ReadingPalette.accent.opacity(0.09), in: RoundedRectangle(cornerRadius: 16))
                         VStack(alignment: .leading, spacing: 5) {
                             Text("Tracking status").font(ReadingType.bookTitle(22))
                             ActivityStateLabel(snapshot: model.snapshot)
@@ -49,14 +49,14 @@ struct HealthView: View {
                     }
                     DisclosureGroup("More details") {
                         Text(model.health.isEmpty ? "No additional tracking details yet." : model.health)
-                            .font(.caption).foregroundStyle(ReadingPalette.fadedInk).padding(.top, 6)
+                            .font(.caption).foregroundStyle(ReadingPalette.secondaryInk).padding(.top, 6)
                     }
                 }.readingPanel()
                 VStack(alignment: .leading, spacing: 16) {
                     HStack {
                         Text("Tracking history").font(ReadingType.bookTitle(20))
                         Spacer()
-                        Text("\(events.count) updates").font(.caption).foregroundStyle(ReadingPalette.fadedInk)
+                        Text("\(events.count) updates").font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
                     }
                     if events.isEmpty {
                         ReadingEmptyState(title: "No issues recorded", symbol: "checkmark.shield", message: "Tracking gaps and recoveries will appear here if they occur.")
@@ -64,8 +64,8 @@ struct HealthView: View {
                         LazyVStack(alignment: .leading, spacing: 16) {
                             ForEach(events.prefix(visibleOutages)) { event in
                                 VStack(alignment: .leading, spacing: 5) {
-                                    Text(ReadingFormat.date(event.date)).font(.caption.weight(.medium)).foregroundStyle(ReadingPalette.moss)
-                                    Text(event.detail).font(.callout).foregroundStyle(ReadingPalette.fadedInk)
+                                    Text(ReadingFormat.date(event.date)).font(.caption.weight(.medium)).foregroundStyle(ReadingPalette.accent)
+                                    Text(event.detail).font(.callout).foregroundStyle(ReadingPalette.secondaryInk)
                                         .fixedSize(horizontal: false, vertical: true)
                                 }.frame(maxWidth: .infinity, alignment: .leading)
                                 Hairline()
@@ -75,10 +75,10 @@ struct HealthView: View {
                             }
                         }
                     }
-                    Text("A quiet reading day is not a tracking outage.").font(.caption).foregroundStyle(ReadingPalette.fadedInk)
+                    Text("A quiet reading day is not a tracking outage.").font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
                 }
             }
-            .readingPage(maxWidth: 860)
+            .readingPage(maxWidth: ReadingMetrics.listWidth)
         }
         .buttonStyle(ReadingButtonStyle())
     }
@@ -94,7 +94,7 @@ struct TrackingHelpView: View {
             ReadingSheetHeader(title: "Troubleshooting", subtitle: nil, close: { dismiss() })
                 .padding(.horizontal, 30).padding(.top, 24)
             HStack {
-                Text("Reading time can be corrected without changing your personal book reviews.").font(.caption).foregroundStyle(ReadingPalette.fadedInk)
+                Text("Reading time can be corrected without changing your personal book reviews.").font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
                 Spacer()
                 Button("Reading records") { showRecords = true }.controlSize(.small)
             }.padding(.horizontal, 30).padding(.top, 18)
@@ -102,7 +102,7 @@ struct TrackingHelpView: View {
         }
         .sheet(isPresented: $showRecords) { ReadingRecordsSheet(model: model).readingMotionAccessibility() }
         .frame(width: 740, height: 650)
-        .background(ReadingPalette.paper).foregroundStyle(ReadingPalette.ink)
-        .buttonStyle(ReadingButtonStyle()).tint(ReadingPalette.moss)
+        .background(ReadingPalette.canvas).foregroundStyle(ReadingPalette.ink)
+        .buttonStyle(ReadingButtonStyle()).tint(ReadingPalette.accent)
     }
 }

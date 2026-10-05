@@ -27,9 +27,9 @@ struct BookCoverView: View {
                 Image(nsImage: image).resizable().scaledToFill()
             } else {
                 ZStack {
-                    ReadingPalette.parchment
+                    ReadingPalette.elevated
                     HStack(spacing: 0) {
-                        Rectangle().fill(ReadingPalette.moss.opacity(0.3)).frame(width: 6)
+                        Rectangle().fill(ReadingPalette.accent.opacity(0.3)).frame(width: 6)
                         Rectangle().fill(ReadingPalette.ink.opacity(0.08)).frame(width: 1)
                         Spacer()
                     }

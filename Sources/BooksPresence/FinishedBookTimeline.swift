@@ -106,7 +106,7 @@ struct ReadingTimelineView: View {
                 }
                 FinishedBookTimeline(model: model, search: search, showsHeading: false, present: present)
             }
-            .readingPage(maxWidth: 860)
+            .readingPage(maxWidth: ReadingMetrics.listWidth)
         }
         .buttonStyle(ReadingButtonStyle())
     }

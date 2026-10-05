@@ -27,11 +27,11 @@ struct DottedReadingArc: View, Animatable {
                     let y = center.y + sin(angle) * distance
                     let dot = Path(ellipseIn: CGRect(x: x - diameter / 2, y: y - diameter / 2,
                                                     width: diameter, height: diameter))
-                    context.fill(dot, with: .color(ReadingPalette.progressTrack.opacity(row == 0 ? 1 : 0.65)))
+                    context.fill(dot, with: .color(ReadingPalette.track.opacity(row == 0 ? 1 : 0.65)))
                     // A smooth leading edge follows the interpolated fraction.
                     let coverage = min(1, max(0, fraction * Double(count) - Double(index)))
                     if coverage > 0 {
-                        context.fill(dot, with: .color((position < 0.58 ? ReadingPalette.moss : ReadingPalette.accent)
+                        context.fill(dot, with: .color(ReadingPalette.accent
                             .opacity(coverage * (row == 0 ? 1 : 0.7))))
                     }
                 }
@@ -55,9 +55,9 @@ struct SegmentedReadingBar: View, Animatable {
             HStack(spacing: gap) {
                 ForEach(0..<segments, id: \.self) { index in
                     RoundedRectangle(cornerRadius: 2)
-                        .fill(ReadingPalette.progressTrack)
+                        .fill(ReadingPalette.track)
                         .overlay {
-                            RoundedRectangle(cornerRadius: 2).fill(ReadingPalette.moss)
+                            RoundedRectangle(cornerRadius: 2).fill(ReadingPalette.accent)
                                 .opacity(min(1, max(0, progress * Double(segments) - Double(index))))
                         }
                         .frame(width: width)
@@ -89,7 +89,7 @@ struct DailyReadingOverview: View {
                         .font(ReadingType.numeral(72))
                         .tracking(-1.5).monospacedDigit().minimumScaleFactor(0.55).lineLimit(1)
                     Text(daily.todayLabel)
-                        .font(.system(size: 13, weight: .medium)).foregroundStyle(ReadingPalette.fadedInk)
+                        .font(.system(size: 13, weight: .medium)).foregroundStyle(ReadingPalette.secondaryInk)
                 }
                 .frame(width: 176).offset(y: 2)
             }
@@ -105,22 +105,21 @@ struct DailyReadingOverview: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 HStack(alignment: .top, spacing: 24) {
-                    overviewStat(value: daily.unit == .pages ? ReadingFormat.duration(model.today.creditedSeconds) : model.todayPages.formatted(), title: daily.unit == .pages ? "Reading time" : "Pages read", symbol: daily.unit == .pages ? "clock" : "book", color: ReadingPalette.moss)
+                    overviewStat(value: daily.unit == .pages ? ReadingFormat.duration(model.today.creditedSeconds) : model.todayPages.formatted(), title: daily.unit == .pages ? "Reading time" : "Pages read", symbol: daily.unit == .pages ? "clock" : "book", color: ReadingPalette.accent)
                     overviewStat(value: "\(model.dailyGoalStreak.current) \(model.dailyGoalStreak.current == 1 ? "day" : "days")", title: "Goal streak", symbol: "flame", color: ReadingPalette.accent)
                 }
                 ReadingWeekStrip(model: model)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(28)
-        .background(ReadingPalette.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .readingPanel()
     }
 
     private var goalTitle: String { daily.goalTitle }
     private var goalDetail: String { daily.goalDetail }
     private func overviewStat(value: String, title: String, symbol: String, color: Color) -> some View {
         VStack(alignment: .leading, spacing: 7) {
-            Label(title, systemImage: symbol).font(.system(size: 11, weight: .medium)).foregroundStyle(ReadingPalette.fadedInk)
+            Label(title, systemImage: symbol).font(.system(size: 11, weight: .medium)).foregroundStyle(ReadingPalette.secondaryInk)
                 .labelStyle(.titleAndIcon)
             Text(value).font(ReadingType.numeral(28)).monospacedDigit()
                 .foregroundStyle(color).lineLimit(1).minimumScaleFactor(0.75)
@@ -142,7 +141,7 @@ private struct ReadingWeekStrip: View {
                 Text("This week").font(.system(size: 11, weight: .medium)).foregroundStyle(ReadingPalette.secondaryInk)
                 Spacer()
                 Text("Best: \(model.dailyGoalStreak.longest) \(model.dailyGoalStreak.longest == 1 ? "day" : "days")")
-                    .font(.system(size: 10)).foregroundStyle(ReadingPalette.fadedInk)
+                    .font(.system(size: 10)).foregroundStyle(ReadingPalette.secondaryInk)
             }
             HStack(alignment: .bottom, spacing: 8) {
                 ForEach(dates, id: \.self) { date in
@@ -151,16 +150,16 @@ private struct ReadingWeekStrip: View {
                     let fraction = daily.fraction
                     let today = key == model.today.day
                     VStack(spacing: 6) {
-                        RoundedRectangle(cornerRadius: 4).fill(ReadingPalette.progressTrack.opacity(0.65))
+                        RoundedRectangle(cornerRadius: 4).fill(ReadingPalette.track.opacity(0.65))
                             .frame(height: 24)
                             .overlay(alignment: .bottom) {
                                 RoundedRectangle(cornerRadius: 4)
-                                    .fill(ReadingPalette.moss.opacity(today ? 1 : 0.60))
+                                    .fill(ReadingPalette.accent.opacity(today ? 1 : 0.60))
                                     .frame(height: 24 * fraction)
                             }
                         Text(calendar.veryShortWeekdaySymbols[calendar.component(.weekday, from: date) - 1])
                             .font(.system(size: 10, weight: today ? .bold : .regular))
-                            .foregroundStyle(today ? ReadingPalette.moss : ReadingPalette.fadedInk)
+                            .foregroundStyle(today ? ReadingPalette.accent : ReadingPalette.secondaryInk)
                     }
                     .frame(maxWidth: .infinity)
                     .accessibilityElement(children: .ignore)
