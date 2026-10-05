@@ -48,6 +48,8 @@ private final class LibraryPreviewWindowDelegate: NSObject, NSWindowDelegate {
 @MainActor
 func renderUIPreviews(to destination: URL) throws {
     let arguments = CommandLine.arguments
+    // Previews draw the garden fully grown at a fixed moment so renders compare pixel for pixel.
+    if GardenClock.frozenTime == nil { GardenClock.frozenTime = 6 }
     let filter = arguments.firstIndex(of: "--preview-filter").flatMap { index in
         index + 1 < arguments.count ? Set(arguments[index + 1].split(separator: ",").map(String.init)) : nil
     }

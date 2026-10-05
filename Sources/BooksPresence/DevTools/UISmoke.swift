@@ -369,6 +369,20 @@ func runUISmoke() throws {
     guard gardenStore.effectiveGardenMode(reduceMotion: false) == (ProcessInfo.processInfo.isLowPowerModeEnabled ? .still : .animated) else {
         throw BooksAccessErrorForUI.failed("Low Power Mode handling is wrong")
     }
+    guard GardenClock(mode: .off).frameInterval(growing: true) == nil else { throw BooksAccessErrorForUI.failed("An Off garden scheduled frames") }
+    guard GardenClock(mode: .still).frameInterval(growing: false) == nil, GardenClock(mode: .still).frameInterval(growing: true) == nil else {
+        throw BooksAccessErrorForUI.failed("A still garden scheduled frames")
+    }
+    guard GardenClock(mode: .animated).frameInterval(growing: true) == 1.0 / 60 else { throw BooksAccessErrorForUI.failed("Growth is not paced at 60 fps") }
+    guard GardenClock(mode: .animated).frameInterval(growing: false) == 1.0 / 20 else { throw BooksAccessErrorForUI.failed("Breathing is not paced at 20 fps") }
+    let gardenModel = GardenModel()
+    gardenModel.configure(layout: GardenLayout(size: CGSize(width: 900, height: 620), clearingHeight: 114, seed: 3), mode: .still, now: 0)
+    guard !gardenModel.field.isGrowing, gardenModel.field.cells.count > 100,
+          gardenModel.field.cells.values.allSatisfy({ Double($0.y) * gardenModel.field.cellHeight >= 114 }) else {
+        throw BooksAccessErrorForUI.failed("A still garden did not grow fully below the clearing")
+    }
+    gardenModel.configure(layout: GardenLayout(size: CGSize(width: 900, height: 620), clearingHeight: 114, seed: 3), mode: .off, now: 0)
+    guard gardenModel.field.cells.isEmpty else { throw BooksAccessErrorForUI.failed("An Off garden kept cells") }
     print("ui-smoke: garden mode defaults to animated, persists, and stills for Reduce Motion and Low Power")
     store.select(theme: "stillleaf")
     print("ui-smoke: \(ReadingTheme.all.count) themes persisted, fell back, passed contrast and laid out popover, timeline and appearance")
