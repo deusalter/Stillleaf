@@ -1,7 +1,11 @@
 # Glass + ASCII vines redesign
 
 Status: design approved in mockups on 2026-10-04; this spec awaits review.
-Mockups: [`design/glass-vines/garden-and-reader-themes.html`](../../design/glass-vines/garden-and-reader-themes.html) (chosen direction, every theme, every reading mode) and [`design/glass-vines/directions.html`](../../design/glass-vines/directions.html) (the options considered). Open either in a browser.
+Mockups (open in a browser):
+
+- [`design/glass-vines/garden-and-reader-themes.html`](../../design/glass-vines/garden-and-reader-themes.html): the chosen direction in every theme and reading mode. Its vine goal ring is superseded by the dotted ring; see below.
+- [`design/glass-vines/goal-arc.html`](../../design/glass-vines/goal-arc.html): the goal-indicator options. The dotted ring was chosen.
+- [`design/glass-vines/directions.html`](../../design/glass-vines/directions.html): the options considered.
 
 ## Goal
 
@@ -76,9 +80,12 @@ One algorithm, implemented twice: Swift for the dashboard, menu panel and sheets
 
 - **Every dashboard screen** gets the Garden background: the pollen field plus vines rising from the bottom edge (about nine roots, plus one each from the top-right and left edges). Avoid regions cover page headers and any other text drawn straight on the canvas.
 - **Content containers become glass:** cards, `readingPanel()`, `AtlasPanel` and the sidebar. Charts and calendars keep their crisp rendering on glass panels.
-- **Today.** The daily-goal arc becomes a vine ring, a path follower along the existing 270° arc grown to the goal fraction with a bloom at the tip. The book progress bar becomes a straight vine with leaves on either side and a bloom at the current position, over a dotted track.
-- **Library.** Card progress lines use the same progress vine. The grid sits on the garden; cards are glass.
-- **Menu bar panel.** A vine curls in from the top-right corner behind the glass, and the goal progress is a vine.
+- **Progress readouts stay data, not foliage.** The daily-goal indicator keeps today’s dotted ring unchanged: two rows of dots along a 260° arc with a smooth leading edge (`ReadingProgress.swift`). Its precise geometry contrasts with the organic garden, and that contrast is the point. The dashboard’s other progress readouts match it so they read as one family:
+  - the book progress bar on Today and on Library cards becomes a row of dots with the same smooth leading edge
+  - the menu bar panel’s goal indicator uses the same dots
+- **Today.** Glass cards over the garden. The goal card keeps the dotted ring, and Last read uses the dotted progress row.
+- **Library.** The grid sits on the garden, cards are glass, and progress uses the dotted row.
+- **Menu bar panel.** A vine curls in from the top-right corner behind the glass. Goal progress uses the dotted ring style.
 - **Empty states.** A hand-drawn seedling (stem, leaves, bloom) is revealed in growth order, holds, then regrows.
 - **Finishing a book.** About 12 vines burst outward from the completion badge with alternating curl, flower and release spores.
 - **Onboarding.** The garden grows a little more with each step, so the final step shows it complete. This replaces the current 30 fps backdrop.
@@ -97,7 +104,7 @@ The garden lives in the window space outside the page. The page’s own inset (`
 
 - **Minimum margin:** 7 cells (about 56 pt). A narrower margin stays empty rather than holding a cramped vine.
 - **Spine vine.** The column gap is twice `pageGutter`: 88 pt at Normal, 48 pt at Narrow, 144 pt at Wide. The spine vine is confined to the gap minus one cell on each side. Facing pages render as one iframe on one paper background, so the spine draws on a thin overlay above the iframe, limited to the gap. The margin garden draws on a canvas behind the reading viewport.
-- **Footer progress.** The footer becomes glass and its progress indicator becomes the progress vine.
+- **Footer progress.** The footer becomes glass. Inside the reader, progress stays part of the margin garden (the spine vine and a footer vine), because there the vines *are* the progress cue. The dashboard’s dotted-progress rule does not apply.
 - **Adjustable margins.** The existing controls (Margins presets, Side margins, Page width) define where the garden can grow. Changing any of them re-runs the garden for the new geometry: vines in lost space fade out, new space fills in. The Vines setting (**Off / Margins**, default Margins) sits next to those sliders in the Appearance panel.
 
 ### Scrolling and input
@@ -120,7 +127,8 @@ New files under `Sources/BooksPresence/Vines/`:
 | `VinePalette.swift` | Derives the vine palette from `ThemeColors`. |
 | `VineCanvas.swift` | SwiftUI `Canvas` + `TimelineView` renderer. Glyphs are pre-resolved once per character and palette slot, then drawn with per-cell opacity. Frame pacing and pausing follow the engine rules. |
 | `GardenBackground.swift` | Pollen field + vines for a window. Collects avoid regions from a `.vineAvoid()` modifier (anchor preference). |
-| `VineRing.swift`, `VineProgressLine.swift`, `VineSeedling.swift`, `VineBurst.swift` | Path-follower components. |
+| `VineSeedling.swift`, `VineBurst.swift` | Path-follower components for empty states and the completion burst. |
+| `DottedProgress.swift` | The dotted progress row, sharing dot size, spacing and smooth leading edge with the existing ring. |
 | `GlassSurface.swift` | One modifier choosing glass, vibrancy or opaque surface as described above. Replaces the ad hoc glass in `ReadingButtonStyle` and `NativeChrome`. |
 
 `build-local.sh` gains the `Vines/` folder.
@@ -147,7 +155,7 @@ Reader: `Reader/desktop/reader/src/vines.js` ports the engine, and `garden.js` o
 
 Each phase is one PR, on top of the structure work in #16 and #17.
 
-1. Engine, palette, `GlassSurface`, Garden background on Today, the vine ring and progress vine, and the Garden setting.
+1. Engine, palette, `GlassSurface`, Garden background on Today, the dotted progress row, and the Garden setting.
 2. The other dashboard screens, menu bar panel and sheets.
 3. Reader margin garden: every mode, the spine vine, the scrolling rules and live response to margin changes.
 4. Onboarding, empty states and the completion burst.

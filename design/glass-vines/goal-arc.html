@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Stillleaf · goal arc options</title>
+<style>
+:root { --ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; --serif: ui-serif, "New York", "Iowan Old Style", Georgia, serif; --mono: ui-monospace, "SF Mono", Menlo, monospace; }
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--page); color: var(--ink); font-family: var(--ui); -webkit-font-smoothing: antialiased; transition: background .5s, color .5s; }
+.wrap { max-width: 1320px; margin: 0 auto; padding: 36px 32px 90px; }
+.top { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 22px; }
+.top h1 { font: 600 28px/1.1 var(--ui); letter-spacing: -0.4px; margin: 0 0 8px; }
+.top p { margin: 0; color: var(--ink2); font-size: 15px; max-width: 700px; line-height: 1.45; }
+.controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.seg { display: inline-flex; padding: 3px; border-radius: 999px; }
+.seg button, .btn { font: 500 13px var(--ui); color: var(--ink); background: transparent; border: 0; padding: 7px 14px; border-radius: 999px; cursor: pointer; transition: background .25s, color .25s; }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
+.btn { border: 1px solid var(--glass-edge); }
+.themes { display: inline-flex; gap: 6px; padding: 4px; border-radius: 999px; }
+.chip { display: inline-flex; align-items: center; gap: 7px; font: 500 12.5px var(--ui); color: var(--ink); background: transparent; border: 0; padding: 6px 11px 6px 7px; border-radius: 999px; cursor: pointer; }
+.chip i { width: 14px; height: 14px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(0,0,0,.12); }
+.chip[aria-pressed="true"] { background: color-mix(in srgb, var(--accent) 18%, transparent); font-weight: 650; }
+.glass { position: relative; background: var(--glass-fill); -webkit-backdrop-filter: blur(13px) saturate(185%); backdrop-filter: blur(13px) saturate(185%); border: 1px solid var(--glass-edge); box-shadow: inset 0 1px 0 var(--glass-hi), 0 12px 32px var(--glass-shadow); transition: background .5s, border-color .5s, box-shadow .5s; }
+.win { position: relative; border-radius: 14px; overflow: hidden; background: var(--canvas); box-shadow: var(--win-shadow); padding: 34px; transition: background .5s; }
+canvas.ascii { position: absolute; inset: 0; width: 100%; height: 100%; display: block; pointer-events: none; }
+.grid { position: relative; z-index: 2; display: grid; grid-template-columns: 1fr 1fr; gap: 26px; }
+.card { border-radius: 16px; padding: 22px 24px 18px; display: flex; flex-direction: column; gap: 6px; }
+.card .row { display: flex; gap: 22px; align-items: center; }
+.arc { position: relative; width: 236px; height: 200px; flex-shrink: 0; }
+.arc canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.arc .center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; padding-top: 12px; pointer-events: none; }
+.arc .big { font: 300 56px/1 var(--ui); font-variant-numeric: tabular-nums; letter-spacing: -2px; }
+.arc .small { font-size: 12.5px; color: var(--ink2); margin-top: 4px; }
+.info h4 { font: 500 22px/1.2 var(--serif); margin: 0 0 12px; }
+.info .stats { display: flex; gap: 28px; }
+.info .v { font: 400 24px/1 var(--ui); font-variant-numeric: tabular-nums; }
+.info .l { font-size: 12px; color: var(--ink2); margin-top: 4px; }
+.foot { display: flex; justify-content: space-between; align-items: flex-end; gap: 14px; margin-top: 6px; padding-top: 12px; border-top: 1px solid var(--rule); }
+.foot h3 { margin: 0 0 3px; font: 600 15px var(--ui); }
+.foot h3 span { font: 600 11px var(--mono); color: var(--accent); margin-right: 6px; }
+.foot p { margin: 0; color: var(--ink2); font-size: 13px; line-height: 1.45; }
+.pick { flex-shrink: 0; font: 600 12.5px var(--ui); padding: 8px 14px; border-radius: 999px; cursor: pointer; color: var(--ink); background: transparent; border: 1px solid var(--rule); transition: all .25s; }
+.pick:hover { border-color: var(--accent); }
+.pick.selected { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.note { margin-top: 22px; padding: 16px 20px; border-radius: 16px; color: var(--ink2); font-size: 14px; line-height: 1.55; }
+.note b { color: var(--ink); }
+</style>
+</head>
+<body data-theme="dark">
+<div class="wrap">
+  <div class="top">
+    <div>
+      <h1>Daily goal arc: contrasted against the garden</h1>
+      <p>The arc is the one piece of real information on Today, so it shouldn't look like another plant. Four ways to make it stand out from the vines, on the same Garden background.</p>
+    </div>
+    <div class="controls">
+      <div class="themes glass" role="group" aria-label="Theme" id="themes"></div>
+      <div class="seg glass" role="group" aria-label="Appearance"><button data-set-theme="light">Light</button><button data-set-theme="dark">Dark</button></div>
+      <button class="btn glass" id="replay">↻ Replay</button>
+    </div>
+  </div>
+
+  <div class="win" id="win">
+    <div class="grid">
+      <section class="card glass" data-arc="solid">
+        <div class="row"><div class="arc"><canvas></canvas><div class="center"><div class="big">19</div><div class="small">of 30 pages</div></div></div>
+          <div class="info"><h4>11 pages to your daily goal.</h4><div class="stats"><div><div class="v">43m</div><div class="l">Reading time</div></div><div><div class="v">6 days</div><div class="l">Goal streak</div></div></div></div></div>
+        <div class="foot"><div><h3><span>A</span>Solid two-tone</h3><p>A thick, smooth arc with rounded ends. It shades from the accent to a lighter tone and has a glowing knob at the current point. This brings back the two-tone gradient the old ring lost.</p></div><button class="pick" data-choice="arc-a-solid">Choose A</button></div>
+      </section>
+      <section class="card glass" data-arc="dots">
+        <div class="row"><div class="arc"><canvas></canvas><div class="center"><div class="big">19</div><div class="small">of 30 pages</div></div></div>
+          <div class="info"><h4>11 pages to your daily goal.</h4><div class="stats"><div><div class="v">43m</div><div class="l">Reading time</div></div><div><div class="v">6 days</div><div class="l">Goal streak</div></div></div></div></div>
+        <div class="foot"><div><h3><span>B</span>Today’s dotted ring</h3><p>The current design, unchanged: two rows of dots with a smooth leading edge. It contrasts through crisp geometry. Dots read as data, not foliage.</p></div><button class="pick" data-choice="arc-b-dots">Choose B</button></div>
+      </section>
+      <section class="card glass" data-arc="blocks">
+        <div class="row"><div class="arc"><canvas></canvas><div class="center"><div class="big">19</div><div class="small">of 30 pages</div></div></div>
+          <div class="info"><h4>11 pages to your daily goal.</h4><div class="stats"><div><div class="v">43m</div><div class="l">Reading time</div></div><div><div class="v">6 days</div><div class="l">Goal streak</div></div></div></div></div>
+        <div class="foot"><div><h3><span>C</span>ASCII gauge, warm</h3><p>Still ASCII, but a gauge rather than a plant: filled <code>█</code> blocks over a <code>░</code> track, in the theme’s warm colour. It contrasts with the vines in both hue and form.</p></div><button class="pick" data-choice="arc-c-blocks">Choose C</button></div>
+      </section>
+      <section class="card glass" data-arc="ink">
+        <div class="row"><div class="arc"><canvas></canvas><div class="center"><div class="big">19</div><div class="small">of 30 pages</div></div></div>
+          <div class="info"><h4>11 pages to your daily goal.</h4><div class="stats"><div><div class="v">43m</div><div class="l">Reading time</div></div><div><div class="v">6 days</div><div class="l">Goal streak</div></div></div></div></div>
+        <div class="foot"><div><h3><span>D</span>Ink dial</h3><p>A thin arc in the text colour with watch-dial ticks every 10%. No hue at all, so it has the highest contrast against a colourful garden. Quiet and editorial.</p></div><button class="pick" data-choice="arc-d-ink">Choose D</button></div>
+      </section>
+    </div>
+  </div>
+  <div class="note glass">Whichever you pick, the <b>book progress bar</b> on Today and in the Library would follow the same style so the two read as a pair, and the menu bar panel’s goal indicator too. The vines stay in the background, the empty states and the celebrations.</div>
+</div>
+<script>
+(() => {
+"use strict";
+const TAU = Math.PI * 2;
+const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const body = document.body;
+
+/* ---------------- palettes ---------------- */
+const PAL = {
+  light: {
+    stem:  ["#135E48", "#1A6B51", "#285F3A", "#0F5A4A"],
+    leaf:  ["#1E8A5A", "#2C9450", "#4C9426", "#167A6C", "#2A9C6A"],
+    bloom: ["#D48E14", "#D9506A", "#9D55CC", "#E0A21F"],
+    head:  "#0A4A38", field: "#176650", fieldMax: 0.24, track: "rgba(24,61,51,0.22)", spore: "#2C9450",
+    base: 0.96
+  },
+  dark: {
+    stem:  ["#2E8F6B", "#3A9C5E", "#2A8577", "#3F8F55"],
+    leaf:  ["#6FD4AE", "#9CCB7A", "#B5E37A", "#5CC8C0", "#82E0B4"],
+    bloom: ["#F5C65E", "#FF8FA3", "#D7A6FF", "#FFD27A"],
+    head:  "#D9FFF0", field: "#6FD4AE", fieldMax: 0.19, track: "rgba(200,240,220,0.16)", spore: "#9CCB7A",
+    base: 0.85
+  }
+};
+let theme = "dark";
+const pal = () => PAL[theme];
+
+/* ---------------- helpers ---------------- */
+function rng(seed) { let s = (seed >>> 0) || 7; return () => { s ^= s << 13; s ^= s >>> 17; s ^= s << 5; return (s >>> 0) / 4294967296; }; }
+const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+const angDiff = (a, b) => { let d = (a - b) % TAU; if (d > Math.PI) d -= TAU; if (d < -Math.PI) d += TAU; return d; };
+function hash2(x, y) { let h = (x * 374761393 + y * 668265263) | 0; h = (h ^ (h >>> 13)) * 1274126177; return ((h ^ (h >>> 16)) >>> 0) / 4294967296; }
+function vnoise(x, y) {
+  const xi = Math.floor(x), yi = Math.floor(y), xf = x - xi, yf = y - yi;
+  const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf);
+  const a = hash2(xi, yi), b = hash2(xi + 1, yi), c = hash2(xi, yi + 1), d = hash2(xi + 1, yi + 1);
+  return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
+}
+function stemChar(dx, dy) {
+  // dx, dy in pixels; screen y grows downward.
+  let deg = Math.atan2(dy, dx) * 180 / Math.PI; if (deg < 0) deg += 180;
+  if (deg < 22.5 || deg >= 157.5) return "─";
+  if (deg < 67.5) return "╲";
+  if (deg < 112.5) return "│";
+  return "╱";
+}
+const LEAVES = [["(", ")"], ["{", "}"], ["6", "9"], ["@", "@"], ["o", "o"], ["(", ")"]];
+const FLUTTER = { "(": "{", ")": "}", "{": "(", "}": ")", "6": "(", "9": ")", "@": "o", "o": "@" };
+const BLOOMS = ["✿", "❀", "✽", "*", "❁", "✻"];
+const SPORES = ["·", "∙", "°", "˚"];
+
+/* ---------------- scene ---------------- */
+class Scene {
+  constructor(canvas, opts) {
+    this.canvas = canvas; this.ctx = canvas.getContext("2d");
+    this.o = Object.assign({ font: 13, lead: 1.22, speed: 13, maxCells: 2400, field: false, breathe: true, seed: 1 }, opts);
+    this.visible = false; this.started = false; this.budget = Infinity;
+    this.resize();
+  }
+  resize() {
+    const r = this.canvas.getBoundingClientRect(), dpr = Math.min(2, devicePixelRatio || 1);
+    this.w = Math.max(1, r.width); this.h = Math.max(1, r.height);
+    this.canvas.width = Math.round(this.w * dpr); this.canvas.height = Math.round(this.h * dpr);
+    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    this.fontStr = `${this.o.font}px ui-monospace, "SF Mono", Menlo, monospace`;
+    this.ctx.font = this.fontStr;
+    this.cw = Math.ceil(this.ctx.measureText("M").width * 100) / 100;
+    this.ch = Math.round(this.o.font * this.o.lead);
+    this.cols = Math.ceil(this.w / this.cw); this.rows = Math.ceil(this.h / this.ch);
+  }
+  reset(now) {
+    this.cells = new Map(); this.order = []; this.tips = []; this.spores = [];
+    this.rand = rng(this.o.seed * 9973 + 17); this.t0 = now; this.last = now;
+    this.fieldGlyphs = null;
+    if (this.o.setup) this.o.setup(this, now);
+  }
+  start(now) { if (!this.started) { this.started = true; this.reset(now); if (reduce) this.fastForward(now); } }
+  fastForward(now) {
+    for (let i = 0; i < 4000 && this.tips.length; i++) this.step(1000 / this.o.speed, now);
+    for (const c of this.cells.values()) c.born = now - 5000;
+  }
+  inBounds(x, y) { return x >= 0 && y >= 0 && x < this.cols && y < this.rows; }
+  allowed(x, y) { return this.inBounds(x, y) && (!this.o.mask || this.o.mask(this, x, y)); }
+  put(x, y, ch, kind, palKey, ci, now, extra) {
+    if (!this.allowed(x, y)) return false;
+    const k = y * this.cols + x, prev = this.cells.get(k);
+    const rank = { stem: 1, leaf: 2, bloom: 3 }[kind];
+    if (prev && !prev.dying && prev.rank >= rank) return false;
+    if (this.cells.size >= this.o.maxCells) return false;
+    const cell = Object.assign({ x, y, ch, kind, rank, pal: palKey, ci, born: now, phase: this.rand() * TAU, dying: 0, alt: FLUTTER[ch] }, extra);
+    this.cells.set(k, cell); this.order.push(k);
+    return true;
+  }
+  tip(t) {
+    const pxX = (t.x + 0.5) * this.cw, pxY = (t.y + 0.5) * this.ch;
+    this.tips.push(Object.assign({ px: pxX, py: pxY, a: -Math.PI / 2, da: 0, life: 40, gen: 0, hue: 0, acc: 0, bias: null, bs: 0.06, lx: t.x, ly: t.y, i: 0, ph: this.rand() * TAU, speedMul: 1 }, t));
+  }
+  step(dt, now) {
+    const grow = this.cells.size < this.budget;
+    for (let i = this.tips.length - 1; i >= 0; i--) {
+      const t = this.tips[i];
+      if (!grow) continue;
+      t.acc += dt * this.o.speed * t.speedMul / 1000;
+      while (t.acc >= 1 && t.life > 0) { t.acc -= 1; t.path ? this.followPath(t, now) : this.wander(t, now); }
+      if (t.life <= 0) { this.finish(t, now); this.tips.splice(i, 1); }
+    }
+    // Reclaim cells over budget, newest first, so scrubbing backwards un-grows the garden.
+    if (this.cells.size > this.budget) {
+      let extra = this.cells.size - this.budget;
+      for (let j = this.order.length - 1; j >= 0 && extra > 0; j--) {
+        const c = this.cells.get(this.order[j]); if (c && !c.dying) { c.dying = now; extra--; }
+      }
+    }
+  }
+  wander(t, now) {
+    const r = this.rand;
+    t.da = t.da * 0.82 + (r() - 0.5) * 0.42;
+    t.a += t.da;
+    if (t.bias !== null) t.a += angDiff(t.bias, t.a) * t.bs;
+    if (t.curl) t.a += t.curl;
+    let moved = false;
+    for (let tries = 0; tries < 3 && !moved; tries++) {
+      // Step exactly one cell along the dominant axis so stems never leave gaps.
+      const step = 0.999 / Math.max(Math.abs(Math.cos(t.a)) / this.cw, Math.abs(Math.sin(t.a)) / this.ch);
+      const nx = t.px + Math.cos(t.a) * step, ny = t.py + Math.sin(t.a) * step;
+      const cx = Math.floor(nx / this.cw), cy = Math.floor(ny / this.ch);
+      if (!this.allowed(cx, cy)) { t.a += (r() < 0.5 ? -1 : 1) * (0.7 + r() * 0.6); continue; }
+      const dx = nx - t.px, dy = ny - t.py;
+      t.px = nx; t.py = ny; moved = true;
+      if (cx === t.lx && cy === t.ly) return;
+      const turn = Math.abs(t.da) > 0.32;
+      let ch = stemChar(dx, dy);
+      if (t.gen >= 2 && turn) ch = t.da > 0 ? ")" : "(";
+      else if (t.gen >= 2 && ch === "─") ch = "~";
+      this.put(cx, cy, ch, "stem", "stem", (t.gen + t.hue) % 4, now);
+      this.sprout(t, cx, cy, dx, dy, now);
+      t.lx = cx; t.ly = cy;
+    }
+    if (!moved) t.life = 0;
+    t.life--;
+  }
+  followPath(t, now) {
+    const p = t.path;
+    if (t.i >= p.length - 1) { t.life = 0; return; }
+    let placed = false;
+    while (!placed && t.i < p.length - 1) {
+      t.i++;
+      const a = p[t.i - 1], b = p[t.i];
+      const tx = b.x - a.x, ty = b.y - a.y, len = Math.hypot(tx, ty) || 1;
+      const nx = -ty / len, ny = tx / len;
+      const off = (t.amp || 0) * Math.sin(t.i * (t.freq || 0.33) + t.ph);
+      const fx = b.x + nx * off, fy = b.y + ny * off * 0.6;
+      const cx = Math.round(fx), cy = Math.round(fy);
+      t.px = (fx + 0.5) * this.cw; t.py = (fy + 0.5) * this.ch;
+      if (cx === t.lx && cy === t.ly) continue;
+      const dx = (cx - t.lx) * this.cw, dy = (cy - t.ly) * this.ch;
+      this.put(cx, cy, stemChar(dx, dy), "stem", "stem", (t.hue || 0) % 4, now);
+      if (t.leafy !== false) this.sprout(t, cx, cy, dx, dy, now, t.outward);
+      t.lx = cx; t.ly = cy; placed = true;
+    }
+    if (t.i >= p.length - 1) t.life = 0;
+  }
+  sprout(t, cx, cy, dx, dy, now, outward) {
+    const r = this.rand;
+    const leafP = (t.leafP ?? 0.24) * (t.gen > 1 ? 0.7 : 1);
+    if (r() < leafP) {
+      const vertical = Math.abs(dy) > Math.abs(dx) * 0.6;
+      const side = r() < 0.5 ? -1 : 1;
+      const lx = vertical ? cx + side : cx, ly = vertical ? cy : cy + side;
+      const pair = LEAVES[Math.floor(r() * LEAVES.length)];
+      const ch = vertical ? pair[side < 0 ? 0 : 1] : pair[Math.floor(r() * 2)];
+      this.put(lx, ly, ch, "leaf", "leaf", Math.floor(r() * 5), now);
+    }
+    const branchP = t.branchP ?? 0.06;
+    if (t.gen < (t.maxGen ?? 3) && r() < branchP && this.tips.length < (this.o.maxTips || 60)) {
+      let a = Math.atan2(dy, dx) + (r() < 0.5 ? -1 : 1) * (0.55 + r() * 0.65);
+      if (outward !== undefined) a = outward + (r() - 0.5) * 0.9;
+      this.tip({ x: cx, y: cy, a, life: Math.floor((t.branchLife || 14) * (0.4 + r() * 0.8)), gen: t.gen + 1, bias: t.path ? null : t.bias, bs: (t.bs || 0.05) * 0.6, hue: (t.hue || 0) + 1, branchP: (t.branchP ?? 0.06) * 0.7, leafP: t.leafP, maxGen: t.maxGen, curl: (r() - 0.5) * 0.08 });
+    }
+  }
+  finish(t, now) {
+    const r = this.rand;
+    if (t.noBloom) return;
+    if (r() < (t.bloomP ?? 0.75)) {
+      const ox = Math.round(Math.cos(t.a)), oy = Math.round(Math.sin(t.a));
+      if (this.put(t.lx + ox, t.ly + oy, BLOOMS[Math.floor(r() * BLOOMS.length)], "bloom", "bloom", Math.floor(r() * 4), now)) {
+        for (let s = 0; s < 2; s++) this.spore((t.lx + ox + 0.5) * this.cw, (t.ly + oy) * this.ch, now);
+      }
+    }
+  }
+  spore(x, y, now) {
+    if (this.spores.length > (this.o.maxSpores || 26)) return;
+    const r = this.rand;
+    this.spores.push({ x, y, vx: (r() - 0.5) * 6, vy: -(6 + r() * 10), born: now, life: 5000 + r() * 5000, ch: SPORES[Math.floor(r() * SPORES.length)], ph: r() * TAU });
+  }
+  render(now) {
+    const ctx = this.ctx, P = pal(), o = this.o;
+    ctx.clearRect(0, 0, this.w, this.h);
+    ctx.font = this.fontStr; ctx.textBaseline = "top"; ctx.textAlign = "left";
+    if (o.field) this.renderField(now, P);
+    if (o.under) o.under(this, now, P);
+    const t = now / 1000;
+    for (const [k, c] of this.cells) {
+      let a = smooth(0, 700, now - c.born) * P.base * (o.alpha ?? 1);
+      if (c.dying) { a *= 1 - smooth(c.dying, c.dying + 900, now); if (now - c.dying > 900) { this.cells.delete(k); continue; } }
+      if (a <= 0.01) continue;
+      if (o.breathe && !reduce) a *= 0.84 + 0.16 * Math.sin(t * 0.9 + c.phase * 0.35 + c.x * 0.11 - c.y * 0.17);
+      if (c.kind === "stem") a *= 0.9;
+      const color = P[c.pal][c.ci % P[c.pal].length];
+      const x = c.x * this.cw, y = c.y * this.ch;
+      let f = 0;
+      if (c.kind === "leaf" && c.alt && !reduce) f = smooth(0.88, 1, Math.sin(t * 1.25 - c.x * 0.085 + c.y * 0.05 + c.phase * 0.08));
+      ctx.fillStyle = color;
+      if (f > 0) { ctx.globalAlpha = a * (1 - f); ctx.fillText(c.ch, x, y); ctx.globalAlpha = a * f; ctx.fillText(c.alt, x, y); }
+      else { ctx.globalAlpha = a; ctx.fillText(c.ch, x, y); }
+      // A brand-new bloom flashes a little brighter as it opens.
+      if (c.kind === "bloom") { const pop = 1 - smooth(0, 900, now - c.born); if (pop > 0) { ctx.globalAlpha = pop * 0.6; ctx.fillText(c.ch, x, y - pop * 2); } }
+    }
+    // Growing tips glide between cells as soft bright heads.
+    if (this.cells.size < this.budget) {
+      ctx.fillStyle = P.head;
+      for (const tp of this.tips) {
+        ctx.globalAlpha = 0.85 * smooth(0, 300, now - this.t0);
+        ctx.fillText("•", tp.px - this.cw * 0.5, tp.py - this.ch * 0.55);
+      }
+    }
+    // Spores drift up and sway.
+    ctx.fillStyle = P.spore;
+    for (let i = this.spores.length - 1; i >= 0; i--) {
+      const s = this.spores[i], age = now - s.born;
+      if (age > s.life) { this.spores.splice(i, 1); continue; }
+      const k = age / 1000;
+      const x = s.x + s.vx * k + Math.sin(k * 1.3 + s.ph) * 6, y = s.y + s.vy * k;
+      ctx.globalAlpha = 0.7 * smooth(0, 800, age) * (1 - smooth(s.life - 1600, s.life, age));
+      ctx.fillText(s.ch, x, y);
+    }
+    if (o.over) o.over(this, now, P);
+    ctx.globalAlpha = 1;
+  }
+  renderField(now, P) {
+    const ctx = this.ctx, sx = 2, sy = 1;
+    if (!this.fieldGlyphs) {
+      this.fieldGlyphs = [];
+      const set = [".", "·", ":", "˙", "'", "`", ",", "·"];
+      for (let y = 0; y < this.rows; y += sy) for (let x = 0; x < this.cols; x += sx) this.fieldGlyphs.push([x, y, set[Math.floor(hash2(x * 7, y * 13) * set.length)]]);
+    }
+    const t = reduce ? 0 : now / 1000;
+    ctx.fillStyle = P.field;
+    for (const [x, y, g] of this.fieldGlyphs) {
+      const n = vnoise(x * 0.055 + t * 0.09, y * 0.11 - t * 0.05) * 0.65 + vnoise(x * 0.13 - t * 0.04, y * 0.23 + t * 0.07) * 0.35;
+      const a = P.fieldMax * smooth(0.42, 0.85, n) * smooth(0, 1400, now - this.t0);
+      if (a < 0.012) continue;
+      ctx.globalAlpha = a;
+      ctx.fillText(g, x * this.cw, y * this.ch);
+    }
+  }
+}
+
+/* ---------------- paths ---------------- */
+function rectPath(s, rect, off, startCorner = 0, frac = 1, cw = true) {
+  // rect in px; returns points (cells) every ~0.5 cell around a rounded rectangle.
+  const x0 = rect.left / s.cw - off, y0 = rect.top / s.ch - off * 0.6, x1 = rect.right / s.cw + off - 1, y1 = rect.bottom / s.ch + off * 0.6 - 1;
+  const rr = 1.6, pts = [];
+  const corners = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
+  const seg = (ax, ay, bx, by) => { const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, (by - ay) * 1.6) * 2)); for (let i = 0; i < n; i++) pts.push({ x: ax + (bx - ax) * i / n, y: ay + (by - ay) * i / n }); };
+  const loop = [];
+  for (let i = 0; i < 4; i++) { const a = corners[i], b = corners[(i + 1) % 4]; loop.push([a, b]); }
+  const ordered = cw ? loop : loop.slice().reverse().map(([a, b]) => [b, a]);
+  for (let i = 0; i < 4; i++) { const [a, b] = ordered[(i + startCorner) % 4]; seg(a[0], a[1], b[0], b[1]); }
+  void rr;
+  return pts.slice(0, Math.floor(pts.length * frac));
+}
+function arcPath(cx, cy, rx, ry, start, sweep, step = 0.45) {
+  const pts = [], n = Math.ceil(Math.abs(sweep) * Math.max(rx, ry * 1.6) / step);
+  for (let i = 0; i <= n; i++) { const a = start + sweep * i / n; pts.push({ x: cx + Math.cos(a) * rx, y: cy + Math.sin(a) * ry }); }
+  return pts;
+}
+function linePath(x0, y0, x1, y1, step = 0.5) {
+  const pts = [], n = Math.ceil(Math.hypot(x1 - x0, y1 - y0) / step);
+  for (let i = 0; i <= n; i++) pts.push({ x: x0 + (x1 - x0) * i / n, y: y0 + (y1 - y0) * i / n });
+  return pts;
+}
+function relRect(el, root) {
+  const a = el.getBoundingClientRect(), b = root.getBoundingClientRect();
+  return { left: a.left - b.left, top: a.top - b.top, right: a.right - b.left, bottom: a.bottom - b.top, width: a.width, height: a.height };
+}
+function cellsOf(s, r) { return { x0: Math.floor(r.left / s.cw), y0: Math.floor(r.top / s.ch), x1: Math.ceil(r.right / s.cw), y1: Math.ceil(r.bottom / s.ch) }; }
+const inside = (c, x, y, pad = 0) => x >= c.x0 - pad && x < c.x1 + pad && y >= c.y0 - pad && y < c.y1 + pad;
+
+/* Jump a scene to a new growth target without replaying from zero: cells that
+   already existed stay, new ones fade in staggered, removed ones fade out. */
+function regrow(s, prepare, now) {
+  const prev = s.cells || new Map();
+  s.reset(now); prepare();
+  for (let i = 0; i < 6000 && s.tips.length && s.cells.size < s.budget; i++) s.step(1000 / s.o.speed, now);
+  let n = 0;
+  for (const [k, c] of s.cells) { const p = prev.get(k); c.born = (p && !p.dying) ? Math.min(p.born, now - 800) : now + (n++) * 7; }
+  for (const [k, p] of prev) if (!s.cells.has(k) && !p.dying) { p.dying = now; s.cells.set(k, p); }
+}
+
+
+/* ---------------- themes (values from Theme.swift) ---------------- */
+const T = (canvas, surface, elevated, ink, ink2, accent, onAccent, border, chart) => ({ canvas, surface, elevated, ink, ink2, accent, onAccent, border, chart });
+const THEMES = {
+  stillleaf: { name: "Stillleaf", light: T("#F5F8F5", "#E9F1ED", "#DCE9E2", "#183D33", "#4B6A5E", "#176650", "#FFFFFF", "#D0DED6", ["#176650", "#9A6424", "#6E877C"]), dark: T("#111A18", "#18251F", "#22332D", "#E6F1EB", "#A3BAAF", "#6FD4AE", "#0E2E23", "#2A3B35", ["#6FD4AE", "#E2B574", "#7F978C"]) },
+  forest:    { name: "Forest",    light: T("#F4F6F1", "#E8EDE2", "#DBE3D2", "#1F2E1C", "#4D5D48", "#2F6B2A", "#FFFFFF", "#CCD6C3", ["#2F6B2A", "#92641A", "#72826C"]), dark: T("#111610", "#192017", "#232C20", "#E5EDDF", "#A8B7A0", "#9CCB7A", "#17280C", "#2B3527", ["#9CCB7A", "#D9A95E", "#84927D"]) },
+  graphite:  { name: "Graphite",  light: T("#F6F6F7", "#ECECEE", "#E1E1E4", "#1D1D1F", "#5A5A61", "#2A5BD7", "#FFFFFF", "#D6D6DB", ["#2A5BD7", "#A15F14", "#7C7C85"]), dark: T("#151516", "#1F1F21", "#2A2A2D", "#ECECEF", "#A6A6AD", "#86ABFF", "#0B1A3D", "#333337", ["#86ABFF", "#E0A15A", "#85858E"]) },
+  ocean:     { name: "Ocean",     light: T("#F3F7FA", "#E7EFF5", "#D9E6EF", "#14324A", "#46607A", "#0B67A3", "#FFFFFF", "#CBDBE6", ["#0B67A3", "#A3601C", "#6D8599"]), dark: T("#0F1822", "#16222E", "#20303F", "#E3EEF6", "#9FB5C6", "#6CC0F0", "#06263A", "#27394B", ["#6CC0F0", "#E3A35E", "#7C94A8"]) },
+  clay:      { name: "Clay",      light: T("#F9F5F0", "#F1E9E0", "#E7DBCE", "#3A2618", "#6A5243", "#A4492D", "#FFFFFF", "#DFD0C0", ["#A4492D", "#2F7466", "#94806F"]), dark: T("#1B1511", "#251D18", "#322720", "#F2E7DC", "#C2AD9C", "#F08A68", "#3A1206", "#3B2F27", ["#F08A68", "#7FC4AE", "#9A897B"]) },
+  plum:      { name: "Plum",      light: T("#F8F5F9", "#EFE8F2", "#E4D9E9", "#32203D", "#62506D", "#7A3E9F", "#FFFFFF", "#DBCEE1", ["#7A3E9F", "#A35E1D", "#8C7D96"]), dark: T("#18131C", "#211A27", "#2D2334", "#EFE6F4", "#B9A8C4", "#C9A0F0", "#2B1240", "#362B3E", ["#C9A0F0", "#E4A25E", "#8E7F99"]) }
+};
+let themeId = "stillleaf";
+const hexRGB = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+const toHex = rgb => "#" + rgb.map(v => Math.round(Math.max(0, Math.min(255, v))).toString(16).padStart(2, "0")).join("");
+const mix = (a, b, t) => { const x = hexRGB(a), y = hexRGB(b); return toHex(x.map((v, i) => v + (y[i] - v) * t)); };
+const rgba = (h, a) => { const [r, g, b] = hexRGB(h); return `rgba(${r},${g},${b},${a})`; };
+function toHSL(hex) {
+  const [r, g, b] = hexRGB(hex).map(v => v / 255), mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2;
+  if (mx === mn) return [0, 0, l];
+  const d = mx - mn, s = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn);
+  const h = mx === r ? (g - b) / d + (g < b ? 6 : 0) : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return [h * 60, s, l];
+}
+function fromHSL(h, s, l) {
+  h = ((h % 360) + 360) % 360; s = Math.max(0, Math.min(1, s)); l = Math.max(0, Math.min(1, l));
+  const c = (1 - Math.abs(2 * l - 1)) * s, x = c * (1 - Math.abs((h / 60) % 2 - 1)), m = l - c / 2;
+  const [r, g, b] = h < 60 ? [c, x, 0] : h < 120 ? [x, c, 0] : h < 180 ? [0, c, x] : h < 240 ? [0, x, c] : h < 300 ? [x, 0, c] : [c, 0, x];
+  return toHex([(r + m) * 255, (g + m) * 255, (b + m) * 255]);
+}
+/* Vines take the theme's accent hue and fan out a little either side of it;
+   blooms use the theme's warm chart colour plus a complementary hue. */
+function vinePal(c, dark) {
+  const [h, sat] = toHSL(c.accent), s = Math.max(0.38, Math.min(0.8, sat));
+  const leafL = dark ? [0.64, 0.71, 0.57, 0.75, 0.67] : [0.36, 0.42, 0.32, 0.29, 0.40];
+  const leaf = [0, 16, -14, 30, -28].map((dh, i) => fromHSL(h + dh, s, leafL[i]));
+  const stem = [c.accent, mix(c.accent, c.ink, 0.25), mix(c.accent, c.chart[2], 0.35), fromHSL(h, s * 0.9, dark ? 0.46 : 0.26)];
+  const bloom = [c.chart[1], dark ? "#F5C65E" : "#D48E14", fromHSL(h + 150, 0.62, dark ? 0.72 : 0.52), fromHSL(h + 205, 0.55, dark ? 0.74 : 0.5)];
+  return { stem, leaf, bloom, head: dark ? mix(c.accent, "#FFFFFF", 0.7) : mix(c.accent, "#000000", 0.35), field: c.accent, fieldMax: dark ? 0.19 : 0.24, track: rgba(c.ink, dark ? 0.16 : 0.2), spore: leaf[1], base: dark ? 0.85 : 0.96 };
+}
+function applyTheme() {
+  const set = THEMES[themeId], c = set[theme], dark = theme === "dark";
+  PAL.light = vinePal(set.light, false); PAL.dark = vinePal(set.dark, true);
+  const [h, sat] = toHSL(c.accent);
+  const vars = {
+    "--page": dark ? mix(c.canvas, "#000000", 0.38) : mix(c.canvas, c.border, 0.55),
+    "--canvas": c.canvas, "--paper": dark ? c.surface : mix(c.canvas, "#FFFFFF", 0.6),
+    "--fold": dark ? "rgba(0,0,0,0.28)" : rgba(c.ink, 0.07),
+    "--ink": c.ink, "--ink2": c.ink2, "--ink3": mix(c.ink2, c.canvas, 0.3),
+    "--accent": c.accent, "--on-accent": c.onAccent,
+    "--glass-fill": rgba(dark ? c.surface : c.canvas, dark ? 0.55 : 0.6),
+    "--glass-strong": rgba(dark ? c.surface : c.canvas, dark ? 0.74 : 0.76),
+    "--glass-edge": dark ? rgba(c.ink, 0.12) : "rgba(255,255,255,0.75)",
+    "--glass-hi": dark ? "rgba(255,255,255,0.07)" : "rgba(255,255,255,0.95)",
+    "--glass-shadow": dark ? "rgba(0,0,0,0.38)" : rgba(c.ink, 0.12),
+    "--rule": rgba(c.ink, dark ? 0.1 : 0.12),
+    "--win-shadow": dark ? "0 30px 90px rgba(0,0,0,0.6), 0 2px 10px rgba(0,0,0,0.4)" : `0 30px 80px ${rgba(c.ink, 0.2)}, 0 2px 8px ${rgba(c.ink, 0.1)}`,
+    "--cover-a": fromHSL(h, Math.min(0.6, sat), 0.36), "--cover-b": fromHSL(h, Math.min(0.6, sat), 0.15)
+  };
+  for (const [k, v] of Object.entries(vars)) document.body.style.setProperty(k, v);
+  document.querySelectorAll("[data-theme-id]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.themeId === themeId)));
+  document.querySelectorAll("[data-set-theme]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.setTheme === theme)));
+}
+const chips = document.getElementById("themes");
+for (const [id, t] of Object.entries(THEMES)) {
+  const b = document.createElement("button");
+  b.className = "chip"; b.dataset.themeId = id; b.dataset.choice = "theme-" + id;
+  b.innerHTML = `<i style="background:linear-gradient(135deg, ${t.light.accent} 50%, ${t.dark.accent} 50%)"></i>${t.name}`;
+  b.addEventListener("click", () => { themeId = id; applyTheme(); });
+  chips.appendChild(b);
+}
+
+
+
+/* ---------------- garden background ---------------- */
+const win = document.getElementById("win");
+const bg = document.createElement("canvas"); bg.className = "ascii"; win.prepend(bg);
+const garden = new Scene(bg, {
+  seed: 31, font: 13, field: true, maxCells: 2200, maxTips: 70, speed: 15,
+  setup(s) {
+    s.o.mask = null;
+    const R = s.rows - 1, n = 10;
+    for (let i = 0; i < n; i++) {
+      const x = Math.round((i + 0.5) * s.cols / n + (s.rand() - 0.5) * 6);
+      s.tip({ x, y: R, a: -Math.PI / 2 + (s.rand() - 0.5) * 0.6, bias: -Math.PI / 2, bs: 0.035, life: 30 + Math.floor(s.rand() * 26), hue: i, branchP: 0.085, branchLife: 18 });
+    }
+    s.tip({ x: s.cols - 1, y: 2, a: 2.6, bias: 2.0, bs: 0.04, life: 40, hue: 2 });
+    s.tip({ x: 0, y: 4, a: 0.5, bias: 0.9, bs: 0.04, life: 36, hue: 1 });
+  }
+});
+
+/* ---------------- goal arcs ---------------- */
+const GOAL = 0.63, START = 140 * Math.PI / 180, SWEEP = 260 * Math.PI / 180;
+const css = name => getComputedStyle(document.body).getPropertyValue(name).trim();
+const ease = t => 1 - Math.pow(1 - t, 3);
+let t0 = performance.now();
+const arcs = [...document.querySelectorAll("[data-arc]")].map(card => {
+  const canvas = card.querySelector(".arc canvas");
+  return { kind: card.dataset.arc, canvas, ctx: canvas.getContext("2d") };
+});
+function sizeArcs() {
+  const dpr = Math.min(2, devicePixelRatio || 1);
+  for (const a of arcs) { const r = a.canvas.getBoundingClientRect(); a.w = r.width; a.h = r.height; a.canvas.width = r.width * dpr; a.canvas.height = r.height * dpr; a.ctx.setTransform(dpr, 0, 0, dpr, 0, 0); }
+}
+function drawArc(a, f, now) {
+  const { ctx, w, h } = a, set = THEMES[themeId][theme], dark = theme === "dark";
+  const cx = w / 2, cy = h * 0.53, R = Math.min(w * 0.45, h * 0.48);
+  ctx.clearRect(0, 0, w, h);
+  const accent = set.accent, ink = set.ink;
+  if (a.kind === "solid") {
+    const lw = 12;
+    ctx.lineCap = "round"; ctx.lineWidth = lw;
+    ctx.strokeStyle = rgba(ink, dark ? 0.12 : 0.09);
+    ctx.beginPath(); ctx.arc(cx, cy, R - lw / 2, START, START + SWEEP); ctx.stroke();
+    if (f > 0.002) {
+      const [hh, ss] = toHSL(accent);
+      const end = fromHSL(hh + 28, Math.min(0.85, ss + 0.1), dark ? 0.72 : 0.5);
+      const g = ctx.createConicGradient(START - 0.15, cx, cy);
+      g.addColorStop(0, accent); g.addColorStop(SWEEP / (2 * Math.PI), end); g.addColorStop(1, accent);
+      ctx.strokeStyle = g;
+      ctx.beginPath(); ctx.arc(cx, cy, R - lw / 2, START, START + SWEEP * f); ctx.stroke();
+      const ang = START + SWEEP * f, kx = cx + Math.cos(ang) * (R - lw / 2), ky = cy + Math.sin(ang) * (R - lw / 2);
+      const pulse = 0.5 + 0.5 * Math.sin(now / 700);
+      ctx.save(); ctx.shadowColor = end; ctx.shadowBlur = 10 + pulse * 8;
+      ctx.fillStyle = dark ? "#FFFFFF" : "#FFFFFF"; ctx.beginPath(); ctx.arc(kx, ky, 8, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+      ctx.fillStyle = end; ctx.beginPath(); ctx.arc(kx, ky, 4, 0, Math.PI * 2); ctx.fill();
+    }
+  } else if (a.kind === "dots") {
+    const scale = Math.min(1, w / 254);
+    for (let row = 0; row < 2; row++) {
+      const count = row === 0 ? 37 : 31, dist = R - row * 16 * scale, d = (row === 0 ? 8 : 6) * scale;
+      for (let i = 0; i < count; i++) {
+        const p = i / (count - 1), ang = START + p * SWEEP, x = cx + Math.cos(ang) * dist, y = cy + Math.sin(ang) * dist;
+        ctx.globalAlpha = row === 0 ? 1 : 0.65; ctx.fillStyle = dark ? set.border : mix(set.canvas, ink, 0.12);
+        ctx.beginPath(); ctx.arc(x, y, d / 2, 0, Math.PI * 2); ctx.fill();
+        const cov = Math.min(1, Math.max(0, f * count - i));
+        if (cov > 0) { ctx.globalAlpha = cov * (row === 0 ? 1 : 0.7); ctx.fillStyle = accent; ctx.beginPath(); ctx.arc(x, y, d / 2, 0, Math.PI * 2); ctx.fill(); }
+      }
+    }
+    ctx.globalAlpha = 1;
+  } else if (a.kind === "blocks") {
+    const warm = set.chart[1], gold = dark ? "#F5C65E" : "#C98A12";
+    const n = 30, font = 15;
+    ctx.font = `${font}px ui-monospace, "SF Mono", Menlo, monospace`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    for (let row = 0; row < 2; row++) {
+      const count = row === 0 ? n : n - 6, dist = R - 6 - row * 17;
+      for (let i = 0; i < count; i++) {
+        const p = i / (count - 1), ang = START + p * SWEEP, x = cx + Math.cos(ang) * dist, y = cy + Math.sin(ang) * dist;
+        const cov = Math.min(1, Math.max(0, f * count - i));
+        ctx.save(); ctx.translate(x, y); ctx.rotate(ang + Math.PI / 2);
+        ctx.globalAlpha = row === 0 ? 0.55 : 0.38; ctx.fillStyle = rgba(ink, dark ? 0.5 : 0.35); ctx.fillText("░", 0, 0);
+        if (cov > 0) { ctx.globalAlpha = cov * (row === 0 ? 1 : 0.75); ctx.fillStyle = mix(warm, gold, p); ctx.fillText(cov > 0.6 ? "█" : cov > 0.3 ? "▓" : "▒", 0, 0); }
+        ctx.restore();
+      }
+    }
+    ctx.globalAlpha = 1;
+  } else {
+    const lw = 5;
+    ctx.lineCap = "butt"; ctx.lineWidth = lw;
+    ctx.strokeStyle = rgba(ink, dark ? 0.16 : 0.12);
+    ctx.beginPath(); ctx.arc(cx, cy, R - 14, START, START + SWEEP); ctx.stroke();
+    for (let i = 0; i <= 10; i++) {
+      const ang = START + SWEEP * i / 10, r1 = R - 2, r0 = i % 5 === 0 ? R - 9 : R - 6;
+      ctx.lineWidth = i % 5 === 0 ? 2 : 1.2; ctx.strokeStyle = rgba(ink, i / 10 <= f ? 0.85 : 0.3);
+      ctx.beginPath(); ctx.moveTo(cx + Math.cos(ang) * r0, cy + Math.sin(ang) * r0); ctx.lineTo(cx + Math.cos(ang) * r1, cy + Math.sin(ang) * r1); ctx.stroke();
+    }
+    if (f > 0.002) {
+      ctx.lineWidth = lw; ctx.strokeStyle = ink;
+      ctx.beginPath(); ctx.arc(cx, cy, R - 14, START, START + SWEEP * f); ctx.stroke();
+      const ang = START + SWEEP * f;
+      ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(cx + Math.cos(ang) * (R - 22), cy + Math.sin(ang) * (R - 22)); ctx.lineTo(cx + Math.cos(ang) * (R - 1), cy + Math.sin(ang) * (R - 1)); ctx.stroke();
+    }
+  }
+}
+
+function setTheme(t) { theme = t; document.body.dataset.theme = t; applyTheme(); }
+document.querySelectorAll("[data-set-theme]").forEach(b => b.addEventListener("click", () => setTheme(b.dataset.setTheme)));
+document.querySelectorAll(".pick").forEach(b => b.addEventListener("click", () => document.querySelectorAll(".pick").forEach(o => o.classList.toggle("selected", o === b))));
+document.getElementById("replay").addEventListener("click", () => { const now = performance.now(); t0 = now; garden.reset(now); });
+
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min(64, now - last); last = now;
+  if (garden.started) { garden.step(dt, now); garden.render(now); }
+  const f = reduce ? GOAL : GOAL * ease(Math.min(1, Math.max(0, (now - t0 - 250) / 1500)));
+  for (const a of arcs) drawArc(a, f, now);
+  requestAnimationFrame(frame);
+}
+setTheme(matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+const ready = document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve();
+ready.then(() => requestAnimationFrame(() => { sizeArcs(); garden.resize(); const now = performance.now(); t0 = now; garden.start(now); requestAnimationFrame(frame); }));
+addEventListener("resize", () => { sizeArcs(); garden.resize(); garden.reset(performance.now()); });
+})();
+</script>
+</body>
+</html>
