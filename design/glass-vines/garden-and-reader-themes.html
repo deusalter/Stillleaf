@@ -1,0 +1,814 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Stillleaf · Garden + margin garden, every theme</title>
+<style>
+:root {
+  --ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+  --serif: ui-serif, "New York", "Iowan Old Style", Georgia, serif;
+  --mono: ui-monospace, "SF Mono", Menlo, monospace;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--page); color: var(--ink); font-family: var(--ui); -webkit-font-smoothing: antialiased; transition: background .5s, color .5s; }
+.wrap { max-width: 1320px; margin: 0 auto; padding: 36px 32px 100px; }
+.top { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 20px; }
+.top h1 { font: 600 28px/1.1 var(--ui); letter-spacing: -0.4px; margin: 0 0 8px; }
+.top p { margin: 0; color: var(--ink2); font-size: 15px; max-width: 720px; line-height: 1.45; }
+.controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.seg { display: inline-flex; padding: 3px; border-radius: 999px; }
+.seg button { font: 500 13px var(--ui); color: var(--ink); background: transparent; border: 0; padding: 7px 14px; border-radius: 999px; cursor: pointer; transition: background .25s, color .25s; }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
+.glass {
+  position: relative; background: var(--glass-fill);
+  -webkit-backdrop-filter: blur(13px) saturate(185%); backdrop-filter: blur(13px) saturate(185%);
+  border: 1px solid var(--glass-edge); box-shadow: inset 0 1px 0 var(--glass-hi), 0 12px 32px var(--glass-shadow);
+  transition: background .5s, border-color .5s, box-shadow .5s;
+}
+.glass.strong { background: var(--glass-strong); }
+.modebar { display: flex; justify-content: center; margin: 0 0 18px; }
+.stage { display: flex; justify-content: center; }
+.win {
+  position: relative; width: 100%; height: 780px; border-radius: 14px; overflow: hidden;
+  background: var(--canvas); box-shadow: var(--win-shadow);
+  transition: width .65s cubic-bezier(.2, .7, .2, 1), background .5s;
+}
+.win.small { width: 880px; }
+canvas.ascii { position: absolute; inset: 0; width: 100%; height: 100%; display: block; pointer-events: none; }
+canvas.spine { z-index: 3; }
+.bar { position: absolute; top: 0; left: 0; right: 0; height: 40px; display: flex; align-items: center; gap: 8px; padding: 0 16px; z-index: 5; }
+.tl { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
+.tl.r { background: #FF5F57; } .tl.y { background: #FEBC2E; } .tl.g { background: #28C840; }
+.rbar { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); width: min(760px, calc(100% - 150px)); height: 44px; border-radius: 999px; z-index: 5; display: flex; align-items: center; justify-content: space-between; padding: 0 8px 0 16px; }
+.rbar .ttl { font-size: 13px; font-weight: 600; } .rbar .ttl span { color: var(--ink2); font-weight: 400; }
+.rbtn { font: 500 13px var(--ui); color: var(--ink); padding: 6px 10px; border-radius: 999px; }
+.sheet {
+  position: absolute; top: 74px; bottom: 78px; left: 0; width: 600px; z-index: 2;
+  background: var(--paper); border-radius: 6px; overflow: hidden;
+  display: flex; gap: 0; padding: 50px 58px;
+  box-shadow: 0 1px 0 var(--rule), 0 18px 50px var(--glass-shadow);
+  transition: left .65s cubic-bezier(.2, .7, .2, 1), width .65s cubic-bezier(.2, .7, .2, 1), gap .65s, background .5s;
+}
+.sheet.facing { gap: 88px; }
+.sheet::after {
+  content: ""; position: absolute; top: 0; bottom: 0; left: 50%; width: 70px; transform: translateX(-50%);
+  background: linear-gradient(90deg, transparent, var(--fold) 50%, transparent); opacity: 0; transition: opacity .5s; pointer-events: none;
+}
+.sheet.facing::after { opacity: 1; }
+.col { flex: 1 1 0; min-width: 0; overflow: hidden; transition: opacity .45s ease, flex-grow .65s; position: relative; }
+.col.c2 { flex-grow: 0; opacity: 0; }
+.sheet.facing .col.c2 { flex-grow: 1; opacity: 1; }
+.chap { font: 600 10.5px var(--ui); letter-spacing: .14em; text-transform: uppercase; color: var(--ink3); margin-bottom: 20px; white-space: nowrap; }
+.col p { font: 400 17.5px/1.62 var(--serif); margin: 0 0 1em; text-align: justify; hyphens: auto; color: var(--ink); }
+.col .flow { transition: transform .6s; }
+.sheet.scroll .col.c1 .flow { animation: scroll 38s linear infinite; }
+@keyframes scroll { from { transform: translateY(0); } to { transform: translateY(-50%); } }
+.rfoot { position: absolute; bottom: 16px; left: 0; width: 600px; height: 46px; border-radius: 999px; z-index: 5; display: flex; align-items: center; gap: 14px; padding: 0 18px; transition: left .65s cubic-bezier(.2, .7, .2, 1), width .65s cubic-bezier(.2, .7, .2, 1); }
+.rfoot .pg { font: 12px var(--mono); color: var(--ink2); white-space: nowrap; }
+.rfoot .pl { position: relative; flex: 1; height: 40px; }
+.section-h { font: 600 13px var(--ui); letter-spacing: .08em; text-transform: uppercase; color: var(--ink3); margin: 54px 0 6px; }
+.lede { color: var(--ink2); margin: 0 0 18px; font-size: 15px; line-height: 1.5; max-width: 820px; }
+.themes { display: inline-flex; gap: 6px; padding: 4px; border-radius: 999px; }
+.chip { display: inline-flex; align-items: center; gap: 7px; font: 500 12.5px var(--ui); color: var(--ink); background: transparent; border: 0; padding: 6px 11px 6px 7px; border-radius: 999px; cursor: pointer; transition: background .25s; }
+.chip i { width: 14px; height: 14px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(0,0,0,.12); }
+.chip[aria-pressed="true"] { background: color-mix(in srgb, var(--accent) 18%, transparent); font-weight: 650; }
+.dash { height: 720px; }
+.sidebar { position: absolute; top: 10px; left: 10px; bottom: 10px; width: 206px; border-radius: 18px; padding: 46px 10px 14px; z-index: 2; display: flex; flex-direction: column; }
+.nav { list-style: none; padding: 0; margin: 0; }
+.nav li { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: 10px; font-size: 13.5px; }
+.nav li .ic { width: 18px; text-align: center; font-family: var(--mono); color: var(--accent); font-size: 13px; }
+.nav li.on { background: color-mix(in srgb, var(--accent) 16%, transparent); font-weight: 600; }
+.side-foot { margin-top: auto; padding: 10px; font-size: 11.5px; color: var(--ink2); line-height: 1.4; }
+.side-foot b { display: flex; align-items: center; gap: 6px; color: var(--ink); font-weight: 600; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent); }
+.content { position: absolute; top: 0; bottom: 0; left: 216px; right: 0; padding: 50px 44px 30px; z-index: 2; display: flex; flex-direction: column; gap: 22px; }
+.head { display: flex; justify-content: space-between; align-items: flex-end; }
+.head h3 { font: 600 30px/1 var(--ui); letter-spacing: -0.4px; margin: 0 0 6px; }
+.head p { margin: 0; color: var(--ink2); font-size: 14px; }
+.pill { display: inline-flex; align-items: center; gap: 8px; padding: 7px 13px; border-radius: 999px; font-size: 12.5px; font-weight: 500; }
+.card { border-radius: 16px; padding: 24px; }
+.lastread { display: flex; gap: 26px; align-items: center; }
+.cover { width: 104px; height: 156px; flex-shrink: 0; border-radius: 4px 7px 7px 4px; position: relative; overflow: hidden; background: linear-gradient(155deg, var(--cover-a), var(--cover-b) 70%); color: #F4F7F5; box-shadow: 0 10px 24px rgba(0,0,0,.3), inset 3px 0 0 rgba(255,255,255,.12); display: flex; flex-direction: column; justify-content: space-between; padding: 14px 12px; transition: background .5s; }
+.cover .t { font: 600 17px/1.1 var(--serif); }
+.cover .a { font: 500 9.5px var(--ui); letter-spacing: .12em; text-transform: uppercase; opacity: .8; }
+.lr-info { flex: 1; min-width: 0; }
+.lr-info .k { font-size: 12.5px; color: var(--ink2); font-weight: 600; margin-bottom: 6px; }
+.lr-info h4 { font: 500 30px/1.05 var(--serif); margin: 0 0 4px; }
+.lr-info .by { color: var(--ink2); font-size: 14px; margin-bottom: 12px; }
+.progress-line { position: relative; height: 42px; margin: 0 0 10px -4px; }
+.progress-line .lbl { position: absolute; right: 0; top: 12px; font: 12px var(--mono); color: var(--ink2); }
+.actions { display: flex; gap: 10px; }
+.cta { font: 600 13px var(--ui); padding: 9px 16px; border-radius: 999px; border: 0; cursor: pointer; color: var(--ink); }
+.cta.primary { background: var(--accent); color: var(--on-accent); box-shadow: 0 6px 16px color-mix(in srgb, var(--accent) 35%, transparent); }
+.goal { display: flex; gap: 30px; align-items: center; }
+.ring { position: relative; width: 236px; height: 200px; flex-shrink: 0; }
+.ring .center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; padding-top: 10px; }
+.ring .big { font: 300 56px/1 var(--ui); font-variant-numeric: tabular-nums; letter-spacing: -2px; }
+.ring .small { font-size: 12.5px; color: var(--ink2); margin-top: 4px; }
+.goal-info { flex: 1; }
+.goal-info h4 { font: 500 25px/1.15 var(--serif); margin: 0 0 18px; }
+.stats { display: flex; gap: 40px; margin-bottom: 18px; }
+.stat .v { font: 400 28px/1 var(--ui); font-variant-numeric: tabular-nums; }
+.stat .l { font-size: 12px; color: var(--ink2); margin-top: 5px; }
+.week { font-family: var(--mono); display: flex; gap: 14px; }
+.week div { display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 11px; color: var(--ink3); }
+.week .bar-c { font-size: 22px; line-height: 1; color: var(--accent); }
+.week .today { color: var(--ink); font-weight: 700; }
+.below { display: grid; grid-template-columns: 1.1fr 1fr; gap: 24px; margin-top: 22px; align-items: start; }
+.scrub { display: flex; align-items: center; gap: 12px; color: var(--ink2); font-size: 13px; padding: 14px 18px; border-radius: 16px; }
+.scrub input { flex: 1; accent-color: var(--accent); }
+.scrub b { font: 600 13px var(--mono); color: var(--ink); min-width: 42px; text-align: right; }
+.explain { padding: 18px 20px; border-radius: 16px; }
+.explain h3 { margin: 0 0 6px; font: 600 16px var(--ui); }
+.explain p { margin: 0; font-size: 14px; line-height: 1.55; color: var(--ink2); }
+.explain p + p { margin-top: 8px; }
+.rules { margin-top: 26px; padding: 20px 24px; border-radius: 16px; }
+.rules h3 { margin: 0 0 10px; font: 600 15px var(--ui); }
+.rules ol { margin: 0; padding-left: 20px; color: var(--ink2); font-size: 14px; line-height: 1.65; }
+.rules b { color: var(--ink); }
+.rules code { font: 12.5px var(--mono); color: var(--accent); }
+</style>
+</head>
+<body data-theme="dark">
+<div class="wrap">
+  <div class="top">
+    <div>
+      <h1>Your picks, in every theme</h1>
+      <p>The Garden dashboard and the R1 margin-garden reader in each of Stillleaf’s six themes, light and dark. The vines take their colours from the theme’s accent, so Graphite grows blue vines, Clay terracotta, Plum violet. Below, the reader shows how the margin garden adapts to facing pages, small windows and scrolling.</p>
+    </div>
+    <div class="controls">
+      <div class="themes glass" role="group" aria-label="Theme" id="themes"></div>
+      <div class="seg glass" role="group" aria-label="Appearance"><button data-set-theme="light">Light</button><button data-set-theme="dark">Dark</button></div>
+    </div>
+  </div>
+
+  <h2 class="section-h">Dashboard · Garden</h2>
+  <div class="stage"><div class="win dash" id="dash">
+    <div class="bar"><span class="tl r"></span><span class="tl y"></span><span class="tl g"></span></div>
+    <aside class="sidebar glass">
+      <ul class="nav"><li class="on"><span class="ic">☼</span>Today</li><li><span class="ic">▤</span>Library</li><li><span class="ic">◷</span>Timeline</li><li><span class="ic">▦</span>History</li><li><span class="ic">✎</span>Reviews</li><li><span class="ic">⚙</span>Settings</li></ul>
+      <div class="side-foot"><b><i class="dot"></i>Reading Walden</b>History stays on this Mac</div>
+    </aside>
+    <main class="content">
+      <div class="head"><div><h3>Today</h3><p>Sunday, October 4</p></div><span class="pill glass"><i class="dot"></i>Reading · 23m</span></div>
+      <section class="card glass lastread">
+        <div class="cover"><div class="a">Thoreau</div><div class="t">Walden</div></div>
+        <div class="lr-info"><div class="k">Last read</div><h4>Walden</h4><div class="by">Henry David Thoreau · Where I Lived, and What I Lived For</div>
+          <div class="progress-line"><canvas class="ascii" id="dash-line"></canvas><span class="lbl">38%</span></div>
+          <div class="actions"><button class="cta primary">Continue reading</button><button class="cta glass">Book details</button></div></div>
+      </section>
+      <section class="card glass goal">
+        <div class="ring"><canvas class="ascii" id="dash-ring"></canvas><div class="center"><div class="big">19</div><div class="small">of 30 pages</div></div></div>
+        <div class="goal-info"><h4>11 pages to your daily goal.</h4>
+          <div class="stats"><div class="stat"><div class="v">43m</div><div class="l">Reading time</div></div><div class="stat"><div class="v">6 days</div><div class="l">Goal streak</div></div><div class="stat"><div class="v">31</div><div class="l">Books this year</div></div></div>
+          <div class="week"><div><span class="bar-c">▅</span>M</div><div><span class="bar-c">▇</span>T</div><div><span class="bar-c">▃</span>W</div><div><span class="bar-c">▆</span>T</div><div><span class="bar-c">▂</span>F</div><div><span class="bar-c">▇</span>S</div><div class="today"><span class="bar-c">▄</span>S</div></div></div>
+      </section>
+    </main>
+  </div></div>
+
+  <h2 class="section-h">Reader · margin garden in every mode</h2>
+  <p class="lede">Switch modes and drag the progress slider. The vines fade out, the layout moves, and they regrow into whatever space is left.</p>
+  <div class="modebar"><div class="seg glass" role="group" aria-label="Reading mode">
+    <button data-mode="single" data-choice="mode-single">Single page</button>
+    <button data-mode="facing" data-choice="mode-facing">Facing pages</button>
+    <button data-mode="small" data-choice="mode-small">Facing · small window</button>
+    <button data-mode="scroll" data-choice="mode-scroll">Continuous scroll</button>
+  </div></div>
+
+  <div class="stage">
+    <div class="win" id="win">
+      <div class="bar"><span class="tl r"></span><span class="tl y"></span><span class="tl g"></span></div>
+      <div class="rbar glass"><span class="rbtn">‹ Library</span><span class="ttl">Walden <span>· Where I Lived</span></span><span><span class="rbtn">Aa</span><span class="rbtn">☰</span></span></div>
+      <article class="sheet" id="sheet">
+        <div class="col c1"><div class="flow" id="flow1"></div></div>
+        <div class="col c2"><div class="flow" id="flow2"></div></div>
+      </article>
+      <canvas class="ascii spine" id="spine"></canvas>
+      <div class="rfoot glass" id="foot"><span class="pg" id="pg">Page 112 of 297</span><div class="pl"><canvas class="ascii" id="line"></canvas></div><span class="pg" id="pct">38%</span></div>
+    </div>
+  </div>
+
+  <div class="below">
+    <div>
+      <div class="scrub glass"><span>Chapter progress</span><input type="range" min="0" max="100" value="38" id="progress"><b id="progress-v">38%</b></div>
+    </div>
+    <div class="explain glass" id="explain"></div>
+  </div>
+
+  <div class="rules glass">
+    <h3>The rules the native reader would follow</h3>
+    <ol>
+      <li><b>Never behind text.</b> Vines only grow where the reader reports empty space: outside the page, and in the gap between facing columns.</li>
+      <li><b>A margin needs at least 7 characters (about 56 pt) to hold a garden.</b> Narrower margins stay empty rather than squeezing in a cramped vine.</li>
+      <li><b>Facing pages grow a spine vine.</b> One vine climbs the fold between the pages and <i>is</i> the chapter progress. The column gap is twice the page gutter: 88 pt at Normal margins, 48 pt at Narrow. Both are wide enough.</li>
+      <li><b>Growth follows reading, not time.</b> Vines grow in step with chapter progress, never on their own, and a new chapter starts with bare margins. Page turns don't animate the garden; it only grows by the pages you just read.</li>
+      <li><b>Scrolling keeps the garden still.</b> Text moves past fixed vines. Fullscreen just means wider margins and a fuller garden.</li>
+      <li><b>Implementation:</b> the shell around the reader's iframe already knows the column geometry (<code>pageGutter</code>, <code>columnCount</code>). It draws one canvas behind the page for the margins, plus a thin overlay over the column gap for the spine, at a low frame rate. Reduce Motion shows the grown state with no animation.</li>
+    </ol>
+  </div>
+</div>
+
+<script>
+(() => {
+"use strict";
+const TAU = Math.PI * 2;
+const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const body = document.body;
+
+/* ---------------- palettes ---------------- */
+const PAL = {
+  light: {
+    stem:  ["#135E48", "#1A6B51", "#285F3A", "#0F5A4A"],
+    leaf:  ["#1E8A5A", "#2C9450", "#4C9426", "#167A6C", "#2A9C6A"],
+    bloom: ["#D48E14", "#D9506A", "#9D55CC", "#E0A21F"],
+    head:  "#0A4A38", field: "#176650", fieldMax: 0.24, track: "rgba(24,61,51,0.22)", spore: "#2C9450",
+    base: 0.96
+  },
+  dark: {
+    stem:  ["#2E8F6B", "#3A9C5E", "#2A8577", "#3F8F55"],
+    leaf:  ["#6FD4AE", "#9CCB7A", "#B5E37A", "#5CC8C0", "#82E0B4"],
+    bloom: ["#F5C65E", "#FF8FA3", "#D7A6FF", "#FFD27A"],
+    head:  "#D9FFF0", field: "#6FD4AE", fieldMax: 0.19, track: "rgba(200,240,220,0.16)", spore: "#9CCB7A",
+    base: 0.85
+  }
+};
+let theme = "dark";
+const pal = () => PAL[theme];
+
+/* ---------------- helpers ---------------- */
+function rng(seed) { let s = (seed >>> 0) || 7; return () => { s ^= s << 13; s ^= s >>> 17; s ^= s << 5; return (s >>> 0) / 4294967296; }; }
+const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+const angDiff = (a, b) => { let d = (a - b) % TAU; if (d > Math.PI) d -= TAU; if (d < -Math.PI) d += TAU; return d; };
+function hash2(x, y) { let h = (x * 374761393 + y * 668265263) | 0; h = (h ^ (h >>> 13)) * 1274126177; return ((h ^ (h >>> 16)) >>> 0) / 4294967296; }
+function vnoise(x, y) {
+  const xi = Math.floor(x), yi = Math.floor(y), xf = x - xi, yf = y - yi;
+  const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf);
+  const a = hash2(xi, yi), b = hash2(xi + 1, yi), c = hash2(xi, yi + 1), d = hash2(xi + 1, yi + 1);
+  return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
+}
+function stemChar(dx, dy) {
+  // dx, dy in pixels; screen y grows downward.
+  let deg = Math.atan2(dy, dx) * 180 / Math.PI; if (deg < 0) deg += 180;
+  if (deg < 22.5 || deg >= 157.5) return "─";
+  if (deg < 67.5) return "╲";
+  if (deg < 112.5) return "│";
+  return "╱";
+}
+const LEAVES = [["(", ")"], ["{", "}"], ["6", "9"], ["@", "@"], ["o", "o"], ["(", ")"]];
+const FLUTTER = { "(": "{", ")": "}", "{": "(", "}": ")", "6": "(", "9": ")", "@": "o", "o": "@" };
+const BLOOMS = ["✿", "❀", "✽", "*", "❁", "✻"];
+const SPORES = ["·", "∙", "°", "˚"];
+
+/* ---------------- scene ---------------- */
+class Scene {
+  constructor(canvas, opts) {
+    this.canvas = canvas; this.ctx = canvas.getContext("2d");
+    this.o = Object.assign({ font: 13, lead: 1.22, speed: 13, maxCells: 2400, field: false, breathe: true, seed: 1 }, opts);
+    this.visible = false; this.started = false; this.budget = Infinity;
+    this.resize();
+  }
+  resize() {
+    const r = this.canvas.getBoundingClientRect(), dpr = Math.min(2, devicePixelRatio || 1);
+    this.w = Math.max(1, r.width); this.h = Math.max(1, r.height);
+    this.canvas.width = Math.round(this.w * dpr); this.canvas.height = Math.round(this.h * dpr);
+    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    this.fontStr = `${this.o.font}px ui-monospace, "SF Mono", Menlo, monospace`;
+    this.ctx.font = this.fontStr;
+    this.cw = Math.ceil(this.ctx.measureText("M").width * 100) / 100;
+    this.ch = Math.round(this.o.font * this.o.lead);
+    this.cols = Math.ceil(this.w / this.cw); this.rows = Math.ceil(this.h / this.ch);
+  }
+  reset(now) {
+    this.cells = new Map(); this.order = []; this.tips = []; this.spores = [];
+    this.rand = rng(this.o.seed * 9973 + 17); this.t0 = now; this.last = now;
+    this.fieldGlyphs = null;
+    if (this.o.setup) this.o.setup(this, now);
+  }
+  start(now) { if (!this.started) { this.started = true; this.reset(now); if (reduce) this.fastForward(now); } }
+  fastForward(now) {
+    for (let i = 0; i < 4000 && this.tips.length; i++) this.step(1000 / this.o.speed, now);
+    for (const c of this.cells.values()) c.born = now - 5000;
+  }
+  inBounds(x, y) { return x >= 0 && y >= 0 && x < this.cols && y < this.rows; }
+  allowed(x, y) { return this.inBounds(x, y) && (!this.o.mask || this.o.mask(this, x, y)); }
+  put(x, y, ch, kind, palKey, ci, now, extra) {
+    if (!this.allowed(x, y)) return false;
+    const k = y * this.cols + x, prev = this.cells.get(k);
+    const rank = { stem: 1, leaf: 2, bloom: 3 }[kind];
+    if (prev && !prev.dying && prev.rank >= rank) return false;
+    if (this.cells.size >= this.o.maxCells) return false;
+    const cell = Object.assign({ x, y, ch, kind, rank, pal: palKey, ci, born: now, phase: this.rand() * TAU, dying: 0, alt: FLUTTER[ch] }, extra);
+    this.cells.set(k, cell); this.order.push(k);
+    return true;
+  }
+  tip(t) {
+    const pxX = (t.x + 0.5) * this.cw, pxY = (t.y + 0.5) * this.ch;
+    this.tips.push(Object.assign({ px: pxX, py: pxY, a: -Math.PI / 2, da: 0, life: 40, gen: 0, hue: 0, acc: 0, bias: null, bs: 0.06, lx: t.x, ly: t.y, i: 0, ph: this.rand() * TAU, speedMul: 1 }, t));
+  }
+  step(dt, now) {
+    const grow = this.cells.size < this.budget;
+    for (let i = this.tips.length - 1; i >= 0; i--) {
+      const t = this.tips[i];
+      if (!grow) continue;
+      t.acc += dt * this.o.speed * t.speedMul / 1000;
+      while (t.acc >= 1 && t.life > 0) { t.acc -= 1; t.path ? this.followPath(t, now) : this.wander(t, now); }
+      if (t.life <= 0) { this.finish(t, now); this.tips.splice(i, 1); }
+    }
+    // Reclaim cells over budget, newest first, so scrubbing backwards un-grows the garden.
+    if (this.cells.size > this.budget) {
+      let extra = this.cells.size - this.budget;
+      for (let j = this.order.length - 1; j >= 0 && extra > 0; j--) {
+        const c = this.cells.get(this.order[j]); if (c && !c.dying) { c.dying = now; extra--; }
+      }
+    }
+  }
+  wander(t, now) {
+    const r = this.rand;
+    t.da = t.da * 0.82 + (r() - 0.5) * 0.42;
+    t.a += t.da;
+    if (t.bias !== null) t.a += angDiff(t.bias, t.a) * t.bs;
+    if (t.curl) t.a += t.curl;
+    let moved = false;
+    for (let tries = 0; tries < 3 && !moved; tries++) {
+      // Step exactly one cell along the dominant axis so stems never leave gaps.
+      const step = 0.999 / Math.max(Math.abs(Math.cos(t.a)) / this.cw, Math.abs(Math.sin(t.a)) / this.ch);
+      const nx = t.px + Math.cos(t.a) * step, ny = t.py + Math.sin(t.a) * step;
+      const cx = Math.floor(nx / this.cw), cy = Math.floor(ny / this.ch);
+      if (!this.allowed(cx, cy)) { t.a += (r() < 0.5 ? -1 : 1) * (0.7 + r() * 0.6); continue; }
+      const dx = nx - t.px, dy = ny - t.py;
+      t.px = nx; t.py = ny; moved = true;
+      if (cx === t.lx && cy === t.ly) return;
+      const turn = Math.abs(t.da) > 0.32;
+      let ch = stemChar(dx, dy);
+      if (t.gen >= 2 && turn) ch = t.da > 0 ? ")" : "(";
+      else if (t.gen >= 2 && ch === "─") ch = "~";
+      this.put(cx, cy, ch, "stem", "stem", (t.gen + t.hue) % 4, now);
+      this.sprout(t, cx, cy, dx, dy, now);
+      t.lx = cx; t.ly = cy;
+    }
+    if (!moved) t.life = 0;
+    t.life--;
+  }
+  followPath(t, now) {
+    const p = t.path;
+    if (t.i >= p.length - 1) { t.life = 0; return; }
+    let placed = false;
+    while (!placed && t.i < p.length - 1) {
+      t.i++;
+      const a = p[t.i - 1], b = p[t.i];
+      const tx = b.x - a.x, ty = b.y - a.y, len = Math.hypot(tx, ty) || 1;
+      const nx = -ty / len, ny = tx / len;
+      const off = (t.amp || 0) * Math.sin(t.i * (t.freq || 0.33) + t.ph);
+      const fx = b.x + nx * off, fy = b.y + ny * off * 0.6;
+      const cx = Math.round(fx), cy = Math.round(fy);
+      t.px = (fx + 0.5) * this.cw; t.py = (fy + 0.5) * this.ch;
+      if (cx === t.lx && cy === t.ly) continue;
+      const dx = (cx - t.lx) * this.cw, dy = (cy - t.ly) * this.ch;
+      this.put(cx, cy, stemChar(dx, dy), "stem", "stem", (t.hue || 0) % 4, now);
+      if (t.leafy !== false) this.sprout(t, cx, cy, dx, dy, now, t.outward);
+      t.lx = cx; t.ly = cy; placed = true;
+    }
+    if (t.i >= p.length - 1) t.life = 0;
+  }
+  sprout(t, cx, cy, dx, dy, now, outward) {
+    const r = this.rand;
+    const leafP = (t.leafP ?? 0.24) * (t.gen > 1 ? 0.7 : 1);
+    if (r() < leafP) {
+      const vertical = Math.abs(dy) > Math.abs(dx) * 0.6;
+      const side = r() < 0.5 ? -1 : 1;
+      const lx = vertical ? cx + side : cx, ly = vertical ? cy : cy + side;
+      const pair = LEAVES[Math.floor(r() * LEAVES.length)];
+      const ch = vertical ? pair[side < 0 ? 0 : 1] : pair[Math.floor(r() * 2)];
+      this.put(lx, ly, ch, "leaf", "leaf", Math.floor(r() * 5), now);
+    }
+    const branchP = t.branchP ?? 0.06;
+    if (t.gen < (t.maxGen ?? 3) && r() < branchP && this.tips.length < (this.o.maxTips || 60)) {
+      let a = Math.atan2(dy, dx) + (r() < 0.5 ? -1 : 1) * (0.55 + r() * 0.65);
+      if (outward !== undefined) a = outward + (r() - 0.5) * 0.9;
+      this.tip({ x: cx, y: cy, a, life: Math.floor((t.branchLife || 14) * (0.4 + r() * 0.8)), gen: t.gen + 1, bias: t.path ? null : t.bias, bs: (t.bs || 0.05) * 0.6, hue: (t.hue || 0) + 1, branchP: (t.branchP ?? 0.06) * 0.7, leafP: t.leafP, maxGen: t.maxGen, curl: (r() - 0.5) * 0.08 });
+    }
+  }
+  finish(t, now) {
+    const r = this.rand;
+    if (t.noBloom) return;
+    if (r() < (t.bloomP ?? 0.75)) {
+      const ox = Math.round(Math.cos(t.a)), oy = Math.round(Math.sin(t.a));
+      if (this.put(t.lx + ox, t.ly + oy, BLOOMS[Math.floor(r() * BLOOMS.length)], "bloom", "bloom", Math.floor(r() * 4), now)) {
+        for (let s = 0; s < 2; s++) this.spore((t.lx + ox + 0.5) * this.cw, (t.ly + oy) * this.ch, now);
+      }
+    }
+  }
+  spore(x, y, now) {
+    if (this.spores.length > (this.o.maxSpores || 26)) return;
+    const r = this.rand;
+    this.spores.push({ x, y, vx: (r() - 0.5) * 6, vy: -(6 + r() * 10), born: now, life: 5000 + r() * 5000, ch: SPORES[Math.floor(r() * SPORES.length)], ph: r() * TAU });
+  }
+  render(now) {
+    const ctx = this.ctx, P = pal(), o = this.o;
+    ctx.clearRect(0, 0, this.w, this.h);
+    ctx.font = this.fontStr; ctx.textBaseline = "top"; ctx.textAlign = "left";
+    if (o.field) this.renderField(now, P);
+    if (o.under) o.under(this, now, P);
+    const t = now / 1000;
+    for (const [k, c] of this.cells) {
+      let a = smooth(0, 700, now - c.born) * P.base * (o.alpha ?? 1);
+      if (c.dying) { a *= 1 - smooth(c.dying, c.dying + 900, now); if (now - c.dying > 900) { this.cells.delete(k); continue; } }
+      if (a <= 0.01) continue;
+      if (o.breathe && !reduce) a *= 0.84 + 0.16 * Math.sin(t * 0.9 + c.phase * 0.35 + c.x * 0.11 - c.y * 0.17);
+      if (c.kind === "stem") a *= 0.9;
+      const color = P[c.pal][c.ci % P[c.pal].length];
+      const x = c.x * this.cw, y = c.y * this.ch;
+      let f = 0;
+      if (c.kind === "leaf" && c.alt && !reduce) f = smooth(0.88, 1, Math.sin(t * 1.25 - c.x * 0.085 + c.y * 0.05 + c.phase * 0.08));
+      ctx.fillStyle = color;
+      if (f > 0) { ctx.globalAlpha = a * (1 - f); ctx.fillText(c.ch, x, y); ctx.globalAlpha = a * f; ctx.fillText(c.alt, x, y); }
+      else { ctx.globalAlpha = a; ctx.fillText(c.ch, x, y); }
+      // A brand-new bloom flashes a little brighter as it opens.
+      if (c.kind === "bloom") { const pop = 1 - smooth(0, 900, now - c.born); if (pop > 0) { ctx.globalAlpha = pop * 0.6; ctx.fillText(c.ch, x, y - pop * 2); } }
+    }
+    // Growing tips glide between cells as soft bright heads.
+    if (this.cells.size < this.budget) {
+      ctx.fillStyle = P.head;
+      for (const tp of this.tips) {
+        ctx.globalAlpha = 0.85 * smooth(0, 300, now - this.t0);
+        ctx.fillText("•", tp.px - this.cw * 0.5, tp.py - this.ch * 0.55);
+      }
+    }
+    // Spores drift up and sway.
+    ctx.fillStyle = P.spore;
+    for (let i = this.spores.length - 1; i >= 0; i--) {
+      const s = this.spores[i], age = now - s.born;
+      if (age > s.life) { this.spores.splice(i, 1); continue; }
+      const k = age / 1000;
+      const x = s.x + s.vx * k + Math.sin(k * 1.3 + s.ph) * 6, y = s.y + s.vy * k;
+      ctx.globalAlpha = 0.7 * smooth(0, 800, age) * (1 - smooth(s.life - 1600, s.life, age));
+      ctx.fillText(s.ch, x, y);
+    }
+    if (o.over) o.over(this, now, P);
+    ctx.globalAlpha = 1;
+  }
+  renderField(now, P) {
+    const ctx = this.ctx, sx = 2, sy = 1;
+    if (!this.fieldGlyphs) {
+      this.fieldGlyphs = [];
+      const set = [".", "·", ":", "˙", "'", "`", ",", "·"];
+      for (let y = 0; y < this.rows; y += sy) for (let x = 0; x < this.cols; x += sx) this.fieldGlyphs.push([x, y, set[Math.floor(hash2(x * 7, y * 13) * set.length)]]);
+    }
+    const t = reduce ? 0 : now / 1000;
+    ctx.fillStyle = P.field;
+    for (const [x, y, g] of this.fieldGlyphs) {
+      const n = vnoise(x * 0.055 + t * 0.09, y * 0.11 - t * 0.05) * 0.65 + vnoise(x * 0.13 - t * 0.04, y * 0.23 + t * 0.07) * 0.35;
+      const a = P.fieldMax * smooth(0.42, 0.85, n) * smooth(0, 1400, now - this.t0);
+      if (a < 0.012) continue;
+      ctx.globalAlpha = a;
+      ctx.fillText(g, x * this.cw, y * this.ch);
+    }
+  }
+}
+
+/* ---------------- paths ---------------- */
+function rectPath(s, rect, off, startCorner = 0, frac = 1, cw = true) {
+  // rect in px; returns points (cells) every ~0.5 cell around a rounded rectangle.
+  const x0 = rect.left / s.cw - off, y0 = rect.top / s.ch - off * 0.6, x1 = rect.right / s.cw + off - 1, y1 = rect.bottom / s.ch + off * 0.6 - 1;
+  const rr = 1.6, pts = [];
+  const corners = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
+  const seg = (ax, ay, bx, by) => { const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, (by - ay) * 1.6) * 2)); for (let i = 0; i < n; i++) pts.push({ x: ax + (bx - ax) * i / n, y: ay + (by - ay) * i / n }); };
+  const loop = [];
+  for (let i = 0; i < 4; i++) { const a = corners[i], b = corners[(i + 1) % 4]; loop.push([a, b]); }
+  const ordered = cw ? loop : loop.slice().reverse().map(([a, b]) => [b, a]);
+  for (let i = 0; i < 4; i++) { const [a, b] = ordered[(i + startCorner) % 4]; seg(a[0], a[1], b[0], b[1]); }
+  void rr;
+  return pts.slice(0, Math.floor(pts.length * frac));
+}
+function arcPath(cx, cy, rx, ry, start, sweep, step = 0.45) {
+  const pts = [], n = Math.ceil(Math.abs(sweep) * Math.max(rx, ry * 1.6) / step);
+  for (let i = 0; i <= n; i++) { const a = start + sweep * i / n; pts.push({ x: cx + Math.cos(a) * rx, y: cy + Math.sin(a) * ry }); }
+  return pts;
+}
+function linePath(x0, y0, x1, y1, step = 0.5) {
+  const pts = [], n = Math.ceil(Math.hypot(x1 - x0, y1 - y0) / step);
+  for (let i = 0; i <= n; i++) pts.push({ x: x0 + (x1 - x0) * i / n, y: y0 + (y1 - y0) * i / n });
+  return pts;
+}
+function relRect(el, root) {
+  const a = el.getBoundingClientRect(), b = root.getBoundingClientRect();
+  return { left: a.left - b.left, top: a.top - b.top, right: a.right - b.left, bottom: a.bottom - b.top, width: a.width, height: a.height };
+}
+function cellsOf(s, r) { return { x0: Math.floor(r.left / s.cw), y0: Math.floor(r.top / s.ch), x1: Math.ceil(r.right / s.cw), y1: Math.ceil(r.bottom / s.ch) }; }
+const inside = (c, x, y, pad = 0) => x >= c.x0 - pad && x < c.x1 + pad && y >= c.y0 - pad && y < c.y1 + pad;
+
+/* Jump a scene to a new growth target without replaying from zero: cells that
+   already existed stay, new ones fade in staggered, removed ones fade out. */
+function regrow(s, prepare, now) {
+  const prev = s.cells || new Map();
+  s.reset(now); prepare();
+  for (let i = 0; i < 6000 && s.tips.length && s.cells.size < s.budget; i++) s.step(1000 / s.o.speed, now);
+  let n = 0;
+  for (const [k, c] of s.cells) { const p = prev.get(k); c.born = (p && !p.dying) ? Math.min(p.born, now - 800) : now + (n++) * 7; }
+  for (const [k, p] of prev) if (!s.cells.has(k) && !p.dying) { p.dying = now; s.cells.set(k, p); }
+}
+
+
+
+/* ---------------- themes (values from Theme.swift) ---------------- */
+const T = (canvas, surface, elevated, ink, ink2, accent, onAccent, border, chart) => ({ canvas, surface, elevated, ink, ink2, accent, onAccent, border, chart });
+const THEMES = {
+  stillleaf: { name: "Stillleaf", light: T("#F5F8F5", "#E9F1ED", "#DCE9E2", "#183D33", "#4B6A5E", "#176650", "#FFFFFF", "#D0DED6", ["#176650", "#9A6424", "#6E877C"]), dark: T("#111A18", "#18251F", "#22332D", "#E6F1EB", "#A3BAAF", "#6FD4AE", "#0E2E23", "#2A3B35", ["#6FD4AE", "#E2B574", "#7F978C"]) },
+  forest:    { name: "Forest",    light: T("#F4F6F1", "#E8EDE2", "#DBE3D2", "#1F2E1C", "#4D5D48", "#2F6B2A", "#FFFFFF", "#CCD6C3", ["#2F6B2A", "#92641A", "#72826C"]), dark: T("#111610", "#192017", "#232C20", "#E5EDDF", "#A8B7A0", "#9CCB7A", "#17280C", "#2B3527", ["#9CCB7A", "#D9A95E", "#84927D"]) },
+  graphite:  { name: "Graphite",  light: T("#F6F6F7", "#ECECEE", "#E1E1E4", "#1D1D1F", "#5A5A61", "#2A5BD7", "#FFFFFF", "#D6D6DB", ["#2A5BD7", "#A15F14", "#7C7C85"]), dark: T("#151516", "#1F1F21", "#2A2A2D", "#ECECEF", "#A6A6AD", "#86ABFF", "#0B1A3D", "#333337", ["#86ABFF", "#E0A15A", "#85858E"]) },
+  ocean:     { name: "Ocean",     light: T("#F3F7FA", "#E7EFF5", "#D9E6EF", "#14324A", "#46607A", "#0B67A3", "#FFFFFF", "#CBDBE6", ["#0B67A3", "#A3601C", "#6D8599"]), dark: T("#0F1822", "#16222E", "#20303F", "#E3EEF6", "#9FB5C6", "#6CC0F0", "#06263A", "#27394B", ["#6CC0F0", "#E3A35E", "#7C94A8"]) },
+  clay:      { name: "Clay",      light: T("#F9F5F0", "#F1E9E0", "#E7DBCE", "#3A2618", "#6A5243", "#A4492D", "#FFFFFF", "#DFD0C0", ["#A4492D", "#2F7466", "#94806F"]), dark: T("#1B1511", "#251D18", "#322720", "#F2E7DC", "#C2AD9C", "#F08A68", "#3A1206", "#3B2F27", ["#F08A68", "#7FC4AE", "#9A897B"]) },
+  plum:      { name: "Plum",      light: T("#F8F5F9", "#EFE8F2", "#E4D9E9", "#32203D", "#62506D", "#7A3E9F", "#FFFFFF", "#DBCEE1", ["#7A3E9F", "#A35E1D", "#8C7D96"]), dark: T("#18131C", "#211A27", "#2D2334", "#EFE6F4", "#B9A8C4", "#C9A0F0", "#2B1240", "#362B3E", ["#C9A0F0", "#E4A25E", "#8E7F99"]) }
+};
+let themeId = "stillleaf";
+const hexRGB = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+const toHex = rgb => "#" + rgb.map(v => Math.round(Math.max(0, Math.min(255, v))).toString(16).padStart(2, "0")).join("");
+const mix = (a, b, t) => { const x = hexRGB(a), y = hexRGB(b); return toHex(x.map((v, i) => v + (y[i] - v) * t)); };
+const rgba = (h, a) => { const [r, g, b] = hexRGB(h); return `rgba(${r},${g},${b},${a})`; };
+function toHSL(hex) {
+  const [r, g, b] = hexRGB(hex).map(v => v / 255), mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2;
+  if (mx === mn) return [0, 0, l];
+  const d = mx - mn, s = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn);
+  const h = mx === r ? (g - b) / d + (g < b ? 6 : 0) : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return [h * 60, s, l];
+}
+function fromHSL(h, s, l) {
+  h = ((h % 360) + 360) % 360; s = Math.max(0, Math.min(1, s)); l = Math.max(0, Math.min(1, l));
+  const c = (1 - Math.abs(2 * l - 1)) * s, x = c * (1 - Math.abs((h / 60) % 2 - 1)), m = l - c / 2;
+  const [r, g, b] = h < 60 ? [c, x, 0] : h < 120 ? [x, c, 0] : h < 180 ? [0, c, x] : h < 240 ? [0, x, c] : h < 300 ? [x, 0, c] : [c, 0, x];
+  return toHex([(r + m) * 255, (g + m) * 255, (b + m) * 255]);
+}
+/* Vines take the theme's accent hue and fan out a little either side of it;
+   blooms use the theme's warm chart colour plus a complementary hue. */
+function vinePal(c, dark) {
+  const [h, sat] = toHSL(c.accent), s = Math.max(0.38, Math.min(0.8, sat));
+  const leafL = dark ? [0.64, 0.71, 0.57, 0.75, 0.67] : [0.36, 0.42, 0.32, 0.29, 0.40];
+  const leaf = [0, 16, -14, 30, -28].map((dh, i) => fromHSL(h + dh, s, leafL[i]));
+  const stem = [c.accent, mix(c.accent, c.ink, 0.25), mix(c.accent, c.chart[2], 0.35), fromHSL(h, s * 0.9, dark ? 0.46 : 0.26)];
+  const bloom = [c.chart[1], dark ? "#F5C65E" : "#D48E14", fromHSL(h + 150, 0.62, dark ? 0.72 : 0.52), fromHSL(h + 205, 0.55, dark ? 0.74 : 0.5)];
+  return { stem, leaf, bloom, head: dark ? mix(c.accent, "#FFFFFF", 0.7) : mix(c.accent, "#000000", 0.35), field: c.accent, fieldMax: dark ? 0.19 : 0.24, track: rgba(c.ink, dark ? 0.16 : 0.2), spore: leaf[1], base: dark ? 0.85 : 0.96 };
+}
+function applyTheme() {
+  const set = THEMES[themeId], c = set[theme], dark = theme === "dark";
+  PAL.light = vinePal(set.light, false); PAL.dark = vinePal(set.dark, true);
+  const [h, sat] = toHSL(c.accent);
+  const vars = {
+    "--page": dark ? mix(c.canvas, "#000000", 0.38) : mix(c.canvas, c.border, 0.55),
+    "--canvas": c.canvas, "--paper": dark ? c.surface : mix(c.canvas, "#FFFFFF", 0.6),
+    "--fold": dark ? "rgba(0,0,0,0.28)" : rgba(c.ink, 0.07),
+    "--ink": c.ink, "--ink2": c.ink2, "--ink3": mix(c.ink2, c.canvas, 0.3),
+    "--accent": c.accent, "--on-accent": c.onAccent,
+    "--glass-fill": rgba(dark ? c.surface : c.canvas, dark ? 0.55 : 0.6),
+    "--glass-strong": rgba(dark ? c.surface : c.canvas, dark ? 0.74 : 0.76),
+    "--glass-edge": dark ? rgba(c.ink, 0.12) : "rgba(255,255,255,0.75)",
+    "--glass-hi": dark ? "rgba(255,255,255,0.07)" : "rgba(255,255,255,0.95)",
+    "--glass-shadow": dark ? "rgba(0,0,0,0.38)" : rgba(c.ink, 0.12),
+    "--rule": rgba(c.ink, dark ? 0.1 : 0.12),
+    "--win-shadow": dark ? "0 30px 90px rgba(0,0,0,0.6), 0 2px 10px rgba(0,0,0,0.4)" : `0 30px 80px ${rgba(c.ink, 0.2)}, 0 2px 8px ${rgba(c.ink, 0.1)}`,
+    "--cover-a": fromHSL(h, Math.min(0.6, sat), 0.36), "--cover-b": fromHSL(h, Math.min(0.6, sat), 0.15)
+  };
+  for (const [k, v] of Object.entries(vars)) document.body.style.setProperty(k, v);
+  document.querySelectorAll("[data-theme-id]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.themeId === themeId)));
+  document.querySelectorAll("[data-set-theme]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.setTheme === theme)));
+}
+const chips = document.getElementById("themes");
+for (const [id, t] of Object.entries(THEMES)) {
+  const b = document.createElement("button");
+  b.className = "chip"; b.dataset.themeId = id; b.dataset.choice = "theme-" + id;
+  b.innerHTML = `<i style="background:linear-gradient(135deg, ${t.light.accent} 50%, ${t.dark.accent} 50%)"></i>${t.name}`;
+  b.addEventListener("click", () => { themeId = id; applyTheme(); });
+  chips.appendChild(b);
+}
+
+/* ---------------- dashboard: Garden ---------------- */
+const dash = document.getElementById("dash");
+const dashCanvas = document.createElement("canvas"); dashCanvas.className = "ascii"; dash.prepend(dashCanvas);
+const dashScenes = [];
+const dashGarden = new Scene(dashCanvas, {
+  seed: 21, font: 13, field: true, maxCells: 2400, maxTips: 70, speed: 15,
+  setup(s) {
+    const head = cellsOf(s, relRect(dash.querySelector(".head"), dash));
+    s.o.mask = (s, x, y) => !inside(head, x, y, 1);
+    const R = s.rows - 1, n = 9;
+    for (let i = 0; i < n; i++) {
+      const x = Math.round((i + 0.5) * s.cols / n + (s.rand() - 0.5) * 6);
+      s.tip({ x, y: R, a: -Math.PI / 2 + (s.rand() - 0.5) * 0.6, bias: -Math.PI / 2, bs: 0.035, life: 30 + Math.floor(s.rand() * 26), hue: i, branchP: 0.085, branchLife: 18 });
+    }
+    s.tip({ x: s.cols - 1, y: 2, a: 2.6, bias: 2.0, bs: 0.04, life: 40, hue: 2 });
+    s.tip({ x: 0, y: 6, a: 0.5, bias: 0.9, bs: 0.04, life: 36, hue: 1 });
+  }
+});
+dashScenes.push(dashGarden);
+const ringCanvas = document.getElementById("dash-ring");
+const dashRing = new Scene(ringCanvas, {
+  seed: 22, font: 12, maxCells: 600, speed: 22,
+  setup(s) {
+    const cx = s.cols / 2 - 0.5, cy = s.rows / 2 + 0.3, rx = s.cols * 0.42, ry = s.rows * 0.41, start = Math.PI * 0.75, sweep = Math.PI * 1.5;
+    s.track = arcPath(cx, cy, rx, ry, start, sweep, 0.9);
+    const path = arcPath(cx, cy, rx, ry, start, sweep * 0.63);
+    s.tip({ x: Math.round(path[0].x), y: Math.round(path[0].y), path, amp: 0.25, freq: 0.5, life: 9999, hue: 0, leafP: 0.26, branchP: 0, bloomP: 1 });
+  },
+  under(s, now, P) { const ctx = s.ctx; ctx.fillStyle = P.track; for (const p of s.track) { ctx.globalAlpha = 0.9 * smooth(0, 600, now - s.t0); ctx.fillText("·", Math.round(p.x) * s.cw, Math.round(p.y) * s.ch); } }
+});
+dashScenes.push(dashRing);
+const dashLineCanvas = document.getElementById("dash-line");
+const dashLine = new Scene(dashLineCanvas, {
+  seed: 23, font: 12, maxCells: 400, speed: 26,
+  setup(s) {
+    const y = Math.floor(s.rows / 2); s.lineY = y; s.full = linePath(0, y, s.cols - 6, y, 1);
+    const path = s.full.slice(0, Math.round(s.full.length * 0.38));
+    s.tip({ x: 0, y, path, amp: 0, life: 9999, hue: 0, leafP: 0.42, branchP: 0, bloomP: 1 });
+  },
+  under(s, now, P) { const ctx = s.ctx; ctx.fillStyle = P.track; for (const p of s.full) { const k = Math.round(p.x) + s.lineY * s.cols; if (s.cells.has(k)) continue; ctx.globalAlpha = 0.9; ctx.fillText("·", Math.round(p.x) * s.cw, s.lineY * s.ch); } }
+});
+dashScenes.push(dashLine);
+
+/* ---------------- reader modes ---------------- */
+const P1 = "I went to the woods because I wished to live deliberately, to front only the essential facts of life, and see if I could not learn what it had to teach, and not, when I came to die, discover that I had not lived. I did not wish to live what was not life, living is so dear; nor did I wish to practise resignation, unless it was quite necessary.";
+const P2 = "I wanted to live deep and suck out all the marrow of life, to live so sturdily and Spartan-like as to put to rout all that was not life, to cut a broad swath and shave close, to drive life into a corner, and reduce it to its lowest terms.";
+const P3 = "Our life is frittered away by detail. An honest man has hardly need to count more than his ten fingers, or in extreme cases he may add his ten toes, and lump the rest. Simplicity, simplicity, simplicity! I say, let your affairs be as two or three, and not a hundred or a thousand.";
+const P4 = "Time is but the stream I go a-fishing in. I drink at it; but while I drink I see the sandy bottom and detect how shallow it is. Its thin current slides away, but eternity remains. I would drink deeper; fish in the sky, whose bottom is pebbly with stars.";
+const CHAP = '<div class="chap">Chapter II · Where I Lived, and What I Lived For</div>';
+const para = t => `<p>${t}</p>`;
+
+const win = document.getElementById("win"), sheet = document.getElementById("sheet"), foot = document.getElementById("foot");
+const flow1 = document.getElementById("flow1"), flow2 = document.getElementById("flow2");
+const progress = document.getElementById("progress");
+const scenes = [...dashScenes], readerScenes = [];
+let mode = "single";
+
+const EXPLAIN = {
+  single: ["Single page", "The margins are wide, about 20 characters on each side, so the full garden grows in both. It's bare at the start of a chapter and full at the end. The footer vine tracks the same progress."],
+  facing: ["Facing pages", "Two pages fill most of the window, so the outer margins hold a narrower garden, still above the 7-character minimum. One vine climbs the fold between the pages: that's the chapter progress, readable at a glance like a bookmark ribbon. It stays inside the 88 pt column gap and never touches text."],
+  small: ["Facing pages, small window", "The outer margins drop below 7 characters, so the margin garden steps aside instead of cramming in. Only the spine vine and the footer vine remain, so the motif and the progress cue survive at any size."],
+  scroll: ["Continuous scroll", "Scrolling uses the single-page layout. The vines stay fixed while the text flows past them (watch it scroll), so the only thing moving near your eye is what you're reading."]
+};
+
+function containerWidth() { return win.parentElement.clientWidth; }
+function geometry(m) {
+  const W = m === "small" ? 880 : containerWidth();
+  if (m === "single" || m === "scroll") { const w = 600; return { W, left: (W - w) / 2, width: w }; }
+  const outer = m === "small" ? 34 : 128;
+  const width = Math.min(1120, W - outer * 2);
+  return { W, left: (W - width) / 2, width };
+}
+
+function fillText(m) {
+  if (m === "facing" || m === "small") { flow1.innerHTML = CHAP + para(P1) + para(P2); flow2.innerHTML = para(P3) + para(P4); }
+  else if (m === "scroll") { const t = CHAP + para(P1) + para(P2) + para(P3) + para(P4); flow1.innerHTML = t + t; flow2.innerHTML = ""; }
+  else { flow1.innerHTML = CHAP + para(P1) + para(P2) + para(P3); flow2.innerHTML = ""; }
+}
+
+function applyLayout(m) {
+  const g = geometry(m);
+  win.classList.toggle("small", m === "small");
+  sheet.classList.toggle("facing", m === "facing" || m === "small");
+  sheet.classList.toggle("scroll", m === "scroll");
+  sheet.style.left = g.left + "px"; sheet.style.width = g.width + "px";
+  foot.style.left = g.left + "px"; foot.style.width = g.width + "px";
+  const f = progress.value / 100;
+  const page = Math.round(98 + f * 36);
+  document.getElementById("pg").textContent = (m === "facing" || m === "small") ? `Pages ${page}–${page + 1} of 297` : `Page ${page} of 297`;
+  const [h, t] = EXPLAIN[m];
+  document.getElementById("explain").innerHTML = `<h3>${h}</h3><p>${t}</p>`;
+}
+
+/* margin garden: behind the sheet, only in margins at least MIN_COLS wide */
+const MIN_COLS = 7;
+const backCanvas = document.createElement("canvas"); backCanvas.className = "ascii"; win.prepend(backCanvas);
+const garden = new Scene(backCanvas, {
+  seed: 5, font: 13, maxCells: 1500, maxTips: 50, speed: 16,
+  setup(s) {
+    const sh = cellsOf(s, relRect(sheet, win));
+    const bars = [...win.querySelectorAll(".rbar, .rfoot")].map(el => cellsOf(s, relRect(el, win)));
+    const leftOK = sh.x0 - 2 >= MIN_COLS, rightOK = s.cols - sh.x1 - 2 >= MIN_COLS;
+    s.o.mask = (s, x, y) => {
+      if (inside(sh, x, y, 2) || bars.some(b => inside(b, x, y, 1))) return false;
+      if (x < sh.x0) return leftOK;
+      if (x >= sh.x1) return rightOK;
+      return y < sh.y0 - 2 ? false : false;
+    };
+    const R = s.rows - 1, seeds = [];
+    if (leftOK) {
+      const L = sh.x0 - 3;
+      seeds.push({ x: 3, y: R, a: -1.3, bias: -1.5 }, { x: Math.max(2, L), y: R, a: -1.75, bias: -1.6 }, { x: Math.floor(L / 2), y: R, a: -1.5, bias: -1.5 }, { x: 1, y: 6, a: 0.7, bias: 1.25 });
+    }
+    if (rightOK) {
+      const Rt = sh.x1 + 2;
+      seeds.push({ x: s.cols - 4, y: R, a: -1.8, bias: -1.6 }, { x: Math.min(s.cols - 2, Rt), y: R, a: -1.4, bias: -1.55 }, { x: Math.floor((Rt + s.cols) / 2), y: R, a: -1.6, bias: -1.6 }, { x: s.cols - 2, y: 6, a: 2.45, bias: 1.9 });
+    }
+    seeds.forEach((t, i) => s.tip(Object.assign({ life: 56, hue: i, bs: 0.045, branchP: 0.09, branchLife: 16 }, t)));
+    s.ready = seeds.length > 0;
+  }
+});
+garden.host = win; scenes.push(garden); readerScenes.push(garden);
+garden.setProgress = f => { garden.budget = Math.max(24, Math.round(garden.o.maxCells * f)); };
+
+/* spine vine: an overlay confined to the column gap */
+const spineCanvas = document.getElementById("spine");
+const spine = new Scene(spineCanvas, {
+  seed: 9, font: 13, maxCells: 400, speed: 18,
+  setup(s) {
+    if (!sheet.classList.contains("facing")) { s.o.mask = () => false; s.path = null; return; }
+    const r = relRect(sheet, win), cx = (r.left + r.right) / 2 / s.cw - 0.5;
+    const top = (r.top + 46) / s.ch, bottom = (r.bottom - 40) / s.ch;
+    const halfGap = 44 / s.cw - 1.4;
+    s.o.mask = (s, x, y) => Math.abs(x - cx) <= halfGap && y >= top - 1 && y <= bottom + 1;
+    s.full = linePath(cx, bottom, cx, top, 0.5);
+    s.track = s.full.filter((_, i) => i % 2 === 0);
+  },
+  under(s, now, P) {
+    if (!s.track) return;
+    const ctx = s.ctx; ctx.fillStyle = P.track;
+    for (const p of s.track) { const x = Math.round(p.x), y = Math.round(p.y); if (s.cells.has(y * s.cols + x)) continue; ctx.globalAlpha = 0.55; ctx.fillText("·", x * s.cw, y * s.ch); }
+  }
+});
+spine.host = win; scenes.push(spine); readerScenes.push(spine);
+spine.grow = f => {
+  spine.tips = [];
+  if (!spine.full) return;
+  const path = spine.full.slice(0, Math.max(2, Math.round(spine.full.length * f)));
+  spine.tip({ x: Math.round(path[0].x), y: Math.round(path[0].y), path, amp: 0.9, freq: 0.42, life: 9999, hue: 0, leafP: 0.5, branchP: 0, bloomP: 1 });
+};
+
+/* footer vine */
+const lineCanvas = document.getElementById("line");
+const line = new Scene(lineCanvas, {
+  seed: 3, font: 12, maxCells: 400, speed: 26,
+  setup(s) { const y = Math.floor(s.rows / 2); s.lineY = y; s.full = linePath(0, y, s.cols - 1, y, 1); },
+  under(s, now, P) {
+    const ctx = s.ctx; ctx.fillStyle = P.track;
+    for (const p of s.full) { const k = Math.round(p.x) + s.lineY * s.cols; if (s.cells.has(k)) continue; ctx.globalAlpha = 0.9; ctx.fillText("·", Math.round(p.x) * s.cw, s.lineY * s.ch); }
+  }
+});
+line.host = win; scenes.push(line); readerScenes.push(line);
+line.grow = f => { line.tips = []; const path = line.full.slice(0, Math.max(2, Math.round(line.full.length * f))); line.tip({ x: 0, y: line.lineY, path, amp: 0, life: 9999, hue: 0, leafP: 0.42, branchP: 0, bloomP: 1 }); };
+
+function prepare(s, f) {
+  if (s === garden) s.setProgress(f);
+  else s.grow(f);
+}
+function growAll(animated) {
+  const now = performance.now(), f = progress.value / 100;
+  for (const s of readerScenes) {
+    s.resize();
+    if (animated) { s.started = true; s.reset(now); prepare(s, f); }
+    else regrow(s, () => prepare(s, f), now);
+  }
+}
+
+function setMode(m, first) {
+  mode = m;
+  document.querySelectorAll("[data-mode]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.mode === m)));
+  const now = performance.now();
+  if (!first) for (const s of readerScenes) if (s.cells) for (const c of s.cells.values()) if (!c.dying) c.dying = now;
+  setTimeout(() => fillText(m), first ? 0 : 220);
+  applyLayout(m);
+  // Regrow once the layout has settled into its new geometry.
+  clearTimeout(setMode.timer);
+  setMode.timer = setTimeout(() => growAll(true), first ? 0 : 760);
+}
+
+progress.addEventListener("input", () => {
+  document.getElementById("progress-v").textContent = progress.value + "%";
+  document.getElementById("pct").textContent = progress.value + "%";
+  applyLayout(mode);
+  const now = performance.now(), f = progress.value / 100;
+  for (const s of readerScenes) if (s.started) regrow(s, () => prepare(s, f), now);
+});
+
+function setTheme(t) { theme = t; document.body.dataset.theme = t; applyTheme(); }
+document.querySelectorAll("[data-set-theme]").forEach(b => b.addEventListener("click", () => setTheme(b.dataset.setTheme)));
+setTheme(matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+document.querySelectorAll("[data-mode]").forEach(b => b.addEventListener("click", () => setMode(b.dataset.mode)));
+
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min(64, now - last); last = now;
+  for (const s of scenes) { if (!s.started) continue; s.step(dt, now); s.render(now); }
+  requestAnimationFrame(frame);
+}
+const ready = document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve();
+ready.then(() => requestAnimationFrame(() => {
+  // Place the page without animating it in from the left on first load.
+  [sheet, foot].forEach(el => el.style.transition = "none");
+  applyLayout("single"); fillText("single"); void sheet.offsetWidth;
+  [sheet, foot].forEach(el => el.style.transition = "");
+  const seen = new Set();
+  const io = new IntersectionObserver(entries => {
+    for (const e of entries) {
+      if (!e.isIntersecting || seen.has(e.target)) continue;
+      seen.add(e.target);
+      if (e.target === dash) { const now = performance.now(); dashScenes.forEach(s => { s.resize(); s.start(now); }); }
+      else setMode("single", true);
+    }
+  }, { threshold: 0.2 });
+  io.observe(dash); io.observe(win);
+  requestAnimationFrame(frame);
+}));
+let rt; addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(() => { applyLayout(mode); setTimeout(() => growAll(false), 700); }, 200); });
+})();
+</script>
+</body>
+</html>

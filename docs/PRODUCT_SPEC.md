@@ -22,7 +22,7 @@ The popover should show the current cover/title, session duration, today’s rea
 
 Closing the dashboard must leave tracking running. Quitting the application must stop it. Prevent duplicate tracker instances.
 
-Design a quiet, attractive interface with strong typography, book covers, clear charts, and restrained color. Avoid a cluttered gamification dashboard.
+Design an attractive interface with strong typography, book covers and clear charts. Glass surfaces over animated ASCII vines give it a colourful identity (see [the glass + vines spec](specs/glass-vines.md)); legibility and calm reading come first, and the vines can be stilled or turned off. Avoid a cluttered gamification dashboard.
 
 VALIDATE APPLE BOOKS ACCESS FIRST
 
