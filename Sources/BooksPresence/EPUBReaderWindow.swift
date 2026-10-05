@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import WebKit
 import BooksCore
 import BooksPlatform
@@ -113,6 +114,18 @@ private final class EPUBReaderWindow: NSObject, NSWindowDelegate, WKNavigationDe
     var positionChanged: (() -> Void)?
     private var progressDelivery = ReaderProgressDeliveryGate()
     private var progressDeliveryTask: Task<Void, Never>?
+    private var gardenSubscription: AnyCancellable?
+
+    /// Passes the app's Garden setting to the margin garden, now and whenever it changes.
+    private func sendGardenMode() {
+        if gardenSubscription == nil {
+            gardenSubscription = ThemeStore.shared.$revision.dropFirst().receive(on: RunLoop.main)
+                .sink { [weak self] _ in self?.sendGardenMode() }
+        }
+        guard isReady else { return }
+        let mode = ThemeStore.shared.effectiveGardenMode(reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion).rawValue
+        webView.callAsyncJavaScript("window.StillleafReader.setGardenMode?.(mode)", arguments: ["mode": mode], in: nil, in: .page) { _ in }
+    }
     var positionFinalized: ((ProgressObservation) -> Void)?
 
     init(publication: EPUBPublication, directory: URL, stateDirectory: URL) async throws {
@@ -239,7 +252,7 @@ private final class EPUBReaderWindow: NSObject, NSWindowDelegate, WKNavigationDe
         if event["type"] as? String == "available" { Task { await startWhenAvailable() }; return }
         guard event["editionId"] as? String == publication.id else { return }
         if event["type"] as? String == "close-request" { Task { if await requestClose() { returnToLibrary?() } }; return }
-        if event["type"] as? String == "ready" { isReady = true; if window?.isKeyWindow == true { focused?() }; Task { await chrome.connect() }; return }
+        if event["type"] as? String == "ready" { isReady = true; sendGardenMode(); if window?.isKeyWindow == true { focused?() }; Task { await chrome.connect() }; return }
         if event["type"] as? String == "chrome-focus" { chrome.returnFocus?(); return }
         if event["type"] as? String == "chrome" {
             guard event["version"] as? Int == 1, let sequence = event["sequence"] as? NSNumber,
@@ -534,6 +547,9 @@ func runEPUBReaderSmoke(fixture: URL) async throws {
         try await reader.testAppearanceReview(directory: URL(fileURLWithPath: CommandLine.arguments[index + 1]))
         expectedPreferences = try await reader.testPreferences()
     }
+    readerSmokeCheckpoint("garden mode")
+    let expectedGarden = ThemeStore.shared.effectiveGardenMode(reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion).rawValue
+    guard try await reader.testGardenMode() == expectedGarden else { throw EPUBImportError.invalid("Reader did not receive the Garden setting.") }
     readerSmokeCheckpoint("durable close")
     guard await reader.requestClose() else { throw EPUBImportError.invalid("Reader close did not complete.") }
     let closedState = try JSONSerialization.jsonObject(with: Data(contentsOf: locationURL)) as? [String: Any]
@@ -799,6 +815,17 @@ private extension EPUBReaderWindow {
         guard await requestClose() else { throw EPUBImportError.invalid("Recovered reader did not close durably.") }
         print("native-reader-activation: delayed response during real save failure + Keep Open restored exactly one usable web surface")
     }
+    func testGardenMode() async throws -> String {
+        let deadline = Date().addingTimeInterval(3)
+        var mode = ""
+        repeat {
+            mode = try await webView.evaluateJavaScript("document.documentElement.dataset.garden ?? ''") as? String ?? ""
+            if !mode.isEmpty { return mode }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        } while Date() < deadline
+        return mode
+    }
+
     func testWaitUntilReady() async throws {
         let deadline = Date().addingTimeInterval(20)
         while Date() < deadline {
