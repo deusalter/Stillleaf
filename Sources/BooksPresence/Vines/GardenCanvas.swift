@@ -1,4 +1,5 @@
 import AppKit
+import CoreImage
 import SwiftUI
 
 enum GardenCorner: Equatable {
@@ -44,6 +45,8 @@ final class GardenModel: ObservableObject {
     private var stepTimes: [TimeInterval] = []
     fileprivate var cachedRaster: NSImage?
     fileprivate var cachedRasterKey: RasterKey?
+    fileprivate var cachedFrost: NSImage?
+    fileprivate var cachedFrostKey: RasterKey?
     private var lastTime: TimeInterval?
     private var accumulator = 0.0
 
@@ -139,15 +142,22 @@ final class GardenModel: ObservableObject {
 /// compositor, so an idle garden costs almost nothing. Decorative only: it
 /// never takes input and is hidden from VoiceOver.
 struct GardenCanvas: View {
+    /// The coordinate space glass panels report their frames in.
+    static let space = "garden"
     let layout: GardenLayout
     let mode: GardenMode
+    /// Glass panel frames to frost, and how far the garden's origin sits above that space.
+    let frost: FrostRegions?
+    let frostOffset: CGFloat
     @StateObject private var model = GardenModel()
     @State private var visible = true
     @Environment(\.colorScheme) private var colorScheme
 
-    init(layout: GardenLayout, mode: GardenMode) {
+    init(layout: GardenLayout, mode: GardenMode, frost: FrostRegions? = nil, frostOffset: CGFloat = 0) {
         self.layout = layout
         self.mode = mode
+        self.frost = frost
+        self.frostOffset = frostOffset
     }
 
     var body: some View {
@@ -176,6 +186,24 @@ struct GardenCanvas: View {
     }
 
     @ViewBuilder private func surface(size: CGSize) -> some View {
+        if let frost, mode != .off {
+            // Sharp vines stop at the glass; inside it the garden shows through softly blurred.
+            ZStack(alignment: .topLeading) {
+                sharp(size: size).mask(FrostMask(regions: frost, offset: frostOffset, inverted: true))
+                if !model.growing, let image = model.frostedRaster(palette: palette) {
+                    Image(nsImage: image)
+                        .frame(width: size.width, height: size.height, alignment: .topLeading)
+                        .mask(FrostMask(regions: frost, offset: frostOffset, inverted: false))
+                        .transition(.opacity)
+                }
+            }
+            .animation(.easeOut(duration: 0.6), value: model.growing)
+        } else {
+            sharp(size: size)
+        }
+    }
+
+    @ViewBuilder private func sharp(size: CGSize) -> some View {
         if mode == .off {
             Color.clear
         } else if visible, let interval = GardenClock(mode: mode).frameInterval(growing: model.growing) {
@@ -193,6 +221,34 @@ struct GardenCanvas: View {
     }
 
     private static var now: TimeInterval { Date().timeIntervalSinceReferenceDate }
+}
+
+/// Glass panel frames, observed only by the garden so scrolling never
+/// re-renders the screens themselves.
+@MainActor
+final class FrostRegions: ObservableObject {
+    @Published var rects: [CGRect] = []
+}
+
+/// The union of glass panels (or everything but them, when inverted).
+private struct FrostMask: View {
+    @ObservedObject var regions: FrostRegions
+    let offset: CGFloat
+    let inverted: Bool
+
+    var body: some View {
+        Canvas { context, size in
+            var panels = Path()
+            for rect in regions.rects { panels.addRoundedRect(in: rect.offsetBy(dx: 0, dy: offset), cornerSize: CGSize(width: 16, height: 16), style: .continuous) }
+            if inverted {
+                var everything = Path(CGRect(origin: .zero, size: size))
+                everything.addPath(panels)
+                context.fill(everything, with: .color(.white), style: FillStyle(eoFill: true))
+            } else {
+                context.fill(panels, with: .color(.white))
+            }
+        }
+    }
 }
 
 /// A grown garden: one image, with a soft band of light drifting across it.
@@ -266,6 +322,26 @@ extension GardenModel {
         cachedRasterKey = key
         return image
     }
+
+    /// The grown garden softly blurred and a little more saturated: what shows through glass.
+    func frostedRaster(palette: VinePalette) -> NSImage? {
+        guard let sharp = raster(palette: palette), let key = cachedRasterKey else { return nil }
+        if let cachedFrost, cachedFrostKey == key { return cachedFrost }
+        guard let cg = sharp.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
+        let scale = Double(cg.width) / max(1, sharp.size.width)
+        let input = CIImage(cgImage: cg)
+        let output = input.clampedToExtent()
+            .applyingGaussianBlur(sigma: 3.5 * scale)
+            .applyingFilter("CIColorControls", parameters: [kCIInputSaturationKey: 1.6, kCIInputBrightnessKey: 0.0])
+            .cropped(to: input.extent)
+        guard let blurred = Self.imageContext.createCGImage(output, from: input.extent) else { return nil }
+        let image = NSImage(cgImage: blurred, size: sharp.size)
+        cachedFrost = image
+        cachedFrostKey = key
+        return image
+    }
+
+    private static let imageContext = CIContext(options: [.cacheIntermediates: false])
 
     /// Draws into a flipped, screen-scale bitmap once, so the result never re-runs drawing code.
     static func bitmap(size: CGSize, _ draw: () -> Void) -> NSImage {

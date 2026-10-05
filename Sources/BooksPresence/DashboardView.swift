@@ -22,6 +22,8 @@ struct DashboardView: View {
     @State private var deleteAllConfirmation = false
     @State private var uninstallConfirmation = false
     @State private var sidebarVisible = true
+    /// Glass panel frames for the garden to frost; a class so scrolling only redraws the garden.
+    @State private var frost = FrostRegions()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.nativePreviewReduceMotion) private var previewReduceMotion
 
@@ -74,15 +76,18 @@ struct DashboardView: View {
                     ReadingPalette.canvas
                     // The garden stays put behind scrolling content. Screens adopt it
                     // once all their text sits on glass.
-                    if Self.gardenSections.contains(section) {
+                    if gardenVisible {
                         GardenCanvas(layout: GardenLayout(clearingHeight: proxy.safeAreaInsets.top + Self.gardenClearing,
                                                           seed: GardenSeed.daily("dashboard", day: model.today.day)),
-                                     mode: theme.effectiveGardenMode(reduceMotion: previewReduceMotion ?? reduceMotion))
+                                     mode: gardenMode, frost: frost, frostOffset: proxy.safeAreaInsets.top)
                     }
                 }
                 .ignoresSafeArea()
             }
         }
+        .coordinateSpace(name: GardenCanvas.space)
+        .environment(\.gardenBackdrop, gardenVisible)
+        .onPreferenceChange(GlassRegionsKey.self) { frost.rects = $0 }
         .nativeDashboardSidebarToggle(isCollapsed: !sidebarVisible) {
             withAnimation((previewReduceMotion ?? reduceMotion) ? nil : ReadingMotion.selection) {
                 sidebarVisible.toggle()
@@ -117,6 +122,9 @@ struct DashboardView: View {
     static let gardenSections: Set<DashboardSection> = [.today]
     /// The resting height of a page header: top inset, title and subtitle.
     static let gardenClearing: CGFloat = 114
+
+    private var gardenMode: GardenMode { theme.effectiveGardenMode(reduceMotion: previewReduceMotion ?? reduceMotion) }
+    private var gardenVisible: Bool { Self.gardenSections.contains(section) && gardenMode != .off }
 
     /// Identity of the rendered screen for a theme revision. Settings keeps one identity
     /// because it owns unsaved drafts; every other screen re-keys so colours re-resolve.
