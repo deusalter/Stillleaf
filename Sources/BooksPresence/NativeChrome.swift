@@ -56,8 +56,13 @@ private struct NativeDashboardWindowBackground: ViewModifier {
 
 private struct NativeSidebarToolbar: ViewModifier {
     @ViewBuilder func body(content: Content) -> some View {
+        // toolbar(removing:) needs the macOS 14 SDK, which ships with Swift 5.9.
+        #if compiler(>=5.9)
         if #available(macOS 14.0, *) { content.toolbar(removing: .sidebarToggle) }
         else { content }
+        #else
+        content
+        #endif
     }
 }
 

@@ -182,6 +182,8 @@ private struct MenuPickerWidthPreference: PreferenceKey {
 
 @MainActor func captureNativeWindow(_ window: NSWindow, to url: URL, contextWindow: NSWindow? = nil) async throws {
     try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+    // SCScreenshotManager needs the macOS 14 SDK, which ships with Swift 5.9.
+    #if compiler(>=5.9)
     if #available(macOS 14.0, *) {
         let originalOrigin = window.frame.origin
         defer { window.setFrameOrigin(originalOrigin) }
@@ -235,6 +237,7 @@ private struct MenuPickerWidthPreference: PreferenceKey {
             print(detail)
         }
     }
+    #endif
     guard let frame = window.contentView?.superview else { throw NativeChromeCaptureError.renderFailed }
     frame.layoutSubtreeIfNeeded(); frame.displayIfNeeded()
     guard let bitmap = frame.bitmapImageRepForCachingDisplay(in: frame.bounds) else { throw NativeChromeCaptureError.renderFailed }
