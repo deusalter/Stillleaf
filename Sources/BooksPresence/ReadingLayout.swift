@@ -89,39 +89,56 @@ struct PageHeading: View {
     var body: some View { PageHeader(title, subtitle: subtitle) }
 }
 
-/// A labelled section with a plain sentence-case heading.
+/// A labelled section with a plain sentence-case heading. With `glass`, the
+/// heading and content sit together on one glass card, so no text is drawn
+/// straight over the garden.
 struct ReadingSection<Content: View, Accessory: View>: View {
     let title: String
+    let glass: Bool
     let accessory: Accessory
     let content: Content
 
-    init(_ title: String, @ViewBuilder accessory: () -> Accessory, @ViewBuilder content: () -> Content) {
+    init(_ title: String, glass: Bool = false, @ViewBuilder accessory: () -> Accessory, @ViewBuilder content: () -> Content) {
         self.title = title
+        self.glass = glass
         self.accessory = accessory()
         self.content = content()
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text(title).font(ReadingType.sectionTitle)
-                        .foregroundStyle(ReadingPalette.secondaryInk)
-                        .accessibilityLabel(title).accessibilityAddTraits(.isHeader)
-                    Spacer(minLength: 8)
-                    accessory
-                }
-                Hairline()
+        if glass {
+            VStack(alignment: .leading, spacing: 16) {
+                heading
+                content
             }
-            content
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .readingPanel()
+        } else {
+            VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 8) {
+                    heading
+                    Hairline()
+                }
+                content
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var heading: some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(title).font(ReadingType.sectionTitle)
+                .foregroundStyle(ReadingPalette.secondaryInk)
+                .accessibilityLabel(title).accessibilityAddTraits(.isHeader)
+            Spacer(minLength: 8)
+            accessory
+        }
     }
 }
 
 extension ReadingSection where Accessory == EmptyView {
-    init(_ title: String, @ViewBuilder content: () -> Content) {
-        self.init(title, accessory: { EmptyView() }, content: content)
+    init(_ title: String, glass: Bool = false, @ViewBuilder content: () -> Content) {
+        self.init(title, glass: glass, accessory: { EmptyView() }, content: content)
     }
 }
 
@@ -161,10 +178,9 @@ extension View {
             .frame(maxWidth: .infinity, alignment: .top)
     }
 
-    /// The one surface level: a soft card for a screen's primary block.
+    /// The one surface level: a glass card for a screen's primary block.
     func readingPanel() -> some View {
-        padding(ReadingMetrics.cardPadding)
-            .background(ReadingPalette.surface, in: RoundedRectangle(cornerRadius: ReadingMetrics.Radius.card, style: .continuous))
+        padding(ReadingMetrics.cardPadding).glassSurface()
     }
 }
 

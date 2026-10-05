@@ -1,7 +1,8 @@
 import Foundation
 
-/// Frame pacing for the garden: growth at 60 fps, breathing at 20 fps, and no
-/// frames at all when the garden is still, off or frozen for a render.
+/// Frame pacing for the garden. Only growth needs frames (30 fps); a grown
+/// garden breathes through a compositor animation, and a still, off or frozen
+/// garden schedules nothing.
 struct GardenClock {
     let mode: GardenMode
 
@@ -16,7 +17,7 @@ struct GardenClock {
 
     /// `nil` means no timeline at all: draw one frame and stop.
     func frameInterval(growing: Bool) -> TimeInterval? {
-        guard mode == .animated, Self.frozenTime == nil else { return nil }
-        return growing ? 1.0 / 60 : 1.0 / 20
+        guard mode == .animated, growing, Self.frozenTime == nil else { return nil }
+        return 1.0 / 30
     }
 }

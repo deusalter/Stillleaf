@@ -57,6 +57,14 @@ struct DashboardView: View {
                 .id(section)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background {
+                // The garden stays put behind scrolling content. Screens adopt it
+                // once all their text sits on glass.
+                if Self.gardenSections.contains(section) {
+                    GardenCanvas(layout: GardenLayout(clearingHeight: Self.gardenClearing, seed: GardenSeed.daily("dashboard", day: model.today.day)),
+                                 mode: theme.effectiveGardenMode(reduceMotion: previewReduceMotion ?? reduceMotion))
+                }
+            }
             .background(ReadingPalette.canvas, ignoresSafeAreaEdges: .vertical)
             .foregroundStyle(ReadingPalette.ink)
             .buttonStyle(ReadingButtonStyle())
@@ -90,6 +98,11 @@ struct DashboardView: View {
             Text("This disables startup and moves the installed app to Trash. Your local reading history remains. Use Delete all reading data to remove managed history, backups, and cached covers.")
         }
     }
+
+    /// Screens whose text all sits on glass, so the garden can grow behind them.
+    static let gardenSections: Set<DashboardSection> = [.today]
+    /// The resting height of a page header: top inset, title and subtitle.
+    static let gardenClearing: CGFloat = 114
 
     /// Identity of the rendered screen for a theme revision. Settings keeps one identity
     /// because it owns unsaved drafts; every other screen re-keys so colours re-resolve.

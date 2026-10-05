@@ -22,7 +22,10 @@ func runInteractiveLibraryPreview() throws {
         styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
     window.isReleasedWhenClosed = false
     window.title = "Stillleaf — Synthetic Library Preview"
-    window.contentViewController = NSHostingController(rootView: DashboardView(model: model, initialSection: .library))
+    // `--preview-section today` opens another screen of the same synthetic dashboard.
+    let section = CommandLine.arguments.firstIndex(of: "--preview-section")
+        .flatMap { CommandLine.arguments.indices.contains($0 + 1) ? DashboardSection(rawValue: CommandLine.arguments[$0 + 1]) : nil } ?? .library
+    window.contentViewController = NSHostingController(rootView: DashboardView(model: model, initialSection: section))
     window.center()
     AppPresence.willPresentWindow()
     window.makeKeyAndOrderFront(nil)

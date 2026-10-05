@@ -373,8 +373,8 @@ func runUISmoke() throws {
     guard GardenClock(mode: .still).frameInterval(growing: false) == nil, GardenClock(mode: .still).frameInterval(growing: true) == nil else {
         throw BooksAccessErrorForUI.failed("A still garden scheduled frames")
     }
-    guard GardenClock(mode: .animated).frameInterval(growing: true) == 1.0 / 60 else { throw BooksAccessErrorForUI.failed("Growth is not paced at 60 fps") }
-    guard GardenClock(mode: .animated).frameInterval(growing: false) == 1.0 / 20 else { throw BooksAccessErrorForUI.failed("Breathing is not paced at 20 fps") }
+    guard GardenClock(mode: .animated).frameInterval(growing: true) == 1.0 / 30 else { throw BooksAccessErrorForUI.failed("Growth is not paced at 30 fps") }
+    guard GardenClock(mode: .animated).frameInterval(growing: false) == nil else { throw BooksAccessErrorForUI.failed("A grown garden still schedules frames") }
     let gardenModel = GardenModel()
     gardenModel.configure(layout: GardenLayout(size: CGSize(width: 900, height: 620), clearingHeight: 114, seed: 3), mode: .still, now: 0)
     guard !gardenModel.field.isGrowing, gardenModel.field.cells.count > 100,
@@ -383,6 +383,7 @@ func runUISmoke() throws {
     }
     gardenModel.configure(layout: GardenLayout(size: CGSize(width: 900, height: 620), clearingHeight: 114, seed: 3), mode: .off, now: 0)
     guard gardenModel.field.cells.isEmpty else { throw BooksAccessErrorForUI.failed("An Off garden kept cells") }
+    try checkDottedProgressRow()
     print("ui-smoke: garden mode defaults to animated, persists, and stills for Reduce Motion and Low Power")
     store.select(theme: "stillleaf")
     print("ui-smoke: \(ReadingTheme.all.count) themes persisted, fell back, passed contrast and laid out popover, timeline and appearance")
@@ -788,4 +789,32 @@ private func checkHistoryDateFormatting() throws {
         }
     }
     print("ui-smoke: History date labels preserve timezone, DST, patterns and cache eviction")
+}
+
+
+/// The dotted progress row fills from the leading edge in the accent colour.
+@MainActor
+private func checkDottedProgressRow() throws {
+    NSApp.appearance = NSAppearance(named: .aqua)
+    let accent = ThemeSnapshot.current().light.accent
+    let hosting = NSHostingView(rootView: DottedProgressRow(fraction: 0.38).frame(width: 360, height: 12)
+        .environment(\.colorScheme, .light))
+    hosting.frame = NSRect(x: 0, y: 0, width: 360, height: 12)
+    hosting.layoutSubtreeIfNeeded()
+    guard let bitmap = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) else { throw BooksAccessErrorForUI.failed("Could not render the dotted row") }
+    hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
+    func accentPixels(_ range: Range<Int>) -> Int {
+        var count = 0
+        for x in range { for y in 0..<bitmap.pixelsHigh {
+            guard let c = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB), c.alphaComponent > 0.5 else { continue }
+            let r = Int(c.redComponent * 255), g = Int(c.greenComponent * 255), b = Int(c.blueComponent * 255)
+            if abs(r - Int((accent >> 16) & 0xff)) + abs(g - Int((accent >> 8) & 0xff)) + abs(b - Int(accent & 0xff)) < 60 { count += 1 }
+        } }
+        return count
+    }
+    let third = bitmap.pixelsWide / 3
+    guard accentPixels(0..<third) > 20, accentPixels((2 * third)..<bitmap.pixelsWide) == 0 else {
+        throw BooksAccessErrorForUI.failed("The dotted progress row does not fill from the leading edge")
+    }
+    print("ui-smoke: dotted progress row fills 38% from the leading edge")
 }

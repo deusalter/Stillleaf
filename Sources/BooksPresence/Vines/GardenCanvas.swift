@@ -42,6 +42,8 @@ final class GardenModel: ObservableObject {
     private(set) var layout: GardenLayout?
     private var mode: GardenMode = .off
     private var stepTimes: [TimeInterval] = []
+    fileprivate var cachedRaster: NSImage?
+    fileprivate var cachedRasterKey: RasterKey?
     private var lastTime: TimeInterval?
     private var accumulator = 0.0
 
@@ -131,8 +133,11 @@ final class GardenModel: ObservableObject {
     }
 }
 
-/// The ASCII garden: a drifting pollen field and vines, drawn behind glass.
-/// Decorative only; it never takes input and is hidden from VoiceOver.
+/// The ASCII garden: a pollen field and vines, drawn behind glass. While it
+/// grows it redraws at up to 30 fps from cached glyph bitmaps; once grown it
+/// becomes one raster whose breathing is a slow light band moved by the
+/// compositor, so an idle garden costs almost nothing. Decorative only: it
+/// never takes input and is hidden from VoiceOver.
 struct GardenCanvas: View {
     let layout: GardenLayout
     let mode: GardenMode
@@ -148,7 +153,7 @@ struct GardenCanvas: View {
     var body: some View {
         GeometryReader { proxy in
             let sized = sizedLayout(proxy.size)
-            surface
+            surface(size: proxy.size)
                 .onAppear { model.configure(layout: sized, mode: mode, now: Self.now) }
                 .onChange(of: sized) { model.configure(layout: $0, mode: mode, now: Self.now) }
                 .onChange(of: mode) { model.configure(layout: sized, mode: $0, now: Self.now) }
@@ -164,124 +169,207 @@ struct GardenCanvas: View {
         return sized
     }
 
-    @ViewBuilder private var surface: some View {
+    private var palette: VinePalette {
+        let dark = colorScheme == .dark
+        let snapshot = ThemeSnapshot.current()
+        return VinePalette.make(dark ? snapshot.dark : snapshot.light, dark: dark)
+    }
+
+    @ViewBuilder private func surface(size: CGSize) -> some View {
         if mode == .off {
             Color.clear
         } else if visible, let interval = GardenClock(mode: mode).frameInterval(growing: model.growing) {
+            let palette = palette
             TimelineView(.periodic(from: .now, by: interval)) { context in
-                canvas(time: context.date.timeIntervalSinceReferenceDate)
+                let time = context.date.timeIntervalSinceReferenceDate
+                Canvas { graphics, _ in
+                    model.advance(to: time)
+                    GardenRenderer(model: model, palette: palette, time: time).draw(in: &graphics)
+                }
             }
-        } else {
-            canvas(time: GardenClock.frozenTime.map { Self.now - 100 + $0 } ?? Self.now)
+        } else if let image = model.raster(palette: palette) {
+            GardenStill(image: image, size: size, breathing: mode == .animated && visible && GardenClock.frozenTime == nil)
         }
     }
 
     private static var now: TimeInterval { Date().timeIntervalSinceReferenceDate }
+}
 
-    private func canvas(time: TimeInterval) -> some View {
-        let dark = colorScheme == .dark
-        let snapshot = ThemeSnapshot.current()
-        let palette = VinePalette.make(dark ? snapshot.dark : snapshot.light, dark: dark)
-        let animated = mode == .animated && GardenClock.frozenTime == nil
-        return Canvas { context, _ in
-            model.advance(to: time)
-            GardenRenderer(model: model, palette: palette, time: time, animated: animated).draw(in: &context)
-        }
+/// A grown garden: one image, with a soft band of light drifting across it.
+private struct GardenStill: View {
+    let image: NSImage
+    let size: CGSize
+    let breathing: Bool
+    @State private var sweep = false
+
+    var body: some View {
+        Image(nsImage: image)
+            .frame(width: size.width, height: size.height, alignment: .topLeading)
+            .mask {
+                if breathing {
+                    LinearGradient(stops: [.init(color: .white.opacity(0.74), location: 0), .init(color: .white, location: 0.5),
+                                           .init(color: .white.opacity(0.74), location: 1)],
+                                   startPoint: .leading, endPoint: .trailing)
+                        .frame(width: size.width * 3)
+                        .offset(x: sweep ? size.width : -size.width)
+                        .frame(width: size.width, height: size.height)
+                        .onAppear { withAnimation(.linear(duration: 16).repeatForever(autoreverses: true)) { sweep = true } }
+                } else {
+                    Color.white
+                }
+            }
     }
 }
 
-/// Draws one frame of a garden. Kept apart from the view so the maths reads in one place.
+/// Small bitmaps of each glyph in each colour, drawn once and reused every frame.
+@MainActor
+enum GlyphAtlas {
+    private static var images: [String: NSImage] = [:]
+
+    static func image(_ glyph: Character, _ hex: UInt32) -> NSImage {
+        let key = "\(glyph)\(hex)"
+        if let cached = images[key] { return cached }
+        if images.count > 600 { images.removeAll(keepingCapacity: true) }
+        let size = CGSize(width: GardenModel.cellWidth * 1.6, height: GardenModel.cellHeight)
+        let image = GardenModel.bitmap(size: size) {
+            NSAttributedString(string: String(glyph), attributes: [.font: GardenModel.font, .foregroundColor: ReadingPalette.nsColor(hex)])
+                .draw(at: .zero)
+        }
+        images[key] = image
+        return image
+    }
+}
+
+extension GardenModel {
+    /// The grown garden as one image: pollen, then every cell at rest.
+    func raster(palette: VinePalette) -> NSImage? {
+        guard let layout, field.maxCells > 0, layout.size.width > 0 else { return nil }
+        let key = RasterKey(steps: field.stepCount, cells: field.cells.count, palette: palette, size: layout.size, pollenScale: layout.pollenScale)
+        if let cachedRaster, cachedRasterKey == key { return cachedRaster }
+        let field = field, w = field.cellWidth, h = field.cellHeight
+        let image = Self.bitmap(size: layout.size) {
+            func draw(_ glyph: Character, _ hex: UInt32, _ alpha: Double, _ x: Double, _ y: Double) {
+                NSAttributedString(string: String(glyph), attributes: [.font: Self.font,
+                    .foregroundColor: ReadingPalette.nsColor(hex).withAlphaComponent(min(1, alpha))]).draw(at: CGPoint(x: x, y: y))
+            }
+            if layout.pollen {
+                GardenRenderer.forEachPollen(field: field, layout: layout, palette: palette, time: 0) { glyph, alpha, x, y in
+                    draw(glyph, palette.pollen, alpha, x, y)
+                }
+            }
+            for cell in field.cells.values {
+                let alpha = palette.baseAlpha * (cell.kind == .stem ? 0.9 : 1) * 0.92
+                draw(cell.glyph, palette.color(cell.kind, slot: cell.slot), alpha, Double(cell.x) * w, Double(cell.y) * h)
+            }
+        }
+        cachedRaster = image
+        cachedRasterKey = key
+        return image
+    }
+
+    /// Draws into a flipped, screen-scale bitmap once, so the result never re-runs drawing code.
+    static func bitmap(size: CGSize, _ draw: () -> Void) -> NSImage {
+        let scale = NSScreen.main?.backingScaleFactor ?? 2
+        guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: max(1, Int(size.width * scale)), pixelsHigh: max(1, Int(size.height * scale)),
+                                         bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
+                                         bytesPerRow: 0, bitsPerPixel: 0),
+              let context = NSGraphicsContext(bitmapImageRep: rep) else { return NSImage(size: size) }
+        rep.size = size
+        NSGraphicsContext.saveGraphicsState()
+        defer { NSGraphicsContext.restoreGraphicsState() }
+        let cg = context.cgContext
+        cg.translateBy(x: 0, y: CGFloat(rep.pixelsHigh))
+        cg.scaleBy(x: scale, y: -scale)
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: cg, flipped: true)
+        draw()
+        let image = NSImage(size: size)
+        image.addRepresentation(rep)
+        return image
+    }
+}
+
+struct RasterKey: Equatable {
+    let steps: Int
+    let cells: Int
+    let palette: VinePalette
+    let size: CGSize
+    let pollenScale: Double
+}
+
+/// Draws one frame of a growing garden from cached glyph bitmaps.
 @MainActor
 private struct GardenRenderer {
     let model: GardenModel
     let palette: VinePalette
     let time: TimeInterval
-    let animated: Bool
+
+    static func forEachPollen(field: VineField, layout: GardenLayout, palette: VinePalette, time: TimeInterval,
+                              _ body: (Character, Double, Double, Double) -> Void) {
+        let clearingRows = Int((Double(layout.clearingHeight) / field.cellHeight).rounded(.up))
+        guard clearingRows < field.rows else { return }
+        for y in clearingRows..<field.rows {
+            for x in stride(from: 0, to: field.columns, by: 2) {
+                let n = Noise.value(Double(x) * 0.055 + time * 0.09, Double(y) * 0.11 - time * 0.05) * 0.65
+                    + Noise.value(Double(x) * 0.13 - time * 0.04, Double(y) * 0.23 + time * 0.07) * 0.35
+                let alpha = palette.pollenAlpha * layout.pollenScale * smoothstep(0.42, 0.85, n)
+                guard alpha > 0.012 else { continue }
+                body(VineGlyphs.pollen[Int(Noise.hash(x * 7, y * 13) * Double(VineGlyphs.pollen.count))], alpha,
+                     Double(x) * field.cellWidth, Double(y) * field.cellHeight)
+            }
+        }
+    }
 
     func draw(in context: inout GraphicsContext) {
         let field = model.field
         guard let layout = model.layout, field.maxCells > 0 else { return }
         let w = field.cellWidth, h = field.cellHeight
-        var glyphs: [String: GraphicsContext.ResolvedText] = [:]
-        func glyph(_ character: Character, _ hex: UInt32) -> GraphicsContext.ResolvedText {
-            let key = "\(character)\(hex)"
-            if let cached = glyphs[key] { return cached }
-            let resolved = context.resolve(Text(String(character)).font(.system(size: 13, design: .monospaced))
-                .foregroundColor(Color(ReadingPalette.nsColor(hex))))
-            glyphs[key] = resolved
-            return resolved
-        }
-        func put(_ text: GraphicsContext.ResolvedText, _ x: Double, _ y: Double, _ alpha: Double) {
+        var resolved: [String: GraphicsContext.ResolvedImage] = [:]
+        func put(_ glyph: Character, _ hex: UInt32, _ x: Double, _ y: Double, _ alpha: Double) {
             guard alpha > 0.01 else { return }
+            let key = "\(glyph)\(hex)"
+            let image = resolved[key] ?? context.resolve(Image(nsImage: GlyphAtlas.image(glyph, hex)))
+            resolved[key] = image
             var cell = context
             cell.opacity = min(1, alpha)
-            cell.draw(text, at: CGPoint(x: x, y: y), anchor: .topLeading)
+            cell.draw(image, at: CGPoint(x: x, y: y), anchor: .topLeading)
         }
-
         if layout.pollen {
-            let clearingRows = Int((Double(layout.clearingHeight) / h).rounded(.up))
-            let drift = animated ? time : 0
-            for y in clearingRows..<field.rows {
-                for x in stride(from: 0, to: field.columns, by: 2) {
-                    let n = Noise.value(Double(x) * 0.055 + drift * 0.09, Double(y) * 0.11 - drift * 0.05) * 0.65
-                        + Noise.value(Double(x) * 0.13 - drift * 0.04, Double(y) * 0.23 + drift * 0.07) * 0.35
-                    let alpha = palette.pollenAlpha * layout.pollenScale * smoothstep(0.42, 0.85, n)
-                    guard alpha > 0.012 else { continue }
-                    let character = VineGlyphs.pollen[Int(Noise.hash(x * 7, y * 13) * Double(VineGlyphs.pollen.count))]
-                    put(glyph(character, palette.pollen), Double(x) * w, Double(y) * h, alpha)
-                }
+            // The field fades in as the garden starts to grow.
+            let fade = smoothstep(0, 1.4, time - model.bornTime(0))
+            Self.forEachPollen(field: field, layout: layout, palette: palette, time: 0) { glyph, alpha, x, y in
+                put(glyph, palette.pollen, x, y, alpha * fade)
             }
         }
-
         for cell in field.cells.values {
             let born = model.bornTime(cell.step)
-            var alpha = smoothstep(0, 0.7, time - born) * palette.baseAlpha
+            let alpha = smoothstep(0, 0.7, time - born) * palette.baseAlpha * (cell.kind == .stem ? 0.9 : 1) * 0.92
             guard alpha > 0.01 else { continue }
-            if animated {
-                alpha *= 0.84 + 0.16 * sin(time * 0.9 + cell.phase * 0.35 + Double(cell.x) * 0.11 - Double(cell.y) * 0.17)
-            }
-            if cell.kind == .stem { alpha *= 0.9 }
             let hex = palette.color(cell.kind, slot: cell.slot)
             let x = Double(cell.x) * w, y = Double(cell.y) * h
-            var flutter = 0.0
-            if animated, cell.kind == .leaf, cell.alternate != nil {
-                flutter = smoothstep(0.88, 1, sin(time * 1.25 - Double(cell.x) * 0.085 + Double(cell.y) * 0.05 + cell.phase * 0.08))
-            }
-            if flutter > 0, let alternate = cell.alternate {
-                put(glyph(cell.glyph, hex), x, y, alpha * (1 - flutter))
-                put(glyph(alternate, hex), x, y, alpha * flutter)
-            } else {
-                put(glyph(cell.glyph, hex), x, y, alpha)
-            }
+            put(cell.glyph, hex, x, y, alpha)
             guard cell.kind == .bloom else { continue }
             let age = time - born
             // A new bloom flashes as it opens, then releases two spores that drift up.
             let pop = 1 - smoothstep(0, 0.9, age)
-            if pop > 0 { put(glyph(cell.glyph, hex), x, y - pop * 2, pop * 0.6) }
-            if animated && age < 10 {
-                for spore in 0..<2 {
-                    let seed = cell.phase * 10 + Double(spore)
-                    let vx = (Noise.unit(seed) - 0.5) * 6, vy = -(6 + Noise.unit(seed + 3) * 10)
-                    let life = 5 + Noise.unit(seed + 7) * 5
-                    guard age < life else { continue }
-                    let sx = x + w / 2 + vx * age + sin(age * 1.3 + seed) * 6, sy = y + vy * age
-                    put(glyph(VineGlyphs.sporeGlyph(Int(seed)), palette.leaves[1]), sx, sy,
-                        0.7 * smoothstep(0, 0.8, age) * (1 - smoothstep(life - 1.6, life, age)))
-                }
+            if pop > 0 { put(cell.glyph, hex, x, y - pop * 2, pop * 0.6) }
+            for spore in 0..<2 where age < 10 {
+                let seed = cell.phase * 10 + Double(spore)
+                let vx = (Noise.unit(seed) - 0.5) * 6, vy = -(6 + Noise.unit(seed + 3) * 10)
+                let life = 5 + Noise.unit(seed + 7) * 5
+                guard age < life else { continue }
+                put(VineGlyphs.sporeGlyph(Int(seed)), palette.leaves[1], x + w / 2 + vx * age + sin(age * 1.3 + seed) * 6, y + vy * age,
+                    0.7 * smoothstep(0, 0.8, age) * (1 - smoothstep(life - 1.6, life, age)))
             }
         }
-
-        if animated && field.isGrowing {
-            for head in field.heads {
-                put(glyph("•", palette.head), head.x - w * 0.5, head.y - h * 0.55, 0.85)
-            }
+        for head in field.heads where field.isGrowing {
+            put("•", palette.head, head.x - w * 0.5, head.y - h * 0.55, 0.85)
         }
     }
+}
 
-    private func smoothstep(_ a: Double, _ b: Double, _ x: Double) -> Double {
-        let t = min(1, max(0, (x - a) / (b - a)))
-        return t * t * (3 - 2 * t)
-    }
+private func smoothstep(_ a: Double, _ b: Double, _ x: Double) -> Double {
+    let t = min(1, max(0, (x - a) / (b - a)))
+    return t * t * (3 - 2 * t)
 }
 
 extension VineGlyphs {
