@@ -384,6 +384,12 @@ func runUISmoke() throws {
     gardenModel.configure(layout: GardenLayout(size: CGSize(width: 900, height: 620), clearingHeight: 114, seed: 3), mode: .off, now: 0)
     guard gardenModel.field.cells.isEmpty else { throw BooksAccessErrorForUI.failed("An Off garden kept cells") }
     try checkDottedProgressRow()
+    var edged = GardenModel.plant(GardenLayout(size: CGSize(width: 350, height: 520), seed: 4, roots: 0, pollen: false,
+                                               cornerRoots: [.bottomTrailing, .topTrailing], budget: 200, edgeBand: 2))
+    edged.growToCompletion(limit: 2_000)
+    guard !edged.cells.isEmpty, edged.cells.values.allSatisfy({ min($0.x, $0.y, edged.columns - 1 - $0.x, edged.rows - 1 - $0.y) < 2 }) else {
+        throw BooksAccessErrorForUI.failed("An edge-band garden grew into the panel's text")
+    }
     print("ui-smoke: garden mode defaults to animated, persists, and stills for Reduce Motion and Low Power")
     store.select(theme: "stillleaf")
     print("ui-smoke: \(ReadingTheme.all.count) themes persisted, fell back, passed contrast and laid out popover, timeline and appearance")

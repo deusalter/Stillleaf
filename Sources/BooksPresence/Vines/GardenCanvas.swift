@@ -21,12 +21,15 @@ struct GardenLayout: Equatable {
     var avoid: [CGRect] = []
     var cornerRoots: [GardenCorner] = []
     var budget: Int? = nil
+    /// Keeps vines within this many cells of the edges, for panels whose
+    /// text fills the middle.
+    var edgeBand: Int? = nil
 
     /// Small size jitter during layout should not regrow the garden.
     func growsLike(_ other: GardenLayout) -> Bool {
         abs(size.width - other.size.width) < 8 && abs(size.height - other.size.height) < 8
             && clearingHeight == other.clearingHeight && seed == other.seed && roots == other.roots
-            && avoid == other.avoid && cornerRoots == other.cornerRoots && budget == other.budget
+            && avoid == other.avoid && cornerRoots == other.cornerRoots && budget == other.budget && edgeBand == other.edgeBand
     }
 }
 
@@ -104,8 +107,10 @@ final class GardenModel: ObservableObject {
         field.maxTips = 70
         let clearingRows = Int((Double(layout.clearingHeight) / cellHeight).rounded(.up))
         let avoid = layout.avoid.map { $0.insetBy(dx: -CGFloat(cellWidth), dy: -CGFloat(cellHeight)) }
+        let band = layout.edgeBand
         field.allows = { x, y in
             guard y >= clearingRows else { return false }
+            if let band, min(x, y - clearingRows, columns - 1 - x, rows - 1 - y) >= band { return false }
             if avoid.isEmpty { return true }
             let cell = CGRect(x: Double(x) * cellWidth, y: Double(y) * cellHeight, width: cellWidth, height: cellHeight)
             return !avoid.contains { $0.intersects(cell) }

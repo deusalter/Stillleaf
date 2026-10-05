@@ -8,6 +8,7 @@ struct PopoverView: View {
     @ObservedObject private var theme = ThemeStore.shared
     @State private var showingManualStart = false
     @State private var bodyHeight: CGFloat = 390
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -58,6 +59,13 @@ struct PopoverView: View {
         .id(theme.revision)
         .padding(18).frame(width: 350)
         .foregroundStyle(ReadingPalette.ink)
+        .background {
+            // A sparse vine trellis in the panel's edge padding, clear of its text.
+            GardenCanvas(layout: GardenLayout(seed: GardenSeed.daily("popover", day: model.today.day), roots: 0, pollen: false,
+                                              cornerRoots: [.bottomTrailing, .topTrailing], budget: 200, edgeBand: 2),
+                         mode: theme.effectiveGardenMode(reduceMotion: reduceMotion))
+                .clipShape(RoundedRectangle(cornerRadius: ReadingMetrics.Radius.window, style: .continuous))
+        }
         .nativePopoverSurface()
         .tint(ReadingPalette.accent).buttonStyle(ReadingButtonStyle())
         .readingMotionAccessibility()
