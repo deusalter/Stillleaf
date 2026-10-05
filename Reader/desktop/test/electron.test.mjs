@@ -206,7 +206,7 @@ test("isolated desktop import, explicit reader, offline resources and persistent
   await page.locator("#records-close").click();
   await page.screenshot({
     fullPage: true,
-    path: path.join(project, "src/journal/test/timeline-macos.png"),
+    path: path.join(project, "test-output/journal/timeline-macos.png"),
   });
   await page.getByRole("button", { name: "Reviews", exact: true }).click();
   assert.match(await page.locator(".review-row").textContent(), /quiet garden/);
@@ -239,7 +239,7 @@ test("isolated desktop import, explicit reader, offline resources and persistent
   await page.locator(".review-row").waitFor();
   await page.screenshot({
     fullPage: true,
-    path: path.join(project, "src/journal/test/reviews-macos.png"),
+    path: path.join(project, "test-output/journal/reviews-macos.png"),
   });
   await page.getByRole("button", { name: "Edit review", exact: true }).click();
   await page.getByLabel("Personal review", { exact: true }).fill("discard me");
@@ -255,7 +255,7 @@ test("isolated desktop import, explicit reader, offline resources and persistent
   assert.match(journal.books[0].review, /quiet garden/);
   await page.screenshot({
     fullPage: true,
-    path: path.join(project, "src/journal/test/library-macos.png"),
+    path: path.join(project, "test-output/journal/library-macos.png"),
   });
   await page.getByRole("button", { name: "Read", exact: true }).click();
   await page.waitForFunction(

@@ -1,3 +1,4 @@
 node_modules/
 reader/dist/
 test-output/
+reader/artifacts/

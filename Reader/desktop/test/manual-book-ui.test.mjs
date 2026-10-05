@@ -44,7 +44,7 @@ test("manual-only books retain distinct identity, drafts and full journal action
     .getByLabel("Author (optional)", { exact: true })
     .fill("Mira Wells");
   await page.screenshot({
-    path: path.join(project, "src/journal/test/curated-add-book-light.png"),
+    path: path.join(project, "test-output/journal/curated-add-book-light.png"),
     fullPage: true,
   });
   await page.locator("#editor-cancel").click();
@@ -165,7 +165,7 @@ test("manual-only books retain distinct identity, drafts and full journal action
   await page.screenshot({
     path: path.join(
       project,
-      "src/journal/test/curated-manual-only-library.png",
+      "test-output/journal/curated-manual-only-library.png",
     ),
     fullPage: true,
   });
