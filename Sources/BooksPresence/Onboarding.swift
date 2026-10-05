@@ -24,9 +24,9 @@ enum OnboardingDestination { case menuBar, dashboard, importBooks }
 enum OnboardingGoalLimits {
     static let pagePresets = [10, 20, 30, 50]
     static let minutePresets = [15, 30, 45, 60]
-    static let pageRange = 1...1_000
-    static let minuteRange = 1...600
-    static let annualRange = 1...365
+    static let pageRange = ReadingGoalLimits.dailyPages
+    static let minuteRange = ReadingGoalLimits.dailyMinutes
+    static let annualRange = ReadingGoalLimits.annualBooks
     static func clamp(_ value: Int, to range: ClosedRange<Int>) -> Int { min(max(value, range.lowerBound), range.upperBound) }
 }
 

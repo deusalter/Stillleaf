@@ -1441,9 +1441,11 @@ final class AppModel: ObservableObject {
     }
     func openAccessibilitySettings() { NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!) }
     func saveSettings() {
-        guard annualBookGoal.map({ (1...10_000).contains($0) }) ?? true,
-              pageGoal.isFinite, pageGoal >= 1, pageGoal <= 10_000, pageGoal.rounded() == pageGoal,
-              goalMinutes.isFinite, goalMinutes >= 1, goalMinutes <= 1440, TimeZone(identifier: timezoneID) != nil else { errorMessage = "Choose a whole-page goal from 1–10,000, a time goal from 1–1440 minutes, and a valid timezone."; return }
+        let pages = ReadingGoalLimits.dailyPages, minutes = ReadingGoalLimits.dailyMinutes
+        guard annualBookGoal.map({ ReadingGoalLimits.annualBooks.contains($0) }) ?? true,
+              pageGoal.isFinite, pageGoal.rounded() == pageGoal, (Double(pages.lowerBound)...Double(pages.upperBound)).contains(pageGoal),
+              goalMinutes.isFinite, (Double(minutes.lowerBound)...Double(minutes.upperBound)).contains(goalMinutes),
+              TimeZone(identifier: timezoneID) != nil else { errorMessage = "Choose a whole-page goal from 1–10,000, a time goal from 1–1440 minutes, and a valid timezone."; return }
         perform {
             let timezoneChanged = engine.timezoneID != timezoneID
             if timezoneChanged { try stopForMutation() }

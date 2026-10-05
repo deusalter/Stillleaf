@@ -138,9 +138,9 @@ struct SettingsView: View {
                         Text("Daily target").font(.callout)
                         Spacer(minLength: 8)
                         if drafts.dailyUnitDraft == .pages {
-                            numericEditor(label: "Daily page goal", value: $drafts.pageGoalDraft, range: 1...10_000, stepperValue: pageGoalBinding)
+                            numericEditor(label: "Daily page goal", value: $drafts.pageGoalDraft, range: ReadingGoalLimits.dailyPages, stepperValue: pageGoalBinding)
                         } else {
-                            numericEditor(label: "Daily goal minutes", value: $drafts.goalDraft, range: 1...1_440, stepperValue: goalBinding)
+                            numericEditor(label: "Daily goal minutes", value: $drafts.goalDraft, range: ReadingGoalLimits.dailyMinutes, stepperValue: goalBinding)
                         }
                     }
                     Text(drafts.dailyUnitDraft == .pages ? "Tracked and manually logged pages. Changes apply from today." : "Tracked and manually logged minutes. Changes apply from today.")
@@ -159,7 +159,7 @@ struct SettingsView: View {
                         HStack {
                             Text("\(model.annualBooksFinished) books finished so far").font(.callout).foregroundStyle(ReadingPalette.secondaryInk)
                             Spacer()
-                            numericEditor(label: "Yearly books goal", value: $drafts.annualGoalDraft, range: 1...10_000, stepperValue: annualGoalBinding)
+                            numericEditor(label: "Yearly books goal", value: $drafts.annualGoalDraft, range: ReadingGoalLimits.annualBooks, stepperValue: annualGoalBinding)
                         }
                     }
                     Text("Counts books with a finish date this year.")
@@ -500,10 +500,10 @@ struct SettingsView: View {
         model.annualBookGoal = drafts.annualEnabledDraft ? Int(drafts.annualGoalDraft) : nil
         // An invalid hidden unit must neither block the active goal nor replace
         // the last saved value. Valid drafts for either unit can still be saved.
-        if let pageGoal = Int(drafts.pageGoalDraft), (1...10_000).contains(pageGoal) {
+        if let pageGoal = Int(drafts.pageGoalDraft), ReadingGoalLimits.dailyPages.contains(pageGoal) {
             model.pageGoal = Double(pageGoal)
         }
-        if let goal = Int(drafts.goalDraft), (1...1_440).contains(goal) {
+        if let goal = Int(drafts.goalDraft), ReadingGoalLimits.dailyMinutes.contains(goal) {
             model.goalMinutes = Double(goal)
         }
         model.timezoneID = drafts.timezoneDraft

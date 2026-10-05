@@ -67,9 +67,9 @@ final class SettingsDraftStore: ObservableObject {
 
     var readingValuesAreValid: Bool {
         let activeGoal = dailyUnitDraft == .pages ? pageGoalDraft : goalDraft
-        let activeRange = dailyUnitDraft == .pages ? 1...10_000 : 1...1_440
+        let activeRange = dailyUnitDraft == .pages ? ReadingGoalLimits.dailyPages : ReadingGoalLimits.dailyMinutes
         guard let goal = Int(activeGoal), activeRange.contains(goal),
               TimeZone(identifier: timezoneDraft) != nil else { return false }
-        return !annualEnabledDraft || Int(annualGoalDraft).map { (1...10_000).contains($0) } == true
+        return !annualEnabledDraft || Int(annualGoalDraft).map { ReadingGoalLimits.annualBooks.contains($0) } == true
     }
 }
