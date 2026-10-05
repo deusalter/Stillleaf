@@ -41,6 +41,10 @@ jobs:
           "$RUNNER_TEMP/native-chrome-probe"
       - name: Native implementation build
         run: swift build -c release
+      - name: Signal quit with asynchronous save and cancellation
+        run: |
+          swiftc -parse-as-library Sources/BooksPresence/ApplicationTermination.swift scripts/application-termination-smoke.swift -o "$RUNNER_TEMP/application-termination-smoke"
+          "$RUNNER_TEMP/application-termination-smoke"
       - name: Native dashboard and menu panel previews
         run: bash scripts/run-native-chrome-preview.sh .build/release/BooksPresence "$RUNNER_TEMP/native-chrome"
       - uses: actions/upload-artifact@v4
@@ -63,6 +67,7 @@ jobs:
           swift build --package-path .native-baseline -c release
           .native-baseline/.build/release/BooksPresence --benchmark-ui | tee "$RUNNER_TEMP/baseline-ui-benchmark.txt"
       - name: Reader assets and native synthetic smoke
+        id: native-smoke
         run: |
           scripts/build-reader-assets.sh .build/release
           .build/release/BooksPresence --self-test-ui
@@ -85,10 +90,14 @@ jobs:
         run: |
           python3 scripts/check-native-performance.py "$RUNNER_TEMP/baseline-settled-ui.json" "$RUNNER_TEMP/candidate-settled-ui.json" "$RUNNER_TEMP/native-reader/native-feedback.json" "$RUNNER_TEMP/native-performance-gates.json"
       - name: Package modern SDK development app
-        if: matrix.os == 'macos-26'
+        id: modern-package
+        # Retain a reviewable development artifact after successful native
+        # smoke checks, including when the separate timing gate fails. The
+        # gate retains its failure and the job remains red.
+        if: ${{ !cancelled() && matrix.os == 'macos-26' && steps.native-smoke.outcome == 'success' }}
         run: scripts/package-app.sh
       - uses: actions/upload-artifact@v4
-        if: matrix.os == 'macos-26'
+        if: ${{ !cancelled() && matrix.os == 'macos-26' && steps.modern-package.outcome == 'success' }}
         with:
           name: Stillleaf-native-macOS26-development
           path: dist/Stillleaf-*.zip
@@ -109,6 +118,9 @@ jobs:
             ${{ runner.temp }}/native-reader-diagnostics
   modern-package-fallback:
     needs: sdk-probe
+    # Exercise a retained development package even when a timing gate is red.
+    # A missing/invalid package still fails this job; no smoke check is waived.
+    if: ${{ !cancelled() && (needs.sdk-probe.result == 'success' || needs.sdk-probe.result == 'failure') }}
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4

@@ -344,60 +344,74 @@ private struct DashboardSidebar: View {
     @Namespace private var selectionHighlight
     private let destinations: [DashboardSection] = [.today, .library, .timeline, .history, .review, .settings]
     var body: some View {
-        VStack(spacing: 0) {
-            ScrollView {
-                VStack(spacing: 4) {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                VStack(spacing: 2) {
                     ForEach(destinations) { item in
                         Button { selection = item } label: {
-                            Label(item.title, systemImage: item.symbol)
-                                .font(.system(size: 13, weight: selection == item ? .semibold : .medium))
+                            HStack(spacing: 10) {
+                                Image(systemName: item.symbol)
+                                    .font(.system(size: 14, weight: .regular))
+                                    .frame(width: 18)
+                                    .accessibilityHidden(true)
+                                Text(item.title)
+                                    .font(.system(size: 13, weight: selection == item ? .semibold : .regular))
+                            }
                                 .foregroundStyle(ReadingPalette.ink)
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.horizontal, 12).padding(.vertical, 11)
+                                .padding(.horizontal, 10)
+                                .frame(minHeight: 32)
                                 .background {
                                     if selection == item {
-                                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                        RoundedRectangle(cornerRadius: 8, style: .continuous)
                                             .fill(ReadingPalette.accent.opacity(0.14))
                                             .matchedGeometryEffect(id: "destination", in: selectionHighlight)
                                     }
                                 }
-                                .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                         }
                         .buttonStyle(.plain)
                         .focused($focusedDestination, equals: item)
-                        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
                             .stroke(focusedDestination == item ? ReadingPalette.accent : .clear, lineWidth: 2))
                         .accessibilityAddTraits(selection == item ? .isSelected : [])
                         .accessibilityIdentifier("navigation-\(item.rawValue)")
                     }
                 }
-                .padding(10)
                 .animation(reduceMotion ? nil : ReadingMotion.selection, value: selection)
-            }
-            .onMoveCommand { direction in
-                guard direction == .up || direction == .down,
-                      let index = destinations.firstIndex(of: focusedDestination ?? selection) else { return }
-                let next = min(destinations.count - 1, max(0, index + (direction == .down ? 1 : -1)))
-                focusedDestination = destinations[next]
-                selection = destinations[next]
-            }
-            VStack(alignment: .leading, spacing: 6) {
-                if model.appleBooksTrackingNeedsAccess || model.snapshot.pauseReason == .captureFailure {
-                    Button(action: troubleshoot) {
-                        Label(trackingStatus, systemImage: "exclamationmark.circle")
-                            .font(.system(size: 11, weight: .medium)).foregroundStyle(ReadingPalette.ink)
-                    }.buttonStyle(.plain).help("Open tracking help")
-                } else {
-                    HStack(spacing: 6) {
-                        Circle().fill(model.snapshot.phase == .reading ? ReadingPalette.accent : ReadingPalette.secondaryInk).frame(width: 6, height: 6)
-                        Text(trackingStatus).font(.system(size: 11, weight: .medium)).foregroundStyle(ReadingPalette.ink)
-                    }
+                .onMoveCommand { direction in
+                    guard direction == .up || direction == .down,
+                          let index = destinations.firstIndex(of: focusedDestination ?? selection) else { return }
+                    let next = min(destinations.count - 1, max(0, index + (direction == .down ? 1 : -1)))
+                    focusedDestination = destinations[next]
+                    selection = destinations[next]
                 }
-                Text("History stored on this Mac")
-                    .font(.system(size: 10)).foregroundStyle(ReadingPalette.ink)
+                Hairline().padding(.horizontal, 10)
+                VStack(alignment: .leading, spacing: 5) {
+                    if model.appleBooksTrackingNeedsAccess || model.snapshot.pauseReason == .captureFailure {
+                        Button(action: troubleshoot) {
+                            HStack(spacing: 10) {
+                                Image(systemName: "exclamationmark.circle").frame(width: 18)
+                                Text(trackingStatus)
+                            }
+                            .font(.system(size: 11, weight: .medium)).foregroundStyle(ReadingPalette.ink)
+                        }.buttonStyle(.plain).help("Open tracking help")
+                    } else {
+                        HStack(spacing: 10) {
+                            Circle().fill(model.snapshot.phase == .reading ? ReadingPalette.accent : ReadingPalette.secondaryInk)
+                                .frame(width: 6, height: 6).frame(width: 18)
+                            Text(trackingStatus).font(.system(size: 11, weight: .medium)).foregroundStyle(ReadingPalette.ink)
+                        }
+                    }
+                    Text("History stored on this Mac")
+                        .font(.system(size: 10)).foregroundStyle(ReadingPalette.ink.opacity(0.8))
+                        .padding(.leading, 28)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 10)
             }
-
-            .padding(.horizontal, 16).padding(.bottom, 16)
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         .nativeSidebarSurface()
         .padding(8)

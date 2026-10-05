@@ -61,8 +61,11 @@ private struct RecordedDateMenuButtonStyleBody: View {
 
     var body: some View {
         configuration.label
-            .overlay(RoundedRectangle(cornerRadius: 3)
-                .stroke(isFocused ? ReadingPalette.accent : .clear, lineWidth: 2))
+            .overlay {
+                if isFocused {
+                    RoundedRectangle(cornerRadius: 3).stroke(ReadingPalette.accent, lineWidth: 2)
+                }
+            }
             .opacity(isEnabled ? (configuration.isPressed ? 0.7 : 1) : 0.42)
     }
 }
