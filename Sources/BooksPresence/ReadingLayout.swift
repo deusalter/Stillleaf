@@ -132,3 +132,18 @@ extension View {
             .background(ReadingPalette.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 }
+
+struct ReadingEmptyState: View {
+    let title: String
+    let symbol: String
+    let message: String
+    var body: some View {
+        VStack(spacing: 12) {
+            Image(systemName: symbol).font(.system(size: 30)).foregroundStyle(ReadingPalette.fadedInk)
+            Text(title).font(ReadingType.bookTitle(20))
+            Text(message).font(.callout).foregroundStyle(ReadingPalette.secondaryInk).multilineTextAlignment(.center)
+        }
+        .padding(30)
+        .frame(maxWidth: .infinity)
+    }
+}
