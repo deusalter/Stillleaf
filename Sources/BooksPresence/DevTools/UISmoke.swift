@@ -419,6 +419,7 @@ func runUISmoke() throws {
     guard zip(counts, counts.dropFirst()).allSatisfy({ $1 - $0 >= 40 }) else {
         throw BooksAccessErrorForUI.failed("Tour steps do not visibly grow the garden: \(counts)")
     }
+    try checkGardenFollowsThemeAndNavigation()
     print("ui-smoke: garden mode defaults to animated, persists, and stills for Reduce Motion and Low Power")
     store.select(theme: "stillleaf")
     print("ui-smoke: \(ReadingTheme.all.count) themes persisted, fell back, passed contrast and laid out popover, timeline and appearance")
@@ -852,4 +853,70 @@ private func checkDottedProgressRow() throws {
         throw BooksAccessErrorForUI.failed("The dotted progress row does not fill from the leading edge")
     }
     print("ui-smoke: dotted progress row fills 38% from the leading edge")
+}
+
+
+/// The garden recolours when the theme changes, keeps its growth across a
+/// History clearing change, and the menu panel's vine stays in its trailing padding.
+@MainActor
+private func checkGardenFollowsThemeAndNavigation() throws {
+    let previousFrozen = GardenClock.frozenTime
+    GardenClock.frozenTime = 6
+    defer { GardenClock.frozenTime = previousFrozen; ThemeStore.shared.select(accent: nil) }
+    NSApp.appearance = NSAppearance(named: .aqua)
+    ThemeStore.shared.select(accent: nil)
+    let size = NSSize(width: 600, height: 400)
+    let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless], backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false
+    window.appearance = NSAppearance(named: .aqua)
+    let controller = NSHostingController(rootView: GardenCanvas(layout: GardenLayout(seed: 11, pollen: false), mode: .animated)
+        .frame(width: size.width, height: size.height).environment(\.colorScheme, .light))
+    controller.sizingOptions = []
+    window.contentViewController = controller
+    window.setContentSize(size)
+    let hosting = controller.view
+    hosting.frame = NSRect(origin: .zero, size: size)
+    defer { window.contentViewController = nil; window.close() }
+    func snapshot() -> NSBitmapImageRep? {
+        hosting.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.45))
+        hosting.layoutSubtreeIfNeeded()
+        hosting.displayIfNeeded()
+        guard let bitmap = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) else { return nil }
+        hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
+        return bitmap
+    }
+    func inked(_ bitmap: NSBitmapImageRep) -> Int {
+        var count = 0
+        for x in stride(from: 0, to: bitmap.pixelsWide, by: 3) { for y in stride(from: 0, to: bitmap.pixelsHigh, by: 3) {
+            if let c = bitmap.colorAt(x: x, y: y), c.alphaComponent > 0.3 { count += 1 }
+        } }
+        return count
+    }
+    guard let before = snapshot(), inked(before) > 50 else { throw BooksAccessErrorForUI.failed("The garden drew nothing to compare") }
+    ThemeStore.shared.select(accent: "rose")
+    guard let after = snapshot(), before.tiffRepresentation != after.tiffRepresentation else {
+        throw BooksAccessErrorForUI.failed("The garden did not recolour when the accent changed")
+    }
+
+    let model = GardenModel()
+    let today = GardenLayout(size: CGSize(width: 900, height: 620), clearingHeight: 166, seed: 5)
+    model.configure(layout: today, mode: .still, now: 0)
+    let generation = model.generation, cells = model.field.cells.count
+    var history = today
+    history.clearingHeight = 250
+    model.configure(layout: history, mode: .still, now: 1)
+    guard model.generation == generation, model.field.cells.count == cells else {
+        throw BooksAccessErrorForUI.failed("Visiting History regrew the garden from scratch")
+    }
+
+    for seed in UInt32(1)...UInt32(7) {
+        var panel = GardenModel.plant(GardenLayout(size: CGSize(width: 350, height: 520), seed: seed, roots: 0, pollen: false,
+                                                   cornerRoots: [.bottomTrailing, .topTrailing], budget: 200, edgeBand: 2, bandEdges: [.trailing]))
+        panel.growToCompletion(limit: 2_000)
+        guard panel.cells.values.allSatisfy({ $0.x >= panel.columns - 2 }) else {
+            throw BooksAccessErrorForUI.failed("The menu panel vine left its trailing padding on day seed \(seed)")
+        }
+    }
+    print("ui-smoke: garden recolours with the theme, survives History's clearing, and keeps the panel vine in its padding")
 }

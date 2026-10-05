@@ -127,3 +127,19 @@ test('turning vines off clears the garden and stops drawing', {timeout: 60000}, 
   assert.equal(garden.animating, false);
   assert.equal(await page.evaluate(() => window.StillleafReader.exportState().preferences.vines), 'off');
 });
+
+test('changing appearance while the garden is frozen keeps the old garden until input stops', {timeout: 60000}, async t => {
+  const {page} = await launch(t, {width: 1400, height: 900});
+  await readTo(page, 0.6);
+  const before = await page.evaluate(() => JSON.stringify(window.StillleafReader.gardenDebug().cells));
+  await page.mouse.move(60, 450);
+  await page.mouse.wheel(0, 40);
+  await page.evaluate(() => window.StillleafReader.setPreferences({contentWidth: 45, measure: 40}));
+  await page.waitForTimeout(160);
+  const during = await page.evaluate(() => ({frozen: window.StillleafReader.gardenDebug().frozen, cells: JSON.stringify(window.StillleafReader.gardenDebug().cells)}));
+  assert.equal(during.frozen, true);
+  assert.equal(during.cells, before, 'the garden was replaced (and blanked) while input was still arriving');
+  await page.waitForTimeout(900);
+  const after = await page.evaluate(() => JSON.stringify(window.StillleafReader.gardenDebug().cells));
+  assert.notEqual(after, before, 'the garden never regrew for the new margins');
+});

@@ -128,12 +128,13 @@ struct OnboardingView: View {
                 .clipped()
                 footer
             }
+            // Re-keying the chrome re-resolves theme colours; the flow keeps the reader's place.
+            // The garden stays outside it so a theme change recolours it without regrowing.
+            .id(theme.revision)
         }
         .coordinateSpace(name: GardenCanvas.space)
         .environment(\.gardenBackdrop, theme.gardenMode != .off)
         .onPreferenceChange(GlassRegionsKey.self) { frost.rects = $0 }
-        // Re-keying the chrome re-resolves theme colours; the flow keeps the reader's place.
-        .id(theme.revision)
         .frame(width: Self.size.width, height: Self.size.height)
         .background(ReadingPalette.canvas)
         .foregroundStyle(ReadingPalette.ink)

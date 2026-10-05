@@ -22,7 +22,7 @@ const hex = value => /^#[0-9a-f]{6}$/i.test(value) ? value : null;
 export function installGarden({canvas, spine, viewport, chrome, layout, enabled, edition}) {
   const reduce = matchMedia('(prefers-reduced-motion: reduce)');
   let mode = 'animated', frozen = false, freezeTimer = 0, layoutTimer = 0, frame = 0;
-  let progress = 0, chapter = null, pending = null, metrics = null, palette = null;
+  let progress = 0, chapter = null, pending = null, metrics = null, palette = null, deferred = false;
   const margins = {field: null, born: new Map(), ghosts: [], context: canvas.getContext('2d'), origin: {left: 0, top: 0}};
   const column = {field: null, born: new Map(), ghosts: [], context: spine.getContext('2d'), origin: {left: 0, top: 0}};
 
@@ -104,6 +104,9 @@ export function installGarden({canvas, spine, viewport, chrome, layout, enabled,
   }
 
   function rebuild() {
+    // While input is arriving, keep the current garden on screen; regrow once it stops.
+    if (frozen && active()) { deferred = true; return; }
+    deferred = false;
     const now = performance.now();
     if (!active()) {
       for (const scene of [margins, column]) { scene.field = null; scene.born = new Map(); scene.ghosts = []; scene.context.clearRect(0, 0, 1e5, 1e5); }
@@ -180,7 +183,7 @@ export function installGarden({canvas, spine, viewport, chrome, layout, enabled,
       clearTimeout(freezeTimer);
       freezeTimer = setTimeout(() => {
         frozen = false;
-        if (pending != null) { progress = pending; pending = null; rebuild(); } else schedule();
+        if (pending != null) { progress = pending; pending = null; rebuild(); } else if (deferred) rebuild(); else schedule();
       }, FREEZE);
     },
     /** The app's Garden setting: animated, still or off. */

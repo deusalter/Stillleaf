@@ -42,6 +42,9 @@ struct CompletionCelebrationBadge: View {
                 guard !Task.isCancelled, !motionDisabled else { progress = 1; return }
                 burstStart = Date()
                 withAnimation(.easeOut(duration: 0.7)) { progress = 1 }
+                // End the burst's timeline once it has faded, so no frames run afterwards.
+                try? await Task.sleep(nanoseconds: UInt64((VineBurst.holdUntil + VineBurst.fadeDuration + 0.1) * 1_000_000_000))
+                burstStart = nil
             }
             .onChange(of: motionDisabled) { reduced in
                 if reduced { progress = 1 }

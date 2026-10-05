@@ -2,6 +2,10 @@ import AppKit
 import CoreImage
 import SwiftUI
 
+enum GardenEdge: Equatable {
+    case leading, trailing, top, bottom
+}
+
 enum GardenCorner: Equatable {
     case topLeading, topTrailing, bottomLeading, bottomTrailing
 }
@@ -24,6 +28,8 @@ struct GardenLayout: Equatable {
     /// Keeps vines within this many cells of the edges, for panels whose
     /// text fills the middle.
     var edgeBand: Int? = nil
+    /// Which edges `edgeBand` hugs.
+    var bandEdges: [GardenEdge] = [.leading, .trailing, .top, .bottom]
     /// Multiplies how long vines grow, for gardens with little open space.
     var vigor = 1.0
     /// Grows only this fraction of the full garden (0…1); raising it extends the same garden.
@@ -33,7 +39,7 @@ struct GardenLayout: Equatable {
     func growsLike(_ other: GardenLayout) -> Bool {
         abs(size.width - other.size.width) < 8 && abs(size.height - other.size.height) < 8
             && clearingHeight == other.clearingHeight && seed == other.seed && roots == other.roots
-            && avoid == other.avoid && cornerRoots == other.cornerRoots && budget == other.budget && edgeBand == other.edgeBand && vigor == other.vigor && growth == other.growth
+            && avoid == other.avoid && cornerRoots == other.cornerRoots && budget == other.budget && edgeBand == other.edgeBand && bandEdges == other.bandEdges && vigor == other.vigor && growth == other.growth
     }
 }
 
@@ -46,8 +52,12 @@ final class GardenModel: ObservableObject {
 
     /// Flips when growth finishes so the timeline can slow from 60 to 20 fps.
     @Published private(set) var growing = false
+    /// Changes whenever the garden is (re)configured, so the view redraws the new garden.
+    @Published private(set) var revision = 0
     private(set) var field = VineField(columns: 1, rows: 1, cellWidth: cellWidth, cellHeight: cellHeight, seed: 1, maxCells: 0)
     private(set) var layout: GardenLayout?
+    /// Increments on every full replant, so callers can tell regrowth from a kept garden.
+    private(set) var generation = 0
     private var mode: GardenMode = .off
     private var stepTimes: [TimeInterval] = []
     fileprivate var cachedRaster: NSImage?
@@ -62,6 +72,18 @@ final class GardenModel: ObservableObject {
 
     func configure(layout: GardenLayout, mode: GardenMode, now: TimeInterval) {
         if let current = self.layout, current.growsLike(layout), mode == self.mode { return }
+        defer { revision += 1 }
+        // A different header clearing (History's taller header) keeps the garden;
+        // cells inside the clearing are simply not drawn.
+        if let current = self.layout, mode == self.mode, current.clearingHeight != layout.clearingHeight {
+            var unchanged = layout
+            unchanged.clearingHeight = current.clearingHeight
+            if current.growsLike(unchanged) {
+                self.layout = layout
+                cachedRaster = nil
+                return
+            }
+        }
         // A larger budget or growth fraction alone keeps the garden and grows it further.
         if let current = self.layout, mode == self.mode, mode != .off, field.maxCells > 0 {
             var unchanged = layout
@@ -91,6 +113,7 @@ final class GardenModel: ObservableObject {
             return
         }
         field = Self.plant(layout)
+        generation += 1
         if mode == .still || GardenClock.frozenTime != nil {
             field.growToCompletion(limit: 20_000)
             // Grown long ago: every cell is fully faded in.
@@ -129,10 +152,13 @@ final class GardenModel: ObservableObject {
         field.maxTips = 70
         let clearingRows = Int((Double(layout.clearingHeight) / cellHeight).rounded(.up))
         let avoid = layout.avoid.map { $0.insetBy(dx: -CGFloat(cellWidth), dy: -CGFloat(cellHeight)) }
-        let band = layout.edgeBand
+        let band = layout.edgeBand, edges = layout.bandEdges
         field.allows = { x, y in
             guard y >= clearingRows else { return false }
-            if let band, min(x, y - clearingRows, columns - 1 - x, rows - 1 - y) >= band { return false }
+            if let band {
+                let distances: [(GardenEdge, Int)] = [(.leading, x), (.top, y - clearingRows), (.trailing, columns - 1 - x), (.bottom, rows - 1 - y)]
+                guard distances.contains(where: { edges.contains($0.0) && $0.1 < band }) else { return false }
+            }
             if avoid.isEmpty { return true }
             let cell = CGRect(x: Double(x) * cellWidth, y: Double(y) * cellHeight, width: cellWidth, height: cellHeight)
             return !avoid.contains { $0.intersects(cell) }
@@ -186,6 +212,10 @@ struct GardenCanvas: View {
     let frostOffset: CGFloat
     @StateObject private var model = GardenModel()
     @State private var visible = true
+    @State private var resizing = false
+    @State private var pendingLayout: GardenLayout?
+    /// Observed so a theme or accent change recolours the garden.
+    @ObservedObject private var theme = ThemeStore.shared
     @Environment(\.colorScheme) private var colorScheme
 
     init(layout: GardenLayout, mode: GardenMode, frost: FrostRegions? = nil, frostOffset: CGFloat = 0) {
@@ -198,12 +228,20 @@ struct GardenCanvas: View {
     var body: some View {
         GeometryReader { proxy in
             let sized = sizedLayout(proxy.size)
-            surface(size: proxy.size)
+            // An always-present base: before the first configure the surface is empty,
+            // and SwiftUI may not deliver onAppear to an empty view.
+            ZStack(alignment: .topLeading) { Color.clear; surface(size: proxy.size) }
                 .onAppear { model.configure(layout: sized, mode: mode, now: Self.now) }
-                .onChange(of: sized) { model.configure(layout: $0, mode: mode, now: Self.now) }
+                .onChange(of: sized) { layout in
+                    // Replant once when a live resize ends, not every few points of the drag.
+                    if resizing { pendingLayout = layout } else { model.configure(layout: layout, mode: mode, now: Self.now) }
+                }
                 .onChange(of: mode) { model.configure(layout: sized, mode: $0, now: Self.now) }
+                .onChange(of: resizing) { live in
+                    if !live, let pending = pendingLayout { pendingLayout = nil; model.configure(layout: pending, mode: mode, now: Self.now) }
+                }
         }
-        .background(WindowVisibility(isVisible: $visible))
+        .background(WindowVisibility(isVisible: $visible, isResizing: $resizing))
         .allowsHitTesting(false)
         .accessibilityHidden(true)
     }
@@ -242,9 +280,9 @@ struct GardenCanvas: View {
         if mode == .off {
             Color.clear
         } else if visible, let interval = GardenClock(mode: mode).frameInterval(growing: model.growing) {
-            let palette = palette
             TimelineView(.periodic(from: .now, by: interval)) { context in
                 let time = context.date.timeIntervalSinceReferenceDate
+                let palette = palette
                 Canvas { graphics, _ in
                     model.advance(to: time)
                     GardenRenderer(model: model, palette: palette, time: time).draw(in: &graphics)
@@ -291,24 +329,29 @@ private struct GardenStill: View {
     let image: NSImage
     let size: CGSize
     let breathing: Bool
-    @State private var sweep = false
 
     var body: some View {
         Image(nsImage: image)
             .frame(width: size.width, height: size.height, alignment: .topLeading)
             .mask {
-                if breathing {
-                    LinearGradient(stops: [.init(color: .white.opacity(0.74), location: 0), .init(color: .white, location: 0.5),
-                                           .init(color: .white.opacity(0.74), location: 1)],
-                                   startPoint: .leading, endPoint: .trailing)
-                        .frame(width: size.width * 3)
-                        .offset(x: sweep ? size.width : -size.width)
-                        .frame(width: size.width, height: size.height)
-                        .onAppear { withAnimation(.linear(duration: 16).repeatForever(autoreverses: true)) { sweep = true } }
-                } else {
-                    Color.white
-                }
+                if breathing { BreathingBand(size: size) } else { Color.white }
             }
+    }
+}
+
+/// Recreated whenever breathing resumes, so its animation always starts afresh.
+private struct BreathingBand: View {
+    let size: CGSize
+    @State private var sweep = false
+
+    var body: some View {
+        LinearGradient(stops: [.init(color: .white.opacity(0.74), location: 0), .init(color: .white, location: 0.5),
+                               .init(color: .white.opacity(0.74), location: 1)],
+                       startPoint: .leading, endPoint: .trailing)
+            .frame(width: size.width * 3)
+            .offset(x: sweep ? size.width : -size.width)
+            .frame(width: size.width, height: size.height)
+            .onAppear { withAnimation(.linear(duration: 16).repeatForever(autoreverses: true)) { sweep = true } }
     }
 }
 
@@ -335,7 +378,8 @@ extension GardenModel {
     /// The grown garden as one image: pollen, then every cell at rest.
     func raster(palette: VinePalette) -> NSImage? {
         guard let layout, field.maxCells > 0, layout.size.width > 0 else { return nil }
-        let key = RasterKey(steps: field.stepCount, cells: field.cells.count, palette: palette, size: layout.size, pollenScale: layout.pollenScale)
+        let key = RasterKey(generation: generation, steps: field.stepCount, cells: field.cells.count, palette: palette, size: layout.size,
+                            pollenScale: layout.pollenScale, clearing: layout.clearingHeight)
         if let cachedRaster, cachedRasterKey == key { return cachedRaster }
         let field = field, w = field.cellWidth, h = field.cellHeight
         let image = Self.bitmap(size: layout.size) {
@@ -348,7 +392,7 @@ extension GardenModel {
                     draw(glyph, palette.pollen, alpha, x, y)
                 }
             }
-            for cell in field.cells.values {
+            for cell in field.cells.values where Double(cell.y) * h >= Double(layout.clearingHeight) {
                 let alpha = palette.baseAlpha * (cell.kind == .stem ? 0.9 : 1) * 0.92
                 draw(cell.glyph, palette.color(cell.kind, slot: cell.slot), alpha, Double(cell.x) * w, Double(cell.y) * h)
             }
@@ -400,11 +444,13 @@ extension GardenModel {
 }
 
 struct RasterKey: Equatable {
+    let generation: Int
     let steps: Int
     let cells: Int
     let palette: VinePalette
     let size: CGSize
     let pollenScale: Double
+    let clearing: CGFloat
 }
 
 /// Draws one frame of a growing garden from cached glyph bitmaps.
@@ -451,7 +497,7 @@ private struct GardenRenderer {
                 put(glyph, palette.pollen, x, y, alpha * fade)
             }
         }
-        for cell in field.cells.values {
+        for cell in field.cells.values where Double(cell.y) * h >= Double(layout.clearingHeight) {
             let born = model.bornTime(cell.step)
             let alpha = smoothstep(0, 0.7, time - born) * palette.baseAlpha * (cell.kind == .stem ? 0.9 : 1) * 0.92
             guard alpha > 0.01 else { continue }

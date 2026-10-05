@@ -62,7 +62,7 @@ struct PopoverView: View {
         .background {
             // A sparse vine trellis in the panel's edge padding, clear of its text.
             GardenCanvas(layout: GardenLayout(seed: GardenSeed.daily("popover", day: model.today.day), roots: 0, pollen: false,
-                                              cornerRoots: [.bottomTrailing, .topTrailing], budget: 200, edgeBand: 2),
+                                              cornerRoots: [.bottomTrailing, .topTrailing], budget: 200, edgeBand: 2, bandEdges: [.trailing]),
                          mode: theme.effectiveGardenMode(reduceMotion: reduceMotion))
                 .clipShape(RoundedRectangle(cornerRadius: ReadingMetrics.Radius.window, style: .continuous))
         }
