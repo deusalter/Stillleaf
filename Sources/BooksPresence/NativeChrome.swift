@@ -11,58 +11,11 @@ extension EnvironmentValues {
     }
 }
 
-private struct NativeSidebarSurface: ViewModifier {
-    @Environment(\.accessibilityReduceTransparency) private var opaque
-    @Environment(\.colorSchemeContrast) private var contrast
-    @Environment(\.nativePreviewOpaque) private var previewOpaque
-    @ViewBuilder func body(content: Content) -> some View {
-        if (previewOpaque ?? opaque) || contrast == .increased {
-            content.background(ReadingPalette.canvas, in: RoundedRectangle(cornerRadius: ReadingMetrics.Radius.window))
-        } else {
-            // Keep the system's single glass surface. A light theme tint
-            // tempers wallpaper colour without adding a second blur layer.
-            content.background(ReadingPalette.canvas.opacity(0.22), in: RoundedRectangle(cornerRadius: ReadingMetrics.Radius.window))
-        }
-    }
-}
-
 extension View {
-    func nativeSidebarSurface() -> some View { modifier(NativeSidebarSurface()) }
     func nativePopoverSurface() -> some View { modifier(NativePopoverSurface()) }
     func nativeMenuSurface(hovering: Bool) -> some View { modifier(NativeMenuSurface(hovering: hovering)) }
-    func nativeSidebarToolbar() -> some View { modifier(NativeSidebarToolbar()) }
-    func nativeDashboardWindowBackground() -> some View { modifier(NativeDashboardWindowBackground()) }
     func nativeDashboardSidebarToggle(isCollapsed: Bool, toggle: @escaping () -> Void) -> some View {
         modifier(NativeDashboardSidebarToggle(isCollapsed: isCollapsed, toggle: toggle))
-    }
-}
-
-private struct NativeDashboardWindowBackground: ViewModifier {
-    @ViewBuilder func body(content: Content) -> some View {
-        #if compiler(>=6.2)
-        if #available(macOS 26.0, *) {
-            // The detail column already paints its paper. Clear SwiftUI's
-            // separate window-container fill so the native sidebar's glass
-            // can sample the backdrop, just as the clear NSWindow allows.
-            content.containerBackground(.clear, for: .window)
-        } else {
-            content
-        }
-        #else
-        content
-        #endif
-    }
-}
-
-private struct NativeSidebarToolbar: ViewModifier {
-    @ViewBuilder func body(content: Content) -> some View {
-        // toolbar(removing:) needs the macOS 14 SDK, which ships with Swift 5.9.
-        #if compiler(>=5.9)
-        if #available(macOS 14.0, *) { content.toolbar(removing: .sidebarToggle) }
-        else { content }
-        #else
-        content
-        #endif
     }
 }
 
@@ -70,22 +23,16 @@ private struct NativeDashboardSidebarToggle: ViewModifier {
     let isCollapsed: Bool
     let toggle: () -> Void
 
-    @ViewBuilder func body(content: Content) -> some View {
-        if #available(macOS 14.0, *) {
-            content
-                .toolbar {
-                    // A root navigation item stays ahead of the title. The
-                    // system's split-view toggle migrates with its column.
-                    ToolbarItem(id: "dashboard-sidebar-toggle", placement: .navigation) {
-                        DashboardSidebarToggleButton(isCollapsed: isCollapsed, toggle: toggle)
-                            .frame(width: 32, height: 28)
-                    }
+    func body(content: Content) -> some View {
+        // The dashboard has no system split view, so this is the only sidebar
+        // control on every macOS version.
+        content
+            .toolbar {
+                ToolbarItem(id: "dashboard-sidebar-toggle", placement: .navigation) {
+                    DashboardSidebarToggleButton(isCollapsed: isCollapsed, toggle: toggle)
+                        .frame(width: 32, height: 28)
                 }
-        } else {
-            // macOS 13 does not expose the default-item removal API. Keep its
-            // native toggle rather than present duplicate controls there.
-            content
-        }
+            }
     }
 }
 
