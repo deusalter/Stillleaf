@@ -91,7 +91,7 @@ private struct AtlasDayLanes: View {
                 Color.clear.frame(width: 130, height: 24)
                 GeometryReader { geo in
                     ForEach(Array(ticks.enumerated()), id: \.offset) { index, date in
-                        Text(AtlasStyle.date(date, zone: navigation.timezoneID, pattern: "ha"))
+                        Text(DateText.string(date, zone: navigation.timezoneID, pattern: "ha"))
                             .font(.system(size: 10)).foregroundStyle(AtlasStyle.muted(dark))
                             .position(x: min(geo.size.width - 18, max(18, tickPositions[index] * geo.size.width)), y: 10)
                             .opacity(geo.size.width < 420 && index % 2 == 1 ? 0 : 1)
@@ -179,5 +179,5 @@ private struct AtlasSessionCard: View {
             }.font(.caption).tint(AtlasStyle.accent(dark))
         }.frame(maxWidth: .infinity, alignment: .topLeading)
     }
-    private func time(_ date: Date) -> String { AtlasStyle.date(date, zone: timezoneID, pattern: "h:mm a z") }
+    private func time(_ date: Date) -> String { DateText.string(date, zone: timezoneID, pattern: "h:mm a z") }
 }

@@ -16,35 +16,6 @@ enum AtlasStyle {
         let count = ThemeSnapshot.current().light.chart.count
         return ReadingPalette.chart(Int(hash % UInt64(max(1, count))))
     }
-    private struct DateFormatKey: Hashable {
-        let locale: Locale
-        let calendar: Calendar
-        let zone: TimeZone
-        let pattern: String
-    }
-    @MainActor private static var dateFormatters: [DateFormatKey: DateFormatter] = [:]
-    @MainActor private static let localeObserver = NotificationCenter.default.addObserver(
-        forName: NSLocale.currentLocaleDidChangeNotification, object: nil, queue: .main
-    ) { _ in
-        // Preferences such as the hour cycle can change without a new locale ID.
-        MainActor.assumeIsolated { dateFormatters.removeAll(keepingCapacity: true) }
-    }
-
-    @MainActor static func date(_ date: Date, zone: String, pattern: String) -> String {
-        // History uses these labels throughout its charts and accessibility tree.
-        // Reuse ICU setup, but capture current preferences on every lookup so a
-        // locale/calendar change or a changed fallback timezone gets a new entry.
-        _ = localeObserver
-        let key = DateFormatKey(locale: .current, calendar: .current,
-                                zone: TimeZone(identifier: zone) ?? .current, pattern: pattern)
-        if let formatter = dateFormatters[key] { return formatter.string(from: date) }
-        let formatter = DateFormatter(); formatter.locale = key.locale
-        formatter.timeZone = key.zone; formatter.dateFormat = pattern
-        // Bound retained formatters even after repeated timezone/preference changes.
-        if dateFormatters.count >= 32 { dateFormatters.removeAll(keepingCapacity: true) }
-        dateFormatters[key] = formatter
-        return formatter.string(from: date)
-    }
 }
 
 struct AtlasPanel<Content: View>: View {

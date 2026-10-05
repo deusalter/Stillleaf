@@ -133,7 +133,7 @@ struct HistoryView: View {
     static func title(for navigation: CalendarNavigation) -> String {
         let period = navigation.period
         func format(_ date: Date, _ pattern: String) -> String {
-            AtlasStyle.date(date, zone: navigation.timezoneID, pattern: pattern)
+            DateText.string(date, zone: navigation.timezoneID, pattern: pattern)
         }
         switch navigation.scale {
         case .day: return format(period.start, "EEEE, MMMM d, yyyy")

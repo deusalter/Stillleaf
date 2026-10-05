@@ -60,6 +60,7 @@ struct ReadingDatesEditor: View {
     }
 }
 
+@MainActor
 private struct ReadingDateField: View {
     let title: String
     @Binding var date: Date?
@@ -74,10 +75,7 @@ private struct ReadingDateField: View {
     }
     private var label: String {
         guard let date else { return "Unknown · optional" }
-        let formatter = DateFormatter()
-        formatter.timeZone = calendar.timeZone
-        formatter.dateStyle = .medium; formatter.timeStyle = .short
-        return formatter.string(from: date)
+        return DateText.string(date, zone: calendar.timeZone.identifier, date: .medium, time: .short)
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -123,6 +121,7 @@ private struct ReadingDateField: View {
 }
 
 /// App-owned calendar surface, also usable in synthetic previews without an AppModel.
+@MainActor
 struct ReadingDateCalendar: View {
     @Binding var selection: Date?
     @State private var navigation: CalendarNavigation
@@ -206,9 +205,6 @@ struct ReadingDateCalendar: View {
         navigation.move(by: amount)
     }
     private func dayLabel(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.timeZone = navigation.calendar.timeZone
-        formatter.dateStyle = .full
-        return formatter.string(from: date)
+        DateText.string(date, zone: navigation.calendar.timeZone.identifier, date: .full)
     }
 }

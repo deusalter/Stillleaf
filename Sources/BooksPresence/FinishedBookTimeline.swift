@@ -177,10 +177,10 @@ private struct FinishedBookTimelineRow: View {
     private var dateColumn: some View {
         VStack(alignment: .leading, spacing: 1) {
             if let date = entry.finishedAt {
-                Text(calendar.shortMonthSymbols[calendar.component(.month, from: date) - 1] + " " + String(calendar.component(.day, from: date)))
+                Text(DateText.string(date, zone: calendar.timeZone.identifier, pattern: "MMM d"))
                     .font(.system(size: 13, weight: .semibold)).monospacedDigit()
                     .foregroundStyle(ReadingPalette.ink)
-                Text(calendar.shortWeekdaySymbols[calendar.component(.weekday, from: date) - 1])
+                Text(DateText.string(date, zone: calendar.timeZone.identifier, pattern: "EEE"))
                     .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
             } else {
                 Image(systemName: "calendar.badge.exclamationmark")
@@ -193,13 +193,11 @@ private struct FinishedBookTimelineRow: View {
     private var accessibilityText: String {
         let finished = entry.finishedAt.map { "finished \(formattedDate($0))" } ?? "finish date unavailable"
         let rating = model.rating(for: entry.id).map { ", rated \($0.formatted(.number.precision(.fractionLength(0...2)))) of 5" } ?? ", not rated"
-        return "\(entry.title)\(entry.author.map { " by \($0)" } ?? ""), \(finished)\(rating)"
+        let author = entry.author.flatMap { $0.isEmpty ? nil : " by \($0)" } ?? ""
+        return "\(entry.title)\(author), \(finished)\(rating)"
     }
 
     private func formattedDate(_ date: Date) -> String {
-        let month = calendar.monthSymbols[calendar.component(.month, from: date) - 1]
-        let day = calendar.component(.day, from: date)
-        let year = calendar.component(.year, from: date)
-        return "\(month) \(day), \(year)"
+        DateText.string(date, zone: calendar.timeZone.identifier, pattern: "MMMM d, yyyy")
     }
 }

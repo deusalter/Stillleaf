@@ -147,7 +147,7 @@ final class RecordedDateMenuAnchorView: NSView {
         let menu = NSMenu()
         menu.autoenablesItems = false
         for date in dates {
-            let item = NSMenuItem(title: AtlasStyle.date(date, zone: timezoneID, pattern: "EEEE, MMMM d, yyyy"),
+            let item = NSMenuItem(title: DateText.string(date, zone: timezoneID, pattern: "EEEE, MMMM d, yyyy"),
                                   action: #selector(openDate(_:)), keyEquivalent: "")
             item.target = self
             item.representedObject = date

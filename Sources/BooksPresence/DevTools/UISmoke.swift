@@ -754,7 +754,7 @@ private func checkHistoryDateFormatting() throws {
                 reference.timeZone = TimeZone(identifier: zone) ?? .current
                 reference.dateFormat = pattern
                 for date in dates + Array(dates.reversed()) {
-                    guard AtlasStyle.date(date, zone: zone, pattern: pattern) == reference.string(from: date) else {
+                    guard DateText.string(date, zone: zone, pattern: pattern) == reference.string(from: date) else {
                         throw BooksAccessErrorForUI.failed("History date formatting changed for \(zone), \(pattern), \(date)")
                     }
                 }

@@ -52,10 +52,10 @@ struct AtlasYearView: View {
         HStack(spacing: 0) {
             ForEach(navigation.yearMonths, id: \.self) { month in
                 Button { selectMonth(month) } label: {
-                    Text(AtlasStyle.date(month, zone: navigation.timezoneID, pattern: "MMM"))
+                    Text(DateText.string(month, zone: navigation.timezoneID, pattern: "MMM"))
                         .font(.system(size: 10)).frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 8)
                 }.buttonStyle(.plain).disabled(month > Date())
-                    .accessibilityLabel("Open \(AtlasStyle.date(month, zone: navigation.timezoneID, pattern: "MMMM yyyy"))")
+                    .accessibilityLabel("Open \(DateText.string(month, zone: navigation.timezoneID, pattern: "MMMM yyyy"))")
             }
         }.foregroundStyle(AtlasStyle.muted(dark))
     }
