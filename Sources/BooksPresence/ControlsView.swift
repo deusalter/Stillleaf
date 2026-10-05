@@ -724,16 +724,6 @@ struct SettingsView: View {
         Hairline().padding(.leading, 32)
     }
 
-    private func setGoalPreset(_ minutes: Int) {
-        drafts.goalDraft = String(minutes)
-        clearFeedback()
-    }
-
-    private func setPageGoalPreset(_ pages: Int) {
-        drafts.pageGoalDraft = String(pages)
-        clearFeedback()
-    }
-
     private func loadDraftsIfNeeded() {
         drafts.loadIfNeeded(from: model)
     }
@@ -795,18 +785,6 @@ struct SettingsView: View {
     private func clearFeedback() {
         applyFeedback = nil
         applyFailed = false
-    }
-}
-
-private struct SettingsSectionHeading: View {
-    let title: String
-    let subtitle: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(title).font(ReadingType.bookTitle(19))
-            Text(subtitle).font(.callout).foregroundStyle(ReadingPalette.secondaryInk)
-        }
     }
 }
 

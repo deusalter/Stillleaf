@@ -158,38 +158,6 @@ struct TodayView: View {
     }
 }
 
-struct GoalProgressView: View {
-    @ObservedObject var model: AppModel
-    let day: DailyTotal
-    private var observedPages: Int { model.pages(on: day.day) }
-    private var daily: DailyGoalProgress { model.dailyGoal(on: day.day) }
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    var body: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            HStack {
-                Text("Daily goal").font(.callout.weight(.semibold))
-                Spacer()
-                Text(daily.summary)
-                    .font(.callout).monospacedDigit().foregroundStyle(ReadingPalette.fadedInk)
-                    .fixedSize()
-            }
-            if daily.target != nil {
-                SegmentedReadingBar(progress: daily.fraction)
-                    .frame(height: 8)
-                    .animation(reduceMotion ? nil : .easeOut(duration: 0.24), value: observedPages)
-                    .accessibilityLabel("Daily reading goal")
-                    .accessibilityValue(daily.summary)
-            }
-            HStack {
-                Text("\(ReadingFormat.duration(day.creditedSeconds)) reading time")
-                Spacer()
-                if day.manualSeconds > 0 { Text("\(ReadingFormat.duration(day.manualSeconds)) manual") }
-            }.font(.caption).foregroundStyle(ReadingPalette.fadedInk)
-        }
-        .help("Pages include tracked page turns and manual corrections. Time is recorded separately.")
-    }
-}
-
 struct BookCoverView: View {
     enum Size { case compact, menu, large, library, shelf, shelfLarge, hero, timeline, annual }
     let book: BookRecord?
@@ -285,19 +253,6 @@ private func activityPauseSummary(_ reason: PauseReason?) -> String {
     }
 }
 
-struct CompactMetric: View {
-    let value: String
-    let label: String
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(value).font(.system(.headline, design: .rounded)).monospacedDigit()
-            Text(label).font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 8)
-    }
-}
-
 struct LabeledValue: View {
     let label: String
     let value: String
@@ -306,21 +261,5 @@ struct LabeledValue: View {
             Text(label).font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
             Text(value).font(.callout).monospacedDigit()
         }
-    }
-}
-
-func pauseDescription(_ reason: PauseReason) -> String {
-    switch reason {
-    case .disabled: return "tracking is disabled"
-    case .background: return "the reader is in the background"
-    case .noReadingWindow: return "there is no verified reading window"
-    case .locked: return "your Mac is locked"
-    case .displayAsleep: return "the display is asleep"
-    case .permissionLost: return "Apple Books tracking has no Accessibility permission"
-    case .excludedBook: return "this book is excluded from tracking"
-    case .stopped: return "the session was stopped"
-    case .captureFailure: return "capture did not provide a verified reader"
-    case .recovery: return "the app recovered after an interruption"
-    case .clockDiscontinuity: return "the clock changed unexpectedly"
     }
 }
