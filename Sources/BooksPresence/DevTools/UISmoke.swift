@@ -358,6 +358,18 @@ func runUISmoke() throws {
             }
         }
     }
+    let gardenDefaults = UserDefaults(suiteName: "stillleaf-garden-smoke-\(UUID().uuidString)")!
+    let gardenStore = ThemeStore(defaults: gardenDefaults)
+    guard gardenStore.gardenMode == .animated else { throw BooksAccessErrorForUI.failed("Garden did not default to animated") }
+    gardenStore.select(garden: .off)
+    guard ThemeStore(defaults: gardenDefaults).gardenMode == .off else { throw BooksAccessErrorForUI.failed("Garden mode did not persist") }
+    guard gardenStore.effectiveGardenMode(reduceMotion: true) == .off else { throw BooksAccessErrorForUI.failed("Reduce Motion changed an Off garden") }
+    gardenStore.select(garden: .animated)
+    guard gardenStore.effectiveGardenMode(reduceMotion: true) == .still else { throw BooksAccessErrorForUI.failed("Reduce Motion did not still the garden") }
+    guard gardenStore.effectiveGardenMode(reduceMotion: false) == (ProcessInfo.processInfo.isLowPowerModeEnabled ? .still : .animated) else {
+        throw BooksAccessErrorForUI.failed("Low Power Mode handling is wrong")
+    }
+    print("ui-smoke: garden mode defaults to animated, persists, and stills for Reduce Motion and Low Power")
     store.select(theme: "stillleaf")
     print("ui-smoke: \(ReadingTheme.all.count) themes persisted, fell back, passed contrast and laid out popover, timeline and appearance")
     let cachedBookIDs = model.books.map(\.id)

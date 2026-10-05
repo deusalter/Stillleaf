@@ -14,6 +14,13 @@ enum DashboardAppearance: String, CaseIterable, Identifiable {
     }
 }
 
+/// How the ASCII garden behaves. Reduce Motion and Low Power turn Animated into Still.
+enum GardenMode: String, CaseIterable, Identifiable {
+    case animated, still, off
+    var id: String { rawValue }
+    var label: String { rawValue.capitalized }
+}
+
 /// The selected theme, persisted in UserDefaults. Views that host whole screens
 /// observe `revision` and re-key render-only subtrees so colours re-resolve;
 /// views that own draft state are never re-keyed.
@@ -22,12 +29,14 @@ final class ThemeStore: ObservableObject {
     static let themeKey = "appearanceTheme"
     static let accentKey = "appearanceAccent"
     static let modeKey = "appearanceMode"
+    static let gardenKey = "gardenMode"
     static let shared = ThemeStore(defaults: .standard)
 
     @Published private(set) var revision = 0
     private(set) var themeID = ReadingTheme.all[0].id
     private(set) var accentID: String?
     private(set) var appearanceMode: DashboardAppearance = .system
+    private(set) var gardenMode: GardenMode = .animated
     private var defaults: UserDefaults
 
     init(defaults: UserDefaults) {
@@ -53,6 +62,19 @@ final class ThemeStore: ObservableObject {
         publish()
     }
 
+    func select(garden mode: GardenMode) {
+        guard mode != gardenMode else { return }
+        gardenMode = mode
+        defaults.set(mode.rawValue, forKey: Self.gardenKey)
+        publish()
+    }
+
+    /// The mode to render: Animated becomes Still under Reduce Motion or Low Power Mode.
+    func effectiveGardenMode(reduceMotion: Bool) -> GardenMode {
+        guard gardenMode == .animated else { return gardenMode }
+        return reduceMotion || ProcessInfo.processInfo.isLowPowerModeEnabled ? .still : .animated
+    }
+
     /// `nil` restores the theme's own accent.
     func select(accent id: String?) {
         let valid = id.flatMap { AccentPreset.named($0)?.id }
@@ -72,6 +94,7 @@ final class ThemeStore: ObservableObject {
         themeID = ReadingTheme.named(defaults.string(forKey: Self.themeKey)).id
         accentID = AccentPreset.named(defaults.string(forKey: Self.accentKey))?.id
         appearanceMode = DashboardAppearance(rawValue: defaults.string(forKey: Self.modeKey) ?? "") ?? .system
+        gardenMode = GardenMode(rawValue: defaults.string(forKey: Self.gardenKey) ?? "") ?? .animated
         NSApp?.appearance = appearanceMode.nativeAppearance
         publish()
     }

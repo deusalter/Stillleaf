@@ -40,6 +40,28 @@ struct AppearancePicker: View {
                     }
                 }
             }
+            ReadingSection("Garden") {
+                VStack(alignment: .leading, spacing: 10) {
+                    ReadingSegmentedControl(
+                        label: "Garden",
+                        options: GardenMode.allCases,
+                        selection: Binding(get: { store.gardenMode }, set: { store.select(garden: $0) }),
+                        title: { $0.label },
+                        systemImage: { mode in
+                            switch mode {
+                            case .animated: return "leaf"
+                            case .still: return "pause.circle"
+                            case .off: return "circle.slash"
+                            }
+                        }
+                    )
+                    .frame(maxWidth: 380)
+                    .accessibilityIdentifier("dashboard-garden-mode")
+                    Text("Animated vines grow when a window opens, then breathe. Still shows them without motion. Reduce Motion and Low Power use Still.")
+                        .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
             ReadingSection("Accent") {
                 VStack(alignment: .leading, spacing: 12) {
                     HStack(spacing: 12) {
