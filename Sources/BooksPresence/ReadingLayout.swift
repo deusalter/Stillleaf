@@ -97,6 +97,7 @@ struct ReadingSection<Content: View, Accessory: View>: View {
     let glass: Bool
     let accessory: Accessory
     let content: Content
+    @Environment(\.gardenBackdrop) private var gardenBackdrop
 
     init(_ title: String, glass: Bool = false, @ViewBuilder accessory: () -> Accessory, @ViewBuilder content: () -> Content) {
         self.title = title
@@ -106,7 +107,7 @@ struct ReadingSection<Content: View, Accessory: View>: View {
     }
 
     var body: some View {
-        if glass {
+        if glass || gardenBackdrop {
             VStack(alignment: .leading, spacing: 16) {
                 heading
                 content
@@ -180,7 +181,8 @@ extension View {
 
     /// The one surface level: a glass card for a screen's primary block.
     func readingPanel() -> some View {
-        padding(ReadingMetrics.cardPadding).glassSurface()
+        // Sections and empty states inside a panel stay plain: one layer of glass.
+        environment(\.gardenBackdrop, false).padding(ReadingMetrics.cardPadding).glassSurface()
     }
 }
 
@@ -188,7 +190,12 @@ struct ReadingEmptyState: View {
     let title: String
     let symbol: String
     let message: String
+    @Environment(\.gardenBackdrop) private var gardenBackdrop
     var body: some View {
+        if gardenBackdrop { content.readingPanel() } else { content }
+    }
+
+    private var content: some View {
         VStack(spacing: 12) {
             Image(systemName: symbol).font(.system(size: 30)).foregroundStyle(ReadingPalette.secondaryInk)
             Text(title).font(ReadingType.bookTitle(20))

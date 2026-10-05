@@ -77,8 +77,9 @@ struct DashboardView: View {
                     // The garden stays put behind scrolling content. Screens adopt it
                     // once all their text sits on glass.
                     if gardenVisible {
-                        GardenCanvas(layout: GardenLayout(clearingHeight: proxy.safeAreaInsets.top + Self.gardenClearing,
-                                                          seed: GardenSeed.daily("dashboard", day: model.today.day)),
+                        GardenCanvas(layout: GardenLayout(clearingHeight: proxy.safeAreaInsets.top + Self.gardenClearing + (section == .history ? 84 : 0),
+                                                          seed: GardenSeed.daily("dashboard", day: model.today.day),
+                                                          pollenScale: section == .history ? 0.5 : 1),
                                      mode: gardenMode, frost: frost, frostOffset: proxy.safeAreaInsets.top)
                     }
                 }
@@ -101,6 +102,7 @@ struct DashboardView: View {
         .tint(ReadingPalette.accent)
         .sheet(item: $sheet) { item in
             dashboardSheet(item).buttonStyle(ReadingButtonStyle()).readingMotionAccessibility()
+                .environment(\.gardenBackdrop, false)
         }
         .alert("Delete all reading data?", isPresented: $deleteAllConfirmation) {
             Button("Delete all data", role: .destructive) { model.deleteAllData() }
@@ -119,8 +121,9 @@ struct DashboardView: View {
     static let sidebarWidth: CGFloat = 225
 
     /// Screens whose text all sits on glass, so the garden can grow behind them.
-    static let gardenSections: Set<DashboardSection> = [.today]
+    static let gardenSections = Set(DashboardSection.allCases)
     /// The resting height of a page header: top inset, title and subtitle.
+    /// History adds its period title and summary line (84 pt) to that.
     static let gardenClearing: CGFloat = 114
 
     private var gardenMode: GardenMode { theme.effectiveGardenMode(reduceMotion: previewReduceMotion ?? reduceMotion) }

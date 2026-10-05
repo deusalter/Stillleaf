@@ -77,6 +77,7 @@ struct HealthView: View {
                     }
                     Text("A quiet reading day is not a tracking outage.").font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
                 }
+                .readingPanel()
             }
             .readingPage(maxWidth: ReadingMetrics.listWidth)
         }
