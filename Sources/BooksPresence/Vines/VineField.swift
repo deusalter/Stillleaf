@@ -154,6 +154,11 @@ struct VineField {
         stepCount += 1
     }
 
+    /// Lets growth continue up to a new limit; tips paused by the old budget carry on.
+    mutating func raiseBudget(to limit: Int) {
+        budget = max(budget, limit)
+    }
+
     mutating func growToCompletion(limit: Int = 10_000) {
         var steps = 0
         while isGrowing && steps < limit { step(); steps += 1 }

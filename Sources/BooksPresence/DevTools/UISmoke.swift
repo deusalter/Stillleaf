@@ -390,6 +390,35 @@ func runUISmoke() throws {
     guard !edged.cells.isEmpty, edged.cells.values.allSatisfy({ min($0.x, $0.y, edged.columns - 1 - $0.x, edged.rows - 1 - $0.y) < 2 }) else {
         throw BooksAccessErrorForUI.failed("An edge-band garden grew into the panel's text")
     }
+    let order = VineSeedling.glyphOrder
+    guard order.count > 10, order.last?.glyph == "❀", order.first.map({ $0.y == VineSeedling.art.count - 1 }) == true else {
+        throw BooksAccessErrorForUI.failed("The seedling does not grow from the ground up to its bloom")
+    }
+    let centre = CGRect(x: 100, y: 110, width: 200, height: 80)
+    let burst = VineBurst.field(size: CGSize(width: 400, height: 300), around: centre, seed: 7)
+    let cellRect = { (c: VineCell) in CGRect(x: Double(c.x) * burst.cellWidth, y: Double(c.y) * burst.cellHeight, width: burst.cellWidth, height: burst.cellHeight) }
+    guard burst.cells.count > 40, burst.cells.values.allSatisfy({ !cellRect($0).intersects(centre) }) else {
+        throw BooksAccessErrorForUI.failed("The completion burst grew over its badge")
+    }
+    // Each tour step shows more of the same garden, and the last shows all of it.
+    let growth = OnboardingStep.allCases.map(OnboardingView.gardenGrowth(for:))
+    guard zip(growth, growth.dropFirst()).allSatisfy({ $0 < $1 }), growth.last == 1 else {
+        throw BooksAccessErrorForUI.failed("The onboarding garden does not grow step by step to a full garden: \(growth)")
+    }
+    let tourLayout = { (step: OnboardingStep) in GardenLayout(size: OnboardingView.size, seed: 1, roots: 9, pollen: false,
+        avoid: [CGRect(x: 120, y: 44, width: 540, height: 470)], vigor: 3, growth: OnboardingView.gardenGrowth(for: step)) }
+    var counts: [Int] = []
+    var previous: Set<Int> = []
+    for step in OnboardingStep.allCases {
+        var garden = GardenModel.plant(tourLayout(step))
+        garden.growToCompletion(limit: 20_000)
+        guard previous.isSubset(of: Set(garden.cells.keys)) else { throw BooksAccessErrorForUI.failed("Step \(step) regrew a different garden") }
+        previous = Set(garden.cells.keys)
+        counts.append(garden.cells.count)
+    }
+    guard zip(counts, counts.dropFirst()).allSatisfy({ $1 - $0 >= 40 }) else {
+        throw BooksAccessErrorForUI.failed("Tour steps do not visibly grow the garden: \(counts)")
+    }
     print("ui-smoke: garden mode defaults to animated, persists, and stills for Reduce Motion and Low Power")
     store.select(theme: "stillleaf")
     print("ui-smoke: \(ReadingTheme.all.count) themes persisted, fell back, passed contrast and laid out popover, timeline and appearance")

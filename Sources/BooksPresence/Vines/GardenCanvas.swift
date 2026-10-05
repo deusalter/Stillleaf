@@ -24,12 +24,16 @@ struct GardenLayout: Equatable {
     /// Keeps vines within this many cells of the edges, for panels whose
     /// text fills the middle.
     var edgeBand: Int? = nil
+    /// Multiplies how long vines grow, for gardens with little open space.
+    var vigor = 1.0
+    /// Grows only this fraction of the full garden (0…1); raising it extends the same garden.
+    var growth: Double? = nil
 
     /// Small size jitter during layout should not regrow the garden.
     func growsLike(_ other: GardenLayout) -> Bool {
         abs(size.width - other.size.width) < 8 && abs(size.height - other.size.height) < 8
             && clearingHeight == other.clearingHeight && seed == other.seed && roots == other.roots
-            && avoid == other.avoid && cornerRoots == other.cornerRoots && budget == other.budget && edgeBand == other.edgeBand
+            && avoid == other.avoid && cornerRoots == other.cornerRoots && budget == other.budget && edgeBand == other.edgeBand && vigor == other.vigor && growth == other.growth
     }
 }
 
@@ -58,6 +62,24 @@ final class GardenModel: ObservableObject {
 
     func configure(layout: GardenLayout, mode: GardenMode, now: TimeInterval) {
         if let current = self.layout, current.growsLike(layout), mode == self.mode { return }
+        // A larger budget or growth fraction alone keeps the garden and grows it further.
+        if let current = self.layout, mode == self.mode, mode != .off, field.maxCells > 0 {
+            var unchanged = layout
+            unchanged.budget = current.budget
+            unchanged.growth = current.growth
+            let grows = (layout.budget ?? 0) > (current.budget ?? 0) || (layout.growth ?? 0) > (current.growth ?? 0)
+            if grows && current.growsLike(unchanged) {
+                self.layout = layout
+                field.raiseBudget(to: Self.plant(layout).budget)
+                if mode == .still || GardenClock.frozenTime != nil {
+                    field.growToCompletion(limit: 20_000)
+                    stepTimes += Array(repeating: now - 100, count: max(0, field.stepCount - stepTimes.count))
+                }
+                cachedRaster = nil
+                setGrowing(field.isGrowing)
+                return
+            }
+        }
         self.layout = layout
         self.mode = mode
         stepTimes = []
@@ -102,7 +124,7 @@ final class GardenModel: ObservableObject {
         let columns = Int(layout.size.width / cellWidth) + 1
         let rows = Int(layout.size.height / cellHeight) + 1
         let limit = layout.budget ?? 2400
-        var field = VineField(columns: columns, rows: rows, cellWidth: cellWidth, cellHeight: cellHeight, seed: layout.seed, maxCells: limit)
+        var field = VineField(columns: columns, rows: rows, cellWidth: cellWidth, cellHeight: cellHeight, seed: layout.seed, maxCells: max(limit, 2400))
         field.budget = limit
         field.maxTips = 70
         let clearingRows = Int((Double(layout.clearingHeight) / cellHeight).rounded(.up))
@@ -121,8 +143,8 @@ final class GardenModel: ObservableObject {
             for i in 0..<layout.roots {
                 let x = Int((Double(i) + 0.5) * Double(columns) / Double(layout.roots) + (random.next() - 0.5) * 6)
                 field.plant(VineTipSpec(x: min(columns - 1, max(0, x)), y: bottom, heading: -.pi / 2 + (random.next() - 0.5) * 0.6,
-                                        life: 30 + Int(random.next() * 26), bias: -.pi / 2, biasStrength: 0.035, hue: i,
-                                        branchChance: 0.085, branchLife: 18))
+                                        life: Int(Double(30 + Int(random.next() * 26)) * layout.vigor), bias: -.pi / 2, biasStrength: 0.035, hue: i,
+                                        branchChance: 0.085, branchLife: Int(18 * layout.vigor)))
             }
             field.plant(VineTipSpec(x: columns - 1, y: clearingRows + 2, heading: 2.6, life: 40, bias: 2.0, biasStrength: 0.04, hue: 2))
             field.plant(VineTipSpec(x: 0, y: clearingRows + 6, heading: 0.5, life: 36, bias: 0.9, biasStrength: 0.04, hue: 1))
@@ -136,6 +158,14 @@ final class GardenModel: ObservableObject {
             case .bottomLeading: (x, y, heading, bias) = (0, bottom, -0.8, -1.1)
             }
             field.plant(VineTipSpec(x: x, y: y, heading: heading, life: 46, bias: bias, biasStrength: 0.04, branchChance: 0.1))
+        }
+        if let growth = layout.growth {
+            // Measure the full garden, then stop at a fraction of it. Growth is deterministic,
+            // so a larger fraction later continues the same garden.
+            var full = field
+            full.budget = .max
+            full.growToCompletion(limit: 20_000)
+            field.budget = max(24, Int((Double(full.cells.count) * min(1, max(0, growth))).rounded()))
         }
         return field
     }

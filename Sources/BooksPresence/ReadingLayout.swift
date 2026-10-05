@@ -191,13 +191,21 @@ struct ReadingEmptyState: View {
     let symbol: String
     let message: String
     @Environment(\.gardenBackdrop) private var gardenBackdrop
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @ObservedObject private var theme = ThemeStore.shared
     var body: some View {
         if gardenBackdrop { content.readingPanel() } else { content }
     }
 
     private var content: some View {
         VStack(spacing: 12) {
-            Image(systemName: symbol).font(.system(size: 30)).foregroundStyle(ReadingPalette.secondaryInk)
+            // A seedling grows where the shelf is empty; the symbol remains when the garden is off.
+            let mode = theme.effectiveGardenMode(reduceMotion: reduceMotion)
+            if mode == .off {
+                Image(systemName: symbol).font(.system(size: 30)).foregroundStyle(ReadingPalette.secondaryInk)
+            } else {
+                VineSeedling(mode: mode)
+            }
             Text(title).font(ReadingType.bookTitle(20))
             Text(message).font(.callout).foregroundStyle(ReadingPalette.secondaryInk).multilineTextAlignment(.center)
         }
