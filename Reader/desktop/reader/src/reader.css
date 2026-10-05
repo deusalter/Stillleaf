@@ -99,3 +99,5 @@ input[type=range]::-moz-range-thumb{width:12px;height:12px;border:2px solid var(
 
 @keyframes reader-panel-enter{from{opacity:0;translate:0 4px}to{opacity:1;translate:0 0}}
 @media(prefers-reduced-motion:no-preference){.native-chrome:not(.native-reduceMotion) .panel[open],.native-chrome:not(.native-reduceMotion) .note-panel[open]{animation:reader-panel-enter 160ms ease-out}}
+/* Margin garden: decorative layers that never take input or affect layout. */
+#garden{position:fixed;inset:0;width:100vw;height:100vh;pointer-events:none;z-index:0}#garden.breathing{animation:garden-breathe 9s ease-in-out infinite}@keyframes garden-breathe{50%{opacity:.8}}#garden-spine{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:3}.reader-bar,.reading-footer,#reading-viewport{position:relative;z-index:1}

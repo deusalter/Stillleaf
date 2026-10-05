@@ -36,7 +36,7 @@ try ReaderStateValidation.validate(data(rangeState), publication: publication)
 for invalidPoint in [["cssSelector": "p", "textNodeIndex": true], ["cssSelector": "p", "charOffset": -1], ["cssSelector": "p", "charOffset": 10_000_001], ["cssSelector": "p", "arbitrary": "payload"]] as [[String: Any]] {
     try reject("invalid saved DOM range") { $0["position"] = ["href": "chapter.xhtml", "locations": ["domRange": ["start": invalidPoint, "end": point]]] as [String: Any] }
 }
-let extendedPreferences: [String: Any] = ["scroll": true, "fontWeight": 550.5, "textAlign": "justify", "hyphens": false, "letterSpacing": 0.1, "wordSpacing": 1.0, "columns": "two"]
+let extendedPreferences: [String: Any] = ["scroll": true, "fontWeight": 550.5, "textAlign": "justify", "hyphens": false, "letterSpacing": 0.1, "wordSpacing": 1.0, "columns": "two", "vines": "off"]
 var extended = state
 var extendedPrefs = state["preferences"] as! [String: Any]
 extendedPreferences.forEach { extendedPrefs[$0.key] = $0.value }
@@ -44,7 +44,7 @@ extended["preferences"] = extendedPrefs
 try ReaderStateValidation.validate(data(extended), publication: publication)
 extendedPrefs["fontWeight"] = NSNull(); extendedPrefs["hyphens"] = NSNull(); extended["preferences"] = extendedPrefs
 try ReaderStateValidation.validate(data(extended), publication: publication)
-for (key, value) in [("scroll", 1), ("scroll", NSNull()), ("fontWeight", true), ("fontWeight", 99), ("fontWeight", 1001), ("textAlign", "center"), ("hyphens", 0), ("letterSpacing", true), ("wordSpacing", 1.1), ("columns", "three")] as [(String, Any)] {
+for (key, value) in [("scroll", 1), ("scroll", NSNull()), ("fontWeight", true), ("fontWeight", 99), ("fontWeight", 1001), ("textAlign", "center"), ("hyphens", 0), ("letterSpacing", true), ("wordSpacing", 1.1), ("columns", "three"), ("vines", "everywhere"), ("vines", false)] as [(String, Any)] {
     try reject("invalid optional preference " + key) { var p = $0["preferences"] as! [String: Any]; p[key] = value; $0["preferences"] = p }
 }
 // Appearance additions remain optional: the original state above is a valid legacy payload.
