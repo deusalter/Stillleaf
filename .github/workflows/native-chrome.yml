@@ -7,8 +7,6 @@ on:
         required: false
         default: ''
         type: string
-  push:
-    branches: [ui/native-macos-experience]
   pull_request:
     branches: [main]
 permissions:
