@@ -135,7 +135,7 @@ const annotationUI=new AnnotationUI({popup:$('selection-tools'),layer:$('annotat
  },
  annotations:()=>state?.annotations??[],continuous:()=>navigator?.kind==='continuous',onDismiss:()=>{selection=null},
  onEdit:id=>{const item=state?.annotations.find(x=>x.id===id);if(item)editNote(item)},onList:openAnnotations});
-function openAnnotations(){if(!state)return;annotationUI.dismiss();renderPanel('notes');showDialog('library-panel','tab-notes')}
+function openAnnotations(opener){if(!state)return;annotationUI.dismiss();renderPanel('notes');showDialog('library-panel','tab-notes',opener instanceof Element?opener:undefined)}
 function removeAnnotation(id){state.annotations=state.annotations.filter(x=>x.id!==id);applyAnnotations();changed();annotationUI.dismiss();if($('library-panel').open)renderPanel('notes');notice('Highlight and note removed.')}
 
 const icons={contents:'<path d="M4 5h16M4 12h16M4 19h11"/>',search:'<circle cx="10" cy="10" r="6.5"/><path d="m15 15 5 5"/>',bookmark:'<path d="M6 3h12v18l-6-4-6 4z"/>',previous:'<path d="m14 5-7 7 7 7"/>',next:'<path d="m10 5 7 7-7 7"/>'};
@@ -530,10 +530,11 @@ function addBookmark(){
  }
  changed();updatePosition();
 }
-function showDialog(id,focus){
+// WebKit does not focus a button on click, so the opener is passed in to return focus to it on close.
+function showDialog(id,focus,opener){
  annotationUI.dismiss();
  for(const dialog of document.querySelectorAll('dialog[open]'))dialog.close();
- lastFocus=document.activeElement;$(id).showModal();nativeChrome.changed(value=>emit('chrome',value));if(focus)$(focus).focus();
+ lastFocus=opener??document.activeElement;$(id).showModal();nativeChrome.changed(value=>emit('chrome',value));if(focus)$(focus).focus();
 }
 let draftDecision;
 function hasPendingDraft(){return Boolean(editingNote&&$('note-panel').open&&($('note-text').value!==(editingNote.note??'')||document.querySelector('input[name="note-color"]:checked').value!==(colors[editingNote.color]?editingNote.color:'gold')))}
@@ -814,10 +815,13 @@ function nativeDefinitions(){
  for(const [id,key,label]of [['font-size','fontSize','Text size'],['line-height','lineHeight','Line spacing'],['measure','measure','Line width'],['content-width','contentWidth','Page width'],['side-margin','sideMargin','Side margins'],['letter-spacing','letterSpacing','Letter spacing'],['word-spacing','wordSpacing','Word spacing']]){const e=$(id);result.push({key,label,kind:'number',min:Number(e.min),max:Number(e.max),step:Number(e.step),nullable:key==='sideMargin'})}
  for(const [key,label]of [['scroll','Continuous scrolling'],['immersive','Focus reading']])result.push({key,label,kind:'toggle'});
  for(const [key,label]of [['backgroundColor','Page color'],['textColor','Text color']])result.push({key,label,kind:'color'});
+ // Page themes carry their colours so the host can draw swatches like the web panel.
+ const day=resolveTheme('system',false),night=resolveTheme('system',true);
+ for(const option of result.find(x=>x.key==='theme').options){const id=JSON.parse(option.value),t=THEMES.find(x=>x.id===id);Object.assign(option,id==='system'?{background:day.background,text:day.link,alternate:night.background}:{background:t.background,text:t.text})}
  return nativeDefinitionCache=result;
 }
 const nativeChrome=nativeChromeAdapter({edition:()=>input?.editionId,ready:()=>Boolean(state&&navigator&&!opening),current:()=>clone(state?.preferences??{}),definitions:nativeDefinitions,
- status:()=>({effectiveAppearance:{backgroundColor:currentTheme().background,textColor:currentTheme().text},bookmarked:Boolean(lastLocator&&state?.bookmarks.some(x=>samePlace(x.locator,lastLocator))),dialogOpen:Boolean(document.querySelector('dialog[open]'))}),
+ status:()=>({effectiveAppearance:{backgroundColor:currentTheme().background,textColor:currentTheme().text},panelAppearance:{panelColor:currentTheme().panel,accentColor:currentTheme().link},bookmarked:Boolean(lastLocator&&state?.bookmarks.some(x=>samePlace(x.locator,lastLocator))),dialogOpen:Boolean(document.querySelector('dialog[open]'))}),
  visibility:(active,closing=false)=>{document.body.classList.toggle('native-chrome',active);if(state&&!closing)return setPreferences({})},
  perform:async(command,payload)=>{
   if(command==='preferences'){
@@ -843,10 +847,10 @@ const api={nativeControl:request=>nativeChrome.dispatch(request),setGardenMode:m
 window.StillleafReader=Object.freeze(api);
 $('return-jump').onclick=()=>void returnFromJump();
 $('back').onclick=async()=>{if(await prepareClose())emit('close-request')};$('next').onclick=api.next;$('previous').onclick=api.previous;$('save-bookmark').onclick=addBookmark;
-$('saved-passages').onclick=openAnnotations;
-$('contents').onclick=()=>{if(!state)return;renderPanel();showDialog('library-panel','tab-'+activeTab)};
-$('appearance').onclick=()=>{if(state){syncAppearance();showDialog('appearance-panel')}};
-$('search').onclick=()=>{if(state)showDialog('search-panel','search-query')};
+$('saved-passages').onclick=event=>openAnnotations(event.currentTarget);
+$('contents').onclick=event=>{if(!state)return;renderPanel();showDialog('library-panel','tab-'+activeTab,event.currentTarget)};
+$('appearance').onclick=event=>{if(state){syncAppearance();showDialog('appearance-panel',undefined,event.currentTarget)}};
+$('search').onclick=event=>{if(state)showDialog('search-panel','search-query',event.currentTarget)};
 for(const tab of ['contents','bookmarks','notes'])$('tab-'+tab).onclick=()=>renderPanel(tab);
 document.querySelector('.panel-tabs').addEventListener('keydown',event=>{if(['ArrowRight','ArrowLeft'].includes(event.key)){event.preventDefault();const tabs=['contents','bookmarks','notes'];const next=tabs[(tabs.indexOf(activeTab)+(event.key==='ArrowRight'?1:2))%3];renderPanel(next);$('tab-'+next).focus()}});
 // Radio groups: arrow keys move the choice, as in native segmented controls.
@@ -863,6 +867,8 @@ $('hyphens').onchange=()=>void setPreferences({hyphens:$('hyphens').value==='pub
 for(const [id,key]of [['letter-spacing','letterSpacing'],['word-spacing','wordSpacing']])$(id).oninput=()=>void setPreferences({[key]:Number($(id).value)});
 window.addEventListener('resize',()=>{pageSlide.cancel();if(!state)return;garden.update();screenIndex?.cancel();resizing=true;relayout();const anchor=stableAnchor?clone(stableAnchor):lastLocator?clone(lastLocator):null;clearTimeout(resizeTimer);resizeTimer=setTimeout(()=>{void setPreferences({},anchor).finally(()=>{resizing=false;refreshPosition()})},100)});
 $('reset-appearance').onclick=()=>void setPreferences(DEFAULT_PREFERENCES);
+// Escape closes Search like every other panel; the browser would first clear a search field.
+$('search-query').addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();void closeDialog($('search-panel'))}});
 $('search-form').onsubmit=event=>{event.preventDefault();void searchBook()};$('search-query').oninput=()=>{clearTimeout(searchTimer);searchTimer=setTimeout(()=>void searchBook(),180)};
 for(const b of document.querySelectorAll('[data-highlight-color]'))b.onclick=()=>{
  if(!selection)return;
