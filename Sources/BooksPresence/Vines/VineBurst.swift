@@ -1,13 +1,61 @@
 import SwiftUI
 
 /// Finishing a book: twelve vines burst outward around the badge, curling in
-/// alternate directions, flower, then fade away completely.
+/// alternate directions, flower, then fade away completely. Under Still the
+/// grown burst appears at once and fades without redrawing; Off draws nothing.
 struct VineBurst: View {
     /// When the burst started; `nil` draws nothing.
     let start: Date?
+    var presentation: Presentation = .animated
     @Environment(\.colorScheme) private var colorScheme
+    @State private var faded = false
 
-    static let stepsPerSecond = 22.0, holdUntil = 1.7, fadeDuration = 0.8
+    enum Presentation: Equatable { case none, still, animated }
+
+    static let stepsPerSecond = 22.0, holdUntil = 1.7, fadeDuration = 0.8, stillHold = 1.2, frameInterval = 1.0 / 30
+
+    static func presentation(for mode: GardenMode) -> Presentation {
+        switch mode {
+        case .off: return .none
+        case .still: return .still
+        case .animated: return .animated
+        }
+    }
+
+    /// Seconds from `start` until nothing of the burst is left.
+    static func duration(for presentation: Presentation) -> Double {
+        switch presentation {
+        case .none: return 0
+        case .still: return stillHold + fadeDuration
+        case .animated: return holdUntil + fadeDuration
+        }
+    }
+
+    /// Frames for the animated burst, ending with the first one after it has
+    /// faded, so the timeline stops by itself instead of running until the
+    /// owner removes the view.
+    struct Schedule: TimelineSchedule {
+        let start: Date
+
+        func entries(from startDate: Date, mode: TimelineScheduleMode) -> Entries { Entries(start: start, from: startDate) }
+
+        struct Entries: Sequence, IteratorProtocol {
+            let start: Date
+            var upcoming: Date?
+
+            init(start: Date, from: Date) {
+                self.start = start
+                upcoming = from
+            }
+
+            mutating func next() -> Date? {
+                guard let current = upcoming else { return nil }
+                let end = start.addingTimeInterval(VineBurst.duration(for: .animated))
+                upcoming = current >= end ? nil : Swift.min(current.addingTimeInterval(VineBurst.frameInterval), end)
+                return current
+            }
+        }
+    }
 
     /// The fully grown burst for a frame, deterministic for a seed.
     static func field(size: CGSize, around centre: CGRect, seed: UInt32) -> VineField {
@@ -30,24 +78,35 @@ struct VineBurst: View {
 
     var body: some View {
         GeometryReader { proxy in
-            if let start {
+            if let start, presentation != .none {
                 let centre = CGRect(x: proxy.size.width / 2 - 16, y: proxy.size.height / 2 - 16, width: 32, height: 32)
                 let field = Self.field(size: proxy.size, around: centre, seed: UInt32(truncatingIfNeeded: Int(start.timeIntervalSince1970)))
-                TimelineView(.animation) { context in
-                    let elapsed = context.date.timeIntervalSince(start)
-                    if elapsed < Self.holdUntil + Self.fadeDuration { canvas(field, elapsed: elapsed) }
+                if presentation == .animated {
+                    TimelineView(Schedule(start: start)) { context in
+                        let elapsed = context.date.timeIntervalSince(start)
+                        if elapsed < Self.duration(for: .animated) { canvas(field, grown: elapsed * Self.stepsPerSecond, elapsed: elapsed) }
+                    }
+                } else {
+                    // One drawn frame; the fade is a layer opacity animation.
+                    canvas(field, grown: .infinity, elapsed: 0).opacity(faded ? 0 : 1)
                 }
             }
+        }
+        .task(id: start) {
+            faded = false
+            guard start != nil, presentation == .still else { return }
+            try? await Task.sleep(nanoseconds: UInt64(Self.stillHold * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: Self.fadeDuration)) { faded = true }
         }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
     }
 
-    private func canvas(_ field: VineField, elapsed: Double) -> some View {
+    private func canvas(_ field: VineField, grown: Double, elapsed: Double) -> some View {
         let dark = colorScheme == .dark
         let snapshot = ThemeSnapshot.current()
         let palette = VinePalette.make(dark ? snapshot.dark : snapshot.light, dark: dark)
-        let grown = elapsed * Self.stepsPerSecond
         let fade = 1 - min(1, max(0, (elapsed - Self.holdUntil) / Self.fadeDuration))
         return Canvas { context, _ in
             for cell in field.cells.values {

@@ -401,6 +401,7 @@ func runUISmoke() throws {
     guard burst.cells.count > 40, burst.cells.values.allSatisfy({ !cellRect($0).intersects(centre) }) else {
         throw BooksAccessErrorForUI.failed("The completion burst grew over its badge")
     }
+    try checkVineMotionModes()
     // Each tour step shows more of the same garden, and the last shows all of it.
     let growth = OnboardingStep.allCases.map(OnboardingView.gardenGrowth(for:))
     guard zip(growth, growth.dropFirst()).allSatisfy({ $0 < $1 }), growth.last == 1 else {
