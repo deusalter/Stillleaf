@@ -258,29 +258,20 @@ private struct DashboardSidebar: View {
                     focusedDestination = destinations[next]
                     selection = destinations[next]
                 }
-                Hairline().padding(.horizontal, 10)
-                VStack(alignment: .leading, spacing: 5) {
-                    if model.appleBooksTrackingNeedsAccess || model.snapshot.pauseReason == .captureFailure {
-                        Button(action: troubleshoot) {
-                            HStack(spacing: 10) {
-                                Image(systemName: "exclamationmark.circle").frame(width: 18)
-                                Text(trackingStatus)
-                            }
-                            .font(.system(size: 11, weight: .medium)).foregroundStyle(ReadingPalette.ink)
-                        }.buttonStyle(.plain).help("Open tracking help")
-                    } else {
+                // Only a tracking problem earns space here; the healthy state needs no status line.
+                if model.appleBooksTrackingNeedsAccess || model.snapshot.pauseReason == .captureFailure {
+                    Hairline().padding(.horizontal, 10)
+                    Button(action: troubleshoot) {
                         HStack(spacing: 10) {
-                            Circle().fill(model.snapshot.phase == .reading ? ReadingPalette.accent : ReadingPalette.secondaryInk)
-                                .frame(width: 6, height: 6).frame(width: 18)
-                            Text(trackingStatus).font(.system(size: 11, weight: .medium)).foregroundStyle(ReadingPalette.ink)
+                            Image(systemName: "exclamationmark.circle").frame(width: 18)
+                            Text(trackingStatus)
                         }
+                        .font(.system(size: 11, weight: .medium)).foregroundStyle(ReadingPalette.ink)
                     }
-                    Text("History stored on this Mac")
-                        .font(.system(size: 10)).foregroundStyle(ReadingPalette.ink.opacity(0.8))
-                        .padding(.leading, 28)
+                    .buttonStyle(.plain).help("Open tracking help")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 10)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 10)
             }
             .padding(12)
             .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -288,16 +279,9 @@ private struct DashboardSidebar: View {
     }
 
     private var trackingStatus: String {
-        if !model.trackingEnabled { return "Tracking paused" }
-        if model.snapshot.phase == .reading { return "Reading now" }
-        switch model.snapshot.pauseReason {
-        case .permissionLost: return "Apple Books access needed"
-        case .background: return "Waiting for Books"
-        case .locked, .displayAsleep: return "Tracking paused"
-        case .captureFailure: return "Check tracking status"
-        default: return "Waiting for a book"
-        }
+        model.snapshot.pauseReason == .captureFailure && !model.appleBooksTrackingNeedsAccess ? "Check tracking status" : "Apple Books access needed"
     }
+
 }
 
 @MainActor
