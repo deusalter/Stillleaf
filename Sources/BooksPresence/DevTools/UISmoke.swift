@@ -386,6 +386,7 @@ func runUISmoke() throws {
     guard gardenModel.field.cells.isEmpty else { throw BooksAccessErrorForUI.failed("An Off garden kept cells") }
     try checkDottedProgressRow()
     try checkLowPowerIsLive()
+    try checkPopoverVineClearsText()
     try checkErrorBannerClearing(model)
     try checkBareTextOverGarden(populated: model, emptyRoot: root.appendingPathComponent("bare-text-empty"), defaults: defaults)
     var edged = GardenModel.plant(GardenLayout(size: CGSize(width: 350, height: 520), seed: 4, roots: 0, pollen: false,

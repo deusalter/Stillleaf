@@ -57,12 +57,10 @@ struct PopoverView: View {
             }
         }
         .id(theme.revision)
-        .padding(18).frame(width: 350)
+        .padding(Self.inset).frame(width: Self.width)
         .foregroundStyle(ReadingPalette.ink)
         .background {
-            // A sparse vine trellis in the panel's edge padding, clear of its text.
-            GardenCanvas(layout: GardenLayout(seed: GardenSeed.daily("popover", day: model.today.day), roots: 0, pollen: false,
-                                              cornerRoots: [.bottomTrailing, .topTrailing], budget: 200, edgeBand: 2, bandEdges: [.trailing]),
+            GardenCanvas(layout: Self.gardenLayout(seed: GardenSeed.daily("popover", day: model.today.day)),
                          mode: theme.effectiveGardenMode(reduceMotion: reduceMotion))
                 .clipShape(RoundedRectangle(cornerRadius: ReadingMetrics.Radius.window, style: .continuous))
         }
@@ -70,6 +68,17 @@ struct PopoverView: View {
         .tint(ReadingPalette.accent).buttonStyle(ReadingButtonStyle())
         .readingMotionAccessibility()
         .sheet(isPresented: $showingManualStart) { ManualStartView(model: model).readingMotionAccessibility() }
+    }
+
+    /// The panel's width and the padding its content keeps from every edge.
+    static let width: CGFloat = 350
+    static let inset: CGFloat = 18
+
+    /// A sparse vine trellis in the panel's trailing padding, clear of its text.
+    /// Two cells of the garden's grid fit in that padding, so the band stops exactly there.
+    static func gardenLayout(seed: UInt32) -> GardenLayout {
+        GardenLayout(seed: seed, roots: 0, pollen: false, cornerRoots: [.bottomTrailing, .topTrailing],
+                     budget: 200, edgeBand: 2, bandEdges: [.trailing])
     }
 
     private var readingContent: some View {

@@ -98,6 +98,33 @@ func checkErrorBannerClearing(_ model: AppModel) throws {
     print("ui-smoke: an error banner pushes the garden clearing down by its own height and back")
 }
 
+// MARK: Menu panel vine
+
+/// The menu panel's vine has to stay in the padding beside its text column, measured in
+/// points on the panel's real layout rather than in grid cells.
+@MainActor
+func checkPopoverVineClearsText() throws {
+    let textRight = PopoverView.width - PopoverView.inset
+    var grown = 0
+    for height in [CGFloat(420), 520, 640] {
+        for seed in UInt32(1)...UInt32(12) {
+            var layout = PopoverView.gardenLayout(seed: seed)
+            layout.size = CGSize(width: PopoverView.width, height: height)
+            var panel = GardenModel.plant(layout)
+            panel.growToCompletion(limit: 2_000)
+            for cell in panel.cells.values {
+                let left = Double(cell.x) * panel.cellWidth
+                guard left >= Double(textRight) + 2 else {
+                    throw GardenSmokeError.failed("A menu panel vine cell starts at \(left) pt, inside the text column that ends at \(textRight) pt (seed \(seed), height \(height))")
+                }
+            }
+            grown += panel.cells.count
+        }
+    }
+    guard grown > 100 else { throw GardenSmokeError.failed("The menu panel vine did not grow (\(grown) cells over 36 gardens)") }
+    print("ui-smoke: the menu panel vine stays at least 2 pt right of its text column")
+}
+
 // MARK: Bare text over the garden
 
 /// Finds text drawn straight over the garden. Every screen already keeps its text on
