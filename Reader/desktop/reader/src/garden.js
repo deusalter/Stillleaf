@@ -167,7 +167,12 @@ export function installGarden({canvas, spine, viewport, chrome, layout, enabled,
     canvas.classList.toggle('breathing', !busy && !frozen && !still());
   }
 
-  function schedule() { if (!frame && !frozen && active()) frame = requestAnimationFrame(tick); }
+  /** Paints the next frame. A Still garden has nothing to fade, so it paints at once instead of waiting for a frame. */
+  function schedule() {
+    if (frozen || !active()) return;
+    if (still() && metrics) { cancelAnimationFrame(frame); tick(); return; }
+    if (!frame) frame = requestAnimationFrame(tick);
+  }
 
   return {
     /** Layout or appearance changed: regrow for the new geometry once it settles. */
