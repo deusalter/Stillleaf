@@ -43,11 +43,14 @@ public struct BookRecord: Codable, Identifiable, Equatable {
     public var format: BookFormat?
     /// A basename in the managed Audiobooks directory; audio is not embedded in history exports.
     public var audioFileName: String?
+    /// Published length for books Stillleaf cannot count itself (a paperback found through a public catalogue).
+    /// Missing in older archives and for books whose reader reports its own page total.
+    public var pageCount: Int?
     public var resolvedFormat: BookFormat { format ?? .text }
-    public init(id: String, title: String, author: String? = nil, source: String = "manual", observedAt: Date = Date(), coverPath: String? = nil, coverSource: String? = nil, trackingExcluded: Bool = false, sharingExcluded: Bool = false, format: BookFormat? = nil, audioFileName: String? = nil) {
+    public init(id: String, title: String, author: String? = nil, source: String = "manual", observedAt: Date = Date(), coverPath: String? = nil, coverSource: String? = nil, trackingExcluded: Bool = false, sharingExcluded: Bool = false, format: BookFormat? = nil, audioFileName: String? = nil, pageCount: Int? = nil) {
         self.id = id; self.title = title; self.author = author; self.source = source; self.observedAt = observedAt
         self.coverPath = coverPath; self.coverSource = coverSource; self.trackingExcluded = trackingExcluded; self.sharingExcluded = sharingExcluded
-        self.format = format; self.audioFileName = audioFileName
+        self.format = format; self.audioFileName = audioFileName; self.pageCount = pageCount
     }
 }
 public struct ProgressObservation: Codable, Identifiable, Equatable {

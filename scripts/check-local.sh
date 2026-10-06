@@ -10,7 +10,7 @@ SWIFTC="${BOOKSPRESENCE_SWIFTC:-$(xcrun --find swiftc)}"
 "$SWIFTC" -parse-as-library -sdk "$(xcrun --sdk macosx --show-sdk-path)" -target "$(uname -m)-apple-macosx13.0" Sources/BooksPresence/Vines/VineField.swift scripts/vine-field-smoke.swift -o "$OUT/vine-field-smoke"
 "$OUT/vine-field-smoke"
 "$OUT/native-date-field-smoke"
-for suite in history-background history-performance audiobook progress-coverage history-atlas core discord calendar books manual-pages session-history goals reading-dates reader-domain reader-resources epub-import epub-removal reader-state reader-state-transfer; do
+for suite in history-background history-performance audiobook progress-coverage history-atlas core discord calendar books manual-pages manual-entry session-history goals reading-dates reader-domain reader-resources epub-import epub-removal reader-state reader-state-transfer; do
   "$SWIFTC" -sdk "$(xcrun --sdk macosx --show-sdk-path)" -target "$(uname -m)-apple-macosx13.0" -I "$OUT" -I Sources/CSQLite -L "$OUT" -lBooksCore -lBooksPlatform "scripts/$suite-smoke.swift" -o "$OUT/$suite-smoke" -Xlinker -rpath -Xlinker @executable_path
   "$OUT/$suite-smoke"
 done
