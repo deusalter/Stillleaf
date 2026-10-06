@@ -143,6 +143,8 @@ private enum BareTextAudit {
         var view: AnyView
         /// Rendered without waiting, to catch a screen's loading state.
         var immediate = false
+        /// The window; History cases are tall so content below the fold is drawn too.
+        var size = CGSize(width: 1060, height: 760)
     }
 
     /// Sets the garden still and the text colours magenta for the duration of `body`.
@@ -167,7 +169,8 @@ private enum BareTextAudit {
     }
 
     /// Cells (in points) holding bare text, after dropping glass panels and the clearing.
-    static func bareText(_ item: Case, dark: Bool, size: CGSize = CGSize(width: 1060, height: 760)) -> (cells: [CGRect], clearing: CGFloat, glass: Int) {
+    static func bareText(_ item: Case, dark: Bool) -> (cells: [CGRect], clearing: CGFloat, glass: Int) {
+        let size = item.size
         var glass: [CGRect] = []
         var clearing: CGFloat = 0
         // Hosted like the real window, with animations off so a page's entrance has finished.
@@ -269,8 +272,12 @@ func checkBareTextOverGarden(populated: AppModel, emptyRoot: URL, defaults: User
     for section in DashboardSection.allCases {
         cases.append(.init(name: "\(section.rawValue)", view: dashboard(populated, section)))
     }
-    for scale in [CalendarScale.day, .week, .year] {
-        cases.append(.init(name: "history-\(scale.rawValue)", view: dashboard(populated, .history, scale: scale)))
+    // History is audited at full height, wide and at the narrowest window, where the day card
+    // stacks under the calendar instead of sitting beside it.
+    let tall = CGSize(width: 1060, height: 1500), narrow = CGSize(width: 920, height: 1700)
+    for scale in CalendarScale.allCases {
+        cases.append(.init(name: "history-\(scale.rawValue)-tall", view: dashboard(populated, .history, scale: scale), size: tall))
+        cases.append(.init(name: "history-\(scale.rawValue)-narrow", view: dashboard(populated, .history, scale: scale), size: narrow))
     }
     for section in [DashboardSection.today, .history, .library, .timeline, .review, .health] {
         cases.append(.init(name: "empty-\(section.rawValue)", view: dashboard(empty, section)))
@@ -285,7 +292,8 @@ func checkBareTextOverGarden(populated: AppModel, emptyRoot: URL, defaults: User
         let bare = BareTextAudit.bareText(.init(name: "control-bare", view: BareTextAudit.control(onGlass: false)), dark: false)
         guard bare.cells.count >= 4 else { throw GardenSmokeError.failed("The bare-text audit missed a bare caption over the garden") }
         let panel = BareTextAudit.bareText(.init(name: "control-glass", view: BareTextAudit.control(onGlass: true)), dark: false)
-        guard panel.glass == 1, panel.cells.isEmpty else {
+        // How many panels register depends on Reduce Transparency, so only the result is checked.
+        guard panel.cells.isEmpty else {
             throw GardenSmokeError.failed("The bare-text audit flagged a caption on glass at \(panel.cells.prefix(3))")
         }
         var failures: [String] = []
