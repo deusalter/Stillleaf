@@ -220,10 +220,16 @@ async function watchGrowth(page, deadline = 12000) {
   const samples = [];
   const end = Date.now() + deadline;
   for (;;) {
-    const [pixels] = await painted(page), {animating, ticks, frozen, cells} = await debug(page);
-    const breathing = await page.evaluate(() => document.getElementById('garden').classList.contains('breathing'));
+    // One evaluate, so the pixels, the frame state and the breathing class describe the same moment.
+    const {pixels, animating, ticks, frozen, cells, breathing} = await page.evaluate(() => {
+      const canvas = document.getElementById('garden'), data = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
+      let pixels = 0;
+      for (let i = 3; i < data.length; i += 4) if (data[i]) pixels++;
+      const {animating, ticks, frozen, cells} = window.StillleafReader.gardenDebug();
+      return {pixels, animating, ticks, frozen, cells: cells.length, breathing: canvas.classList.contains('breathing')};
+    });
     samples.push({pixels, animating, ticks, breathing});
-    if ((!animating && !frozen && cells.length > 0) || Date.now() > end) return samples;
+    if ((!animating && !frozen && cells > 0) || Date.now() > end) return samples;
     await page.waitForTimeout(200);
   }
 }
@@ -269,6 +275,42 @@ test('a garden that loses cells fades them out as ghosts, then stops drawing', {
   assert.equal((await debug(page)).ghosts, 0, 'ghosts outlived their fade');
 });
 
+test('a Still garden that loses cells drops them at once, with no fading ghosts', {timeout: 60000}, async t => {
+  const {page} = await launch(t, {width: 1400, height: 900}, {reducedMotion: 'no-preference', gardenMode: 'still'});
+  await page.evaluate(() => window.StillleafReader.go({href: 'one.html', type: 'text/html', locations: {progression: 0.4}}));
+  await page.waitForFunction(() => window.StillleafReader.gardenDebug().progress > 0.3);
+  await page.waitForTimeout(400);
+  const before = (await debug(page)).cells.length;
+  await page.evaluate(() => window.StillleafReader.go({href: 'one.html', type: 'text/html', locations: {progression: 0.05}}));
+  await page.waitForFunction(() => window.StillleafReader.gardenDebug().progress < 0.1);
+  const after = await debug(page);
+  assert.ok(after.cells.length < before, 'going back did not shrink the garden, so nothing was removed');
+  assert.equal(after.ghosts, 0, 'a Still garden kept fading ghosts');
+  await page.waitForTimeout(100);
+  assert.equal((await debug(page)).animating, false, 'a Still garden kept drawing frames');
+});
+
+test('a Still garden repaints at once when reading moves, without waiting for an animation frame', {timeout: 60000}, async t => {
+  const {page} = await launch(t, {width: 1400, height: 900}, {reducedMotion: 'no-preference', gardenMode: 'still'});
+  await readTo(page, 0.2);
+  const results = [];
+  for (const progression of [0.6, 0.35, 0.8]) {
+    // Sample in the same task that applies the new position, before any frame could run.
+    results.push(await page.evaluate(target => new Promise(resolve => {
+      const api = window.StillleafReader, start = api.gardenDebug().progress;
+      api.go({href: 'one.html', type: 'text/html', locations: {progression: target}});
+      const poll = () => {
+        const garden = api.gardenDebug();
+        if (Math.abs(garden.progress - start) > 0.1) resolve({animating: garden.animating, cells: garden.cells.length});
+        else setTimeout(poll, 0);
+      };
+      poll();
+    }), progression));
+  }
+  assert.ok(results.every(r => r.cells > 0), `a Still garden lost its vines: ${JSON.stringify(results)}`);
+  assert.ok(results.every(r => !r.animating), `a Still garden waited for animation frames: ${JSON.stringify(results)}`);
+});
+
 test('an Off garden never schedules a frame', {timeout: 60000}, async t => {
   const {page} = await launch(t, {width: 1400, height: 900}, {...animated, gardenMode: 'off'});
   await readTo(page, 0.5);
@@ -278,6 +320,19 @@ test('an Off garden never schedules a frame', {timeout: 60000}, async t => {
   assert.equal(garden.ticks, 0, 'an Off garden drew frames');
   assert.equal(garden.animating, false);
   assert.equal(await page.evaluate(() => document.getElementById('garden').classList.contains('breathing')), false);
+});
+
+test('scrolling an Off garden never freezes it or schedules a frame', {timeout: 60000}, async t => {
+  const {page} = await launch(t, {width: 1400, height: 900}, {reducedMotion: 'no-preference', gardenMode: 'off'});
+  await readTo(page, 0.3);
+  // Sample just after the 300 ms freeze would end, before the next animation frame could run.
+  const state = await page.evaluate(() => new Promise(resolve => {
+    window.dispatchEvent(new WheelEvent('wheel', {deltaY: 1}));
+    const frozen = window.StillleafReader.gardenDebug().frozen;
+    setTimeout(() => resolve({frozen, animating: window.StillleafReader.gardenDebug().animating}), 301);
+  }));
+  assert.equal(state.frozen, false, 'an Off garden froze on scroll input');
+  assert.equal(state.animating, false, 'an Off garden scheduled a frame after scroll input');
 });
 
 test('switching a live garden to Off stops its frames and blanks both canvases', {timeout: 60000}, async t => {

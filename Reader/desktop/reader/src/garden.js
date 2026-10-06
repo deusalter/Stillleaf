@@ -95,7 +95,8 @@ export function installGarden({canvas, spine, viewport, chrome, layout, enabled,
     return field;
   }
 
-  /** Swaps a scene to a new garden: kept cells stay, new ones fade in in growth order, lost ones fade out. */
+  /** Swaps a scene to a new garden: kept cells stay, new ones fade in in growth order, lost ones fade out.
+   *  Still and Reduce Motion show the new garden at once: no fade in, no fading ghosts. */
   function regrow(scene, field, now) {
     const previous = scene.field?.cells ?? new Map(), born = new Map();
     let order = 0;
@@ -103,7 +104,8 @@ export function installGarden({canvas, spine, viewport, chrome, layout, enabled,
       const kept = previous.get(key);
       born.set(key, kept && scene.born.has(key) ? scene.born.get(key) : still() ? now - FADE : now + (order++) * STAGGER);
     }
-    for (const [key, cell] of previous) if (!field?.cells.has(key)) scene.ghosts.push({cell, dying: now});
+    if (still()) scene.ghosts = [];
+    else for (const [key, cell] of previous) if (!field?.cells.has(key)) scene.ghosts.push({cell, dying: now});
     scene.field = field; scene.born = born;
   }
 
@@ -165,7 +167,12 @@ export function installGarden({canvas, spine, viewport, chrome, layout, enabled,
     canvas.classList.toggle('breathing', !busy && !frozen && !still());
   }
 
-  function schedule() { if (!frame && !frozen) frame = requestAnimationFrame(tick); }
+  /** Paints the next frame. A Still garden has nothing to fade, so it paints at once instead of waiting for a frame. */
+  function schedule() {
+    if (frozen || !active()) return;
+    if (still() && metrics) { cancelAnimationFrame(frame); tick(); return; }
+    if (!frame) frame = requestAnimationFrame(tick);
+  }
 
   return {
     /** Layout or appearance changed: regrow for the new geometry once it settles. */
@@ -184,6 +191,8 @@ export function installGarden({canvas, spine, viewport, chrome, layout, enabled,
     },
     /** Wheel or scroll input: hold the garden still until it stops. */
     activity() {
+      // An Off garden has nothing to hold still and must never schedule a frame.
+      if (!active()) return;
       frozen = true;
       cancelAnimationFrame(frame); frame = 0;
       canvas.classList.remove('breathing');

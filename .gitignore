@@ -1,16 +1,47 @@
+# Swift and Xcode build output
 .build/
 .swiftpm/
-.local/
-.superpowers/
-dist/
 DerivedData/
-.DS_Store
+dist/
+*.xcuserstate
+xcuserdata/
+
+# JavaScript dependencies and output (subprojects add their own specifics)
+node_modules/
+coverage/
+test-results/
+playwright-report/
+
+# Local data, exports and secrets
 *.sqlite*
 *.db*
 *.log
-*.xcuserstate
+.env
+.env.*
+!.env.example
 *.p12
 *.mobileprovision
-.env
 exports/
 private/
+.local/
+
+# AI coding agent instructions, settings and working files (kept locally, never committed)
+CLAUDE.md
+CLAUDE.local.md
+AGENTS.md
+.claude/
+.agents/
+.codex/
+.cursor/
+.cursorrules
+.windsurf/
+.aider*
+.superpowers/
+
+# Editors and OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~
+*.orig
