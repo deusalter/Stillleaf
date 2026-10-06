@@ -132,11 +132,18 @@ test('changing appearance while the garden is frozen keeps the old garden until 
   const {page} = await launch(t, {width: 1400, height: 900});
   await readTo(page, 0.6);
   const before = await page.evaluate(() => JSON.stringify(window.StillleafReader.gardenDebug().cells));
-  await page.mouse.move(60, 450);
-  await page.mouse.wheel(0, 40);
-  await page.evaluate(() => window.StillleafReader.setPreferences({contentWidth: 45, measure: 40}));
-  await page.waitForTimeout(160);
-  const during = await page.evaluate(() => ({frozen: window.StillleafReader.gardenDebug().frozen, cells: JSON.stringify(window.StillleafReader.gardenDebug().cells)}));
+  // Keep input arriving for the whole change, so a slow layout can't outlast the freeze.
+  const during = await page.evaluate(async () => {
+    const nudge = () => window.dispatchEvent(new WheelEvent('wheel', {deltaY: 1}));
+    nudge();
+    const input = setInterval(nudge, 100);
+    try {
+      await window.StillleafReader.setPreferences({contentWidth: 45, measure: 40});
+      await new Promise(resolve => setTimeout(resolve, 160));
+      const debug = window.StillleafReader.gardenDebug();
+      return {frozen: debug.frozen, cells: JSON.stringify(debug.cells)};
+    } finally { clearInterval(input); }
+  });
   assert.equal(during.frozen, true);
   assert.equal(during.cells, before, 'the garden was replaced (and blanked) while input was still arriving');
   await page.waitForTimeout(900);
