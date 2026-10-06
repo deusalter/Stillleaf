@@ -1425,7 +1425,7 @@ final class AppModel: ObservableObject {
     @discardableResult
     func addManualEntry(book: BookRecord, cover: Data? = nil, entry: ManualReadingEntry) -> Bool {
         if let issue = entry.issue(existing: intervals.filter { $0.disposition != .excluded }) {
-            errorMessage = issue.message(timeZone: TimeZone(identifier: timezoneID) ?? .current)
+            errorMessage = issue.message(zone: TimeZone(identifier: timezoneID) ?? .current)
             return false
         }
         return perform(afterCommit: resetEngineAfterMutation) {
