@@ -4,7 +4,8 @@ from pathlib import Path
 import sys
 source = Path(__file__).resolve().parents[1]
 target = Path(sys.argv[1])
-(target / 'Sources/BooksPresence/UISettledBenchmark.swift').write_text((source / 'Sources/BooksPresence/UISettledBenchmark.swift').read_text())
+# Baseline revisions predate DevTools/ and keep the harness beside the app sources.
+(target / 'Sources/BooksPresence/UISettledBenchmark.swift').write_text((source / 'Sources/BooksPresence/DevTools/UISettledBenchmark.swift').read_text())
 p = target / 'Sources/BooksPresence/HistoryView.swift'
 s = p.read_text()
 s = s.replace('    @State private var reviewInterval:', '    private let benchmarkReady: ((HistoryAtlasKey) -> Void)?\n    @State private var reviewInterval:')

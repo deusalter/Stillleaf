@@ -27,14 +27,14 @@ struct AtlasWeekView: View {
                         Text(Int(maximumMinutes * Double(step) / 3).formatted()).font(.caption2).monospacedDigit()
                         if step > 0 { Spacer(minLength: 0) }
                     }
-                }.foregroundStyle(AtlasStyle.muted(dark)).frame(width: 30, height: 224).padding(.top, 20)
+                }.foregroundStyle(ReadingPalette.secondaryInk).frame(width: 30, height: 224).padding(.top, 20)
                 HStack(alignment: .top, spacing: 10) {
                     ForEach(days) { day in dayColumn(day, maximumMinutes: maximumMinutes) }
                 }
                 .background(alignment: .top) {
                     VStack(spacing: 0) {
                         ForEach(0...3, id: \.self) { step in
-                            Rectangle().fill(AtlasStyle.rule(dark)).frame(height: 0.6)
+                            Rectangle().fill(ReadingPalette.border).frame(height: 0.6)
                             if step < 3 { Spacer(minLength: 0) }
                         }
                     }.frame(height: 220).padding(.top, 24).accessibilityHidden(true)
@@ -43,7 +43,7 @@ struct AtlasWeekView: View {
             if !bookIDs.isEmpty { AtlasLegend(booksByID: presentation.booksByID, bookIDs: bookIDs) }
             if days.allSatisfy({ $0.creditedSeconds == 0 }) {
                 Text("No recorded time this week. Select a day to see its pages and saved sessions.")
-                    .font(.caption).foregroundStyle(AtlasStyle.muted(dark))
+                    .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
             }
         }
     }
@@ -68,15 +68,15 @@ struct AtlasWeekView: View {
                         }
                     }
                 }.frame(height: 244)
-                Text(AtlasStyle.date(day.date, zone: navigation.timezoneID, pattern: "EEE")).font(.caption)
-                Text("\(navigation.calendar.component(.day, from: day.date))").font(.caption2).foregroundStyle(AtlasStyle.muted(dark))
+                Text(DateText.string(day.date, zone: navigation.timezoneID, pattern: "EEE")).font(.caption)
+                Text("\(navigation.calendar.component(.day, from: day.date))").font(.caption2).foregroundStyle(ReadingPalette.secondaryInk)
                 VStack(spacing: 3) {
                     Text(future ? "—" : pages.formatted()).font(.callout.weight(.medium))
-                    Text("pages").font(.caption2).foregroundStyle(AtlasStyle.muted(dark))
+                    Text("pages").font(.caption2).foregroundStyle(ReadingPalette.secondaryInk)
                 }.padding(.top, 5)
             }.frame(maxWidth: .infinity).contentShape(Rectangle()).opacity(future ? 0.35 : 1)
         }.buttonStyle(.plain).disabled(future)
-            .accessibilityLabel("\(AtlasStyle.date(day.date, zone: navigation.timezoneID, pattern: "EEEE, MMMM d")), \(ReadingFormat.duration(day.creditedSeconds)) recorded, \(pages) pages. Open day.")
+            .accessibilityLabel("\(DateText.string(day.date, zone: navigation.timezoneID, pattern: "EEEE, MMMM d")), \(ReadingFormat.duration(day.creditedSeconds)) recorded, \(pages) pages. Open day.")
             .help(entries.isEmpty ? "Open day" : detail(entries))
     }
     private func detail(_ entries: [AtlasBookTime]) -> String {
@@ -107,7 +107,7 @@ struct AtlasTimeRing: View {
             // Canvas clips its drawing bounds; reserve the stroke's overhang
             // so it matches Circle.stroke's appearance outside the cell frame.
             let bounds = CGRect(origin: .zero, size: size).insetBy(dx: 2, dy: 2)
-            context.stroke(Path(ellipseIn: bounds), with: .color(AtlasStyle.rule(scheme == .dark)), lineWidth: 3)
+            context.stroke(Path(ellipseIn: bounds), with: .color(ReadingPalette.border), lineWidth: 3)
             if total > 0 {
                 var elapsed = 0.0
                 for entry in entries {
@@ -156,8 +156,7 @@ struct AtlasMonthView: View {
         // while grid dates return to 00:00. Match civil days, not those instants.
         let daysByDate = Self.indexDays(presentation, calendar: calendar)
         let selectedDay = Self.day(for: selectedDate, in: daysByDate, calendar: calendar)
-        let formatter = DateFormatter(); formatter.locale = .current
-        let weekdayNames = formatter.shortWeekdaySymbols ?? []
+        let weekdayNames = Calendar.current.shortWeekdaySymbols
         let grid = monthCalendar(calendar: calendar, selectedDate: selectedDate,
                                  today: calendar.startOfDay(for: Date()), daysByDate: daysByDate,
                                  cells: navigation.monthCells, weekdayNames: weekdayNames)
@@ -170,10 +169,10 @@ struct AtlasMonthView: View {
     private func monthCalendar(calendar: Calendar, selectedDate: Date, today: Date,
                                daysByDate: [Date: AtlasDayPresentation], cells: [CalendarMonthCell], weekdayNames: [String]) -> some View {
         let firstWeekday = calendar.firstWeekday
-        return AtlasPanel(title: AtlasStyle.date(navigation.periodStart, zone: navigation.timezoneID, pattern: "MMMM"), note: "Time by book") {
+        return AtlasPanel(title: DateText.string(navigation.periodStart, zone: navigation.timezoneID, pattern: "MMMM"), note: "Time by book") {
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(minimum: 42), spacing: 8), count: 7), spacing: 14) {
                 ForEach(0..<7, id: \.self) { index in
-                    Text(weekdayNames[(firstWeekday - 1 + index) % 7]).font(.caption).foregroundStyle(AtlasStyle.muted(dark)).padding(.bottom, 8)
+                    Text(weekdayNames[(firstWeekday - 1 + index) % 7]).font(.caption).foregroundStyle(ReadingPalette.secondaryInk).padding(.bottom, 8)
                 }
                 ForEach(cells) { cell in
                     if cell.isInMonth { dayCell(cell.date, prepared: Self.day(for: cell.date, in: daysByDate, calendar: calendar), calendar: calendar, selectedDate: selectedDate, today: today) }
@@ -181,7 +180,7 @@ struct AtlasMonthView: View {
                 }
             }
             if !ids.isEmpty { AtlasLegend(booksByID: presentation.booksByID, bookIDs: ids) }
-            Text("Ring segments show each book’s share of recorded time.").font(.caption2).foregroundStyle(AtlasStyle.muted(dark))
+            Text("Ring segments show each book’s share of recorded time.").font(.caption2).foregroundStyle(ReadingPalette.secondaryInk)
         }
     }
     private func dayCell(_ date: Date, prepared: AtlasDayPresentation?, calendar: Calendar, selectedDate: Date, today: Date) -> some View {
@@ -199,13 +198,13 @@ struct AtlasMonthView: View {
                     Text("\(calendar.component(.day, from: date))").font(.system(size: 12)).monospacedDigit()
                 }
                 Text(seconds > 0 ? ReadingFormat.duration(seconds) : pages > 0 ? "\(pages)p" : "—")
-                    .font(.system(size: 10)).foregroundStyle(AtlasStyle.muted(dark)).lineLimit(1)
+                    .font(.system(size: 10)).foregroundStyle(ReadingPalette.secondaryInk).lineLimit(1)
             }.frame(maxWidth: .infinity).padding(.vertical, 8)
-                .background(isSelected ? AtlasStyle.accent(dark).opacity(0.09) : .clear, in: RoundedRectangle(cornerRadius: 12))
-                .overlay(RoundedRectangle(cornerRadius: 12).stroke(isSelected ? AtlasStyle.accent(dark) : .clear, lineWidth: 1))
+                .background(isSelected ? ReadingPalette.accent.opacity(0.09) : .clear, in: RoundedRectangle(cornerRadius: 12))
+                .overlay(RoundedRectangle(cornerRadius: 12).stroke(isSelected ? ReadingPalette.accent : .clear, lineWidth: 1))
                 .contentShape(Rectangle()).opacity(future ? 0.3 : 1)
         }.buttonStyle(.plain).disabled(future)
-            .accessibilityLabel("\(AtlasStyle.date(date, zone: navigation.timezoneID, pattern: "EEEE, MMMM d")), \(ReadingFormat.duration(seconds)) recorded, \(pages) pages. \(names).")
+            .accessibilityLabel("\(DateText.string(date, zone: navigation.timezoneID, pattern: "EEEE, MMMM d")), \(ReadingFormat.duration(seconds)) recorded, \(pages) pages. \(names).")
             .accessibilityAddTraits(isSelected ? .isSelected : []).help(names.isEmpty ? "No credited time" : names)
     }
     private func detail(selectedDate: Date, selectedDay: AtlasDayPresentation?) -> some View {
@@ -214,18 +213,18 @@ struct AtlasMonthView: View {
         // and recorded positions below the fold need not be laid out on selection.
         return LazyVStack(alignment: .leading, spacing: 22) {
             HStack {
-                Text(AtlasStyle.date(selectedDate, zone: navigation.timezoneID, pattern: "EEEE d")).font(.system(size: 14, weight: .semibold))
+                Text(DateText.string(selectedDate, zone: navigation.timezoneID, pattern: "EEEE d")).font(.system(size: 14, weight: .semibold))
                 Spacer()
                 Button("Open day") { select(selectedDate) }.buttonStyle(AtlasButtonStyle())
             }
-            if selectedIDs.isEmpty { Text("No reading recorded.").font(.callout).foregroundStyle(AtlasStyle.muted(dark)) }
+            if selectedIDs.isEmpty { Text("No reading recorded.").font(.callout).foregroundStyle(ReadingPalette.secondaryInk) }
             ForEach(selectedIDs, id: \.self) { id in
                 let pages = selectedDay?.pagesByBook[id] ?? 0
                 let time = selectedDay?.day.books.first { $0.bookID == id }
                 VStack(alignment: .leading, spacing: 12) {
                     AtlasBookLabel(booksByID: presentation.booksByID, id: id, detail: (pages > 0 ? "\(pages) pages\n" : "") + "\(ReadingFormat.duration(time?.creditedSeconds ?? 0)) recorded", small: true)
                     if let position = selectedDay?.positionsByBook[id] {
-                        Text("Recorded position\n\(position.description)").font(.caption).foregroundStyle(AtlasStyle.muted(dark))
+                        Text("Recorded position\n\(position.description)").font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
                     }
                 }
             }

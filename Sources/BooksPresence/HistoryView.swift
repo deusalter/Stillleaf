@@ -51,12 +51,12 @@ struct HistoryView: View {
                         .padding(.top, 20)
                 }
                 Text(model.timezoneID.replacingOccurrences(of: "_", with: " "))
-                    .font(.caption2).foregroundStyle(AtlasStyle.muted(dark)).help("History dates and times use this timezone.")
+                    .font(.caption2).foregroundStyle(ReadingPalette.secondaryInk).help("History dates and times use this timezone.")
             }
             .frame(maxWidth: 1120, alignment: .leading)
             .padding(.horizontal, 32).padding(.vertical, 30).frame(maxWidth: .infinity, alignment: .top)
         }
-        .background(AtlasStyle.canvas(dark), ignoresSafeAreaEdges: .vertical).foregroundStyle(AtlasStyle.ink(dark)).tint(AtlasStyle.accent(dark))
+        .background(ReadingPalette.canvas, ignoresSafeAreaEdges: .vertical).foregroundStyle(ReadingPalette.ink).tint(ReadingPalette.accent)
         .onChange(of: model.timezoneID) { navigation.timezoneID = $0 }
         .task(id: request) {
             guard let source else { return }
@@ -133,7 +133,7 @@ struct HistoryView: View {
     static func title(for navigation: CalendarNavigation) -> String {
         let period = navigation.period
         func format(_ date: Date, _ pattern: String) -> String {
-            AtlasStyle.date(date, zone: navigation.timezoneID, pattern: pattern)
+            DateText.string(date, zone: navigation.timezoneID, pattern: pattern)
         }
         switch navigation.scale {
         case .day: return format(period.start, "EEEE, MMMM d, yyyy")
@@ -158,7 +158,7 @@ struct HistoryView: View {
                 }.menuStyle(.borderlessButton).fixedSize()
                     .accessibilityLabel("History timescale").accessibilityValue(navigation.scale.title)
                     .help("Choose day, week, month, or year")
-                Rectangle().fill(AtlasStyle.rule(dark)).frame(width: 1, height: 16).padding(.horizontal, 4)
+                Rectangle().fill(ReadingPalette.border).frame(width: 1, height: 16).padding(.horizontal, 4)
                     .accessibilityHidden(true)
                 Button { navigation.move(by: -1) } label: { Image(systemName: "chevron.left") }
                     .accessibilityLabel("Previous \(navigation.scale.title.lowercased())")
@@ -176,13 +176,13 @@ struct HistoryView: View {
     private func metric(_ value: String, _ label: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 5) {
             Text(value).font(.system(size: 20, weight: .medium)).monospacedDigit()
-            Text(label).font(.caption).foregroundStyle(AtlasStyle.muted(dark))
+            Text(label).font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
         }.accessibilityElement(children: .combine)
     }
     @ViewBuilder private func goal(_ progress: DailyGoalProgress?) -> some View {
         if let progress {
             Text(progress.reached ? "✓ Daily goal reached" : progress.summary).font(.caption)
-                .foregroundStyle(AtlasStyle.accent(dark)).accessibilityLabel("Daily goal: \(progress.summary)")
+                .foregroundStyle(ReadingPalette.accent).accessibilityLabel("Daily goal: \(progress.summary)")
         }
     }
     private var canMoveForward: Bool {

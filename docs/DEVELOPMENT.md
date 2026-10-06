@@ -18,6 +18,14 @@ How the repository fits together and how to check a change. For what the app doe
 
 The executable, Application Support folder (`~/Library/Application Support/BooksPresence`) and `BOOKSPRESENCE_*` variables keep the original BooksPresence name. Renaming the data folder needs a migration.
 
+## Conventions in the native app
+
+- **One main type per file**, named after it. Small private helpers stay with the view that uses them.
+- **Test, benchmark and preview code** lives in `Sources/BooksPresence/DevTools/`. It compiles into the same binary so CI and `check-local.sh` can run `--self-test-*`, `--benchmark-*` and `--render-*` against what ships. The reader smoke stays inside `EPUBReaderWindow.swift` because it drives private reader state.
+- **Design tokens.** Colours come from `ReadingPalette` (`ThemeStore.swift`, backed by the themes in `Theme.swift`). Radii, spacing, page widths and card padding come from `ReadingMetrics`, and type from `ReadingType` (both in `ReadingLayout.swift`). Use `.readingPanel()` for cards and `.readingPage()` for screen insets rather than new literals.
+- **Goal limits** come from `ReadingGoalLimits` in BooksCore. **Date labels** go through `DateText` (`ReadingFormat.swift`), which caches formatters per time zone and format.
+- **SDK guards.** APIs newer than the macOS 13 SDK sit behind a compiler check, because each Swift release ships with one SDK: `#if compiler(>=5.9)` for macOS 14 APIs and `#if compiler(>=6.2)` for macOS 26 (Liquid Glass). Pair the guard with the matching `#available` runtime check.
+
 ## Build
 
 With full Xcode: `swift build`, `swift test`, `scripts/package-app.sh`.

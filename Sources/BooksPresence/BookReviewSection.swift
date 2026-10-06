@@ -9,7 +9,7 @@ struct BookReviewSection: View {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Your review").font(.headline)
-                    Text("Just for your journal. Always optional.").font(.caption).foregroundStyle(ReadingPalette.fadedInk)
+                    Text("Just for your journal. Always optional.").font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
                 }
                 Spacer()
                 Button(model.review(for: bookID) == nil ? "Write a review" : "Edit review") { editing = true }.controlSize(.small)
@@ -44,7 +44,7 @@ struct BookReviewEditor: View {
             ReadingSheetHeader(title: "Your review", subtitle: bookTitle, close: requestClose)
             Text("What stayed with you?").font(ReadingType.bookTitle(22))
             Text("Private to your journal. Included in your backups and exports; never posted online.")
-                .font(.caption).foregroundStyle(ReadingPalette.fadedInk)
+                .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
             TextEditor(text: $draft)
                 .font(.system(size: 14)).lineSpacing(5)
                 .scrollContentBackground(.hidden)
@@ -52,13 +52,13 @@ struct BookReviewEditor: View {
                 .overlay(RoundedRectangle(cornerRadius: 16).stroke(ReadingPalette.border.opacity(0.5)))
                 .accessibilityLabel("Written book review")
             HStack {
-                Text("\(draft.count.formatted()) / 50,000 characters").font(.caption).foregroundStyle(draft.count > 50_000 ? ReadingPalette.ochre : ReadingPalette.fadedInk)
+                Text("\(draft.count.formatted()) / 50,000 characters").font(.caption).foregroundStyle(draft.count > 50_000 ? ReadingPalette.warning : ReadingPalette.secondaryInk)
                 Spacer()
                 if model.review(for: bookID) != nil {
                     Button("Clear review") { dialog = .clear }.controlSize(.small)
                 }
             }
-            if let saveError { Text(saveError).font(.caption).foregroundStyle(ReadingPalette.ochre) }
+            if let saveError { Text(saveError).font(.caption).foregroundStyle(ReadingPalette.warning) }
             HStack {
                 Button("Cancel", action: requestClose)
                 Spacer()
@@ -69,7 +69,7 @@ struct BookReviewEditor: View {
                     .disabled(draft.count > 50_000)
             }
         }.padding(24).frame(width: 590, height: 540)
-        .background(ReadingPalette.paper).foregroundStyle(ReadingPalette.ink)
+        .background(ReadingPalette.canvas).foregroundStyle(ReadingPalette.ink)
         .buttonStyle(ReadingButtonStyle())
         .interactiveDismissDisabled(isDirty)
         .onExitCommand(perform: requestClose)

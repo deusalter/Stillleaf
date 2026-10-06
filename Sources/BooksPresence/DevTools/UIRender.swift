@@ -131,7 +131,7 @@ func renderUIPreviews(to destination: URL) throws {
         previews.append(("today-exceeded", AnyView(DashboardView(model: exceededModel))))
         if let entry = model.finishedBooks.first {
             previews.append(("finished-prompt", AnyView(FinishedBookPrompt(model: model, entry: entry))))
-            previews.append(("finished-timeline", AnyView(ScrollView { FinishedBookTimeline(model: model).padding(24) }.background(ReadingPalette.paper))))
+            previews.append(("finished-timeline", AnyView(ScrollView { FinishedBookTimeline(model: model).padding(24) }.background(ReadingPalette.canvas))))
         }
         if let book = model.books.first {
             previews.append(("book-detail", AnyView(BookDetailView(model: model, book: book))))
@@ -139,7 +139,7 @@ func renderUIPreviews(to destination: URL) throws {
         }
         previews.append(("troubleshooting", AnyView(TrackingHelpView(model: model))))
         previews.append(("reading-calendar", AnyView(ReadingDateCalendar(selection: .constant(now),
-            timezoneID: model.timezoneID).padding(24).frame(width: 450).background(ReadingPalette.paper))))
+            timezoneID: model.timezoneID).padding(24).frame(width: 450).background(ReadingPalette.canvas))))
         previews.append(("reading-dates", AnyView(ReadingDatesEditor(title: "A Room of One’s Own",
             dates: ReadingCompletionDates(finishedAt: now), timezoneID: model.timezoneID, save: { _ in nil }))))
         previews.append(("reading-dates-expanded", AnyView(ReadingDatesEditor(title: "A Room of One’s Own",
@@ -151,12 +151,12 @@ func renderUIPreviews(to destination: URL) throws {
         for format in BookFormat.allCases {
             let book = BookRecord(id: "preview-format", title: "The Waves", author: "Virginia Woolf", format: format)
             previews.append(("book-format-\(format.rawValue)", AnyView(AudiobookSection(model: model, book: book, player: model.audiobookPlayer)
-                .padding(24).background(ReadingPalette.paper).foregroundStyle(ReadingPalette.ink)
+                .padding(24).background(ReadingPalette.canvas).foregroundStyle(ReadingPalette.ink)
                 .tint(ReadingPalette.accent).buttonStyle(ReadingButtonStyle()))))
         }
         previews.append(("audio-log", AnyView(AudiobookLogView(model: model))))
         previews.append(("audio-playback", AnyView(AudiobookPlaybackControls(player: model.audiobookPlayer)
-            .padding(24).frame(width: 550).background(ReadingPalette.paper)
+            .padding(24).frame(width: 550).background(ReadingPalette.canvas)
             .foregroundStyle(ReadingPalette.ink).tint(ReadingPalette.accent).buttonStyle(ReadingButtonStyle()))))
         previews.append(("manual-start", AnyView(ManualStartView(model: model))))
         previews.append(("manual-add", AnyView(ManualAdditionView(model: model))))
@@ -396,7 +396,7 @@ private func renderProgressMotion(model: AppModel, to destination: URL) throws {
     window.appearance = NSAppearance(named: .aqua)
     let hosting = NSHostingView(rootView: DailyReadingOverview(model: model)
         .environment(\.colorScheme, .light).foregroundStyle(ReadingPalette.ink)
-        .padding(6).frame(width: 850, height: 310).background(ReadingPalette.paper))
+        .padding(6).frame(width: 850, height: 310).background(ReadingPalette.canvas))
     window.contentView = hosting
     if !CommandLine.arguments.contains("--offscreen") { window.orderBack(nil) }
     let started = Date()
@@ -417,7 +417,7 @@ private struct RatingPreview: View {
     var body: some View {
         QuarterStarRating(rating: $value).padding(24)
             .frame(width: 320, height: 200)
-            .foregroundStyle(ReadingPalette.ink).background(ReadingPalette.paper)
+            .foregroundStyle(ReadingPalette.ink).background(ReadingPalette.canvas)
     }
 }
 
@@ -430,7 +430,7 @@ private struct RatingMotionPreview: View {
     var body: some View {
         QuarterStarRating(rating: $state.rating).padding(24)
             .frame(width: 320, height: 200)
-            .foregroundStyle(ReadingPalette.ink).background(ReadingPalette.paper)
+            .foregroundStyle(ReadingPalette.ink).background(ReadingPalette.canvas)
     }
 }
 /// Native transition samples use isolated draft state and never save a user rating.
@@ -471,7 +471,7 @@ private func renderCompletionMotion(to destination: URL) throws {
             return claims == 1
         }
         .frame(width: 100, height: 100)
-        .background(ReadingPalette.paper)
+        .background(ReadingPalette.canvas)
         .environment(\.colorScheme, .light)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 100, height: 100), styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false

@@ -8,7 +8,7 @@ struct EPUBImportStatusView: View {
         let summary = controller.queue.summary
         VStack(alignment: .leading, spacing: 8) {
             if let error = controller.recoveryError {
-                Text(error).font(.callout).foregroundStyle(ReadingPalette.ochre)
+                Text(error).font(.callout).foregroundStyle(ReadingPalette.warning)
             }
             if !controller.queue.items.isEmpty {
                 HStack(spacing: 10) {
@@ -19,7 +19,7 @@ struct EPUBImportStatusView: View {
                     if summary.remaining > 0 { Button("Cancel remaining") { controller.cancelPending() }.controlSize(.small) }
                 }
                 Text("\(summary.imported) added · \(summary.duplicates) already in Library · \(summary.failed) failed · \(summary.cancelled) cancelled")
-                    .font(.caption).foregroundStyle(ReadingPalette.fadedInk)
+                    .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
                 if summary.failed > 0 {
                     DisclosureGroup("Import details") {
                         ForEach(controller.queue.items.filter { $0.state == .failed }) { item in

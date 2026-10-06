@@ -57,7 +57,7 @@ struct DashboardView: View {
                 .id(section)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .background(ReadingPalette.paper, ignoresSafeAreaEdges: .vertical)
+            .background(ReadingPalette.canvas, ignoresSafeAreaEdges: .vertical)
             .foregroundStyle(ReadingPalette.ink)
             .buttonStyle(ReadingButtonStyle())
         }
@@ -73,7 +73,7 @@ struct DashboardView: View {
         .navigationSplitViewStyle(.balanced)
         .frame(minWidth: 920, minHeight: 660)
         .toggleStyle(.switch)
-        .tint(ReadingPalette.moss)
+        .tint(ReadingPalette.accent)
         .sheet(item: $sheet) { item in
             dashboardSheet(item).buttonStyle(ReadingButtonStyle()).readingMotionAccessibility()
         }
@@ -123,172 +123,6 @@ struct DashboardView: View {
         case .trackingHelp:
             TrackingHelpView(model: model)
         }
-    }
-}
-
-@MainActor
-struct PopoverView: View {
-    @ObservedObject var model: AppModel
-    var maximumHeight: CGFloat = 640
-    @ObservedObject private var theme = ThemeStore.shared
-    @State private var showingManualStart = false
-    @State private var bodyHeight: CGFloat = 390
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 7) {
-                PageleafMark().frame(width: 18, height: 18).foregroundStyle(ReadingPalette.accent)
-                Text("Stillleaf").font(.system(size: 16, weight: .regular, design: .serif))
-                    .accessibilityLabel("Stillleaf")
-                Spacer()
-                Button { model.showDashboard() } label: {
-                    Image(systemName: "arrow.up.forward.app")
-                }
-                .buttonStyle(ReadingButtonStyle(iconOnly: true)).controlSize(.small)
-                .accessibilityLabel("Open dashboard").help("Open dashboard")
-            }
-            ScrollView {
-                readingContent
-                    .background(GeometryReader { geometry in
-                        Color.clear.preference(key: MenuBodyHeight.self, value: geometry.size.height)
-                    })
-            }
-            .frame(height: min(bodyHeight, max(160, maximumHeight - 160)))
-            .onPreferenceChange(MenuBodyHeight.self) { height in
-                if height > 0, abs(height - bodyHeight) > 0.5 { bodyHeight = height }
-            }
-            if bodyHeight > max(160, maximumHeight - 160) {
-                Label("Scroll for more", systemImage: "arrow.down")
-                    .font(.caption2).foregroundStyle(ReadingPalette.ink)
-                    .frame(maxWidth: .infinity)
-            }
-            Hairline()
-            ReadingGlassGroup {
-                HStack {
-                    Button(model.manualActive ? "Stop manual reading" : "Read manually") {
-                        if model.manualActive { model.stopManual() } else { showingManualStart = true }
-                    }
-                    .buttonStyle(ReadingButtonStyle(emphasis: model.manualActive ? .primary : .secondary)).controlSize(.small)
-                    Spacer()
-                    Menu {
-                        Button("Settings…") { model.showDashboard(section: .settings) }
-                        Divider()
-                        Button("Quit Stillleaf") { model.quit() }
-                    } label: { Image(systemName: "ellipsis").frame(width: 12, height: 18) }
-                    .menuStyle(ReadingMenuStyle()).menuIndicator(.hidden)
-                    .accessibilityLabel("More actions")
-                }
-            }
-        }
-        .id(theme.revision)
-        .padding(18).frame(width: 350)
-        .foregroundStyle(ReadingPalette.ink)
-        .nativePopoverSurface()
-        .tint(ReadingPalette.moss).buttonStyle(ReadingButtonStyle())
-        .readingMotionAccessibility()
-        .sheet(isPresented: $showingManualStart) { ManualStartView(model: model).readingMotionAccessibility() }
-    }
-
-    private var readingContent: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            if let book = model.snapshot.book {
-                HStack(alignment: .top, spacing: 12) {
-                    BookCoverView(book: book, size: .compact)
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text(book.title).font(ReadingType.bookTitle(19))
-                            .lineLimit(2).accessibilityLabel(book.title)
-                        if let author = book.author, !author.isEmpty {
-                            Text(author).font(.caption).foregroundStyle(ReadingPalette.ink).lineLimit(1)
-                        }
-                        ActivityStateLabel(snapshot: model.snapshot, compact: true, onTranslucentSurface: true)
-                            .fixedSize(horizontal: false, vertical: true)
-                        if let page = model.currentPageText {
-                            Text(page).font(.caption).foregroundStyle(ReadingPalette.ink)
-                        }
-                    }
-                    Spacer(minLength: 0)
-                }
-            } else {
-                HStack(spacing: 12) {
-                    Image(systemName: "book.closed").font(.system(size: 24, weight: .light))
-                        .foregroundStyle(ReadingPalette.accent).frame(width: 30, height: 36)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Open a book to begin").font(.callout.weight(.medium))
-                        ActivityStateLabel(snapshot: model.snapshot, compact: true, onTranslucentSurface: true)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    Spacer(minLength: 0)
-                }
-            }
-            MenuReadingGoal(model: model)
-            Hairline()
-            HStack(alignment: .top, spacing: 20) {
-                if model.manualActive || model.snapshot.book != nil || model.sessionPages > 0 {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("This session").font(.caption).foregroundStyle(ReadingPalette.ink)
-                        Text("\(model.sessionPages) \(model.sessionPages == 1 ? "page" : "pages")")
-                            .font(ReadingType.numeral(20)).monospacedDigit()
-                        Text("\(ReadingFormat.duration(model.snapshot.sessionSeconds)) \(model.manualActive ? "manual" : "recorded")")
-                            .font(.caption2).foregroundStyle(ReadingPalette.ink)
-                    }.frame(maxWidth: .infinity, alignment: .leading)
-                }
-                VStack(alignment: .leading, spacing: 4) {
-                    Label("\(model.dailyGoalStreak.current) \(model.dailyGoalStreak.current == 1 ? "day" : "days")", systemImage: "flame")
-                        .font(ReadingType.numeral(20)).monospacedDigit()
-                        .foregroundStyle(ReadingPalette.accent)
-                    Text(model.dailyGoalStreak.todayPending ? "Goal streak · today still open" : "Goal streak")
-                        .font(.caption2).foregroundStyle(ReadingPalette.ink)
-                }.frame(maxWidth: .infinity, alignment: .leading)
-                .help("Consecutive days that met your daily goal.")
-            }
-            if let pace = ReadingFormat.pagesPerMinute(model.sessionPagesPerMinute) {
-                Label(pace, systemImage: "gauge.with.dots.needle.50percent")
-                    .font(.caption).foregroundStyle(ReadingPalette.ink)
-            }
-            if model.appleBooksTrackingNeedsAccess {
-                PopoverSetupNotice(icon: "accessibility", title: "Apple Books tracking needs access",
-                    description: "Accessibility is required only for Apple Books. Stillleaf’s own reader records progress and time without it.") {
-                    Button("Allow access") { model.requestAccessibility() }.controlSize(.small)
-                }
-            }
-            if model.discordNeedsSetup {
-                PopoverSetupNotice(icon: "key.horizontal", title: "Finish Discord setup",
-                    description: "Add your Application ID in Settings.") {
-                    Button("Sharing settings") { model.showDashboard(section: .settings, settingsCategory: .discord) }
-                        .controlSize(.small)
-                }
-            }
-        }.frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
-private struct MenuBodyHeight: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
-}
-
-private struct PopoverSetupNotice<Accessory: View>: View {
-    let icon: String
-    let title: String
-    let description: String
-    @ViewBuilder let accessory: () -> Accessory
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 9) {
-            Image(systemName: icon)
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(ReadingPalette.warning)
-                .frame(width: 18)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title).font(.callout.weight(.semibold))
-                Text(description).font(.caption).foregroundStyle(ReadingPalette.ink)
-                    .fixedSize(horizontal: false, vertical: true)
-                accessory()
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(.vertical, 10).padding(.horizontal, 12)
-        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(ReadingPalette.border, lineWidth: 1))
     }
 }
 
@@ -444,68 +278,6 @@ private struct ErrorBanner: View {
         .font(.callout)
         .foregroundStyle(ReadingPalette.ink)
         .padding(.horizontal, 20).padding(.vertical, 10)
-        .background(ReadingPalette.ochre.opacity(0.26))
-    }
-}
-
-struct ReadingEmptyState: View {
-    let title: String
-    let symbol: String
-    let message: String
-    var body: some View {
-        VStack(spacing: 12) {
-            Image(systemName: symbol).font(.system(size: 30)).foregroundStyle(ReadingPalette.fadedInk)
-            Text(title).font(ReadingType.bookTitle(20))
-            Text(message).font(.callout).foregroundStyle(ReadingPalette.secondaryInk).multilineTextAlignment(.center)
-        }
-        .padding(30)
-        .frame(maxWidth: .infinity)
-    }
-}
-
-enum ReadingFormat {
-    static func observedPages(_ value: Int) -> String {
-        "\(value) observed \(value == 1 ? "page" : "pages")"
-    }
-
-    static func pagePace(_ minutesPerPage: Double?) -> String? {
-        guard let minutesPerPage, minutesPerPage.isFinite, minutesPerPage > 0 else { return nil }
-        if minutesPerPage < 1 {
-            return "\(max(1, Int((60 / minutesPerPage).rounded()))) pages/hour"
-        }
-        return "\(minutesPerPage.formatted(.number.precision(.fractionLength(1)))) min/page"
-    }
-
-    static func pagesPerMinute(_ value: Double?) -> String? {
-        guard let value, value.isFinite, value > 0 else { return nil }
-        return "\(value.formatted(.number.precision(.fractionLength(2)))) pages/min"
-    }
-
-    static func duration(_ seconds: TimeInterval) -> String {
-        let rounded = max(0, Int(seconds.rounded()))
-        let hours = rounded / 3600
-        let minutes = (rounded % 3600) / 60
-        if hours > 0 { return "\(hours)h \(minutes)m" }
-        if rounded < 60 { return "\(rounded)s" }
-        return "\(minutes)m"
-    }
-
-    static func date(_ date: Date?) -> String {
-        guard let date else { return "Not yet recorded" }
-        return date.formatted(date: .abbreviated, time: .shortened)
-    }
-
-    static func day(_ string: String) -> String {
-        guard let date = DayParser.date(string) else { return string }
-        return date.formatted(.dateTime.month(.abbreviated).day())
-    }
-}
-
-enum DayParser {
-    static func date(_ value: String) -> Date? {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter.date(from: value)
+        .background(ReadingPalette.warning.opacity(0.26))
     }
 }

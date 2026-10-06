@@ -60,11 +60,11 @@ private struct TimeZoneSearch: View {
                             HStack {
                                 Text(zone.label).font(.callout).multilineTextAlignment(.leading)
                                 Spacer()
-                                if selection == zone.id { Image(systemName: "checkmark").foregroundStyle(ReadingPalette.moss) }
+                                if selection == zone.id { Image(systemName: "checkmark").foregroundStyle(ReadingPalette.accent) }
                             }
                             .padding(8).frame(maxWidth: .infinity, alignment: .leading)
                             .contentShape(Rectangle())
-                            .background(selection == zone.id ? ReadingPalette.moss.opacity(0.12) : .clear,
+                            .background(selection == zone.id ? ReadingPalette.accent.opacity(0.12) : .clear,
                                         in: RoundedRectangle(cornerRadius: 6))
                         }
                         .buttonStyle(.plain)

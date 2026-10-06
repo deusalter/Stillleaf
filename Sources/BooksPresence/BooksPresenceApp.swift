@@ -219,7 +219,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         controller.sizingOptions = [.preferredContentSize]
         panel.contentViewController = controller
         panel.contentView?.wantsLayer = true
-        panel.contentView?.layer?.cornerRadius = 22
+        panel.contentView?.layer?.cornerRadius = ReadingMetrics.Radius.window
         panel.contentView?.layer?.masksToBounds = true
         menuPanelSizeObservation = controller.observe(\.preferredContentSize, options: [.initial, .new]) { [weak panel] controller, _ in
             Task { @MainActor [weak panel] in

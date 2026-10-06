@@ -1,113 +1,5 @@
-import Foundation
 import SwiftUI
 import BooksCore
-
-@MainActor
-struct CompletionReviewSheet: View {
-    @ObservedObject var model: AppModel
-    let entry: FinishedBookEntry
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        VStack(spacing: 18) {
-            HStack {
-                Text("Book finished").font(.headline)
-                Spacer()
-                Button("Done") { model.acknowledgeCompletion(entry); dismiss() }
-                    .keyboardShortcut(.cancelAction)
-            }
-            FinishedBookPrompt(model: model, entry: entry)
-            if let error = model.errorMessage { Text(error).font(.caption).foregroundStyle(ReadingPalette.warning) }
-        }
-        .padding(24).frame(width: 660)
-        .background(ReadingPalette.paper).foregroundStyle(ReadingPalette.ink)
-        .buttonStyle(ReadingButtonStyle())
-        .onChange(of: model.pendingCompletion?.id) { id in if id != entry.id { dismiss() } }
-        .onDisappear { model.acknowledgeCompletion(entry) }
-    }
-}
-
-@MainActor
-struct FinishedBookPrompt: View {
-    @ObservedObject var model: AppModel
-    let entry: FinishedBookEntry
-    @State private var rating: Double?
-    @State private var writingReview = false
-    @State private var editingDates = false
-
-    init(model: AppModel, entry: FinishedBookEntry) {
-        self.model = model
-        self.entry = entry
-        _rating = State(initialValue: model.rating(for: entry.id))
-    }
-
-    private var book: BookRecord? { model.books.first { $0.id == entry.id } }
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 18) {
-            ZStack(alignment: .topTrailing) {
-                BookCoverView(book: book, size: .large)
-                CompletionCelebrationBadge(eventID: model.pendingCompletionEventID ?? entry.id) {
-                    model.claimCompletionCelebration(for: entry)
-                }
-                .offset(x: 8, y: -8)
-            }
-
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Another story, finished.")
-                    .font(.system(size: 15, weight: .semibold)).foregroundStyle(ReadingPalette.accent)
-                Text(entry.title).font(ReadingType.bookTitle(24))
-                if let author = entry.author, !author.isEmpty {
-                    Text(author).font(.callout).foregroundStyle(ReadingPalette.secondaryInk)
-                }
-                Text(finishDetail).font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
-                Button("Reading dates · optional") { editingDates = true }.controlSize(.small)
-                Text("Already marked as read. You can skip dates and feedback.")
-                    .font(.caption).foregroundStyle(ReadingPalette.fadedInk)
-                Text("Congratulations. How did this one stay with you?")
-                    .font(.callout).foregroundStyle(ReadingPalette.secondaryInk)
-                QuarterStarRating(rating: $rating)
-                Button(model.review(for: entry.id) == nil ? "Write a review" : "Edit written review") { writingReview = true }
-                    .controlSize(.small)
-                HStack(spacing: 10) {
-                    Button("Save rating") {
-                        model.saveRating(rating, for: entry.id)
-                        if model.errorMessage == nil { model.acknowledgeCompletion(entry) }
-                    }
-                    .buttonStyle(ReadingButtonStyle(emphasis: .primary))
-                    .disabled(rating == nil)
-                    Button("Maybe later") { model.acknowledgeCompletion(entry) }
-                    if model.rating(for: entry.id) != nil {
-                        Button("Clear rating") {
-                            rating = nil
-                            model.saveRating(nil, for: entry.id)
-                        }
-                    }
-                }
-                .controlSize(.small)
-            }
-        }
-        .readingPanel()
-        .buttonStyle(ReadingButtonStyle())
-        .accessibilityElement(children: .contain)
-        .sheet(isPresented: $writingReview) { BookReviewEditor(model: model, bookID: entry.id).readingMotionAccessibility() }
-        .sheet(isPresented: $editingDates) {
-            ReadingDatesEditor(title: entry.title,
-                dates: ReadingCompletionDates(startedAt: savedEntry.startedAt, finishedAt: savedEntry.finishedAt),
-                timezoneID: model.timezoneID) { dates in model.saveReadingDates(dates, for: entry.id) }
-        }
-    }
-
-    private var savedEntry: FinishedBookEntry {
-        model.finishedBooks.first { $0.id == entry.id } ?? entry
-    }
-
-    private var finishDetail: String {
-        let entry = savedEntry
-        let date = entry.finishedAt.map { ReadingFormat.date($0) } ?? "Finish date unavailable"
-        return "\(date) · \(entry.imported ? "Imported history" : entry.source)"
-    }
-}
 
 @MainActor
 struct FinishedBookTimeline: View {
@@ -214,7 +106,7 @@ struct ReadingTimelineView: View {
                 }
                 FinishedBookTimeline(model: model, search: search, showsHeading: false, present: present)
             }
-            .readingPage(maxWidth: 860)
+            .readingPage(maxWidth: ReadingMetrics.listWidth)
         }
         .buttonStyle(ReadingButtonStyle())
     }
@@ -285,10 +177,10 @@ private struct FinishedBookTimelineRow: View {
     private var dateColumn: some View {
         VStack(alignment: .leading, spacing: 1) {
             if let date = entry.finishedAt {
-                Text(calendar.shortMonthSymbols[calendar.component(.month, from: date) - 1] + " " + String(calendar.component(.day, from: date)))
+                Text(DateText.string(date, zone: calendar.timeZone.identifier, pattern: "MMM d"))
                     .font(.system(size: 13, weight: .semibold)).monospacedDigit()
                     .foregroundStyle(ReadingPalette.ink)
-                Text(calendar.shortWeekdaySymbols[calendar.component(.weekday, from: date) - 1])
+                Text(DateText.string(date, zone: calendar.timeZone.identifier, pattern: "EEE"))
                     .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
             } else {
                 Image(systemName: "calendar.badge.exclamationmark")
@@ -301,53 +193,11 @@ private struct FinishedBookTimelineRow: View {
     private var accessibilityText: String {
         let finished = entry.finishedAt.map { "finished \(formattedDate($0))" } ?? "finish date unavailable"
         let rating = model.rating(for: entry.id).map { ", rated \($0.formatted(.number.precision(.fractionLength(0...2)))) of 5" } ?? ", not rated"
-        return "\(entry.title)\(entry.author.map { " by \($0)" } ?? ""), \(finished)\(rating)"
+        let author = entry.author.flatMap { $0.isEmpty ? nil : " by \($0)" } ?? ""
+        return "\(entry.title)\(author), \(finished)\(rating)"
     }
 
     private func formattedDate(_ date: Date) -> String {
-        let month = calendar.monthSymbols[calendar.component(.month, from: date) - 1]
-        let day = calendar.component(.day, from: date)
-        let year = calendar.component(.year, from: date)
-        return "\(month) \(day), \(year)"
-    }
-}
-
-@MainActor
-struct BookRatingSection: View {
-    @ObservedObject var model: AppModel
-    let bookID: String
-    @State private var editing = false
-    @State private var draft: Double?
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Your rating").font(ReadingType.bookTitle(19))
-                    if !editing { RatingStars(rating: model.rating(for: bookID), size: 20) }
-                }
-                Spacer()
-                if !editing {
-                    Button(model.rating(for: bookID) == nil ? "Rate this book" : "Edit rating") {
-                        draft = model.rating(for: bookID); editing = true
-                    }.controlSize(.small)
-                }
-            }
-            if editing {
-                QuarterStarRating(rating: $draft)
-                HStack(spacing: 10) {
-                    Button("Save rating") {
-                        model.saveRating(draft, for: bookID)
-                        if model.errorMessage == nil { editing = false }
-                    }.buttonStyle(ReadingButtonStyle(emphasis: .primary)).disabled(draft == nil)
-                    Button("Cancel") { draft = model.rating(for: bookID); editing = false }
-                    if model.rating(for: bookID) != nil {
-                        Button("Clear rating") {
-                            model.saveRating(nil, for: bookID)
-                            if model.errorMessage == nil { draft = nil; editing = false }
-                        }
-                    }
-                }.controlSize(.small)
-            }
-        }.readingPanel().buttonStyle(ReadingButtonStyle())
+        DateText.string(date, zone: calendar.timeZone.identifier, pattern: "MMMM d, yyyy")
     }
 }

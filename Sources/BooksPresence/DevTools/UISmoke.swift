@@ -431,6 +431,12 @@ private func checkOnboarding(root: URL) throws {
     model.showOnboarding()
     guard replays == 1 else { throw BooksAccessErrorForUI.failed("Settings could not replay the welcome tour") }
 
+    let savedGoals = (model.pageGoal, model.annualBookGoal)
+    model.pageGoal = 5_000; model.annualBookGoal = 500
+    let replay = OnboardingFlow(model: model)
+    guard replay.pages == 5_000, replay.annualBooks == 500 else { throw BooksAccessErrorForUI.failed("Replaying the tour lowered goals that Settings accepts") }
+    (model.pageGoal, model.annualBookGoal) = savedGoals
+
     let flow = OnboardingFlow(model: model)
     guard flow.step == .welcome, flow.animateReveal else { throw BooksAccessErrorForUI.failed("The tour did not start at its animated welcome") }
     flow.moveTo(.goal)
@@ -748,7 +754,7 @@ private func checkHistoryDateFormatting() throws {
                 reference.timeZone = TimeZone(identifier: zone) ?? .current
                 reference.dateFormat = pattern
                 for date in dates + Array(dates.reversed()) {
-                    guard AtlasStyle.date(date, zone: zone, pattern: pattern) == reference.string(from: date) else {
+                    guard DateText.string(date, zone: zone, pattern: pattern) == reference.string(from: date) else {
                         throw BooksAccessErrorForUI.failed("History date formatting changed for \(zone), \(pattern), \(date)")
                     }
                 }

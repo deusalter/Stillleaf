@@ -1,5 +1,13 @@
 import Foundation
 
+/// The goal values Settings, onboarding and the model accept. Stored history is
+/// validated more leniently so older archives keep loading.
+public enum ReadingGoalLimits {
+    public static let dailyPages = 1...10_000
+    public static let dailyMinutes = 1...1_440
+    public static let annualBooks = 1...10_000
+}
+
 public enum ReadingGoals {
     public static func daily(day: String, pages: Int, creditedSeconds: Double,
                              goals: [GoalChange]) -> DailyGoalProgress {

@@ -23,7 +23,7 @@ struct ReadingDatesEditor: View {
         VStack(alignment: .leading, spacing: 20) {
             ReadingSheetHeader(title: "Reading dates", subtitle: title, close: { dismiss() })
             Text("Already marked as read. Dates are optional; skip to keep your saved dates. An unknown start stays unknown.")
-                .font(.callout).foregroundStyle(ReadingPalette.fadedInk)
+                .font(.callout).foregroundStyle(ReadingPalette.secondaryInk)
                 .fixedSize(horizontal: false, vertical: true)
             ScrollView {
                 VStack(spacing: 12) {
@@ -35,10 +35,10 @@ struct ReadingDatesEditor: View {
             }.scrollIndicators(.visible)
             .frame(height: expandedField == nil ? 156 : 480)
             Text("Removing a finish date keeps this book read, but leaves it out of yearly totals and the dated timeline. Times are shown in \(timezoneID).")
-                .font(.caption).foregroundStyle(ReadingPalette.fadedInk)
+                .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
                 .fixedSize(horizontal: false, vertical: true)
             if let message = saveError ?? draft.validationMessage(now: Date()) {
-                Text(message).font(.callout).foregroundStyle(ReadingPalette.ochre)
+                Text(message).font(.callout).foregroundStyle(ReadingPalette.warning)
                     .accessibilityLabel("Dates not saved. \(message)")
             }
             HStack {
@@ -54,12 +54,13 @@ struct ReadingDatesEditor: View {
             }
         }
         .padding(24).frame(width: 540)
-        .background(ReadingPalette.paper).foregroundStyle(ReadingPalette.ink)
+        .background(ReadingPalette.canvas).foregroundStyle(ReadingPalette.ink)
         .buttonStyle(ReadingButtonStyle())
         .readingMotionAccessibility()
     }
 }
 
+@MainActor
 private struct ReadingDateField: View {
     let title: String
     @Binding var date: Date?
@@ -74,10 +75,7 @@ private struct ReadingDateField: View {
     }
     private var label: String {
         guard let date else { return "Unknown · optional" }
-        let formatter = DateFormatter()
-        formatter.timeZone = calendar.timeZone
-        formatter.dateStyle = .medium; formatter.timeStyle = .short
-        return formatter.string(from: date)
+        return DateText.string(date, zone: calendar.timeZone.identifier, date: .medium, time: .short)
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -86,7 +84,7 @@ private struct ReadingDateField: View {
                     withAnimation(reduceMotion ? nil : ReadingMotion.entrance) { expanded.toggle() }
                 } label: {
                     HStack(spacing: 12) {
-                        Image(systemName: "calendar").foregroundStyle(ReadingPalette.moss)
+                        Image(systemName: "calendar").foregroundStyle(ReadingPalette.accent)
                         VStack(alignment: .leading, spacing: 3) {
                             Text(title).font(.caption.weight(.semibold))
                             Text(label).font(.callout)
@@ -123,6 +121,7 @@ private struct ReadingDateField: View {
 }
 
 /// App-owned calendar surface, also usable in synthetic previews without an AppModel.
+@MainActor
 struct ReadingDateCalendar: View {
     @Binding var selection: Date?
     @State private var navigation: CalendarNavigation
@@ -148,7 +147,7 @@ struct ReadingDateCalendar: View {
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 7), spacing: 4) {
                 ForEach(0..<7) { index in
                     Text(navigation.calendar.shortWeekdaySymbols[(navigation.calendar.firstWeekday - 1 + index) % 7])
-                        .font(.caption.weight(.medium)).foregroundStyle(ReadingPalette.fadedInk)
+                        .font(.caption.weight(.medium)).foregroundStyle(ReadingPalette.secondaryInk)
                         .accessibilityHidden(true)
                 }
                 ForEach(navigation.monthCells) { cell in
@@ -160,12 +159,12 @@ struct ReadingDateCalendar: View {
                         Text(String(navigation.calendar.component(.day, from: cell.date)))
                             .font(.system(size: 13, weight: selected ? .bold : .regular, design: .rounded))
                             .frame(maxWidth: .infinity).frame(height: 32)
-                            .background(selected ? ReadingPalette.moss.opacity(0.2) : .clear,
+                            .background(selected ? ReadingPalette.accent.opacity(0.2) : .clear,
                                         in: RoundedRectangle(cornerRadius: 10))
-                            .overlay(RoundedRectangle(cornerRadius: 10).stroke(selected ? ReadingPalette.moss : .clear))
+                            .overlay(RoundedRectangle(cornerRadius: 10).stroke(selected ? ReadingPalette.accent : .clear))
                     }
                     .buttonStyle(.plain)
-                    .foregroundStyle(cell.isInMonth ? ReadingPalette.ink : ReadingPalette.fadedInk)
+                    .foregroundStyle(cell.isInMonth ? ReadingPalette.ink : ReadingPalette.secondaryInk)
                     .disabled(!isAllowed(cell.date))
                     .focused($focusedDay, equals: cell.date)
                     .accessibilityLabel(dayLabel(cell.date))
@@ -192,7 +191,7 @@ struct ReadingDateCalendar: View {
                 }
                 Spacer()
                 Text("Arrow keys to browse · Space to choose")
-                    .font(.caption2).foregroundStyle(ReadingPalette.fadedInk)
+                    .font(.caption2).foregroundStyle(ReadingPalette.secondaryInk)
             }
         }
         .buttonStyle(ReadingButtonStyle()).controlSize(.small)
@@ -206,9 +205,6 @@ struct ReadingDateCalendar: View {
         navigation.move(by: amount)
     }
     private func dayLabel(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.timeZone = navigation.calendar.timeZone
-        formatter.dateStyle = .full
-        return formatter.string(from: date)
+        DateText.string(date, zone: navigation.calendar.timeZone.identifier, date: .full)
     }
 }

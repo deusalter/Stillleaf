@@ -53,7 +53,7 @@ private struct ReferenceHistoryRing: View {
     private var total: Double { entries.reduce(0) { $0 + $1.creditedSeconds } }
     var body: some View {
         ZStack {
-            Circle().stroke(AtlasStyle.rule(scheme == .dark), lineWidth: 3)
+            Circle().stroke(ReadingPalette.border, lineWidth: 3)
             if total > 0 {
                 ForEach(Array(entries.enumerated()), id: \.element.bookID) { index, entry in
                     let start = entries.prefix(index).reduce(0) { $0 + $1.creditedSeconds } / total

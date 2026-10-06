@@ -54,7 +54,7 @@ struct ChromeLibraryPreview {
                     Text("Hovered covers · narrow, square, landscape source art").font(.headline)
                     row(books, hovering: true)
                 }
-                .padding(20).foregroundStyle(ReadingPalette.ink).background(ReadingPalette.paper)
+                .padding(20).foregroundStyle(ReadingPalette.ink).background(ReadingPalette.canvas)
                 .environment(\.colorScheme, scheme)
                 try capture(AnyView(cards), size: NSSize(width: 660, height: 830), to: root.appendingPathComponent("covers-\(suffix)-\(reduced ? "reduced" : "normal").png"))
             }

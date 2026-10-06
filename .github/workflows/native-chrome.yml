@@ -158,7 +158,9 @@ jobs:
           mkdir -p "$RUNNER_TEMP/native-comparison"
           git rev-parse HEAD > "$RUNNER_TEMP/native-comparison/candidate-revision.txt"
           git -C .native-comparison rev-parse HEAD > "$RUNNER_TEMP/native-comparison/baseline-revision.txt"
-          cmp Sources/BooksPresence/UISettledBenchmark.swift .native-comparison/Sources/BooksPresence/UISettledBenchmark.swift
+          baseline=.native-comparison/Sources/BooksPresence/DevTools/UISettledBenchmark.swift
+          [[ -f "$baseline" ]] || baseline=.native-comparison/Sources/BooksPresence/UISettledBenchmark.swift
+          cmp Sources/BooksPresence/DevTools/UISettledBenchmark.swift "$baseline"
           swift build --package-path .native-comparison -c release
           swift build -c release
       - name: Supplemental matched revision measurements

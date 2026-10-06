@@ -13,18 +13,18 @@ struct CompletionCelebrationBadge: View {
     var body: some View {
         Image(systemName: "checkmark.circle.fill")
             .font(.title2)
-            .foregroundStyle(ReadingPalette.moss)
-            .background(Circle().fill(ReadingPalette.paper).padding(2))
+            .foregroundStyle(ReadingPalette.accent)
+            .background(Circle().fill(ReadingPalette.canvas).padding(2))
             .scaleEffect(motionDisabled ? 1 : 0.88 + 0.12 * progress)
             .background {
                 if !motionDisabled {
                     Circle()
-                        .stroke(ReadingPalette.moss.opacity(0.35 * (1 - progress)), lineWidth: 1.5)
+                        .stroke(ReadingPalette.accent.opacity(0.35 * (1 - progress)), lineWidth: 1.5)
                         .frame(width: 28, height: 28)
                         .scaleEffect(1 + progress * 1.15)
                     ForEach(0..<6, id: \.self) { index in
                         Capsule()
-                            .fill(index.isMultiple(of: 2) ? ReadingPalette.moss : ReadingPalette.ochre)
+                            .fill(index.isMultiple(of: 2) ? ReadingPalette.accent : ReadingPalette.warning)
                             .frame(width: 2.5, height: 5)
                             .offset(y: -15 - 12 * progress)
                             .rotationEffect(.degrees(Double(index) * 60))

@@ -19,6 +19,6 @@ if [[ "${1:-}" != "--diagnostic-only" ]]; then
   if [[ "${BOOKSPRESENCE_SKIP_READER_BUILD:-0}" != "1" ]]; then
     scripts/build-reader-assets.sh "$OUT"
   fi
-  "$SWIFTC" "${FLAGS[@]}" -I "$OUT" -L "$OUT" -lBooksCore -lBooksPlatform -parse-as-library Sources/BooksPresence/*.swift -o "$OUT/BooksPresence" -Xlinker -rpath -Xlinker @executable_path -Xlinker -rpath -Xlinker @executable_path/../Frameworks
+  "$SWIFTC" "${FLAGS[@]}" -I "$OUT" -L "$OUT" -lBooksCore -lBooksPlatform -parse-as-library Sources/BooksPresence/*.swift Sources/BooksPresence/DevTools/*.swift -o "$OUT/BooksPresence" -Xlinker -rpath -Xlinker @executable_path -Xlinker -rpath -Xlinker @executable_path/../Frameworks
 fi
 printf 'Built into %s\n' "$OUT"

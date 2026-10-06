@@ -11,6 +11,41 @@ enum ReadingType {
     static func numeral(_ size: CGFloat) -> Font { .system(size: size, weight: .regular).monospacedDigit() }
 }
 
+/// Shared spacing, widths and corner radii. Screens draw from these so a surface
+/// treatment can change in one place.
+enum ReadingMetrics {
+    /// Corner radii, smallest to largest.
+    enum Radius {
+        /// Chips, swatches and small badges.
+        static let tight: CGFloat = 6
+        /// Fields, menus and small tiles.
+        static let control: CGFloat = 10
+        /// Cards and panels.
+        static let card: CGFloat = 16
+        /// The menu panel and other floating surfaces.
+        static let window: CGFloat = 20
+    }
+
+    /// Spacing steps for stacks and padding.
+    enum Space {
+        static let xs: CGFloat = 4
+        static let s: CGFloat = 8
+        static let m: CGFloat = 12
+        static let l: CGFloat = 16
+        static let xl: CGFloat = 24
+        static let xxl: CGFloat = 32
+    }
+
+    /// Horizontal inset of every dashboard screen.
+    static let pageInset: CGFloat = 40
+    /// Readable width for Today and Library.
+    static let pageWidth: CGFloat = 1000
+    /// Shorter measure for list screens: Timeline, Reviews, Health and Settings.
+    static let listWidth: CGFloat = 860
+    /// Inner padding of a card.
+    static let cardPadding: CGFloat = 24
+}
+
 /// The page title block. It lives inside each screen's scroll view so it scrolls
 /// away with the content instead of floating over it.
 struct PageHeader<Trailing: View>: View {
@@ -120,15 +155,30 @@ struct StatLine: View {
 
 extension View {
     /// Same inset and readable width on every dashboard screen.
-    func readingPage(maxWidth: CGFloat = 1000) -> some View {
+    func readingPage(maxWidth: CGFloat = ReadingMetrics.pageWidth) -> some View {
         frame(maxWidth: maxWidth, alignment: .leading)
-            .padding(.horizontal, 40).padding(.top, 34).padding(.bottom, 40)
+            .padding(.horizontal, ReadingMetrics.pageInset).padding(.top, 34).padding(.bottom, ReadingMetrics.pageInset)
             .frame(maxWidth: .infinity, alignment: .top)
     }
 
     /// The one surface level: a soft card for a screen's primary block.
     func readingPanel() -> some View {
-        padding(20)
-            .background(ReadingPalette.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        padding(ReadingMetrics.cardPadding)
+            .background(ReadingPalette.surface, in: RoundedRectangle(cornerRadius: ReadingMetrics.Radius.card, style: .continuous))
+    }
+}
+
+struct ReadingEmptyState: View {
+    let title: String
+    let symbol: String
+    let message: String
+    var body: some View {
+        VStack(spacing: 12) {
+            Image(systemName: symbol).font(.system(size: 30)).foregroundStyle(ReadingPalette.secondaryInk)
+            Text(title).font(ReadingType.bookTitle(20))
+            Text(message).font(.callout).foregroundStyle(ReadingPalette.secondaryInk).multilineTextAlignment(.center)
+        }
+        .padding(30)
+        .frame(maxWidth: .infinity)
     }
 }

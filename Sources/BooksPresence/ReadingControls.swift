@@ -140,7 +140,7 @@ struct ReadingSheetHeader: View {
             VStack(alignment: .leading, spacing: 5) {
                 Text(title).font(ReadingType.bookTitle(24))
                 if let subtitle, !subtitle.isEmpty {
-                    Text(subtitle).font(.callout).foregroundStyle(ReadingPalette.fadedInk)
+                    Text(subtitle).font(.callout).foregroundStyle(ReadingPalette.secondaryInk)
                 }
             }
             Spacer(minLength: 0)
