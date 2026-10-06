@@ -222,18 +222,23 @@ private enum BareTextAudit {
     }
 
     private static func cells(in bitmap: NSBitmapImageRep, size: CGSize, glass: [CGRect], clearing: CGFloat) -> [CGRect] {
-        guard let data = bitmap.bitmapData, bitmap.samplesPerPixel >= 3, bitmap.bitsPerSample == 8 else { return [] }
-        let scale = CGFloat(bitmap.pixelsWide) / size.width
-        let stride = bitmap.bytesPerRow, step = bitmap.bitsPerPixel / 8
-        let alphaFirst = bitmap.bitmapFormat.contains(.alphaFirst)
-        let (rOffset, gOffset, bOffset) = alphaFirst ? (1, 2, 3) : (0, 1, 2)
+        // Redrawn into sRGB RGBA, so channel order and colour space never depend on the machine's bitmap format.
+        guard let image = bitmap.cgImage, let sRGB = CGColorSpace(name: CGColorSpace.sRGB),
+              let context = CGContext(data: nil, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: image.width * 4,
+                                      space: sRGB, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
+              let raw = context.data else { return [] }
+        context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        let data = raw.assumingMemoryBound(to: UInt8.self)
+        let scale = CGFloat(image.width) / size.width
+        let stride = image.width * 4, step = 4
+        let (rOffset, gOffset, bOffset) = (0, 1, 2)
         let cell: CGFloat = 16
         let columns = Int((size.width / cell).rounded(.up))
         var counts: [Int: Int] = [:]
         // Text on a control's own capsule: a surface colour lies close by in all four directions.
         let reach = Int(16 * scale)
         func surface(_ x: Int, _ y: Int) -> Bool {
-            guard x >= 0, y >= 0, x < bitmap.pixelsWide, y < bitmap.pixelsHigh else { return false }
+            guard x >= 0, y >= 0, x < image.width, y < image.height else { return false }
             let p = y * stride + x * step
             return Int(data[p + rOffset]) < 130 && Int(data[p + gOffset]) > 140 && Int(data[p + bOffset]) > 140
         }
@@ -244,10 +249,10 @@ private enum BareTextAudit {
             return true
         }
         let firstRow = Int(clearing * scale)
-        guard firstRow < bitmap.pixelsHigh else { return [] }
-        for y in firstRow..<bitmap.pixelsHigh {
+        guard firstRow < image.height else { return [] }
+        for y in firstRow..<image.height {
             let rowStart = y * stride
-            for x in 0..<bitmap.pixelsWide {
+            for x in 0..<image.width {
                 let p = rowStart + x * step
                 let r = Int(data[p + rOffset]), g = Int(data[p + gOffset]), b = Int(data[p + bOffset])
                 guard r > 215, b > 220, g < 90 else { continue }
