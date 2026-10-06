@@ -847,15 +847,23 @@ private extension EPUBReaderWindow {
         const api=window.StillleafReader, input=JSON.parse(payload);
         const pause=ms=>new Promise(r=>setTimeout(r,ms));
         const require=(ok,message)=>{if(!ok)throw Error(message)};
+        let lastResize=performance.now();addEventListener('resize',()=>{lastResize=performance.now()});
         input.experimentalContinuous=true;input.state=api.exportState();input.state.preferences.scroll=true;
         input.state.position={href:input.readingOrder[0].href,type:'text/html',locations:{progression:0}};
-        await api.open(input);await pause(350);
+        await api.open(input);
+        // Reopening makes the host re-attach its toolbar, which resizes the page and reflows the book to its
+        // opening position (the reader then ignores scrolling for 800ms). Let that settle before scrolling.
+        const chromeDeadline=performance.now()+10000;
+        while(!document.body.classList.contains('native-chrome')&&performance.now()<chromeDeadline)await pause(20);
+        require(document.body.classList.contains('native-chrome'),'native toolbar did not reconnect after the reader reopened');
+        while(performance.now()-lastResize<1000)await pause(50);
+        await api.setPreferences({});await pause(350);
         const flow=document.querySelector('#reader');require(flow.classList.contains('continuous-reader'),'continuous gate did not activate');
         const frames=()=>[...flow.querySelectorAll('iframe')];
         flow.scrollTop=flow.querySelector('.continuous-chapter').clientHeight-flow.clientHeight/2;await pause(250);
         const [first,second]=frames(),view=flow.getBoundingClientRect();
         const last=first.contentDocument.querySelector('aside p').getBoundingClientRect(),heading=second.contentDocument.querySelector('h1').getBoundingClientRect();
-        const boundary={top:view.top,bottom:view.bottom,tail:first.getBoundingClientRect().top+last.bottom,next:second.getBoundingClientRect().top+heading.top,firstFrameHeight:first.clientHeight,firstBodyBottom:first.contentDocument.body.getBoundingClientRect().bottom,firstBodyScrollHeight:first.contentDocument.body.scrollHeight,zoom:first.contentWindow.getComputedStyle(first.contentDocument.body).zoom,firstFrameTop:first.getBoundingClientRect().top};
+        const boundary={top:view.top,bottom:view.bottom,tail:first.getBoundingClientRect().top+last.bottom,next:second.getBoundingClientRect().top+heading.top,firstFrameHeight:first.clientHeight,firstBodyBottom:first.contentDocument.body.getBoundingClientRect().bottom,firstBodyScrollHeight:first.contentDocument.body.scrollHeight,zoom:first.contentWindow.getComputedStyle(first.contentDocument.body).zoom,firstFrameTop:first.getBoundingClientRect().top,scrollTop:flow.scrollTop,scrollHeight:flow.scrollHeight,clientHeight:flow.clientHeight};
         require(boundary.tail>view.top&&boundary.tail<view.bottom&&boundary.next>view.top&&boundary.next<view.bottom,'chapters not co-visible: '+JSON.stringify(boundary));
         const geometry=frames().map(f=>{const d=f.contentDocument,e=d.scrollingElement,b=d.body,old=e.scrollTop,before=b.getBoundingClientRect().top;e.scrollTop=100;const probe={scrollTop:e.scrollTop,bodyMoved:b.getBoundingClientRect().top-before};e.scrollTop=old;return {height:f.clientHeight,content:e.scrollHeight,clientHeight:e.clientHeight,bodyScrollHeight:b.scrollHeight,bodyHeight:b.getBoundingClientRect().height,rootHeight:d.documentElement.getBoundingClientRect().height,overflow:f.contentWindow.getComputedStyle(e).overflow,renderedBottom:Math.max(b.getBoundingClientRect().bottom,...[...b.querySelectorAll('*')].map(x=>x.getBoundingClientRect().bottom)),renderedRight:Math.max(b.getBoundingClientRect().right,...[...b.querySelectorAll('*')].map(x=>x.getBoundingClientRect().right)),probe,width:f.clientWidth,contentWidth:e.scrollWidth}});
         require(geometry.every(x=>x.probe.scrollTop===0&&Math.abs(x.probe.bodyMoved)<0.1&&x.renderedBottom<=x.height+2&&x.renderedRight<=x.width+2),'internal iframe scrolling or clipped content: '+JSON.stringify(geometry));
