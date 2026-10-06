@@ -167,7 +167,7 @@ export function installGarden({canvas, spine, viewport, chrome, layout, enabled,
     canvas.classList.toggle('breathing', !busy && !frozen && !still());
   }
 
-  function schedule() { if (!frame && !frozen) frame = requestAnimationFrame(tick); }
+  function schedule() { if (!frame && !frozen && active()) frame = requestAnimationFrame(tick); }
 
   return {
     /** Layout or appearance changed: regrow for the new geometry once it settles. */
@@ -186,6 +186,8 @@ export function installGarden({canvas, spine, viewport, chrome, layout, enabled,
     },
     /** Wheel or scroll input: hold the garden still until it stops. */
     activity() {
+      // An Off garden has nothing to hold still and must never schedule a frame.
+      if (!active()) return;
       frozen = true;
       cancelAnimationFrame(frame); frame = 0;
       canvas.classList.remove('breathing');
