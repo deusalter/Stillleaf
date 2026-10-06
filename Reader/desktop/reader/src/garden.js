@@ -25,7 +25,7 @@ export function installGarden({canvas, spine, viewport, chrome, layout, enabled,
   // The app injects its Garden setting at document start so the first frame already honours Off and Still;
   // setMode() then follows live changes.
   let mode = MODES.includes(window.__stillleafGardenMode) ? window.__stillleafGardenMode : 'animated', frozen = false, freezeTimer = 0, layoutTimer = 0, frame = 0;
-  let progress = 0, chapter = null, pending = null, metrics = null, palette = null, deferred = false;
+  let ticks = 0, progress = 0, chapter = null, pending = null, metrics = null, palette = null, deferred = false;
   const margins = {field: null, born: new Map(), ghosts: [], context: canvas.getContext('2d'), origin: {left: 0, top: 0}};
   const column = {field: null, born: new Map(), ghosts: [], context: spine.getContext('2d'), origin: {left: 0, top: 0}};
 
@@ -157,6 +157,7 @@ export function installGarden({canvas, spine, viewport, chrome, layout, enabled,
   function tick() {
     frame = 0;
     if (!active() || !metrics) return;
+    ticks++;
     const now = performance.now();
     const busy = draw(margins, now) | draw(column, now);
     // Draw only while something fades; a settled garden is a still image that breathes in CSS.
@@ -211,7 +212,7 @@ export function installGarden({canvas, spine, viewport, chrome, layout, enabled,
         return [...scene.field.cells.values()].map(c => ({left: origin.left + c.x * cw, right: origin.left + (c.x + 1) * cw, top: origin.top + c.y * ch, bottom: origin.top + (c.y + 1) * ch}));
       };
       return {cells: rects(margins, {left: 0, top: 0}), spine: rects(column, column.origin), progress, frozen, mode,
-        gutter: layout().gutter, animating: frame !== 0};
+        gutter: layout().gutter, animating: frame !== 0, ticks, ghosts: margins.ghosts.length + column.ghosts.length};
     }
   };
 }
