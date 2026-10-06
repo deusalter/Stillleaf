@@ -5,6 +5,7 @@ public enum ManualEntryParsing {
     public struct Clock: Equatable {
         public var hour: Int
         public var minute: Int
+        public init(hour: Int, minute: Int) { self.hour = hour; self.minute = minute }
     }
 
     /// "45", "1h 20m", "1h20", "90 min", "2 hours", "1.5h" and "1:30" (hours:minutes). Bare numbers are minutes.

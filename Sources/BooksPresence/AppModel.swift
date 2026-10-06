@@ -1412,6 +1412,36 @@ final class AppModel: ObservableObject {
             try importArchive(archive)
         }
     }
+    /// The book's last page when something knows it: a catalogue's page count, or a reader's own total.
+    func totalPages(for book: BookRecord) -> Int? {
+        if let count = book.pageCount { return count }
+        let id = resolverID(book.id)
+        return progress.filter { resolverID($0.bookID) == id && ($0.totalPages ?? 0) > 0 }
+            .max { $0.observedAt < $1.observedAt }?.totalPages
+    }
+
+    /// Saves one "Add reading time" entry. `book` is a library book, or a new record for a typed or
+    /// catalogue book; `cover` is image data for a new catalogue book. Nothing is saved on failure.
+    @discardableResult
+    func addManualEntry(book: BookRecord, cover: Data? = nil, entry: ManualReadingEntry) -> Bool {
+        if let issue = entry.issue(existing: intervals.filter { $0.disposition != .excluded }) {
+            errorMessage = issue.message(timeZone: TimeZone(identifier: timezoneID) ?? .current)
+            return false
+        }
+        return perform(afterCommit: resetEngineAfterMutation) {
+            try stopForMutation()
+            var record = canonicalLibraryBook(book) ?? book
+            if let cover, record.coverPath == nil, let cached = try? covers.catalogueImage(cover, source: "Open Library") {
+                record.coverPath = cached.path; record.coverSource = cached.source
+            }
+            if canonicalLibraryBook(book) == nil { record.observedAt = Date() }
+            var entry = entry
+            entry.bookID = record.id
+            if entry.totalPages == nil { entry.totalPages = totalPages(for: record) }
+            try store.saveManualEntry(book: record, records: entry.records())
+        }
+    }
+
     private func importArchive(_ archive: HistoryArchive) throws {
         let url = support.appendingPathComponent(".import-\(UUID().uuidString).json")
         defer { try? FileManager.default.removeItem(at: url) }
