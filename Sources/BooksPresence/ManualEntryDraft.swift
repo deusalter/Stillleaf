@@ -227,6 +227,13 @@ struct ManualEntryDraft: Equatable {
         return rest == 0 ? "\(hours) h" : "\(hours) h \(rest) min"
     }
 
+    /// "1h 20m" or "45m": the shape the custom length field reads back.
+    static func compactDuration(_ seconds: TimeInterval) -> String {
+        let minutes = max(1, Int((seconds / 60).rounded()))
+        if minutes < 60 { return "\(minutes)m" }
+        return minutes % 60 == 0 ? "\(minutes / 60)h" : "\(minutes / 60)h \(minutes % 60)m"
+    }
+
     /// "11:19–11:49 PM" when both ends share a meridiem, otherwise "11:40 PM–12:10 AM".
     static func clockRange(_ start: Date, _ end: Date, zone: TimeZone, locale: Locale = .current) -> String {
         let formatter = DateFormatter()

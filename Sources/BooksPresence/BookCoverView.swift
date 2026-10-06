@@ -2,13 +2,14 @@ import SwiftUI
 import BooksCore
 
 struct BookCoverView: View {
-    enum Size { case compact, menu, large, library, shelf, shelfLarge, hero, timeline, annual }
+    enum Size { case mini, compact, menu, large, library, shelf, shelfLarge, hero, timeline, annual }
     let book: BookRecord?
     let size: Size
     @State private var thumbnail: NSImage?
 
     private var dimensions: CGSize {
         switch size {
+        case .mini: return CGSize(width: 38, height: 54)
         case .compact: return CGSize(width: 52, height: 72)
         case .menu: return CGSize(width: 62, height: 88)
         case .shelf: return CGSize(width: 108, height: 154)
@@ -36,7 +37,7 @@ struct BookCoverView: View {
                     VStack(spacing: 8) {
                         Image(systemName: "book.closed")
                             .font(.system(size: max(16, dimensions.width * 0.22), weight: .light))
-                        if size != .compact && size != .menu && size != .timeline {
+                        if size != .mini && size != .compact && size != .menu && size != .timeline {
                             Text(book?.title ?? "Your next read")
                                 .font(.system(size: size == .large || size == .hero || size == .shelfLarge ? 14 : 11, weight: .medium, design: .serif))
                                 .multilineTextAlignment(.center).lineLimit(3)

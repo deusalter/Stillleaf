@@ -22,7 +22,9 @@ final class BookSearchController: ObservableObject {
     private var query = ""
     private var cache: [String: [OutsideBook]] = [:]
 
-    init(service: BookSearchService, debounce: TimeInterval = 0.35) {
+    /// `initialPhase` lets previews show a state without waiting on a request.
+    init(service: BookSearchService, debounce: TimeInterval = 0.35, initialPhase: Phase = .idle) {
+        self.phase = initialPhase
         self.service = service
         self.debounce = UInt64(max(0, debounce) * 1_000_000_000)
     }
