@@ -103,17 +103,19 @@ export function installGarden({canvas, spine, viewport, chrome, layout, enabled,
     scene.field = field; scene.born = born;
   }
 
+  /** Drops every garden, fades and ghosts included, blanks both canvases and stops drawing. */
+  function wipe() {
+    for (const scene of [margins, column]) { scene.field = null; scene.born = new Map(); scene.ghosts = []; scene.context.clearRect(0, 0, 1e5, 1e5); }
+    cancelAnimationFrame(frame); frame = 0;
+    canvas.classList.remove('breathing');
+  }
+
   function rebuild() {
     // While input is arriving, keep the current garden on screen; regrow once it stops.
     if (frozen && active()) { deferred = true; return; }
     deferred = false;
     const now = performance.now();
-    if (!active()) {
-      for (const scene of [margins, column]) { scene.field = null; scene.born = new Map(); scene.ghosts = []; scene.context.clearRect(0, 0, 1e5, 1e5); }
-      cancelAnimationFrame(frame); frame = 0;
-      canvas.classList.remove('breathing');
-      return;
-    }
+    if (!active()) { wipe(); return; }
     measure();
     size(canvas, innerWidth, innerHeight);
     const page = viewport.getBoundingClientRect();
@@ -192,7 +194,12 @@ export function installGarden({canvas, spine, viewport, chrome, layout, enabled,
       document.documentElement.dataset.garden = mode;
       rebuild();
     },
-    clear() { chapter = null; progress = 0; pending = null; for (const scene of [margins, column]) { scene.field = null; scene.ghosts = []; } rebuild(); },
+    /** The book closed: forget its chapter and blank everything without planting a placeholder garden. */
+    clear() {
+      clearTimeout(layoutTimer); clearTimeout(freezeTimer);
+      chapter = null; progress = 0; pending = null; frozen = false; deferred = false;
+      wipe();
+    },
     debug() {
       const rects = (scene, origin) => {
         if (!scene.field || !metrics) return [];

@@ -12,7 +12,7 @@ const book = {editionId: 'margin-garden', title: 'Margins', contentProgress: tru
   resources: [{href: 'one.html', type: 'text/html', dataBase64: Buffer.from(chapter(1)).toString('base64')},
     {href: 'two.html', type: 'text/html', dataBase64: Buffer.from(chapter(2)).toString('base64')}]};
 
-async function launch(t, viewport) {
+async function launch(t, viewport, {reducedMotion = 'reduce'} = {}) {
   const server = createServer(async (req, res) => {
     try {
       const file = path.resolve(root, '.' + new URL(req.url, 'http://localhost').pathname);
@@ -26,7 +26,7 @@ async function launch(t, viewport) {
   const browser = process.env.READER_TEST_BROWSER === 'webkit' ? await webkit.launch()
     : await chromium.launch({executablePath: process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', headless: true});
   t.after(() => browser.close());
-  const page = await browser.newPage({viewport, reducedMotion: 'reduce'});
+  const page = await browser.newPage({viewport, reducedMotion});
   const errors = [];
   page.on('pageerror', error => errors.push(String(error)));
   await page.addInitScript(() => { window.__stillleafGardenDebug = true; });
@@ -41,6 +41,14 @@ async function readTo(page, progression) {
   await page.waitForFunction(p => Math.abs(window.StillleafReader.gardenDebug().progress - p) < 0.2, progression);
   await page.waitForTimeout(400);
 }
+
+/** Painted (non-transparent) pixels on the margin canvas and the spine canvas. */
+const painted = page => page.evaluate(() => ['garden', 'garden-spine'].map(id => {
+  const canvas = document.getElementById(id), data = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
+  let count = 0;
+  for (let i = 3; i < data.length; i += 4) if (data[i]) count++;
+  return count;
+}));
 
 const overlaps = (a, b) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
 const viewportRect = page => page.evaluate(() => { const r = document.getElementById('reading-viewport').getBoundingClientRect(); return {left: r.left, right: r.right, top: r.top, bottom: r.bottom}; });
@@ -142,4 +150,21 @@ test('changing appearance while the garden is frozen keeps the old garden until 
   await page.waitForTimeout(900);
   const after = await page.evaluate(() => JSON.stringify(window.StillleafReader.gardenDebug().cells));
   assert.notEqual(after, before, 'the garden never regrew for the new margins');
+});
+
+test('closing the reader wipes both canvases and plants nothing new', {timeout: 60000}, async t => {
+  const {page, errors} = await launch(t, {width: 1400, height: 900}, {reducedMotion: 'no-preference'});
+  await readTo(page, 0.15);
+  await page.waitForTimeout(1500);
+  const [margin] = await painted(page);
+  assert.ok(margin > 0, 'the garden never painted before the close');
+  await page.evaluate(() => window.StillleafReader.close());
+  // Ghosts last 900ms; a leftover frame or a replanted garden would still show after that.
+  await page.waitForTimeout(1500);
+  assert.deepEqual(await painted(page), [0, 0], 'faded cells or ghosts stayed painted after close');
+  const garden = await page.evaluate(() => window.StillleafReader.gardenDebug());
+  assert.equal(garden.cells.length, 0, 'closing planted a garden for a book that is gone');
+  assert.equal(garden.spine.length, 0);
+  assert.equal(garden.animating, false, 'a frame stayed scheduled after close');
+  assert.deepEqual(errors, []);
 });
