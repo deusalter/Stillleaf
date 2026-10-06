@@ -8,6 +8,7 @@ import CSQLite
 /// Explicit developer-only self-check. Uses temporary synthetic history and an isolated defaults suite.
 @MainActor
 func runUISmoke() throws {
+    try checkBackgroundUIPolicy()
     try checkFormSaveResults()
     try checkHistoryDateFormatting()
     try checkLibraryHistorySummary()
@@ -919,4 +920,16 @@ private func checkGardenFollowsThemeAndNavigation() throws {
         }
     }
     print("ui-smoke: garden recolours with the theme, survives History's clearing, and keeps the panel vine in its padding")
+}
+
+/// Dev-tool launches stay out of the way unless asked to come forward or running on CI.
+@MainActor
+private func checkBackgroundUIPolicy() throws {
+    func enabled(_ arguments: [String], _ environment: [String: String] = [:]) -> Bool {
+        BackgroundUI.shouldEnable(arguments: ["BooksPresence"] + arguments, environment: environment)
+    }
+    guard enabled(["--self-test-epub", "book.epub"]), enabled(["--preview-library"]), enabled(["--render-native-chrome", "out"]),
+          !enabled([]), !enabled(["--preview-library"], ["CI": "true"]), !enabled(["--self-test-ui"], ["STILLLEAF_FOREGROUND_UI": "1"]) else {
+        throw BooksAccessErrorForUI.failed("background UI policy: dev-tool launches must run in the background except on CI or when asked to come forward, and the app itself never does")
+    }
 }
