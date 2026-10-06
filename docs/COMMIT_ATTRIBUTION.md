@@ -8,7 +8,13 @@ Run `scripts/install-git-hooks.sh` once per clone. Python 3 is required. The ins
 
 The `commit-msg` hook rejects forbidden trailers case-insensitively and checks Git's effective author and committer, including environment overrides. The checker also accepts `--range origin/main..HEAD` to inspect commits already created. A clean-message amend can retain an old author: explicitly correct the author when repairing that case.
 
-`.claude/settings.json` disables Claude commit and PR attribution and session links. Agent instructions reinforce this policy. Local settings and hooks are convenience guards: `--no-verify`, plumbing commands, amended authors, or changing hooks can evade them.
+AI agent instructions and settings (`CLAUDE.md`, `AGENTS.md`, `.claude/`, `.agents/`) stay out of the repository and are ignored. Keep them in your local checkout. To stop Claude Code adding attribution, put this in a local `.claude/settings.json`:
+
+```json
+{"attribution": {"commit": "", "pr": "", "sessionUrl": false}}
+```
+
+Local settings and hooks are convenience guards: `--no-verify`, plumbing commands, amended authors, or changing hooks can evade them.
 
 ## GitHub enforcement
 
