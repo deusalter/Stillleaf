@@ -181,19 +181,33 @@ private func checkTimescaleInDashboard(model: AppModel) throws {
     guard ancestor === popup else {
         throw HistoryInteractionSmokeError.failed("A click on History's timescale control lands on \(hit.map { String(describing: type(of: $0)) } ?? "nothing") instead of the popup at \(point)")
     }
-    guard let opened = trackMenu(of: popup, trigger: {
-        mouse(.leftMouseDown, at: point, in: window)
-    }) else {
-        throw HistoryInteractionSmokeError.failed("A real mouse-down on the timescale popup in the dashboard never began menu tracking")
+    let revision = ThemeStore.shared.revision
+    var failures: [String] = []
+    // Path 1: a real mouse-down must begin menu tracking (this is what a person does).
+    if trackMenu(of: popup, trigger: { mouse(.leftMouseDown, at: point, in: window) }) == nil {
+        failures.append("A real mouse-down on the timescale popup never began menu tracking")
     }
     mouse(.leftMouseUp, at: point, in: window)
-    guard let index = (popup.menu?.items ?? opened).firstIndex(where: { $0.title == "Week" }) else {
-        throw HistoryInteractionSmokeError.failed("Dashboard timescale menu opened as \(opened.map(\.title))")
+    // Path 2: open it programmatically, then choose Week. If this fails but the same
+    // steps pass outside the dashboard, something in the dashboard undoes the pick.
+    var observed: [String] = []
+    for _ in 0..<2 {
+        guard textFields(in: popup).contains("Week") == false else { break }
+        guard trackMenu(of: popup, trigger: { popup.performClick(nil) }) != nil,
+              let index = popup.menu?.items.firstIndex(where: { $0.title == "Week" }) else {
+            failures.append("Dashboard timescale popup did not open with a Week item")
+            break
+        }
+        popup.menu?.performActionForItem(at: index)
+        observed.append("right after: \(textFields(in: popup))")
+        _ = pump(timeout: 3, until: { textFields(in: popup).contains("Week") })
+        observed.append("settled: \(textFields(in: popup))")
     }
-    popup.menu?.performActionForItem(at: index)
-    guard pump(timeout: 5, until: { textFields(in: popup).contains("Week") }) else {
-        throw HistoryInteractionSmokeError.failed("Choosing Week in the dashboard left the control reading \(textFields(in: popup))")
+    guard textFields(in: popup).contains("Week") else {
+        failures.append("Choosing Week in the dashboard left the control reading \(textFields(in: popup)) (\(observed.joined(separator: "; ")); theme revision \(revision) → \(ThemeStore.shared.revision))")
+        throw HistoryInteractionSmokeError.failed(failures.joined(separator: " / "))
     }
+    if !failures.isEmpty { throw HistoryInteractionSmokeError.failed(failures.joined(separator: " / ")) }
     print("ui-smoke: the dashboard's timescale popup receives real clicks, opens, and applies a pick")
 }
 
