@@ -12,8 +12,8 @@ struct MenuPanelGarden: View {
     let mode: GardenMode
     let frost: FrostRegions
 
-    /// Width of a side vine: three glyph columns, the gutter beside the cards.
-    static let sideWidth: CGFloat = 24
+    /// Width of a side vine: four glyph columns, the gutter beside the cards.
+    static let sideWidth: CGFloat = 26
     /// Rows the top and bottom trellis may occupy.
     static let trellisBand = 3
 
@@ -24,13 +24,13 @@ struct MenuPanelGarden: View {
 
     /// The top and bottom trellis with its four corner vines.
     static func trellis(day: String) -> GardenLayout {
-        GardenLayout(seed: GardenSeed.daily("popover", day: day), roots: 5, pollen: false,
+        GardenLayout(seed: GardenSeed.daily("popover", day: day), roots: 8, pollen: false,
                      cornerRoots: [.topLeading, .topTrailing, .bottomLeading, .bottomTrailing],
-                     budget: 240, edgeBand: trellisBand, bandEdges: [.top, .bottom])
+                     budget: 280, edgeBand: trellisBand, bandEdges: [.top, .bottom])
     }
 
     static func side(_ side: Side, day: String) -> GardenLayout {
-        GardenLayout(seed: GardenSeed.daily(side.rawValue, day: day), roots: 3, pollen: false, budget: 120)
+        GardenLayout(seed: GardenSeed.daily(side.rawValue, day: day), roots: 5, pollen: false, budget: 140)
     }
 
     var body: some View {

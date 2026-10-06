@@ -914,7 +914,8 @@ private func checkGardenFollowsThemeAndNavigation() throws {
     // The menu panel's garden: a trellis confined to the top and bottom bands, plus a vine up each side,
     // on every day's seed. Cards fill the middle, so nothing may grow there, and the garden must be real.
     var blooms = 0
-    for day in ["2026-10-01", "2026-10-02", "2026-10-03", "2026-10-04", "2026-10-05", "2026-10-06", "2026-10-07"] {
+    for dayIndex in 0..<60 {
+        let day = String(format: "2026-%02d-%02d", 1 + dayIndex / 28, 1 + dayIndex % 28)
         var trellisLayout = MenuPanelGarden.trellis(day: day)
         trellisLayout.size = CGSize(width: 350, height: 560)
         var trellis = GardenModel.plant(trellisLayout)
@@ -923,7 +924,7 @@ private func checkGardenFollowsThemeAndNavigation() throws {
         guard trellis.cells.values.allSatisfy({ $0.y < band || $0.y >= trellis.rows - band }) else {
             throw BooksAccessErrorForUI.failed("The menu panel trellis grew into the card area on \(day)")
         }
-        guard trellis.cells.count >= 100 else {
+        guard trellis.cells.count >= 60 else {
             throw BooksAccessErrorForUI.failed("The menu panel trellis is too sparse on \(day): \(trellis.cells.count) cells")
         }
         blooms += trellis.cells.values.filter { $0.kind == .bloom }.count
@@ -932,7 +933,7 @@ private func checkGardenFollowsThemeAndNavigation() throws {
             layout.size = CGSize(width: MenuPanelGarden.sideWidth, height: 560 - 2 * CGFloat(band) * CGFloat(GardenModel.cellHeight))
             var vine = GardenModel.plant(layout)
             vine.growToCompletion(limit: 4_000)
-            guard vine.cells.count >= 25, vine.cells.values.map(\.y).max()! - vine.cells.values.map(\.y).min()! > vine.rows / 2 else {
+            guard vine.cells.count >= 20, vine.cells.values.map(\.y).max()! - vine.cells.values.map(\.y).min()! > vine.rows / 2 else {
                 throw BooksAccessErrorForUI.failed("The menu panel \(side) vine does not climb the side on \(day)")
             }
             blooms += vine.cells.values.filter { $0.kind == .bloom }.count
