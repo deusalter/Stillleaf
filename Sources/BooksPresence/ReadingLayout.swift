@@ -186,6 +186,21 @@ extension View {
     }
 }
 
+/// A short "working on it" note that sits on glass, so it stays legible wherever it lands over the garden.
+struct ReadingStatusLabel: View {
+    let title: String
+
+    var body: some View {
+        HStack(spacing: ReadingMetrics.Space.s) {
+            ProgressView().controlSize(.small)
+            Text(title).font(.callout)
+        }
+        .padding(.horizontal, ReadingMetrics.Space.l).padding(.vertical, ReadingMetrics.Space.s)
+        .glassSurface(cornerRadius: ReadingMetrics.Radius.card)
+        .accessibilityElement(children: .combine)
+    }
+}
+
 struct ReadingEmptyState: View {
     let title: String
     let symbol: String

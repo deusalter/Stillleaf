@@ -10,6 +10,7 @@ struct HistoryView: View {
     @StateObject private var atlas = HistoryAtlasController()
     @Environment(\.colorScheme) private var scheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.forcedScreenStates) private var forced
 
     init(model: AppModel, initialScale: CalendarScale = .month, anchor: Date = Date(), benchmarkReady: ((HistoryAtlasKey) -> Void)? = nil) {
         self.model = model
@@ -46,7 +47,7 @@ struct HistoryView: View {
                 if let displayed {
                     historyContent(displayed, request: request, requested: requested)
                 } else {
-                    ProgressView("Preparing \(visibleTitle)…").controlSize(.small)
+                    ReadingStatusLabel(title: "Preparing \(visibleTitle)…")
                         .frame(maxWidth: .infinity, minHeight: 260, alignment: .topLeading)
                         .padding(.top, 20)
                 }
@@ -69,7 +70,7 @@ struct HistoryView: View {
     private func historyContent(_ displayed: HistoryAtlasDisplay, request: HistoryAtlasKey?, requested: CalendarNavigation) -> some View {
         let prepared = displayed.presentation
         let canReveal = request.map { displayed.canRetain(for: $0) } ?? false
-        let current = prepared.key == request
+        let current = prepared.key == request && !forced.historyUpdating
         let periodID = "\(prepared.key.scale.rawValue)-\(prepared.key.period.start)-\(prepared.key.timezoneID)"
         let dailyGoal = prepared.key.scale == .day
             ? model.dailyGoal(on: displayed.navigation.dayKey(for: prepared.key.period.start)) : nil
@@ -101,10 +102,8 @@ struct HistoryView: View {
         }
         .overlay(alignment: .topLeading) {
             if !current {
-                ProgressView("Updating to \(Self.title(for: requested))…")
-                    .controlSize(.small).font(.callout)
+                ReadingStatusLabel(title: "Updating to \(Self.title(for: requested))…")
                     .padding(12)
-                    .background(ReadingPalette.surface, in: RoundedRectangle(cornerRadius: 10))
                     .accessibilityIdentifier("history-updating")
             }
         }
