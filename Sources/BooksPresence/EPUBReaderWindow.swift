@@ -116,6 +116,11 @@ private final class EPUBReaderWindow: NSObject, NSWindowDelegate, WKNavigationDe
     private var progressDeliveryTask: Task<Void, Never>?
     private var gardenSubscription: AnyCancellable?
 
+    /// The Garden setting as the reader should see it right now (Reduce Motion and Low Power already applied).
+    fileprivate static func currentGardenMode() -> String {
+        ThemeStore.shared.effectiveGardenMode(reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion).rawValue
+    }
+
     /// Passes the app's Garden setting to the margin garden, now and whenever it changes.
     private func sendGardenMode() {
         if gardenSubscription == nil {
@@ -123,7 +128,7 @@ private final class EPUBReaderWindow: NSObject, NSWindowDelegate, WKNavigationDe
                 .sink { [weak self] _ in self?.sendGardenMode() }
         }
         guard isReady else { return }
-        let mode = ThemeStore.shared.effectiveGardenMode(reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion).rawValue
+        let mode = Self.currentGardenMode()
         webView.callAsyncJavaScript("window.StillleafReader.setGardenMode?.(mode)", arguments: ["mode": mode], in: nil, in: .page) { _ in }
     }
     var positionFinalized: ((ProgressObservation) -> Void)?
@@ -145,6 +150,9 @@ private final class EPUBReaderWindow: NSObject, NSWindowDelegate, WKNavigationDe
         configuration.userContentController.addUserScript(WKUserScript(source:
             "window.addEventListener('stillleaf-reader-event', e => window.webkit.messageHandlers.readerEvents.postMessage({token: \(quotedToken), event: e.detail}));",
             injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        // The garden's first frame must already honour Off and Still; sendGardenMode() only carries later changes.
+        configuration.userContentController.addUserScript(WKUserScript(source:
+            "window.__stillleafGardenMode = \"\(Self.currentGardenMode())\";", injectionTime: .atDocumentStart, forMainFrameOnly: true))
         webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 1000, height: 800), configuration: configuration)
         guardDelegate = ReaderNavigationGuard(resources: map)
         webView.navigationDelegate = self
@@ -548,8 +556,9 @@ func runEPUBReaderSmoke(fixture: URL) async throws {
         expectedPreferences = try await reader.testPreferences()
     }
     readerSmokeCheckpoint("garden mode")
-    let expectedGarden = ThemeStore.shared.effectiveGardenMode(reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion).rawValue
+    let expectedGarden = EPUBReaderWindow.currentGardenMode()
     guard try await reader.testGardenMode() == expectedGarden else { throw EPUBImportError.invalid("Reader did not receive the Garden setting.") }
+    guard try await reader.testInjectedGardenMode() == expectedGarden else { throw EPUBImportError.invalid("Reader was not started in the Garden setting at document start.") }
     readerSmokeCheckpoint("durable close")
     guard await reader.requestClose() else { throw EPUBImportError.invalid("Reader close did not complete.") }
     let closedState = try JSONSerialization.jsonObject(with: Data(contentsOf: locationURL)) as? [String: Any]
@@ -824,6 +833,11 @@ private extension EPUBReaderWindow {
             try await Task.sleep(nanoseconds: 50_000_000)
         } while Date() < deadline
         return mode
+    }
+
+    /// The mode the page was handed before any reader script ran (the garden's first frame reads this).
+    func testInjectedGardenMode() async throws -> String {
+        try await webView.evaluateJavaScript("window.__stillleafGardenMode ?? ''") as? String ?? ""
     }
 
     func testWaitUntilReady() async throws {

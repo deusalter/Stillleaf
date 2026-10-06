@@ -7,6 +7,7 @@ import {createField, vinePalette, gardenSeed, isDarkColor} from './vines.js';
 const FONT = 13, LINE = 16, MIN_MARGIN_CELLS = 7, BUDGET = 1500, STAGGER = 7, FADE = 700, GHOST = 900, FREEZE = 300;
 const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 const overlaps = (a, b) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+const MODES = ['animated', 'still', 'off'];
 const hex = value => /^#[0-9a-f]{6}$/i.test(value) ? value : null;
 
 /**
@@ -21,11 +22,14 @@ const hex = value => /^#[0-9a-f]{6}$/i.test(value) ? value : null;
  */
 export function installGarden({canvas, spine, viewport, chrome, layout, enabled, edition}) {
   const reduce = matchMedia('(prefers-reduced-motion: reduce)');
-  let mode = 'animated', frozen = false, freezeTimer = 0, layoutTimer = 0, frame = 0;
+  // The app injects its Garden setting at document start so the first frame already honours Off and Still;
+  // setMode() then follows live changes.
+  let mode = MODES.includes(window.__stillleafGardenMode) ? window.__stillleafGardenMode : 'animated', frozen = false, freezeTimer = 0, layoutTimer = 0, frame = 0;
   let progress = 0, chapter = null, pending = null, metrics = null, palette = null, deferred = false;
   const margins = {field: null, born: new Map(), ghosts: [], context: canvas.getContext('2d'), origin: {left: 0, top: 0}};
   const column = {field: null, born: new Map(), ghosts: [], context: spine.getContext('2d'), origin: {left: 0, top: 0}};
 
+  document.documentElement.dataset.garden = mode;
   const active = () => mode !== 'off' && enabled();
   const still = () => mode === 'still' || reduce.matches;
 
@@ -190,7 +194,7 @@ export function installGarden({canvas, spine, viewport, chrome, layout, enabled,
     },
     /** The app's Garden setting: animated, still or off. */
     setMode(value) {
-      mode = ['animated', 'still', 'off'].includes(value) ? value : 'animated';
+      mode = MODES.includes(value) ? value : 'animated';
       document.documentElement.dataset.garden = mode;
       rebuild();
     },

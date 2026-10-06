@@ -12,7 +12,7 @@ const book = {editionId: 'margin-garden', title: 'Margins', contentProgress: tru
   resources: [{href: 'one.html', type: 'text/html', dataBase64: Buffer.from(chapter(1)).toString('base64')},
     {href: 'two.html', type: 'text/html', dataBase64: Buffer.from(chapter(2)).toString('base64')}]};
 
-async function launch(t, viewport, {reducedMotion = 'reduce'} = {}) {
+async function launch(t, viewport, {reducedMotion = 'reduce', gardenMode} = {}) {
   const server = createServer(async (req, res) => {
     try {
       const file = path.resolve(root, '.' + new URL(req.url, 'http://localhost').pathname);
@@ -30,6 +30,8 @@ async function launch(t, viewport, {reducedMotion = 'reduce'} = {}) {
   const errors = [];
   page.on('pageerror', error => errors.push(String(error)));
   await page.addInitScript(() => { window.__stillleafGardenDebug = true; });
+  // The app injects its Garden setting at document start, before any reader script runs.
+  if (gardenMode) await page.addInitScript(mode => { window.__stillleafGardenMode = mode; }, gardenMode);
   await page.goto(`http://127.0.0.1:${server.address().port}/index.html`);
   await page.evaluate(input => window.StillleafReader.open(input), book);
   return {page, errors};
@@ -166,5 +168,28 @@ test('closing the reader wipes both canvases and plants nothing new', {timeout: 
   assert.equal(garden.cells.length, 0, 'closing planted a garden for a book that is gone');
   assert.equal(garden.spine.length, 0);
   assert.equal(garden.animating, false, 'a frame stayed scheduled after close');
+  assert.deepEqual(errors, []);
+});
+
+test('a reader started in Off never plants a garden, even before the app sends a mode', {timeout: 60000}, async t => {
+  const {page, errors} = await launch(t, {width: 1400, height: 900}, {reducedMotion: 'no-preference', gardenMode: 'off'});
+  await readTo(page, 0.5);
+  const garden = await page.evaluate(() => window.StillleafReader.gardenDebug());
+  assert.equal(garden.mode, 'off');
+  assert.equal(garden.cells.length, 0, 'an Off garden planted vines while waiting for the app');
+  assert.equal(garden.animating, false);
+  assert.deepEqual(await painted(page), [0, 0]);
+  assert.deepEqual(errors, []);
+});
+
+test('a reader started Still paints its first frame fully grown, with no fade-in', {timeout: 60000}, async t => {
+  const {page, errors} = await launch(t, {width: 1400, height: 900}, {reducedMotion: 'no-preference', gardenMode: 'still'});
+  await readTo(page, 0.5);
+  const garden = await page.evaluate(() => window.StillleafReader.gardenDebug());
+  assert.equal(garden.mode, 'still');
+  assert.ok(garden.cells.length > 100);
+  assert.equal(garden.animating, false, 'a Still garden faded in');
+  assert.equal(await page.evaluate(() => document.getElementById('garden').classList.contains('breathing')), false);
+  assert.ok((await painted(page))[0] > 0, 'the first frame was blank');
   assert.deepEqual(errors, []);
 });
