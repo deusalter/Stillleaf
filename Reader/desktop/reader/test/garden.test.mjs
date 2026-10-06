@@ -290,6 +290,27 @@ test('a Still garden that loses cells drops them at once, with no fading ghosts'
   assert.equal((await debug(page)).animating, false, 'a Still garden kept drawing frames');
 });
 
+test('a Still garden repaints at once when reading moves, without waiting for an animation frame', {timeout: 60000}, async t => {
+  const {page} = await launch(t, {width: 1400, height: 900}, {reducedMotion: 'no-preference', gardenMode: 'still'});
+  await readTo(page, 0.2);
+  const results = [];
+  for (const progression of [0.6, 0.35, 0.8]) {
+    // Sample in the same task that applies the new position, before any frame could run.
+    results.push(await page.evaluate(target => new Promise(resolve => {
+      const api = window.StillleafReader, start = api.gardenDebug().progress;
+      api.go({href: 'one.html', type: 'text/html', locations: {progression: target}});
+      const poll = () => {
+        const garden = api.gardenDebug();
+        if (Math.abs(garden.progress - start) > 0.1) resolve({animating: garden.animating, cells: garden.cells.length});
+        else setTimeout(poll, 0);
+      };
+      poll();
+    }), progression));
+  }
+  assert.ok(results.every(r => r.cells > 0), `a Still garden lost its vines: ${JSON.stringify(results)}`);
+  assert.ok(results.every(r => !r.animating), `a Still garden waited for animation frames: ${JSON.stringify(results)}`);
+});
+
 test('an Off garden never schedules a frame', {timeout: 60000}, async t => {
   const {page} = await launch(t, {width: 1400, height: 900}, {...animated, gardenMode: 'off'});
   await readTo(page, 0.5);
