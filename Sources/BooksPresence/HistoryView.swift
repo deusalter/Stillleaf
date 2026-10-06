@@ -52,11 +52,13 @@ struct HistoryView: View {
                 }
                 Text(model.timezoneID.replacingOccurrences(of: "_", with: " "))
                     .font(.caption2).foregroundStyle(ReadingPalette.secondaryInk).help("History dates and times use this timezone.")
+                    .padding(.horizontal, 10).padding(.vertical, 5)
+                    .glassSurface(cornerRadius: ReadingMetrics.Radius.control)
             }
             .frame(maxWidth: 1120, alignment: .leading)
             .padding(.horizontal, 32).padding(.vertical, 30).frame(maxWidth: .infinity, alignment: .top)
         }
-        .background(ReadingPalette.canvas, ignoresSafeAreaEdges: .vertical).foregroundStyle(ReadingPalette.ink).tint(ReadingPalette.accent)
+        .foregroundStyle(ReadingPalette.ink).tint(ReadingPalette.accent)
         .onChange(of: model.timezoneID) { navigation.timezoneID = $0 }
         .task(id: request) {
             guard let source else { return }

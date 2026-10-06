@@ -19,13 +19,15 @@ func dashboardSidebarToggleButtons(in window: NSWindow) -> [NSButton] {
 
 @MainActor
 private func dashboardSidebarGeometry(in window: NSWindow) -> (collapsed: Bool, width: CGFloat)? {
-    func find(_ view: NSView) -> NSSplitView? {
-        if let split = view as? NSSplitView, split.isVertical, split.arrangedSubviews.count == 2 { return split }
+    func find(_ view: NSView) -> NSView? {
+        if view.identifier == DashboardSidebarProbe.identifier { return view }
         for child in view.subviews { if let found = find(child) { return found } }
         return nil
     }
-    guard let root = window.contentView, let split = find(root), let sidebar = split.arrangedSubviews.first else { return nil }
-    return (split.isSubviewCollapsed(sidebar) || sidebar.frame.width < 2, sidebar.frame.width)
+    // The floating glass sidebar leaves the hierarchy when it is hidden.
+    guard let root = window.contentView else { return nil }
+    guard let sidebar = find(root), sidebar.window != nil else { return (true, 0) }
+    return (sidebar.frame.width < 2, sidebar.frame.width)
 }
 
 @MainActor

@@ -6,6 +6,7 @@ struct EPUBImportStatusView: View {
     @ObservedObject var controller: EPUBLibraryController
     var body: some View {
         let summary = controller.queue.summary
+        if controller.recoveryError != nil || !controller.queue.items.isEmpty {
         VStack(alignment: .leading, spacing: 8) {
             if let error = controller.recoveryError {
                 Text(error).font(.callout).foregroundStyle(ReadingPalette.warning)
@@ -33,7 +34,10 @@ struct EPUBImportStatusView: View {
                 }
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .readingPanel()
         .foregroundStyle(ReadingPalette.ink)
         .accessibilityElement(children: .contain)
+        }
     }
 }

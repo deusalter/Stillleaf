@@ -30,7 +30,7 @@ struct TodayView: View {
                 if let entry = model.pendingCompletion, model.snapshot.phase != .reading, !model.manualActive {
                     FinishedBookPrompt(model: model, entry: entry)
                 }
-                ReadingSection("Manual reading") {
+                ReadingSection("Manual reading", glass: true) {
                     HStack(spacing: 10) {
                         if model.manualActive {
                             Button("Stop manual reading") { model.stopManual() }
@@ -56,7 +56,7 @@ struct TodayView: View {
     }
 
     private var featuredReading: some View {
-        ReadingSection(featuredBook == nil ? "Your next read" : (model.snapshot.book == nil ? "Last read" : "Your current read"), accessory: {
+        ReadingSection(featuredBook == nil ? "Your next read" : (model.snapshot.book == nil ? "Last read" : "Your current read"), glass: true, accessory: {
             if let book = featuredBook {
                 Button("Book details") { present(.book(book)) }.buttonStyle(ReadingButtonStyle(glass: false)).controlSize(.small)
             }
@@ -69,6 +69,9 @@ struct TodayView: View {
                             .fixedSize(horizontal: false, vertical: true)
                         if let author = book.author, !author.isEmpty {
                             Text(author).font(.body).foregroundStyle(ReadingPalette.secondaryInk)
+                        }
+                        if let fraction = bookFraction(book) {
+                            DottedProgressRow(fraction: fraction).frame(maxWidth: 360).padding(.top, 6)
                         }
                         if model.snapshot.book != nil {
                             ActivityStateLabel(snapshot: model.snapshot).padding(.top, 4)
@@ -140,6 +143,13 @@ struct TodayView: View {
                 }
             }
         }
+    }
+
+    /// How far through the book the latest reliable position is, if known.
+    private func bookFraction(_ book: BookRecord) -> Double? {
+        guard let observation = model.libraryProgressObservations[book.id] else { return nil }
+        if let page = observation.page, let total = observation.totalPages, total > 0 { return min(1, Double(page) / Double(total)) }
+        return observation.fraction.map { min(1, max(0, $0)) }
     }
 
     private var trackingLabel: String {

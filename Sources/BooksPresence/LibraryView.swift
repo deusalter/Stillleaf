@@ -126,13 +126,14 @@ struct LibraryView: View {
                                     .accessibilityLabel("Actions for \(book.title)")
                                 }.padding(.horizontal, 6)
                             }
+                            .padding(6)
+                            .glassSurface()
                         }
                     }
                 }
             }
             .readingPage()
         }
-        .background(ReadingPalette.canvas, ignoresSafeAreaEdges: .vertical)
         .buttonStyle(ReadingButtonStyle())
         .sheet(isPresented: $loggingAudio) { AudiobookLogView(model: model) }
         .onDrop(of: [UTType.fileURL.identifier], isTargeted: nil) { model.epubLibrary.acceptDrop($0) }
@@ -221,6 +222,11 @@ struct BookLibraryCard: View {
     private var progressLabel: LibraryProgressLabel {
         LibraryProgressLabel.saved(progress, pagesLogged: pages, finished: finished)
     }
+    private var progressFraction: Double? {
+        guard !finished, let progress, progress.reliable, progress.audio == nil else { return nil }
+        if let page = progress.page, let total = progress.totalPages, total > 0 { return min(1, Double(page) / Double(total)) }
+        return progress.fraction.map { min(1, max(0, $0)) }
+    }
     var body: some View {
         Button(action: open) {
             VStack(alignment: .leading, spacing: 12) {
@@ -245,6 +251,9 @@ struct BookLibraryCard: View {
                                 .font(.caption.weight(.medium)).foregroundStyle(ReadingPalette.accent)
                         }
                     }.padding(.top, 2)
+                    if let fraction = progressFraction {
+                        DottedProgressRow(fraction: fraction, dots: 18).padding(.vertical, 2)
+                    }
                     Text(progressLabel.detail ?? " ").font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
                         .lineLimit(2, reservesSpace: true)
                         .accessibilityHidden(progressLabel.detail == nil)

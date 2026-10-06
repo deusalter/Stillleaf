@@ -15,6 +15,10 @@ func runInteractiveLibraryPreview() throws {
         ThemeStore.shared.reload(from: .standard)
     }
     ThemeStore.shared.reload(from: defaults)
+    if let index = CommandLine.arguments.firstIndex(of: "--preview-appearance"), CommandLine.arguments.indices.contains(index + 1),
+       let mode = DashboardAppearance(rawValue: CommandLine.arguments[index + 1]) {
+        ThemeStore.shared.select(appearance: mode)
+    }
     try seedPreviewHistory(at: support)
     let model = try AppModel(support: support, defaults: defaults, startTracking: false)
     defer { model.shutdown() }
@@ -22,13 +26,33 @@ func runInteractiveLibraryPreview() throws {
         styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
     window.isReleasedWhenClosed = false
     window.title = "Stillleaf — Synthetic Library Preview"
-    window.contentViewController = NSHostingController(rootView: DashboardView(model: model, initialSection: .library))
+    // `--preview-section today` opens another screen of the same synthetic dashboard.
+    let section = CommandLine.arguments.firstIndex(of: "--preview-section")
+        .flatMap { CommandLine.arguments.indices.contains($0 + 1) ? DashboardSection(rawValue: CommandLine.arguments[$0 + 1]) : nil } ?? .library
+    window.contentViewController = NSHostingController(rootView: DashboardView(model: model, initialSection: section))
     window.center()
     AppPresence.willPresentWindow()
     window.makeKeyAndOrderFront(nil)
     NSApp.activate(ignoringOtherApps: true)
     let delegate = LibraryPreviewWindowDelegate()
     window.delegate = delegate
+    // `--capture-window <png> [--capture-delay <seconds>]` saves the composited
+    // window (real materials and glass) and quits; the app may capture its own windows.
+    if let index = CommandLine.arguments.firstIndex(of: "--capture-window"), CommandLine.arguments.indices.contains(index + 1) {
+        let path = CommandLine.arguments[index + 1]
+        let delay = CommandLine.arguments.firstIndex(of: "--capture-delay")
+            .flatMap { CommandLine.arguments.indices.contains($0 + 1) ? Double(CommandLine.arguments[$0 + 1]) : nil } ?? 10
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            if let image = CGWindowListCreateImage(.null, .optionIncludingWindow, CGWindowID(window.windowNumber), [.boundsIgnoreFraming, .bestResolution]),
+               let data = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) {
+                try? data.write(to: URL(fileURLWithPath: path))
+                print("preview-capture: \(path) \(image.width)x\(image.height)")
+            } else {
+                print("preview-capture: failed")
+            }
+            window.close()
+        }
+    }
     withExtendedLifetime(delegate) { NSApp.run() }
 }
 
@@ -48,6 +72,8 @@ private final class LibraryPreviewWindowDelegate: NSObject, NSWindowDelegate {
 @MainActor
 func renderUIPreviews(to destination: URL) throws {
     let arguments = CommandLine.arguments
+    // Previews draw the garden fully grown at a fixed moment so renders compare pixel for pixel.
+    if GardenClock.frozenTime == nil { GardenClock.frozenTime = 6 }
     let filter = arguments.firstIndex(of: "--preview-filter").flatMap { index in
         index + 1 < arguments.count ? Set(arguments[index + 1].split(separator: ",").map(String.init)) : nil
     }

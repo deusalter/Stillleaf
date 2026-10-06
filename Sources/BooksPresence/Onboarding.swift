@@ -103,12 +103,19 @@ struct OnboardingView: View {
     @ObservedObject private var theme = ThemeStore.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var navigating = false
+    /// Card frames for the garden to frost; a class so it never re-renders the steps.
+    @State private var frost = FrostRegions()
 
     static let size = NSSize(width: 780, height: 600)
 
+    /// How much of the garden a step shows: it grows with each one and is complete at the end.
+    static func gardenGrowth(for step: OnboardingStep) -> Double {
+        Double(step.rawValue + 1) / Double(OnboardingStep.allCases.count)
+    }
+
     var body: some View {
         ZStack {
-            OnboardingBackdrop(step: flow.step)
+            OnboardingBackdrop(step: flow.step, frost: frost)
             VStack(spacing: 0) {
                 topBar
                 ZStack {
@@ -121,9 +128,13 @@ struct OnboardingView: View {
                 .clipped()
                 footer
             }
+            // Re-keying the chrome re-resolves theme colours; the flow keeps the reader's place.
+            // The garden stays outside it so a theme change recolours it without regrowing.
+            .id(theme.revision)
         }
-        // Re-keying the chrome re-resolves theme colours; the flow keeps the reader's place.
-        .id(theme.revision)
+        .coordinateSpace(name: GardenCanvas.space)
+        .environment(\.gardenBackdrop, theme.gardenMode != .off)
+        .onPreferenceChange(GlassRegionsKey.self) { frost.rects = $0 }
         .frame(width: Self.size.width, height: Self.size.height)
         .background(ReadingPalette.canvas)
         .foregroundStyle(ReadingPalette.ink)
@@ -288,13 +299,11 @@ private struct OnboardingReveal: ViewModifier {
 extension View {
     fileprivate func onboardingReveal(_ order: Int) -> some View { modifier(OnboardingReveal(order: order)) }
 
-    /// Frosted card over the moving backdrop.
+    /// A glass card over the garden; a selected card gets an accent ring.
     fileprivate func onboardingGlass(cornerRadius: CGFloat = 18, highlighted: Bool = false) -> some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-        return background(ReadingPalette.surface.opacity(0.62), in: shape)
-            .background(.ultraThinMaterial, in: shape)
-            .overlay(shape.strokeBorder(highlighted ? ReadingPalette.accent : ReadingPalette.border.opacity(0.9),
-                                        lineWidth: highlighted ? 1.5 : 1))
+        return glassSurface(cornerRadius: cornerRadius)
+            .overlay(shape.strokeBorder(ReadingPalette.accent.opacity(highlighted ? 1 : 0), lineWidth: 1.5))
     }
 }
 
@@ -320,49 +329,29 @@ private struct OnboardingTitle: View {
 
 // MARK: - Chrome
 
-/// Slow drifting colour fields in the theme's accent and chart tones.
+/// The garden grows a little more with every step, framing the tour's content
+/// without crossing it; the last step shows it complete.
 private struct OnboardingBackdrop: View {
     let step: OnboardingStep
+    let frost: FrostRegions
+    @ObservedObject private var theme = ThemeStore.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.colorScheme) private var colorScheme
+
+    /// The centred column where headings, copy and cards sit.
+    static let content = CGRect(x: 120, y: 44, width: 540, height: 470)
 
     var body: some View {
-        Group {
-            if reduceMotion {
-                field(time: 0)
-            } else {
-                TimelineView(.animation(minimumInterval: 1.0 / 30, paused: false)) { context in
-                    field(time: context.date.timeIntervalSinceReferenceDate)
-                }
-            }
-        }
-        .overlay(
-            LinearGradient(colors: [ReadingPalette.canvas.opacity(0), ReadingPalette.canvas.opacity(0.85)],
-                           startPoint: .center, endPoint: .bottom)
-        )
-        .ignoresSafeArea()
-        .accessibilityHidden(true)
-        .allowsHitTesting(false)
-    }
-
-    private func field(time: TimeInterval) -> some View {
-        let strength = colorScheme == .dark ? 0.26 : 0.2
-        // Each step nudges the fields so moving forward feels like travelling.
-        let shift = Double(step.rawValue) * 0.9
-        let colors = [ReadingPalette.accent, ReadingPalette.chart(1), ReadingPalette.chart(0)]
-        return Canvas { context, size in
-            context.addFilter(.blur(radius: 70))
-            for index in 0..<3 {
-                let phase = time * (0.07 + Double(index) * 0.025) + Double(index) * 2.1 + shift
-                let x = size.width * CGFloat(0.5 + 0.34 * cos(phase + Double(index)))
-                let y = size.height * CGFloat(0.38 + 0.22 * sin(phase * 1.3 + Double(index) * 1.7))
-                let radius = min(size.width, size.height) * CGFloat(0.42 - Double(index) * 0.06)
-                let rect = CGRect(x: x - radius, y: y - radius, width: radius * 2, height: radius * 2)
-                let alpha = strength * (index == 0 ? 1 : 0.7)
-                context.fill(Path(ellipseIn: rect), with: .color(colors[index].opacity(alpha)))
-            }
-        }
-        .background(ReadingPalette.canvas)
+        GardenCanvas(layout: GardenLayout(seed: GardenSeed.daily("onboarding", day: "tour"), roots: 9, pollen: false,
+                                          avoid: [Self.content], vigor: 3, growth: OnboardingView.gardenGrowth(for: step)),
+                     mode: theme.effectiveGardenMode(reduceMotion: reduceMotion), frost: frost)
+            .overlay(
+                LinearGradient(colors: [ReadingPalette.canvas.opacity(0), ReadingPalette.canvas.opacity(0.85)],
+                               startPoint: .center, endPoint: .bottom)
+            )
+            .background(ReadingPalette.canvas)
+            .ignoresSafeArea()
+            .accessibilityHidden(true)
+            .allowsHitTesting(false)
     }
 }
 
@@ -459,7 +448,8 @@ private struct OnboardingMark: View {
         .accessibilityHidden(true)
         .onAppear {
             guard !reduceMotion else { return }
-            withAnimation(.easeInOut(duration: 3.2).repeatForever(autoreverses: true)) { breathe = true }
+            // One slow settle rather than a loop that keeps the window redrawing.
+            withAnimation(.easeInOut(duration: 3.2)) { breathe = true }
         }
     }
 }
@@ -921,7 +911,7 @@ private struct MenuBarHint: View {
         .accessibilityLabel("The Stillleaf icon in the menu bar")
         .onAppear {
             guard !reduceMotion else { return }
-            withAnimation(.easeOut(duration: 1.6).repeatForever(autoreverses: false)) { pulse = true }
+            withAnimation(.easeOut(duration: 1.6).repeatCount(3, autoreverses: false)) { pulse = true }
         }
     }
 }
@@ -959,7 +949,7 @@ private struct OnboardingBurst: View {
         .accessibilityHidden(true)
         .onAppear {
             guard play else { return }
-            withAnimation(.spring(response: 0.5, dampingFraction: 0.62).delay(0.1)) { settled = true }
+            withAnimation(.spring(response: 0.5, dampingFraction: 1).delay(0.1)) { settled = true }
             withAnimation(.easeOut(duration: 1.1).delay(0.16)) { progress = 1 }
         }
     }

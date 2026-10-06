@@ -98,7 +98,7 @@ struct ReadingSearchField: View {
             }
         }
         .padding(.horizontal, 11).padding(.vertical, 9)
-        .background(ReadingPalette.surface.opacity(0.7), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .glassSurface(cornerRadius: 9)
         .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous)
             .stroke(focused ? ReadingPalette.accent : ReadingPalette.border, lineWidth: focused ? 1.5 : 1))
     }
@@ -110,7 +110,7 @@ private struct ReadingFieldBody<Label: View>: View {
     var body: some View {
         field.textFieldStyle(.plain).focused($focused)
             .padding(.horizontal, 11).padding(.vertical, 9)
-            .background(ReadingPalette.surface.opacity(0.7), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+            .glassSurface(cornerRadius: 9)
             .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).stroke(focused ? ReadingPalette.accent : ReadingPalette.border, lineWidth: focused ? 1.5 : 1))
     }
 }

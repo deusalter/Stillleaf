@@ -52,8 +52,8 @@ struct FinishedBookTimeline: View {
                 PageHeader("Finished", subtitle: nil)
             }
             if entries.isEmpty {
-                Text(search.isEmpty ? "Books marked finished in Apple Books will appear here." : "No finished books match your search.")
-                    .foregroundStyle(ReadingPalette.secondaryInk).padding(.vertical, 28)
+                ReadingEmptyState(title: search.isEmpty ? "No finished books yet" : "No matching books", symbol: "checkmark.circle",
+                                  message: search.isEmpty ? "Books you mark finished, here or in Apple Books, appear here with their dates." : "Try another title or author.")
             }
             ForEach(years) { year in
                 yearGroup(title: String(year.year), note: "\(year.entries.count) \(year.entries.count == 1 ? "book" : "books")", entries: year.entries)
@@ -87,6 +87,7 @@ struct FinishedBookTimeline: View {
                 FinishedBookTimelineRow(model: model, entry: entry, calendar: calendar, present: present)
             }
         }
+        .readingPanel()
     }
 }
 

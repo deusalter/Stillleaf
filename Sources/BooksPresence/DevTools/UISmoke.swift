@@ -358,6 +358,69 @@ func runUISmoke() throws {
             }
         }
     }
+    let gardenDefaults = UserDefaults(suiteName: "stillleaf-garden-smoke-\(UUID().uuidString)")!
+    let gardenStore = ThemeStore(defaults: gardenDefaults)
+    guard gardenStore.gardenMode == .animated else { throw BooksAccessErrorForUI.failed("Garden did not default to animated") }
+    gardenStore.select(garden: .off)
+    guard ThemeStore(defaults: gardenDefaults).gardenMode == .off else { throw BooksAccessErrorForUI.failed("Garden mode did not persist") }
+    guard gardenStore.effectiveGardenMode(reduceMotion: true) == .off else { throw BooksAccessErrorForUI.failed("Reduce Motion changed an Off garden") }
+    gardenStore.select(garden: .animated)
+    guard gardenStore.effectiveGardenMode(reduceMotion: true) == .still else { throw BooksAccessErrorForUI.failed("Reduce Motion did not still the garden") }
+    guard gardenStore.effectiveGardenMode(reduceMotion: false) == (ProcessInfo.processInfo.isLowPowerModeEnabled ? .still : .animated) else {
+        throw BooksAccessErrorForUI.failed("Low Power Mode handling is wrong")
+    }
+    guard GardenClock(mode: .off).frameInterval(growing: true) == nil else { throw BooksAccessErrorForUI.failed("An Off garden scheduled frames") }
+    guard GardenClock(mode: .still).frameInterval(growing: false) == nil, GardenClock(mode: .still).frameInterval(growing: true) == nil else {
+        throw BooksAccessErrorForUI.failed("A still garden scheduled frames")
+    }
+    guard GardenClock(mode: .animated).frameInterval(growing: true) == 1.0 / 30 else { throw BooksAccessErrorForUI.failed("Growth is not paced at 30 fps") }
+    guard GardenClock(mode: .animated).frameInterval(growing: false) == nil else { throw BooksAccessErrorForUI.failed("A grown garden still schedules frames") }
+    let gardenModel = GardenModel()
+    gardenModel.configure(layout: GardenLayout(size: CGSize(width: 900, height: 620), clearingHeight: 114, seed: 3), mode: .still, now: 0)
+    guard !gardenModel.field.isGrowing, gardenModel.field.cells.count > 100,
+          gardenModel.field.cells.values.allSatisfy({ Double($0.y) * gardenModel.field.cellHeight >= 114 }) else {
+        throw BooksAccessErrorForUI.failed("A still garden did not grow fully below the clearing")
+    }
+    gardenModel.configure(layout: GardenLayout(size: CGSize(width: 900, height: 620), clearingHeight: 114, seed: 3), mode: .off, now: 0)
+    guard gardenModel.field.cells.isEmpty else { throw BooksAccessErrorForUI.failed("An Off garden kept cells") }
+    try checkDottedProgressRow()
+    var edged = GardenModel.plant(GardenLayout(size: CGSize(width: 350, height: 520), seed: 4, roots: 0, pollen: false,
+                                               cornerRoots: [.bottomTrailing, .topTrailing], budget: 200, edgeBand: 2))
+    edged.growToCompletion(limit: 2_000)
+    guard !edged.cells.isEmpty, edged.cells.values.allSatisfy({ min($0.x, $0.y, edged.columns - 1 - $0.x, edged.rows - 1 - $0.y) < 2 }) else {
+        throw BooksAccessErrorForUI.failed("An edge-band garden grew into the panel's text")
+    }
+    let order = VineSeedling.glyphOrder
+    guard order.count > 10, order.last?.glyph == "❀", order.first.map({ $0.y == VineSeedling.art.count - 1 }) == true else {
+        throw BooksAccessErrorForUI.failed("The seedling does not grow from the ground up to its bloom")
+    }
+    let centre = CGRect(x: 100, y: 110, width: 200, height: 80)
+    let burst = VineBurst.field(size: CGSize(width: 400, height: 300), around: centre, seed: 7)
+    let cellRect = { (c: VineCell) in CGRect(x: Double(c.x) * burst.cellWidth, y: Double(c.y) * burst.cellHeight, width: burst.cellWidth, height: burst.cellHeight) }
+    guard burst.cells.count > 40, burst.cells.values.allSatisfy({ !cellRect($0).intersects(centre) }) else {
+        throw BooksAccessErrorForUI.failed("The completion burst grew over its badge")
+    }
+    // Each tour step shows more of the same garden, and the last shows all of it.
+    let growth = OnboardingStep.allCases.map(OnboardingView.gardenGrowth(for:))
+    guard zip(growth, growth.dropFirst()).allSatisfy({ $0 < $1 }), growth.last == 1 else {
+        throw BooksAccessErrorForUI.failed("The onboarding garden does not grow step by step to a full garden: \(growth)")
+    }
+    let tourLayout = { (step: OnboardingStep) in GardenLayout(size: OnboardingView.size, seed: 1, roots: 9, pollen: false,
+        avoid: [CGRect(x: 120, y: 44, width: 540, height: 470)], vigor: 3, growth: OnboardingView.gardenGrowth(for: step)) }
+    var counts: [Int] = []
+    var previous: Set<Int> = []
+    for step in OnboardingStep.allCases {
+        var garden = GardenModel.plant(tourLayout(step))
+        garden.growToCompletion(limit: 20_000)
+        guard previous.isSubset(of: Set(garden.cells.keys)) else { throw BooksAccessErrorForUI.failed("Step \(step) regrew a different garden") }
+        previous = Set(garden.cells.keys)
+        counts.append(garden.cells.count)
+    }
+    guard zip(counts, counts.dropFirst()).allSatisfy({ $1 - $0 >= 40 }) else {
+        throw BooksAccessErrorForUI.failed("Tour steps do not visibly grow the garden: \(counts)")
+    }
+    try checkGardenFollowsThemeAndNavigation()
+    print("ui-smoke: garden mode defaults to animated, persists, and stills for Reduce Motion and Low Power")
     store.select(theme: "stillleaf")
     print("ui-smoke: \(ReadingTheme.all.count) themes persisted, fell back, passed contrast and laid out popover, timeline and appearance")
     let cachedBookIDs = model.books.map(\.id)
@@ -762,4 +825,98 @@ private func checkHistoryDateFormatting() throws {
         }
     }
     print("ui-smoke: History date labels preserve timezone, DST, patterns and cache eviction")
+}
+
+
+/// The dotted progress row fills from the leading edge in the accent colour.
+@MainActor
+private func checkDottedProgressRow() throws {
+    NSApp.appearance = NSAppearance(named: .aqua)
+    let accent = ThemeSnapshot.current().light.accent
+    let hosting = NSHostingView(rootView: DottedProgressRow(fraction: 0.38).frame(width: 360, height: 12)
+        .environment(\.colorScheme, .light))
+    hosting.frame = NSRect(x: 0, y: 0, width: 360, height: 12)
+    hosting.layoutSubtreeIfNeeded()
+    guard let bitmap = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) else { throw BooksAccessErrorForUI.failed("Could not render the dotted row") }
+    hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
+    func accentPixels(_ range: Range<Int>) -> Int {
+        var count = 0
+        for x in range { for y in 0..<bitmap.pixelsHigh {
+            guard let c = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB), c.alphaComponent > 0.5 else { continue }
+            let r = Int(c.redComponent * 255), g = Int(c.greenComponent * 255), b = Int(c.blueComponent * 255)
+            if abs(r - Int((accent >> 16) & 0xff)) + abs(g - Int((accent >> 8) & 0xff)) + abs(b - Int(accent & 0xff)) < 60 { count += 1 }
+        } }
+        return count
+    }
+    let third = bitmap.pixelsWide / 3
+    guard accentPixels(0..<third) > 20, accentPixels((2 * third)..<bitmap.pixelsWide) == 0 else {
+        throw BooksAccessErrorForUI.failed("The dotted progress row does not fill from the leading edge")
+    }
+    print("ui-smoke: dotted progress row fills 38% from the leading edge")
+}
+
+
+/// The garden recolours when the theme changes, keeps its growth across a
+/// History clearing change, and the menu panel's vine stays in its trailing padding.
+@MainActor
+private func checkGardenFollowsThemeAndNavigation() throws {
+    let previousFrozen = GardenClock.frozenTime
+    GardenClock.frozenTime = 6
+    defer { GardenClock.frozenTime = previousFrozen; ThemeStore.shared.select(accent: nil) }
+    NSApp.appearance = NSAppearance(named: .aqua)
+    ThemeStore.shared.select(accent: nil)
+    let size = NSSize(width: 600, height: 400)
+    let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless], backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false
+    window.appearance = NSAppearance(named: .aqua)
+    let controller = NSHostingController(rootView: GardenCanvas(layout: GardenLayout(seed: 11, pollen: false), mode: .animated)
+        .frame(width: size.width, height: size.height).environment(\.colorScheme, .light))
+    controller.sizingOptions = []
+    window.contentViewController = controller
+    window.setContentSize(size)
+    let hosting = controller.view
+    hosting.frame = NSRect(origin: .zero, size: size)
+    defer { window.contentViewController = nil; window.close() }
+    func snapshot() -> NSBitmapImageRep? {
+        hosting.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.45))
+        hosting.layoutSubtreeIfNeeded()
+        hosting.displayIfNeeded()
+        guard let bitmap = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) else { return nil }
+        hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
+        return bitmap
+    }
+    func inked(_ bitmap: NSBitmapImageRep) -> Int {
+        var count = 0
+        for x in stride(from: 0, to: bitmap.pixelsWide, by: 3) { for y in stride(from: 0, to: bitmap.pixelsHigh, by: 3) {
+            if let c = bitmap.colorAt(x: x, y: y), c.alphaComponent > 0.3 { count += 1 }
+        } }
+        return count
+    }
+    guard let before = snapshot(), inked(before) > 50 else { throw BooksAccessErrorForUI.failed("The garden drew nothing to compare") }
+    ThemeStore.shared.select(accent: "rose")
+    guard let after = snapshot(), before.tiffRepresentation != after.tiffRepresentation else {
+        throw BooksAccessErrorForUI.failed("The garden did not recolour when the accent changed")
+    }
+
+    let model = GardenModel()
+    let today = GardenLayout(size: CGSize(width: 900, height: 620), clearingHeight: 166, seed: 5)
+    model.configure(layout: today, mode: .still, now: 0)
+    let generation = model.generation, cells = model.field.cells.count
+    var history = today
+    history.clearingHeight = 250
+    model.configure(layout: history, mode: .still, now: 1)
+    guard model.generation == generation, model.field.cells.count == cells else {
+        throw BooksAccessErrorForUI.failed("Visiting History regrew the garden from scratch")
+    }
+
+    for seed in UInt32(1)...UInt32(7) {
+        var panel = GardenModel.plant(GardenLayout(size: CGSize(width: 350, height: 520), seed: seed, roots: 0, pollen: false,
+                                                   cornerRoots: [.bottomTrailing, .topTrailing], budget: 200, edgeBand: 2, bandEdges: [.trailing]))
+        panel.growToCompletion(limit: 2_000)
+        guard panel.cells.values.allSatisfy({ $0.x >= panel.columns - 2 }) else {
+            throw BooksAccessErrorForUI.failed("The menu panel vine left its trailing padding on day seed \(seed)")
+        }
+    }
+    print("ui-smoke: garden recolours with the theme, survives History's clearing, and keeps the panel vine in its padding")
 }

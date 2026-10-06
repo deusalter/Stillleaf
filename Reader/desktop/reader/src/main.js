@@ -15,6 +15,7 @@ import {continuousTextCandidates} from './content-geometry';
 import {syncTypographyChoices} from './appearance-choices';
 import {fontCSS,installFont,contrast} from './bundled-fonts';
 import {DEFAULT_PREFERENCES,preferences,restoreState,selectorFor,rangePoint} from './state';
+import {installGarden} from './garden';
 import {THEMES,FONTS,MARGINS,resolveTheme,fontStack,fontAvailable,marginMetrics,averageCharacterWidth} from './appearance';
 
 const $=id=>document.getElementById(id);
@@ -33,7 +34,12 @@ const pageLayoutObservers=new WeakMap();
 let screenIndex,backgroundQuietUntil=0;
 const deferredAnnotationHrefs=new Set();
 let deferredAnnotationDocuments=new WeakSet();
-const backgroundActivity=()=>{backgroundQuietUntil=performance.now()+350};
+const backgroundActivity=()=>{backgroundQuietUntil=performance.now()+350;garden.activity()};
+// Vines in the empty margins and the facing-page gap; they freeze while the reader scrolls.
+const garden=installGarden({canvas:$('garden'),spine:$('garden-spine'),viewport:$('reading-viewport'),
+ chrome:()=>[...document.querySelectorAll('.reader-bar,.reading-footer')],
+ layout:()=>({columns:effectiveColumns(),gutter:state?readingMargins().gutter:0,scroll:Boolean(state?.preferences.scroll)}),
+ enabled:()=>Boolean(state)&&state.preferences.vines!=='off',edition:()=>input?.editionId??''});
 for(const type of ['wheel','scroll','pointerdown','keydown','input'])window.addEventListener(type,backgroundActivity,{capture:true,passive:true});
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 async function paginationIdle(signal){
@@ -336,7 +342,13 @@ function applyChromeTheme(t){
  const root=document.documentElement.style;root.colorScheme=t.scheme;
  for(const [name,value]of [['chrome',t.chrome],['paper',t.background],['ink',t.text],['muted',t.muted],['accent',t.link],['line',t.text+(t.scheme==='dark'?'20':'1c')],['hover',t.scheme==='dark'?'#ffffff0d':t.text+'0f'],['panel',t.panel]])root.setProperty('--'+name,value);
 }
+function renderVinesControl(){
+ const vines=$('vines');
+ if(!vines.childElementCount)for(const [id,label]of [['margins','Margins'],['off','Off']]){const b=document.createElement('button');b.dataset.vines=id;b.setAttribute('role','radio');b.textContent=label;b.onclick=()=>void setPreferences({vines:id});vines.append(b)}
+ for(const b of vines.children){const on=b.dataset.vines===(state?.preferences.vines??'margins');b.setAttribute('aria-checked',String(on));b.tabIndex=on?0:-1}
+}
 function renderAppearanceControls(){
+ renderVinesControl();
  const themes=$('theme-options');
  if(!themes.childElementCount){
   const system={id:'system',label:'System'};
@@ -382,6 +394,7 @@ function syncAppearance(){
  for(const [id,key]of [['letter-spacing','letterSpacing'],['word-spacing','wordSpacing']]){$(id).value=state.preferences[key];$(id+'-value').textContent=Math.round(state.preferences[key]*100)+'%';}
  for(const [id,key]of [['font-size','fontSize'],['line-height','lineHeight'],['measure','measure']])$(id).value=state.preferences[key];
  $('font-size-value').textContent=Math.round(state.preferences.fontSize*100)+'%';$('line-height-value').textContent=state.preferences.lineHeight.toFixed(2).replace(/0$/,'');$('measure-value').textContent='About '+Math.round(state.preferences.measure)+' characters';
+ garden.update();
 }
 async function prepareFont(id,generation){
  const css=await fontCSS(id);if(generation!==lifecycle||!pool)return;
@@ -746,7 +759,7 @@ async function installNavigator(location,settings=readiumPreferences()){
   const listeners={
    chapterInvalidated:index=>screenIndex?.invalidate(index),
    click:pageEdgeTap,tap:pageEdgeTap,
-   positionChanged:locator=>{if(generation!==lifecycle||!state)return;lastLocator=locator.serialize();retryDeferredAnnotations();if(opening&&state.position){refreshPosition();return;}state.position=clone(lastLocator);refreshPosition();changed(false);emit('relocated',{locator:lastLocator,cause:'unknown',eligibleForProgress:false})},
+   positionChanged:locator=>{if(generation!==lifecycle||!state)return;lastLocator=locator.serialize();garden.progress(lastLocator);retryDeferredAnnotations();if(opening&&state.position){refreshPosition();return;}state.position=clone(lastLocator);refreshPosition();changed(false);emit('relocated',{locator:lastLocator,cause:'unknown',eligibleForProgress:false})},
    frameUnloaded:wnd=>{pageLayoutObservers.get(wnd)?.();pageLayoutObservers.delete(wnd);frames.delete(wnd)},
    readerScrolled:(delta,height)=>{if(generation===lifecycle)trackContinuousScroll(delta,height)},
    readerAnchorChanged:locator=>{if(generation===lifecycle&&performance.now()>=quietUntil&&!reflowCount&&!resizing)stableAnchor=clone(locator)},
@@ -784,6 +797,7 @@ async function open(value){
 }
 async function close(){
  if(!await prepareClose())return false;
+ garden.clear();
  if(navigator?.kind==='continuous')navigator.report();
  nativeChrome.disconnect();clearTimeout(noteSaveTimer);annotationUI.reset();pageSlide.cancel();lifecycle++;searchGeneration++;cancelAnimationFrame(positionFrame);clearTimeout(resizeTimer);resizing=false;clearTimeout(searchTimer);clearTimeout(stateTimer);clearTimeout(noticeTimer);
  const paginationClosed=screenIndex?.queue;screenIndex?.close();screenIndex=undefined;
@@ -796,7 +810,7 @@ let nativeDefinitionCache;
 function nativeDefinitions(){
  if(nativeDefinitionCache)return nativeDefinitionCache;
  const choice=(key,label,items)=>({key,label,kind:'choice',options:items.map(([value,label])=>({value:JSON.stringify(value),label}))});
- const result=[choice('theme','Page theme',[['system','System'],...THEMES.map(x=>[x.id,x.label])]),choice('fontFamily','Typeface',FONTS.map(x=>[x.id,x.label])),choice('margins','Margins',Object.entries(MARGINS).map(([key,value])=>[key,value.label])),choice('columns','Pages',[['one','Single page'],['two','Facing pages']]),choice('fontWeight','Text weight',[[null,'Original'],[400,'Regular'],[700,'Bold']]),choice('textAlign','Alignment',[['publisher','Original'],['start','Start'],['justify','Justified']]),choice('hyphens','Hyphenation',[[null,'Original'],[true,'On'],[false,'Off']])];
+ const result=[choice('theme','Page theme',[['system','System'],...THEMES.map(x=>[x.id,x.label])]),choice('fontFamily','Typeface',FONTS.map(x=>[x.id,x.label])),choice('margins','Margins',Object.entries(MARGINS).map(([key,value])=>[key,value.label])),choice('vines','Vines',[['margins','Margins'],['off','Off']]),choice('columns','Pages',[['one','Single page'],['two','Facing pages']]),choice('fontWeight','Text weight',[[null,'Original'],[400,'Regular'],[700,'Bold']]),choice('textAlign','Alignment',[['publisher','Original'],['start','Start'],['justify','Justified']]),choice('hyphens','Hyphenation',[[null,'Original'],[true,'On'],[false,'Off']])];
  for(const [id,key,label]of [['font-size','fontSize','Text size'],['line-height','lineHeight','Line spacing'],['measure','measure','Line width'],['content-width','contentWidth','Page width'],['side-margin','sideMargin','Side margins'],['letter-spacing','letterSpacing','Letter spacing'],['word-spacing','wordSpacing','Word spacing']]){const e=$(id);result.push({key,label,kind:'number',min:Number(e.min),max:Number(e.max),step:Number(e.step),nullable:key==='sideMargin'})}
  for(const [key,label]of [['scroll','Continuous scrolling'],['immersive','Focus reading']])result.push({key,label,kind:'toggle'});
  for(const [key,label]of [['backgroundColor','Page color'],['textColor','Text color']])result.push({key,label,kind:'color'});
@@ -824,7 +838,8 @@ const nativeChrome=nativeChromeAdapter({edition:()=>input?.editionId,ready:()=>B
   if(command==='focus')return setPreferences({immersive:!state.preferences.immersive});
   if(command==='policy')for(const [key,value]of Object.entries(payload)){document.body.classList.toggle('native-'+key,value);if(key==='reduceMotion'&&value)pageSlide.cancel()}
  }});
-const api={nativeControl:request=>nativeChrome.dispatch(request),open,close,prepareClose,hasPendingDraft,returnFromJump,next:()=>turn('next'),previous:()=>turn('previous'),go,setPreferences,bookmark:()=>lastLocator?clone(lastLocator):null,restore:go,exportState:()=>{if(hasPendingDraft())persistNote();if(navigator?.kind==='continuous')navigator.report();return snapshot()},addBookmark,annotate};
+const api={nativeControl:request=>nativeChrome.dispatch(request),setGardenMode:mode=>garden.setMode(mode),
+ ...(window.__stillleafGardenDebug||new URLSearchParams(location.search).has('debug-garden')?{gardenDebug:()=>garden.debug()}:{}),open,close,prepareClose,hasPendingDraft,returnFromJump,next:()=>turn('next'),previous:()=>turn('previous'),go,setPreferences,bookmark:()=>lastLocator?clone(lastLocator):null,restore:go,exportState:()=>{if(hasPendingDraft())persistNote();if(navigator?.kind==='continuous')navigator.report();return snapshot()},addBookmark,annotate};
 window.StillleafReader=Object.freeze(api);
 $('return-jump').onclick=()=>void returnFromJump();
 $('back').onclick=async()=>{if(await prepareClose())emit('close-request')};$('next').onclick=api.next;$('previous').onclick=api.previous;$('save-bookmark').onclick=addBookmark;
@@ -846,7 +861,7 @@ $('font-weight').onchange=()=>void setPreferences({fontWeight:$('font-weight').v
 $('text-align').onchange=()=>void setPreferences({textAlign:$('text-align').value});
 $('hyphens').onchange=()=>void setPreferences({hyphens:$('hyphens').value==='publisher'?null:$('hyphens').value==='true'});
 for(const [id,key]of [['letter-spacing','letterSpacing'],['word-spacing','wordSpacing']])$(id).oninput=()=>void setPreferences({[key]:Number($(id).value)});
-window.addEventListener('resize',()=>{pageSlide.cancel();if(!state)return;screenIndex?.cancel();resizing=true;relayout();const anchor=stableAnchor?clone(stableAnchor):lastLocator?clone(lastLocator):null;clearTimeout(resizeTimer);resizeTimer=setTimeout(()=>{void setPreferences({},anchor).finally(()=>{resizing=false;refreshPosition()})},100)});
+window.addEventListener('resize',()=>{pageSlide.cancel();if(!state)return;garden.update();screenIndex?.cancel();resizing=true;relayout();const anchor=stableAnchor?clone(stableAnchor):lastLocator?clone(lastLocator):null;clearTimeout(resizeTimer);resizeTimer=setTimeout(()=>{void setPreferences({},anchor).finally(()=>{resizing=false;refreshPosition()})},100)});
 $('reset-appearance').onclick=()=>void setPreferences(DEFAULT_PREFERENCES);
 $('search-form').onsubmit=event=>{event.preventDefault();void searchBook()};$('search-query').oninput=()=>{clearTimeout(searchTimer);searchTimer=setTimeout(()=>void searchBook(),180)};
 for(const b of document.querySelectorAll('[data-highlight-color]'))b.onclick=()=>{

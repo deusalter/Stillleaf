@@ -73,6 +73,7 @@ public enum ReaderStateValidation {
         if let alignment = preferences["textAlign"] { guard let alignment = alignment as? String, ["publisher", "start", "justify"].contains(alignment) else { throw Failure.invalidState } }
         if let columns = preferences["columns"] { guard let columns = columns as? String, ["one", "two"].contains(columns) else { throw Failure.invalidState } }
         if let margins = preferences["margins"] { guard let margins = margins as? String, marginChoices.contains(margins) else { throw Failure.invalidState } }
+        if let vines = preferences["vines"] { guard let vines = vines as? String, ["margins", "off"].contains(vines) else { throw Failure.invalidState } }
         let paths = Set(publication.resources.map(\.path))
         func locator(_ raw: Any?) -> Bool {
             guard let raw = raw as? [String: Any], let href = raw["href"] as? String, paths.contains(href) else { return false }

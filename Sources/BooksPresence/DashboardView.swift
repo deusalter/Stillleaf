@@ -21,18 +21,28 @@ struct DashboardView: View {
     @ObservedObject private var theme = ThemeStore.shared
     @State private var deleteAllConfirmation = false
     @State private var uninstallConfirmation = false
-    @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    @State private var sidebarVisible = true
+    /// Glass panel frames for the garden to frost; a class so scrolling only redraws the garden.
+    @State private var frost = FrostRegions()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.nativePreviewReduceMotion) private var previewReduceMotion
 
     var body: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
-            DashboardSidebar(selection: $section, model: model, troubleshoot: { sheet = .trackingHelp })
-                .id(theme.revision)
-                .frame(minWidth: 205, idealWidth: 225, maxWidth: 260)
-                .nativeSidebarToolbar()
-                .navigationSplitViewColumnWidth(min: 205, ideal: 225, max: 260)
-        } detail: {
+        // The garden runs under the whole window, title bar included; the
+        // sidebar floats on it as a glass panel, as in the approved mockup.
+        HStack(spacing: 0) {
+            if sidebarVisible {
+                DashboardSidebar(selection: $section, model: model, troubleshoot: { sheet = .trackingHelp })
+                    .id(theme.revision)
+                    .padding(.top, 34)
+                    .frame(width: Self.sidebarWidth)
+                    .frame(maxHeight: .infinity, alignment: .top)
+                    .glassSurface(cornerRadius: ReadingMetrics.Radius.window)
+                    .background(DashboardSidebarProbe())
+                    .padding(10)
+                    .ignoresSafeArea(edges: .top)
+                    .transition(.move(edge: .leading).combined(with: .opacity))
+            }
             VStack(spacing: 0) {
                 if let error = model.errorMessage ?? model.trackingRecoveryMessage, !error.isEmpty {
                     ErrorBanner(message: error, refresh: { model.refresh() })
@@ -57,25 +67,42 @@ struct DashboardView: View {
                 .id(section)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .background(ReadingPalette.canvas, ignoresSafeAreaEdges: .vertical)
             .foregroundStyle(ReadingPalette.ink)
             .buttonStyle(ReadingButtonStyle())
         }
-        .nativeDashboardSidebarToggle(isCollapsed: columnVisibility == .detailOnly) {
-            withAnimation((previewReduceMotion ?? reduceMotion) ? nil : ReadingMotion.selection) {
-                columnVisibility = columnVisibility == .detailOnly ? .all : .detailOnly
+        .background {
+            GeometryReader { proxy in
+                ZStack {
+                    ReadingPalette.canvas
+                    // The garden stays put behind scrolling content. Screens adopt it
+                    // once all their text sits on glass.
+                    if gardenVisible {
+                        GardenCanvas(layout: GardenLayout(clearingHeight: proxy.safeAreaInsets.top + Self.gardenClearing + (section == .history ? 84 : 0),
+                                                          seed: GardenSeed.daily("dashboard", day: model.today.day),
+                                                          pollenScale: section == .history ? 0.5 : 1),
+                                     mode: gardenMode, frost: frost, frostOffset: proxy.safeAreaInsets.top)
+                    }
+                }
+                .ignoresSafeArea()
             }
         }
-        .nativeDashboardWindowBackground()
+        .coordinateSpace(name: GardenCanvas.space)
+        .environment(\.gardenBackdrop, gardenVisible)
+        .onPreferenceChange(GlassRegionsKey.self) { frost.rects = $0 }
+        .nativeDashboardSidebarToggle(isCollapsed: !sidebarVisible) {
+            withAnimation((previewReduceMotion ?? reduceMotion) ? nil : ReadingMotion.selection) {
+                sidebarVisible.toggle()
+            }
+        }
         .readingMotionAccessibility()
         .onAppear { acceptNavigationRequest() }
         .onChange(of: model.dashboardSectionRequest) { _ in acceptNavigationRequest() }
-        .navigationSplitViewStyle(.balanced)
         .frame(minWidth: 920, minHeight: 660)
         .toggleStyle(.switch)
         .tint(ReadingPalette.accent)
         .sheet(item: $sheet) { item in
             dashboardSheet(item).buttonStyle(ReadingButtonStyle()).readingMotionAccessibility()
+                .environment(\.gardenBackdrop, false)
         }
         .alert("Delete all reading data?", isPresented: $deleteAllConfirmation) {
             Button("Delete all data", role: .destructive) { model.deleteAllData() }
@@ -90,6 +117,17 @@ struct DashboardView: View {
             Text("This disables startup and moves the installed app to Trash. Your local reading history remains. Use Delete all reading data to remove managed history, backups, and cached covers.")
         }
     }
+
+    static let sidebarWidth: CGFloat = 225
+
+    /// Screens whose text all sits on glass, so the garden can grow behind them.
+    static let gardenSections = Set(DashboardSection.allCases)
+    /// The resting height of a page header: top inset, title and subtitle.
+    /// History adds its period title and summary line (84 pt) to that.
+    static let gardenClearing: CGFloat = 114
+
+    private var gardenMode: GardenMode { theme.effectiveGardenMode(reduceMotion: previewReduceMotion ?? reduceMotion) }
+    private var gardenVisible: Bool { Self.gardenSections.contains(section) && gardenMode != .off }
 
     /// Identity of the rendered screen for a theme revision. Settings keeps one identity
     /// because it owns unsaved drafts; every other screen re-keys so colours re-resolve.
@@ -247,8 +285,6 @@ private struct DashboardSidebar: View {
             .padding(12)
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        .nativeSidebarSurface()
-        .padding(8)
     }
 
     private var trackingStatus: String {
@@ -280,4 +316,16 @@ private struct ErrorBanner: View {
         .padding(.horizontal, 20).padding(.vertical, 10)
         .background(ReadingPalette.warning.opacity(0.26))
     }
+}
+
+/// Marks the floating sidebar panel in the AppKit view tree so the native
+/// chrome smoke can measure its width and collapse state.
+struct DashboardSidebarProbe: NSViewRepresentable {
+    static let identifier = NSUserInterfaceItemIdentifier("dashboard-sidebar")
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        view.identifier = Self.identifier
+        return view
+    }
+    func updateNSView(_ nsView: NSView, context: Context) {}
 }

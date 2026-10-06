@@ -27,7 +27,7 @@ struct PersonalReviewsView: View {
                         symbol: "square.and.pencil", message: search.isEmpty ? "Open any book in your Library to write a private review. A rating and a review are both optional." : "Try another book title, author, or phrase.")
                         .padding(.vertical, 36)
                 } else {
-                    LazyVStack(alignment: .leading, spacing: 0) {
+                    LazyVStack(alignment: .leading, spacing: 16) {
                         ForEach(entries, id: \.book.id) { entry in
                             HStack(alignment: .top, spacing: 22) {
                                 BookCoverView(book: entry.book, size: .timeline)
@@ -46,8 +46,7 @@ struct PersonalReviewsView: View {
                                         .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
                                 }.frame(maxWidth: .infinity, alignment: .leading)
                             }
-                            .padding(.vertical, 22)
-                            if entry.book.id != entries.last?.book.id { Hairline() }
+                            .readingPanel()
                         }
                     }
                 }
