@@ -2,11 +2,11 @@
 
 A native macOS menu-bar reading journal with a built-in offline EPUB reader, optional Apple Books tracking, and optional Discord Rich Presence. Reading history stays on this Mac. Automatic time is **inferred reading activity**, not proof of attention.
 
-The native app, shared reader, separate Electron development host, and website live in this repository. See [consolidation status](docs/CONSOLIDATION.md) for the verified baseline, remaining work, and test commands. The Electron host is not a validated Windows release.
+The native app, shared reader, separate Electron development host, and website live in this repository. See [development](docs/DEVELOPMENT.md) for how the pieces fit together, how to build, and which checks run where. The Electron host is not a validated Windows release.
 
-**Integration status:** the diagnostic has matched a live local EPUB in Books 8.0 and rejected its Library window. This reader omits `AXDocument`, so a version-scoped structural inference supplements exact document-path matching. Apple Books tracking requires Accessibility access for the packaged app and pauses for unsupported or ambiguous Apple Books windows. Stillleaf’s built-in reader records progress, sequential page coverage and active reading time independently of that permission. See [capabilities](docs/CAPABILITIES.md) and [verification](docs/VERIFICATION.md).
+**Integration status:** the diagnostic has matched a live local EPUB in Books 8.0 and rejected its Library window. This reader omits `AXDocument`, so a version-scoped structural inference supplements exact document-path matching. Apple Books tracking requires Accessibility access for the packaged app and pauses for unsupported or ambiguous Apple Books windows. Stillleaf’s built-in reader records progress, sequential page coverage and active reading time independently of that permission. See [capabilities](docs/CAPABILITIES.md).
 
-The 1.5 interface brings a mint/green light and dark theme, animated daily goals in pages or minutes, and an optional yearly books goal. Library holds your saved books; Timeline follows confirmed finish dates; History shows daily reading activity; Reviews contains your private written book reviews. Mark any unfinished book as finished from its Library actions or details; Stillleaf records the current date and time, then offers an optional review and quarter-star rating. Library removal explicitly confirms deletion of its journal records and leaves original Apple Books files untouched. Optional session corrections remain in Reading records under Settings → Data & privacy → Troubleshooting. Motion respects the macOS Reduce Motion setting.
+The 1.5 interface brings six themes (Stillleaf, Graphite, Ocean, Clay, Plum, Forest) in light and dark with accent presets, animated daily goals in pages or minutes, and an optional yearly books goal. Library holds your saved books; Timeline follows confirmed finish dates; History shows daily reading activity; Reviews contains your private written book reviews. Mark any unfinished book as finished from its Library actions or details; Stillleaf records the current date and time, then offers an optional review and quarter-star rating. Library removal explicitly confirms deletion of its journal records and leaves original Apple Books files untouched. Optional session corrections remain in Reading records under Settings → Data & privacy → Troubleshooting. Motion respects the macOS Reduce Motion setting.
 
 Daily page and minute targets are remembered independently; changing the unit applies from that calendar day without converting reading evidence. Yearly goals count dated, confirmed completions in the configured calendar time zone and deduplicate merged books. Written reviews are optional, local, and included in JSON/CSV exports and backups; nothing is posted online.
 
@@ -32,7 +32,7 @@ scripts/package-app.sh
 open dist/Stillleaf.app
 ```
 
-The local builder bypasses SwiftPM using `swiftc`. The check script runs independent assertion executables because this host does not have XCTest. GitHub Actions runs the actual XCTest suites on a full macOS/Xcode runner.
+Run `scripts/install-git-hooks.sh` once per clone. The local builder bypasses SwiftPM using `swiftc`. The check script runs independent assertion executables because this host does not have XCTest. GitHub Actions runs the actual XCTest suites on a full macOS/Xcode runner.
 
 Move the app to `~/Applications` or `/Applications` before configuring permissions and login startup. This is an **ad-hoc signed development build**, not a notarized release. Rebuilding or replacing it may require re-enabling its Accessibility entry and reopening the app. A distribution build requires your own Developer ID and notarization; no signing credentials are stored here.
 
@@ -73,7 +73,8 @@ Manual reading is labeled and still pauses for explicit pause, lock and sleep. A
 - Reviews: private written book reviews and optional ratings in quarter-star steps.
 - Finished: optional Apple Books completion metadata uses its explicit finished flag and saved date. It does not create historical time or pages; imports already present at initial sync stay quiet.
 - Health: access failures, known gaps, recovery events and last successful capture. An empty day is distinct from a known outage.
-- Settings: Reading / Discord / Data categories, native tracking and sharing switches, goal presets, time-zone search, and clearly applied settings changes. Discord can be configured before sharing is enabled.
+- Audiobooks: import local audio, play it from Library, and log listening position or sessions. See [local audiobooks](docs/local-audiobooks.md).
+- Settings: Reading / Appearance / Sharing / Data & privacy categories, native tracking and sharing switches, goal presets, time-zone search, and clearly applied settings changes. Discord can be configured before sharing is enabled.
 
 Goal changes are effective today and forward. Yesterday's completed streak survives while today is pending. Calendar splitting uses actual local-midnight boundaries, including DST. A timezone change explicitly regroups history in the selected calendar timezone; it is audited, and existing goal effective-day strings remain unchanged.
 

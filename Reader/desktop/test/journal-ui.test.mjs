@@ -11,7 +11,7 @@ import { importEPUB } from "../../packages/publication/index.js";
 const require = createRequire(import.meta.url),
   { JournalStore } = require("../src/journal/store.cjs");
 const project = path.resolve(import.meta.dirname, ".."),
-  captures = path.join(project, "src/journal/test");
+  captures = path.join(project, "test-output/journal");
 function crc(bytes) {
   let n = 0xffffffff;
   for (const byte of bytes) {

@@ -137,7 +137,7 @@ test("completion date editor preserves unknown/exact instants and retains failed
     "2026-03-09",
   );
   await page.screenshot({
-    path: path.join(project, "src/journal/test/curated-dates-save-failure.png"),
+    path: path.join(project, "test-output/journal/curated-dates-save-failure.png"),
     fullPage: true,
   });
   await page.locator("#editor-cancel").click();
@@ -160,7 +160,7 @@ test("completion date editor preserves unknown/exact instants and retains failed
   );
   await open("Dated Fixture");
   await page.screenshot({
-    path: path.join(project, "src/journal/test/curated-dates-light.png"),
+    path: path.join(project, "test-output/journal/curated-dates-light.png"),
     fullPage: true,
   });
   await page
@@ -193,7 +193,7 @@ test("completion date editor preserves unknown/exact instants and retains failed
   await page.screenshot({
     path: path.join(
       project,
-      "src/journal/test/curated-dates-unknown-dark-narrow.png",
+      "test-output/journal/curated-dates-unknown-dark-narrow.png",
     ),
     fullPage: true,
   });

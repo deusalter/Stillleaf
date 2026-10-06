@@ -65,6 +65,6 @@ Electron + plain HTML/CSS/JavaScript provides an immediately testable desktop sl
 
 `src/journal.cjs` owns validation and persistence; `main.cjs` owns disk/dialog IPC and lifecycle; the sandboxed preload exposes specific journal operations; `renderer.js` renders text through DOM APIs. `tools/sumatra-probe.cjs` is an independent research utility. The palette follows the live Mac `ReadingPalette` inspected on September 24, 2026.
 
-References: [Electron security guidance](https://www.electronjs.org/docs/latest/tutorial/security), [Electron distribution](https://www.electronjs.org/docs/latest/tutorial/application-distribution). Original project research was read from `docs/EXPANSION_RESEARCH_2026-09-24.md` in the saved checkout; it was not present in this worktree at task start.
+References: [Electron security guidance](https://www.electronjs.org/docs/latest/tutorial/security), [Electron distribution](https://www.electronjs.org/docs/latest/tutorial/application-distribution). Original project research: [`docs/archive/EXPANSION_RESEARCH_2026-09-24.md`](../../docs/archive/EXPANSION_RESEARCH_2026-09-24.md).
 
 See `VERIFICATION.md` for checks actually run and `READER_CONNECTION.md` for the bounded reader feasibility result.

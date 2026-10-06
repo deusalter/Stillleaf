@@ -1,6 +1,6 @@
 # Local audiobook playback and logging
 
-Branch: `reader/local-audiobooks`, based on `029b1be` (`ui/appearance-mode`).
+Shipped in the native app. This note covers the user flow, supported media and how Library and History use audiobook records.
 
 ## User flow
 
