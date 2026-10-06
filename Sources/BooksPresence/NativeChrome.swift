@@ -95,41 +95,67 @@ private struct NativeMenuSurface: ViewModifier {
     }
 }
 
-/// Use clear glass for the menu shell rather than the strongly blurred popover
-/// material. A neutral backing preserves themed text contrast over dark windows.
+/// The menu panel's shell: clear glass tinted from the theme, with a crisp rim
+/// and a soft highlight. Text never sits on it directly; the cards do the work
+/// (see `PanelGlass`), so the shell can stay light.
 private struct NativePopoverSurface: ViewModifier {
     @Environment(\.accessibilityReduceTransparency) private var opaque
     @Environment(\.colorSchemeContrast) private var contrast
     @Environment(\.nativePreviewOpaque) private var previewOpaque
+    @Environment(\.colorScheme) private var colorScheme
 
     @ViewBuilder func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: ReadingMetrics.Radius.window, style: .continuous)
+        let dark = colorScheme == .dark
         if (previewOpaque ?? opaque) || contrast == .increased {
-            content.background(ReadingPalette.canvas, in: RoundedRectangle(cornerRadius: ReadingMetrics.Radius.window))
+            content.background(ReadingPalette.canvas, in: shape).overlay(rim(shape, dark: dark, solid: true))
         } else {
-            #if compiler(>=6.2)
-            if #available(macOS 26.0, *) {
-                content.glassEffect(.clear, in: .rect(cornerRadius: ReadingMetrics.Radius.window))
-                    .background(ReadingPalette.canvas.opacity(0.68), in: RoundedRectangle(cornerRadius: ReadingMetrics.Radius.window))
-            } else {
-                fallback(content)
-            }
-            #else
-            fallback(content)
-            #endif
+            clear(content, shape: shape, dark: dark).overlay(rim(shape, dark: dark, solid: false))
         }
     }
 
-    private func fallback(_ content: Content) -> some View {
-        content.background {
-            PopoverMaterial().clipShape(RoundedRectangle(cornerRadius: ReadingMetrics.Radius.window, style: .continuous))
+    @ViewBuilder private func clear(_ content: Content, shape: RoundedRectangle, dark: Bool) -> some View {
+        #if compiler(>=6.2)
+        if #available(macOS 26.0, *) {
+            content.glassEffect(.clear, in: shape).background(tint(shape, dark: dark))
+        } else {
+            content.background(tint(shape, dark: dark)).background { blur(shape) }
         }
+        #else
+        content.background(tint(shape, dark: dark)).background { blur(shape) }
+        #endif
+    }
+
+    /// The theme canvas laid thinly over the desktop, with a wash of the accent from a corner.
+    private func tint(_ shape: RoundedRectangle, dark: Bool) -> some View {
+        ZStack {
+            shape.fill(ReadingPalette.canvas.opacity(PanelGlass.shellTint(dark: dark)))
+            shape.fill(LinearGradient(colors: [ReadingPalette.accent.opacity(dark ? 0.12 : 0.10), .clear],
+                                      startPoint: .topTrailing, endPoint: UnitPoint(x: 0.4, y: 0.6)))
+            shape.fill(LinearGradient(colors: [.white.opacity(dark ? 0.05 : 0.22), .white.opacity(0)],
+                                      startPoint: .top, endPoint: UnitPoint(x: 0.5, y: 0.3)))
+        }
+    }
+
+    /// Before macOS 26: a faint blur, mixed in at `PanelGlass.blurMix` so the desktop stays recognisable.
+    private func blur(_ shape: RoundedRectangle) -> some View {
+        PopoverMaterial().opacity(PanelGlass.blurMix).clipShape(shape)
+    }
+
+    private func rim(_ shape: RoundedRectangle, dark: Bool, solid: Bool) -> some View {
+        ZStack {
+            shape.strokeBorder(LinearGradient(colors: [.white.opacity(dark ? 0.30 : 0.95), .white.opacity(dark ? 0.06 : 0.35)],
+                                              startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1)
+            if solid { shape.strokeBorder(ReadingPalette.border, lineWidth: 1) }
+        }
+        .allowsHitTesting(false)
     }
 }
 
 private struct PopoverMaterial: NSViewRepresentable {
     func makeNSView(context: Context) -> NSVisualEffectView {
         let view = NSVisualEffectView()
-        view.material = .popover
+        view.material = .underWindowBackground
         view.blendingMode = .behindWindow
         view.state = .active
         return view

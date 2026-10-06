@@ -69,6 +69,25 @@ struct ThemeContrastSmoke {
         }
         panelFailures.prefix(12).forEach { print("theme-contrast-smoke: FAIL \($0)") }
         guard panelFailures.isEmpty else { print("theme-contrast-smoke: \(panelFailures.count) of \(panelChecks) menu panel checks fail"); exit(1) }
+        // Dashboard cards show the blurred garden through; text must hold even over the strongest vine colour.
+        var cardChecks = 0, cardFailures: [String] = []
+        for theme in ReadingTheme.all {
+            for dark in [false, true] {
+                let colors = theme.colors(dark: dark, accent: nil)
+                let palette = VinePalette.make(colors, dark: dark)
+                for vine in palette.stems + palette.leaves + palette.blooms {
+                    let card = GlassTint.worstCardColor(colors, dark: dark, vine: vine)
+                    for (name, hex) in [("ink", colors.ink), ("secondary ink", colors.secondaryInk)] {
+                        cardChecks += 1
+                        let ratio = ThemeContrast.ratio(hex, card)
+                        if ratio < 4.5 { cardFailures.append("\(theme.id)/\(dark ? "dark" : "light") \(name) is \(String(format: "%.2f", ratio)):1 on a card over vine \(String(vine, radix: 16))") }
+                    }
+                }
+            }
+        }
+        cardFailures.prefix(8).forEach { print("theme-contrast-smoke: FAIL \($0)") }
+        guard cardFailures.isEmpty else { print("theme-contrast-smoke: \(cardFailures.count) of \(cardChecks) glass card checks fail"); exit(1) }
+        print("theme-contrast-smoke: \(cardChecks) glass card text checks pass over the strongest vine colours")
         guard PanelGlass.shellTint(dark: false) <= 0.4, PanelGlass.shellTint(dark: true) <= 0.4, PanelGlass.blurMix <= 0.5 else {
             print("theme-contrast-smoke: the menu panel shell is frostier than clear glass"); exit(1)
         }

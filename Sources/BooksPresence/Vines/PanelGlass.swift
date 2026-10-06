@@ -32,3 +32,18 @@ enum PanelGlass {
     /// Extremes and mid-tones of what a desktop might show behind the panel.
     static let probeDesktops: [UInt32] = [0x000000, 0xFFFFFF, 0x808080, 0xFF0000, 0x00FF00, 0x0000FF, 0xFFFF00, 0x00FFFF, 0xFF00FF]
 }
+
+/// How much theme surface colour a glass card lays over the garden behind it.
+/// Lower is clearer glass: more of the blurred vines show through.
+enum GlassTint {
+    static func cardFill(dark: Bool) -> Double { dark ? 0.48 : 0.55 }
+    /// The most a blurred vine can colour the canvas behind a card. A glyph is a
+    /// thin line, so blurring spreads it to well under half its strength.
+    static let frostCoverage = 0.25
+    /// The card colour where the strongest vine shows through: the frosted vine
+    /// over the canvas, under the card's tint.
+    static func worstCardColor(_ colors: ThemeColors, dark: Bool, vine: UInt32) -> UInt32 {
+        let behind = ThemeContrast.blend(vine, over: colors.canvas, alpha: frostCoverage)
+        return ThemeContrast.blend(colors.surface, over: behind, alpha: cardFill(dark: dark))
+    }
+}
