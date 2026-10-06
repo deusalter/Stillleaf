@@ -9,8 +9,12 @@ private enum HistoryInteractionSmokeError: Error { case failed(String) }
 /// accessibility tree. Exercised by `--self-test-ui` on macOS CI.
 @MainActor
 func runHistoryInteractionSmoke() throws {
-    try checkHistoryTimescaleMenu()
-    try checkMonthDayOpening()
+    // Both checks always run so one CI pass reports every broken interaction.
+    var failures: [String] = []
+    for check in [checkHistoryTimescaleMenu, checkMonthDayOpening] {
+        do { try check() } catch { failures.append("\(error)") }
+    }
+    if !failures.isEmpty { throw HistoryInteractionSmokeError.failed(failures.joined(separator: "\n--\n")) }
 }
 
 // MARK: - Timescale menu
@@ -18,13 +22,22 @@ func runHistoryInteractionSmoke() throws {
 @MainActor
 private final class NavigationProbe: ObservableObject {
     @Published var navigation: CalendarNavigation
+    var controlPicks = 0
     init(_ navigation: CalendarNavigation) { self.navigation = navigation }
 }
 
 private struct NavigationProbeView: View {
     @ObservedObject var probe: NavigationProbe
     var body: some View {
-        HistoryNavigationControls(navigation: $probe.navigation, canMoveForward: true).padding(20)
+        VStack(alignment: .leading, spacing: 12) {
+            HistoryNavigationControls(navigation: $probe.navigation, canMoveForward: true)
+            // Control: a menu styled the way Library and Settings style theirs.
+            Menu("Control") { Button("One") { probe.controlPicks += 1 }; Button("Two") { probe.controlPicks += 1 } }
+                .menuStyle(ReadingMenuStyle())
+        }
+        .padding(20)
+        // The dashboard wraps every screen in this style; the controls must work under it.
+        .buttonStyle(ReadingButtonStyle())
     }
 }
 
@@ -49,53 +62,77 @@ private func settle(_ host: NSView) {
     }
 }
 
-private func nativeMenus(in view: NSView) -> [NSMenu] {
-    var found: [NSMenu] = []
-    if let menu = (view as? NSPopUpButton)?.menu ?? view.menu { found.append(menu) }
-    for subview in view.subviews { found += nativeMenus(in: subview) }
-    return found
-}
-
 private func describe(_ view: NSView, depth: Int = 0) -> String {
     let line = String(repeating: "  ", count: depth) + String(describing: type(of: view))
         + (view.menu.map { " menu[\($0.items.map(\.title).joined(separator: "|"))]" } ?? "")
     return ([line] + view.subviews.map { describe($0, depth: depth + 1) }).joined(separator: "\n")
 }
 
+private func popupButtons(in view: NSView) -> [NSPopUpButton] {
+    ((view as? NSPopUpButton).map { [$0] } ?? []) + view.subviews.flatMap { popupButtons(in: $0) }
+}
+
+/// Opens a native popup the way a click does, reads its items while the menu is
+/// tracking, then cancels. nil means tracking never began (the click did nothing).
+@MainActor
+private func openPopup(_ popup: NSPopUpButton) -> [NSMenuItem]? {
+    var items: [NSMenuItem]?
+    // The timer only fires once the menu's tracking loop is running.
+    let timer = Timer(timeInterval: 0.02, repeats: true) { _ in
+        MainActor.assumeIsolated {
+            if items == nil { items = popup.menu?.items }
+            popup.menu?.cancelTracking()
+        }
+    }
+    RunLoop.main.add(timer, forMode: .default)
+    RunLoop.main.add(timer, forMode: .eventTracking)
+    defer { timer.invalidate() }
+    popup.performClick(nil)
+    return items
+}
+
 @MainActor
 private func checkHistoryTimescaleMenu() throws {
     let anchor = ISO8601DateFormatter().date(from: "2024-03-15T12:00:00Z")!
     let probe = NavigationProbe(CalendarNavigation(timezoneID: "UTC", anchor: anchor, scale: .month))
-    let (window, host) = hostedWindow(NavigationProbeView(probe: probe), size: NSSize(width: 420, height: 90))
+    let (window, host) = hostedWindow(NavigationProbeView(probe: probe), size: NSSize(width: 420, height: 160))
     defer { window.contentView = nil; window.close() }
 
-    let titles = CalendarScale.allCases.map(\.title)
-    // The menu must be a real native menu of the scales, not a plain button
-    // that merely carries the current scale's name.
-    func scaleMenu() -> NSMenu? {
-        nativeMenus(in: host).first { menu in
-            if let delegate = menu.delegate { delegate.menuNeedsUpdate?(menu) }
-            return titles.allSatisfy { title in menu.items.contains { $0.title == title } }
-        }
+    let popups = popupButtons(in: host)
+    var diagnostics = ["popup buttons: \(popups.count)"]
+    // Control menu first: if it opens but History's does not, the difference is History's.
+    var controlOpened: [String]?
+    if let control = popups.last, popups.count == 2 {
+        controlOpened = openPopup(control)?.map(\.title)
+        diagnostics.append("control menu items while open: \(String(describing: controlOpened))")
     }
-    guard scaleMenu() != nil else {
-        throw HistoryInteractionSmokeError.failed("History's timescale control exposes no native menu of \(titles). View tree:\n\(describe(host))")
+    guard let scalePopup = popups.first, popups.count == 2 else {
+        throw HistoryInteractionSmokeError.failed("Expected the timescale and control popups, found \(popups.count). Tree:\n\(describe(host))")
+    }
+    guard let opened = openPopup(scalePopup) else {
+        throw HistoryInteractionSmokeError.failed("Clicking History's timescale popup never began menu tracking (\(diagnostics.joined(separator: "; "))). Tree:\n\(describe(host))")
+    }
+    diagnostics.append("timescale items while open: \(opened.map(\.title))")
+    let titles = CalendarScale.allCases.map(\.title)
+    guard titles.allSatisfy({ title in opened.contains { $0.title == title } }) else {
+        throw HistoryInteractionSmokeError.failed("Timescale menu opened without \(titles) (\(diagnostics.joined(separator: "; ")))")
     }
     for scale in [CalendarScale.week, .year, .day, .month] {
-        guard let menu = scaleMenu(), let index = menu.items.firstIndex(where: { $0.title == scale.title }) else {
-            throw HistoryInteractionSmokeError.failed("Timescale menu lost its \(scale.title) item after a selection")
+        guard let menu = scalePopup.menu else { throw HistoryInteractionSmokeError.failed("Timescale popup lost its menu") }
+        if !menu.items.contains(where: { $0.title == scale.title }) { _ = openPopup(scalePopup) }
+        guard let index = scalePopup.menu?.items.firstIndex(where: { $0.title == scale.title }) else {
+            throw HistoryInteractionSmokeError.failed("Timescale menu has no \(scale.title) item after reopening (\(diagnostics.joined(separator: "; ")))")
         }
-        menu.performActionForItem(at: index)
+        scalePopup.menu?.performActionForItem(at: index)
         settle(host)
         guard probe.navigation.scale == scale else {
-            throw HistoryInteractionSmokeError.failed("Choosing \(scale.title) from the timescale menu left History on \(probe.navigation.scale.title)")
+            throw HistoryInteractionSmokeError.failed("Choosing \(scale.title) from the timescale menu left History on \(probe.navigation.scale.title) (\(diagnostics.joined(separator: "; ")))")
         }
-        // Selecting a scale changes the anchor's period, never the anchor itself.
         guard probe.navigation.anchor == anchor else {
             throw HistoryInteractionSmokeError.failed("Choosing \(scale.title) moved History's anchor date")
         }
     }
-    print("ui-smoke: History timescale menu lists every scale as native items and each one applies through its binding")
+    print("ui-smoke: History timescale menu opens under the dashboard's button style and each scale applies through its binding (\(diagnostics.joined(separator: "; ")))")
 }
 
 // MARK: - Double-click a day
