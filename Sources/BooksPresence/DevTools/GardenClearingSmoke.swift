@@ -169,7 +169,7 @@ private enum BareTextAudit {
     }
 
     /// Cells (in points) holding bare text, after dropping glass panels and the clearing.
-    static func bareText(_ item: Case, dark: Bool) -> (cells: [CGRect], clearing: CGFloat, glass: Int) {
+    static func bareText(_ item: Case, dark: Bool) -> (cells: [CGRect], clearing: CGFloat, glass: Int, evidence: String) {
         let size = item.size
         var glass: [CGRect] = []
         var clearing: CGFloat = 0
@@ -195,14 +195,30 @@ private enum BareTextAudit {
         if !item.immediate { RunLoop.current.run(until: Date().addingTimeInterval(0.6)) }
         host.layoutSubtreeIfNeeded()
         host.displayIfNeeded()
-        guard let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return ([], clearing, glass.count) }
+        guard let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return ([], clearing, glass.count, "") }
         host.cacheDisplay(in: host.bounds, to: bitmap)
         // STILLLEAF_BARE_TEXT_DUMP=<folder> keeps every render, to see what was flagged.
         if let folder = ProcessInfo.processInfo.environment["STILLLEAF_BARE_TEXT_DUMP"],
            let png = bitmap.representation(using: .png, properties: [:]) {
             try? png.write(to: URL(fileURLWithPath: folder).appendingPathComponent("\(item.name)-\(dark ? "dark" : "light").png"))
         }
-        return (cells(in: bitmap, size: size, glass: glass, clearing: clearing), clearing, glass.count)
+        let flagged = cells(in: bitmap, size: size, glass: glass, clearing: clearing)
+        return (flagged, clearing, glass.count, flagged.first.map { evidence(bitmap, size: size, around: $0, glass: glass, clearing: clearing) } ?? "")
+    }
+
+    /// What a failure needs to be diagnosed from a log alone: the glass panels and a crop of the render
+    /// around the first flagged cell, as base64 PNG.
+    private static func evidence(_ bitmap: NSBitmapImageRep, size: CGSize, around cell: CGRect, glass: [CGRect], clearing: CGFloat) -> String {
+        let scale = CGFloat(bitmap.pixelsWide) / size.width
+        let area = CGRect(x: max(0, cell.midX - 200), y: max(0, cell.midY - 70), width: 400, height: 160)
+            .intersection(CGRect(origin: .zero, size: size))
+        let pixels = CGRect(x: area.minX * scale, y: area.minY * scale, width: area.width * scale, height: area.height * scale)
+        var text = "clearing \(Int(clearing)); glass " + glass.prefix(14).map { "[\(Int($0.minX)),\(Int($0.minY)) \(Int($0.width))x\(Int($0.height))]" }.joined(separator: " ")
+        if let image = bitmap.cgImage?.cropping(to: pixels),
+           let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) {
+            text += "\n    crop(\(Int(area.minX)),\(Int(area.minY))) png-base64: " + png.base64EncodedString()
+        }
+        return text
     }
 
     private static func cells(in bitmap: NSBitmapImageRep, size: CGSize, glass: [CGRect], clearing: CGFloat) -> [CGRect] {
@@ -301,7 +317,7 @@ func checkBareTextOverGarden(populated: AppModel, emptyRoot: URL, defaults: User
             NSApp.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
             for item in cases {
                 let found = BareTextAudit.bareText(item, dark: dark)
-                if !found.cells.isEmpty { failures.append("\(item.name) \(dark ? "dark" : "light"): bare text near \(found.cells.prefix(3).map { "(\(Int($0.minX)), \(Int($0.minY)))" }.joined(separator: " "))") }
+                if !found.cells.isEmpty { failures.append("\(item.name) \(dark ? "dark" : "light"): bare text near \(found.cells.prefix(3).map { "(\(Int($0.minX)), \(Int($0.minY)))" }.joined(separator: " "))"); if failures.count <= 2 { print("bare-text-evidence \(item.name) \(dark ? "dark" : "light"): \(found.evidence)") } }
             }
         }
         // Each state set above renders with the error banner too: the subtitle moves down with it.
