@@ -697,7 +697,10 @@ private extension EPUBReaderWindow {
             if let count = try await webView.evaluateJavaScript("window.StillleafReader.exportState().bookmarks.length") as? Int, count == 0 { break }
             try await Task.sleep(nanoseconds: 25_000_000)
         }
-        if let index = CommandLine.arguments.firstIndex(of: "--reader-artifacts"), index + 1 < CommandLine.arguments.count, let window {
+        if CommandLine.arguments.contains("--reader-artifacts") && BackgroundUI.isEnabled {
+            // Popovers only open in an active app, and background runs never activate.
+            print("native-reader-chrome: active toolbar and appearance-popover captures SKIPPED in background mode; CI runs them, or set STILLLEAF_FOREGROUND_UI=1 when nobody is using the Mac")
+        } else if let index = CommandLine.arguments.firstIndex(of: "--reader-artifacts"), index + 1 < CommandLine.arguments.count, let window {
             let directory = URL(fileURLWithPath: CommandLine.arguments[index + 1])
             show() // Match the normal reader presentation path for active chrome captures.
             try await captureNativeWindow(window, to: directory.appendingPathComponent("native-reader-toolbar.png"))

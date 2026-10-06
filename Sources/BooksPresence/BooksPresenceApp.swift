@@ -276,6 +276,7 @@ struct BooksPresenceMain {
         // Screenshot fixtures can render native views without joining the window list or taking focus.
         let offscreenPreview = CommandLine.arguments.contains("--render-ui") && CommandLine.arguments.contains("--offscreen")
         application.setActivationPolicy(offscreenPreview ? .prohibited : .accessory)
+        BackgroundUI.enableIfRequested()
         if CommandLine.arguments.contains("--preview-library") {
             do { try runInteractiveLibraryPreview(); exit(0) }
             catch { fputs("library-preview failed: \(error)\n", stderr); exit(1) }
@@ -297,6 +298,10 @@ struct BooksPresenceMain {
             }
             application.run()
             return
+        }
+        if CommandLine.arguments.contains("--render-native-chrome") && BackgroundUI.isEnabled {
+            print("native-chrome-preview: SKIPPED in background mode (it tests focus); CI runs it, or set STILLLEAF_FOREGROUND_UI=1 when nobody is using the Mac")
+            exit(0)
         }
         if let index = CommandLine.arguments.firstIndex(of: "--render-native-chrome"), index + 1 < CommandLine.arguments.count {
             Task { @MainActor in

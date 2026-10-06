@@ -58,6 +58,8 @@ Run `scripts/install-git-hooks.sh` once per clone. Branch names follow `<area>/<
 
 Most smoke suites only run locally, so run `scripts/check-local.sh` before packaging or merging native changes.
 
+Smokes, previews and captures run in the background, so they can run while someone is using the Mac. Background mode never activates the app, and each window it shows is parked at the bottom-right corner of the screen with only a 24 pt sliver showing. The windows still render and still count as visible, so `--capture-window` captures the whole window. `--render-native-chrome` tests focus itself, so background runs skip it. CI runs it, or set `STILLLEAF_FOREGROUND_UI=1` to run any of these in front. Background mode is always off when `CI` is set.
+
 Browser and Electron UI tests write screenshots to `Reader/desktop/reader/artifacts/` and `Reader/desktop/test-output/`. Both are ignored; nothing compares against them.
 
 ## Rendering the UI

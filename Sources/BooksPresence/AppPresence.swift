@@ -9,12 +9,15 @@ enum AppPresence {
     /// Call before ordering a window front: the app must be regular when it activates, or it
     /// does not take the menu bar.
     static func willPresentWindow() {
+        // Background dev-tool runs stay menu-bar-only so they never take the Dock or menu bar.
+        if BackgroundUI.isEnabled { return }
         if NSApp.activationPolicy() != .regular { NSApp.setActivationPolicy(.regular) }
     }
 
     /// Returns to menu-bar-only once no dashboard or reader window remains. Minimized windows
     /// count, since they live in the Dock; off-screen readers opened in the background do not.
     static func refresh(closing: NSWindow? = nil) {
+        if BackgroundUI.isEnabled { return }
         let open = NSApp.windows.contains { window in
             window !== closing && !(window is NSPanel) && window.styleMask.contains(.titled)
                 && (window.isMiniaturized || (window.isVisible && window.screen != nil))
