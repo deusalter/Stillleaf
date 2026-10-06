@@ -21,6 +21,14 @@ enum GardenMode: String, CaseIterable, Identifiable {
     var label: String { rawValue.capitalized }
 }
 
+/// Where Low Power Mode is read from and announced. Self-checks inject their own.
+struct LowPowerSource {
+    var isEnabled: () -> Bool
+    var center: NotificationCenter
+
+    static let system = LowPowerSource(isEnabled: { ProcessInfo.processInfo.isLowPowerModeEnabled }, center: .default)
+}
+
 /// The selected theme, persisted in UserDefaults. Views that host whole screens
 /// observe `revision` and re-key render-only subtrees so colours re-resolve;
 /// views that own draft state are never re-keyed.
@@ -38,10 +46,38 @@ final class ThemeStore: ObservableObject {
     private(set) var appearanceMode: DashboardAppearance = .system
     private(set) var gardenMode: GardenMode = .animated
     private var defaults: UserDefaults
+    private let lowPower: LowPowerSource
+    private var lowPowerEnabled: Bool
+    private var lowPowerObserver: NSObjectProtocol?
 
-    init(defaults: UserDefaults) {
+    init(defaults: UserDefaults, lowPower: LowPowerSource = .system) {
         self.defaults = defaults
+        self.lowPower = lowPower
+        lowPowerEnabled = lowPower.isEnabled()
         load()
+        // The system posts this from any thread; hop to the main actor only when needed.
+        lowPowerObserver = lowPower.center.addObserver(forName: .NSProcessInfoPowerStateDidChange, object: nil, queue: nil) { [weak self] _ in
+            guard let store = self else { return }
+            if Thread.isMainThread {
+                MainActor.assumeIsolated { store.lowPowerChanged() }
+            } else {
+                DispatchQueue.main.async { store.lowPowerChanged() }
+            }
+        }
+    }
+
+    deinit {
+        if let lowPowerObserver { lowPower.center.removeObserver(lowPowerObserver) }
+    }
+
+    /// Gardens switch to Still the moment Low Power Mode starts and animate again when it ends.
+    /// `revision` is what the reader window watches, so it moves too, but only when the
+    /// change is visible: a garden set to Still or Off looks the same either way.
+    private func lowPowerChanged() {
+        let enabled = lowPower.isEnabled()
+        guard enabled != lowPowerEnabled else { return }
+        lowPowerEnabled = enabled
+        if gardenMode == .animated { revision += 1 }
     }
 
     var theme: ReadingTheme { ReadingTheme.named(themeID) }
@@ -72,7 +108,7 @@ final class ThemeStore: ObservableObject {
     /// The mode to render: Animated becomes Still under Reduce Motion or Low Power Mode.
     func effectiveGardenMode(reduceMotion: Bool) -> GardenMode {
         guard gardenMode == .animated else { return gardenMode }
-        return reduceMotion || ProcessInfo.processInfo.isLowPowerModeEnabled ? .still : .animated
+        return reduceMotion || lowPower.isEnabled() ? .still : .animated
     }
 
     /// `nil` restores the theme's own accent.
