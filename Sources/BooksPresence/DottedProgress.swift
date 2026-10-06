@@ -15,10 +15,10 @@ struct DottedProgressRow: View {
     var body: some View {
         Canvas { context, size in
             let filled = min(1, max(0, fraction))
-            let diameter = min(7, size.height)
-            let step = dots > 1 ? (size.width - diameter) / Double(dots - 1) : 0
+            let diameter: CGFloat = min(7, size.height)
+            let step: CGFloat = dots > 1 ? (size.width - diameter) / CGFloat(dots - 1) : 0
             for index in 0..<dots {
-                let dot = Path(ellipseIn: CGRect(x: Double(index) * step, y: (size.height - diameter) / 2, width: diameter, height: diameter))
+                let dot = Path(ellipseIn: CGRect(x: CGFloat(index) * step, y: (size.height - diameter) / 2, width: diameter, height: diameter))
                 context.fill(dot, with: .color(ReadingPalette.track))
                 let coverage = min(1, max(0, filled * Double(dots) - Double(index)))
                 if coverage > 0 { context.fill(dot, with: .color(ReadingPalette.accent.opacity(coverage))) }
