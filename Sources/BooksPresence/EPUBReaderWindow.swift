@@ -879,6 +879,13 @@ private extension EPUBReaderWindow {
         const last=first.contentDocument.querySelector('aside p').getBoundingClientRect(),heading=second.contentDocument.querySelector('h1').getBoundingClientRect();
         const boundary={top:view.top,bottom:view.bottom,tail:first.getBoundingClientRect().top+last.bottom,next:second.getBoundingClientRect().top+heading.top,firstFrameHeight:first.clientHeight,firstBodyBottom:first.contentDocument.body.getBoundingClientRect().bottom,firstBodyScrollHeight:first.contentDocument.body.scrollHeight,zoom:first.contentWindow.getComputedStyle(first.contentDocument.body).zoom,firstFrameTop:first.getBoundingClientRect().top,scrollTop:flow.scrollTop,scrollHeight:flow.scrollHeight,clientHeight:flow.clientHeight};
         require(boundary.tail>view.top&&boundary.tail<view.bottom&&boundary.next>view.top&&boundary.next<view.bottom,'chapters not co-visible: '+JSON.stringify(boundary));
+        // The margin garden is a decorative fixed layer: scrolling the book must neither move it nor be blocked by it.
+        const garden=document.getElementById('garden'),gardenStyle=garden&&getComputedStyle(garden),gardenBox=garden?.getBoundingClientRect();
+        const reading=document.elementFromPoint(view.left+view.width/2,view.top+view.height/2);
+        const gardenState={mode:document.documentElement.dataset.garden,position:gardenStyle?.position,pointerEvents:gardenStyle?.pointerEvents,ariaHidden:garden?.getAttribute('aria-hidden'),box:gardenBox&&[gardenBox.left,gardenBox.top,gardenBox.width,gardenBox.height],hit:reading?.id||reading?.tagName,scrollTop:flow.scrollTop};
+        require(garden&&gardenState.mode&&gardenState.ariaHidden==='true'&&gardenState.position==='fixed'&&gardenState.pointerEvents==='none','garden is not an inert fixed layer in continuous mode: '+JSON.stringify(gardenState));
+        require(Math.abs(gardenBox.left)<1&&Math.abs(gardenBox.top)<1&&Math.abs(gardenBox.width-innerWidth)<1&&Math.abs(gardenBox.height-innerHeight)<1,'garden moved with the continuous scroll: '+JSON.stringify(gardenState));
+        require(reading!==garden&&reading?.id!=='garden-spine'&&flow.contains(reading),'garden intercepts the continuous reading surface: '+JSON.stringify(gardenState));
         const geometry=frames().map(f=>{const d=f.contentDocument,e=d.scrollingElement,b=d.body,old=e.scrollTop,before=b.getBoundingClientRect().top;e.scrollTop=100;const probe={scrollTop:e.scrollTop,bodyMoved:b.getBoundingClientRect().top-before};e.scrollTop=old;return {height:f.clientHeight,content:e.scrollHeight,clientHeight:e.clientHeight,bodyScrollHeight:b.scrollHeight,bodyHeight:b.getBoundingClientRect().height,rootHeight:d.documentElement.getBoundingClientRect().height,overflow:f.contentWindow.getComputedStyle(e).overflow,renderedBottom:Math.max(b.getBoundingClientRect().bottom,...[...b.querySelectorAll('*')].map(x=>x.getBoundingClientRect().bottom)),renderedRight:Math.max(b.getBoundingClientRect().right,...[...b.querySelectorAll('*')].map(x=>x.getBoundingClientRect().right)),probe,width:f.clientWidth,contentWidth:e.scrollWidth}});
         require(geometry.every(x=>x.probe.scrollTop===0&&Math.abs(x.probe.bodyMoved)<0.1&&x.renderedBottom<=x.height+2&&x.renderedRight<=x.width+2),'internal iframe scrolling or clipped content: '+JSON.stringify(geometry));
         const outerBefore=flow.scrollTop;first.contentDocument.dispatchEvent(new first.contentWindow.KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true,cancelable:true}));await pause(150);
@@ -901,11 +908,9 @@ private extension EPUBReaderWindow {
         await api.setPreferences({scroll:true});require(flow.classList.contains('continuous-reader')&&highlight(),'continuous handoff lost highlight');
         require(JSON.stringify(api.exportState().annotations)===JSON.stringify(saved.annotations),'mode handoff changed annotations');
         require(JSON.stringify(api.exportState().bookmarks)===JSON.stringify(saved.bookmarks),'mode handoff changed bookmarks');
-        return JSON.stringify({boundary,geometry,mounted:frames().length,chapters:flow.querySelectorAll('.continuous-chapter').length,noteHref:note.locator.href});
+        return JSON.stringify({boundary,garden:gardenState,geometry,mounted:frames().length,chapters:flow.querySelectorAll('.continuous-chapter').length,noteHref:note.locator.href});
         """
-        let result: Any = try await withCheckedThrowingContinuation { continuation in
-            webView.callAsyncJavaScript(script, arguments: ["payload": payload], in: nil, in: .page) { result in continuation.resume(with: result) }
-        }
+        let result = try await testRunScript("continuous proof", script, arguments: ["payload": payload])
         let metrics = result as? String ?? "{}"
         print("epub-reader-experimental-metrics: " + metrics)
         if let index = CommandLine.arguments.firstIndex(of: "--reader-artifacts"), index + 1 < CommandLine.arguments.count {
@@ -946,28 +951,77 @@ private extension EPUBReaderWindow {
         await api.setPreferences(saved.preferences);await api.go(saved.position);
         return 'XHTML anchor styling and snapshot/live text geometry passed';
         """
-        let result: Any = try await withCheckedThrowingContinuation { continuation in
-            webView.callAsyncJavaScript(script, arguments: [:], in: nil, in: .page) { result in continuation.resume(with: result) }
-        }
+        let result = try await testRunScript("render stability", script)
         print("epub-reader-render-stability: " + String(describing: result))
     }
-    /// A deliberate turn must reach the host as actual chapter geometry.
+    /// Runs a smoke script in the page. A script that never settles (a reflow whose Readium callback is lost,
+    /// a page the system stopped rendering) would otherwise sit silent until the CI watchdog; fail instead with
+    /// the reader's own state so the stall names what it was waiting on.
+    func testRunScript(_ label: String, _ script: String, arguments: [String: Any] = [:], timeout: TimeInterval = 90) async throws -> Any {
+        try await withCheckedThrowingContinuation { continuation in
+            var finished = false
+            func finish(_ result: Result<Any, Error>) {
+                guard !finished else { return }
+                finished = true; continuation.resume(with: result)
+            }
+            let watchdog = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+                guard !Task.isCancelled, !finished else { return }
+                let report: (String) -> Void = { state in
+                    finish(.failure(EPUBImportError.invalid("\(label): the page script did not finish within \(Int(timeout))s. Reader state: \(state)")))
+                }
+                // The page itself may be wedged, so the state probe gets its own deadline.
+                let giveUp = Task { @MainActor in try? await Task.sleep(nanoseconds: 5_000_000_000); if !Task.isCancelled { report("page did not answer a state probe") } }
+                webView.evaluateJavaScript("JSON.stringify({visibility:document.visibilityState,hasFocus:document.hasFocus(),size:[innerWidth,innerHeight],body:document.body.className,dialogs:document.querySelectorAll('dialog[open]').length,frames:[...document.querySelectorAll('#reader iframe')].map(f=>[getComputedStyle(f).visibility,Boolean(f.contentDocument?.body)])})") { value, _ in
+                    Task { @MainActor in giveUp.cancel(); report(value as? String ?? "unavailable") }
+                }
+            }
+            webView.callAsyncJavaScript(script, arguments: arguments, in: nil, in: .page) { result in
+                Task { @MainActor in
+                    guard !finished else { return }
+                    watchdog.cancel(); finish(result)
+                }
+            }
+        }
+    }
+    /// A deliberate turn must reach the host as actual chapter geometry. Real books open on a one-page cover
+    /// or title page, so each turn is judged by where it can land: the next page of its chapter, or the first
+    /// page of the next chapter. Two turns forward cross a chapter boundary even in the two-page fixture.
     func testPageEvidence() async throws {
         let deadline = Date().addingTimeInterval(5)
         while nativePosition == nil && Date() < deadline { try await Task.sleep(nanoseconds: 50_000_000) }
-        guard let before = nativePosition else { throw EPUBImportError.invalid("The reader never announced its page layout.") }
-        _ = try await webView.evaluateJavaScript("window.StillleafReader.next(); true")
-        while (nativePosition?.page ?? 0) <= before.page && Date() < deadline { try await Task.sleep(nanoseconds: 50_000_000) }
-        guard let after = nativePosition, after.page == before.page + before.visiblePages,
-              after.href == before.href else {
-            throw EPUBImportError.invalid("A page turn did not reach the host chapter position: \(String(describing: nativePosition))")
+        guard let start = nativePosition else { throw EPUBImportError.invalid("The reader never announced its page layout.") }
+        func landing(_ matches: (NativeReaderPosition) -> Bool) async throws -> Bool {
+            let limit = Date().addingTimeInterval(5)
+            while Date() < limit {
+                if let position = nativePosition, matches(position) { return true }
+                try await Task.sleep(nanoseconds: 50_000_000)
+            }
+            return false
         }
-        _ = try await webView.evaluateJavaScript("window.StillleafReader.previous(); true")
-        // Later checks read the chapter href, so wait for the turn back to land.
-        let backDeadline = Date().addingTimeInterval(5)
-        while nativePosition?.page != before.page && Date() < backDeadline { try await Task.sleep(nanoseconds: 50_000_000) }
-        guard nativePosition?.page == before.page else {
-            throw EPUBImportError.invalid("Turning back did not return to the starting page: \(String(describing: nativePosition))")
+        var visited = [start]
+        for _ in 0..<2 {
+            let from = visited[visited.count - 1]
+            let expected: (href: String, page: Int)
+            if from.page + from.visiblePages <= from.totalPages {
+                expected = (from.href, from.page + from.visiblePages)
+            } else if let index = publication.spine.firstIndex(of: from.href), index + 1 < publication.spine.count {
+                expected = (publication.spine[index + 1], 1)
+            } else {
+                throw EPUBImportError.invalid("The page-turn proof needs a page after \(from.href) page \(from.page).")
+            }
+            _ = try await webView.evaluateJavaScript("window.StillleafReader.next(); true")
+            guard try await landing({ $0.href == expected.href && $0.page == expected.page }), let after = nativePosition else {
+                throw EPUBImportError.invalid("A page turn did not reach the host chapter position (expected \(expected.href) page \(expected.page)): \(String(describing: nativePosition))")
+            }
+            visited.append(after)
+        }
+        // Later checks read the chapter href, so wait for each turn back to land.
+        for target in visited.dropLast().reversed() {
+            _ = try await webView.evaluateJavaScript("window.StillleafReader.previous(); true")
+            guard try await landing({ $0.href == target.href && $0.page == target.page }) else {
+                throw EPUBImportError.invalid("Turning back did not return to \(target.href) page \(target.page): \(String(describing: nativePosition))")
+            }
         }
     }
     /// Fixtures with `#fixture-figure` must show the lazily fetched image, styled by a fetched stylesheet.
@@ -991,9 +1045,7 @@ private extension EPUBReaderWindow {
         await api.go(window.appearanceTarget);return true;
         """
         readerSmokeCheckpoint("appearance fixture preparation")
-        let _: Any = try await withCheckedThrowingContinuation { continuation in
-            webView.callAsyncJavaScript(prepare, arguments: ["payload": payload], in: nil, in: .page) { result in continuation.resume(with: result) }
-        }
+        _ = try await testRunScript("appearance fixture preparation", prepare, arguments: ["payload": payload])
         var records: [[String: Any]] = []
         let scenarios: [(String, Int, Int, String, String, Bool, String, Double, Bool, Bool)] = [
             ("appearance-literata", 1280, 900, "literata", "paper", false, "one", 1.2, false, false),
@@ -1034,9 +1086,7 @@ private extension EPUBReaderWindow {
             const targetVisible=frames.some((f,i)=>metrics[i].targetRects.some(r=>{const v=f.getBoundingClientRect();return r.bottom+v.top>bounds.top&&r.top+v.top<bounds.bottom&&r.right>0&&r.left<f.clientWidth}));
             return JSON.stringify({name,width:innerWidth,height:innerHeight,preferences:saved.preferences,retained,targetVisible,fontsLoaded:metrics.length>0&&metrics.every(m=>m.loaded>0&&m.renderedFont.matches&&m.family.includes(family)&&m.faces.some(f=>f.status==='loaded')),outerOverflow:document.documentElement.scrollWidth>innerWidth+1,immersiveActive:document.documentElement.classList.contains('immersive'),returnControlVisible:!document.querySelector('#leave-focus').hidden,readerWidth:bounds.width,frames:metrics});
             """
-            let output: Any = try await withCheckedThrowingContinuation { continuation in
-                webView.callAsyncJavaScript(script, arguments: ["name": name, "font": font, "theme": theme, "scroll": scroll, "columns": columns, "scale": scale, "immersive": immersive, "wide": wide], in: nil, in: .page) { result in continuation.resume(with: result) }
-            }
+            let output = try await testRunScript("\(name) layout and fonts", script, arguments: ["name": name, "font": font, "theme": theme, "scroll": scroll, "columns": columns, "scale": scale, "immersive": immersive, "wide": wide])
             let text = output as? String ?? "{}"
             let record = try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any] ?? [:]
             try Data(text.utf8).write(to: directory.appendingPathComponent(name + "-metrics.json"))
@@ -1080,10 +1130,8 @@ private extension EPUBReaderWindow {
             ("single", 1000, "one", false, "1")
         ] {
             window?.setContentSize(NSSize(width: width, height: 800))
-            let _: Any = try await withCheckedThrowingContinuation { continuation in
-                webView.callAsyncJavaScript("await window.StillleafReader.setPreferences({columns,scroll:scrolling,fontWeight:700,textAlign:'justify',hyphens:true,letterSpacing:0.1,wordSpacing:0.2}); return true",
-                    arguments: ["columns": columns, "scrolling": scrolling], in: nil, in: .page) { result in continuation.resume(with: result) }
-            }
+            _ = try await testRunScript("\(name) reading mode", "await window.StillleafReader.setPreferences({columns,scroll:scrolling,fontWeight:700,textAlign:'justify',hyphens:true,letterSpacing:0.1,wordSpacing:0.2}); return true",
+                arguments: ["columns": columns, "scrolling": scrolling])
             let deadline = Date().addingTimeInterval(8)
             var metrics: [String: Any] = [:]
             repeat {
@@ -1113,10 +1161,8 @@ private extension EPUBReaderWindow {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         for (name, theme, width, height, scale) in [("native-paper", "paper", 1000, 800, 1.2), ("native-dark", "dark", 1000, 800, 1.2), ("native-narrow", "paper", 520, 600, 1.2), ("native-size100", "paper", 1000, 800, 1.0), ("native-size150", "paper", 1000, 800, 1.5)] {
             window?.setContentSize(NSSize(width: width, height: height))
-            let _: Any = try await withCheckedThrowingContinuation { continuation in
-                webView.callAsyncJavaScript("await window.StillleafReader.setPreferences({theme: theme, fontFamily: 'serif', fontSize: scale}); return true",
-                    arguments: ["theme": theme, "scale": scale], in: nil, in: .page) { result in continuation.resume(with: result) }
-            }
+            _ = try await testRunScript("\(name) theme", "await window.StillleafReader.setPreferences({theme: theme, fontFamily: 'serif', fontSize: scale}); return true",
+                arguments: ["theme": theme, "scale": scale])
             try await Task.sleep(nanoseconds: 600_000_000)
             let picture: NSImage = try await withCheckedThrowingContinuation { continuation in
                 webView.takeSnapshot(with: nil) { image, error in
