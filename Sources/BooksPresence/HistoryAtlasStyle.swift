@@ -3,7 +3,7 @@ import BooksCore
 
 /// TEMPORARY bisect switches (STILLLEAF_YEAR_VARIANT=a,b); never merged.
 enum PerfVariant {
-    static let flags: Set<String> = Set((ProcessInfo.processInfo.environment["STILLLEAF_YEAR_VARIANT"] ?? "").split(separator: ",").map(String.init))
+    static var flags: Set<String> = Set((ProcessInfo.processInfo.environment["STILLLEAF_YEAR_VARIANT"] ?? "").split(separator: ",").map(String.init))
     static func on(_ name: String) -> Bool { flags.contains(name) }
 }
 

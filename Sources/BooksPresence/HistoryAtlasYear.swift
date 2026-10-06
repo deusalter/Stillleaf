@@ -64,6 +64,7 @@ struct AtlasYearView: View {
         let seconds = row.creditedSeconds, pages = row.pages, finished = row.finishes
         return HStack(spacing: 16) {
             yearLabel(row, id: id, activity: activity, pages: pages, seconds: seconds, finished: finished)
+            if PerfVariant.on("noCanvas") { Color.clear.frame(width: chartWidth, height: 76) } else {
             Canvas { context, size in
                 for fraction in presentation.monthPositions {
                     let x = CGFloat(fraction) * size.width
@@ -95,6 +96,7 @@ struct AtlasYearView: View {
                 if day <= calendar.startOfDay(for: Date()) { select(day) }
             })
             .accessibilityHidden(true)
+            }
             VStack(alignment: .trailing, spacing: 5) {
                 if pages > 0 {
                     Text(pages.formatted()).font(.callout.weight(.medium)); Text("pages").font(.caption2)
@@ -106,7 +108,8 @@ struct AtlasYearView: View {
     }
     @ViewBuilder private func yearLabel(_ row: AtlasYearRow, id: String, activity: [AtlasYearMark], pages: Int, seconds: Double, finished: [Double]) -> some View {
         let labelBody = HStack(spacing: 10) {
-            if PerfVariant.on("noCover") { Color.clear.frame(width: 33, height: 46) } else {
+            if PerfVariant.on("noCover") { Color.clear.frame(width: 33, height: 46) }
+            else if PerfVariant.on("coverLite") { RoundedRectangle(cornerRadius: 4).fill(Color.gray.opacity(0.3)).frame(width: 33, height: 46) } else {
                 BookCoverView(book: presentation.booksByID[id], size: .compact)
                     .scaleEffect(0.62).frame(width: 33, height: 46)
             }
@@ -117,7 +120,20 @@ struct AtlasYearView: View {
             }
         }.frame(width: 170, alignment: .leading)
         let described = "\(activity.count) recorded days, \(pages) pages, \(ReadingFormat.duration(seconds)) recorded. \(finished.isEmpty ? "" : "Finished this year.")"
-        if PerfVariant.on("plainButton") {
+        if PerfVariant.on("noLabel") {
+            Color.clear.frame(width: 170, height: 46)
+        } else if PerfVariant.on("baseLabel") {
+            Button { select(Date()) } label: {
+                HStack(spacing: 10) {
+                    BookCoverView(book: presentation.booksByID[id], size: .compact)
+                        .scaleEffect(0.62).frame(width: 33, height: 46)
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(title(id)).font(.system(size: 13, weight: .medium)).lineLimit(3)
+                        Text("\(activity.count) days").font(.caption2).foregroundStyle(ReadingPalette.secondaryInk)
+                    }
+                }.frame(width: 170, alignment: .leading)
+            }.buttonStyle(.plain).accessibilityLabel(described)
+        } else if PerfVariant.on("plainButton") {
             if PerfVariant.on("noA11y") { Button { select(Date()) } label: { labelBody }.buttonStyle(.plain) }
             else { Button { select(Date()) } label: { labelBody }.buttonStyle(.plain).accessibilityValue(described) }
         } else if PerfVariant.on("noA11y") {

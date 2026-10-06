@@ -16,6 +16,7 @@ jobs:
       - name: Build baseline and candidate
         run: |
           python3 scripts/install-native-benchmark-harness.py .native-baseline
+          printf 'enum PerfVariant { static var flags: Set<String> = [] }\n' > .native-baseline/Sources/BooksPresence/PerfVariantStub.swift
           swift build --package-path .native-baseline -c release
           swift build -c release
       - name: Interleaved Year variants
