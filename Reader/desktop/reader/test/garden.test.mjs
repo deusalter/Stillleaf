@@ -12,7 +12,7 @@ const book = {editionId: 'margin-garden', title: 'Margins', contentProgress: tru
   resources: [{href: 'one.html', type: 'text/html', dataBase64: Buffer.from(chapter(1)).toString('base64')},
     {href: 'two.html', type: 'text/html', dataBase64: Buffer.from(chapter(2)).toString('base64')}]};
 
-async function launch(t, viewport) {
+async function launch(t, viewport, {reducedMotion = 'reduce', gardenMode} = {}) {
   const server = createServer(async (req, res) => {
     try {
       const file = path.resolve(root, '.' + new URL(req.url, 'http://localhost').pathname);
@@ -26,10 +26,12 @@ async function launch(t, viewport) {
   const browser = process.env.READER_TEST_BROWSER === 'webkit' ? await webkit.launch()
     : await chromium.launch({executablePath: process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', headless: true});
   t.after(() => browser.close());
-  const page = await browser.newPage({viewport, reducedMotion: 'reduce'});
+  const page = await browser.newPage({viewport, reducedMotion});
   const errors = [];
   page.on('pageerror', error => errors.push(String(error)));
   await page.addInitScript(() => { window.__stillleafGardenDebug = true; });
+  // The app injects its Garden setting at document start, before any reader script runs.
+  if (gardenMode) await page.addInitScript(mode => { window.__stillleafGardenMode = mode; }, gardenMode);
   await page.goto(`http://127.0.0.1:${server.address().port}/index.html`);
   await page.evaluate(input => window.StillleafReader.open(input), book);
   return {page, errors};
@@ -41,6 +43,14 @@ async function readTo(page, progression) {
   await page.waitForFunction(p => Math.abs(window.StillleafReader.gardenDebug().progress - p) < 0.2, progression);
   await page.waitForTimeout(400);
 }
+
+/** Painted (non-transparent) pixels on the margin canvas and the spine canvas. */
+const painted = page => page.evaluate(() => ['garden', 'garden-spine'].map(id => {
+  const canvas = document.getElementById(id), data = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
+  let count = 0;
+  for (let i = 3; i < data.length; i += 4) if (data[i]) count++;
+  return count;
+}));
 
 const overlaps = (a, b) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
 const viewportRect = page => page.evaluate(() => { const r = document.getElementById('reading-viewport').getBoundingClientRect(); return {left: r.left, right: r.right, top: r.top, bottom: r.bottom}; });
@@ -95,26 +105,33 @@ test('widening the margins regrows the garden into the freed space without movin
   assert.equal(await page.evaluate(() => document.getElementById('reader').getBoundingClientRect().top), top);
 });
 
-test('scrolling over the margins behaves the same with or without vines, and freezes the garden', {timeout: 60000}, async t => {
+test('scrolling over the margins scrolls the book the same with or without vines, and freezes the garden', {timeout: 60000}, async t => {
   const {page} = await launch(t, {width: 1400, height: 900});
   await page.evaluate(() => window.StillleafReader.setPreferences({scroll: true}));
   await readTo(page, 0.3);
-  const scrolled = async () => {
-    const start = await page.evaluate(() => JSON.stringify(window.StillleafReader.bookmark()?.locations ?? {}));
-    await page.mouse.move(60, 450);
+  const progression = () => page.evaluate(() => window.StillleafReader.bookmark()?.locations?.progression ?? null);
+  const scrolled = async x => {
+    const start = await progression();
+    await page.mouse.move(x, 450);
     for (let i = 0; i < 5; i++) await page.mouse.wheel(0, 200);
     const frozen = await page.evaluate(() => window.StillleafReader.gardenDebug().frozen);
     await page.waitForTimeout(500);
-    const end = await page.evaluate(() => JSON.stringify(window.StillleafReader.bookmark()?.locations ?? {}));
-    return {moved: start !== end, frozen};
+    return {delta: (await progression()) - start, frozen};
   };
-  const withVines = await scrolled();
-  assert.equal(withVines.frozen, true, 'the garden kept animating during the wheel burst');
+  const pageX = 700, marginX = 60;
+  const overPage = await scrolled(pageX);
+  assert.equal(overPage.frozen, true, 'the garden kept animating during the wheel burst');
+  assert.ok(overPage.delta > 0.02, `wheeling over the page did not scroll the book (moved ${overPage.delta})`);
   assert.equal(await page.evaluate(() => window.StillleafReader.gardenDebug().frozen), false, 'the garden stayed frozen after scrolling stopped');
+  const overMargin = await scrolled(marginX);
+  assert.equal(overMargin.frozen, true);
   await page.evaluate(() => window.StillleafReader.setPreferences({vines: 'off'}));
   await page.waitForTimeout(300);
-  const withoutVines = await scrolled();
-  assert.equal(withVines.moved, withoutVines.moved, 'vines changed how wheel input over the margin behaves');
+  const pageWithoutVines = await scrolled(pageX);
+  assert.ok(pageWithoutVines.delta > 0.02, `wheeling over the page without vines did not scroll the book (moved ${pageWithoutVines.delta})`);
+  assert.ok(Math.abs(overPage.delta - pageWithoutVines.delta) < 0.01, `vines changed how far a wheel burst scrolls: ${overPage.delta} against ${pageWithoutVines.delta}`);
+  const marginWithoutVines = await scrolled(marginX);
+  assert.ok(Math.abs(overMargin.delta - marginWithoutVines.delta) < 0.001, `vines changed how the margin reacts to the wheel: ${overMargin.delta} against ${marginWithoutVines.delta}`);
 });
 
 test('turning vines off clears the garden and stops drawing', {timeout: 60000}, async t => {
@@ -149,4 +166,158 @@ test('changing appearance while the garden is frozen keeps the old garden until 
   await page.waitForTimeout(900);
   const after = await page.evaluate(() => JSON.stringify(window.StillleafReader.gardenDebug().cells));
   assert.notEqual(after, before, 'the garden never regrew for the new margins');
+});
+
+test('closing the reader wipes both canvases and plants nothing new', {timeout: 60000}, async t => {
+  const {page, errors} = await launch(t, {width: 1400, height: 900}, {reducedMotion: 'no-preference'});
+  await readTo(page, 0.15);
+  await page.waitForTimeout(1500);
+  const [margin] = await painted(page);
+  assert.ok(margin > 0, 'the garden never painted before the close');
+  await page.evaluate(() => window.StillleafReader.close());
+  // Ghosts last 900ms; a leftover frame or a replanted garden would still show after that.
+  await page.waitForTimeout(1500);
+  assert.deepEqual(await painted(page), [0, 0], 'faded cells or ghosts stayed painted after close');
+  const garden = await page.evaluate(() => window.StillleafReader.gardenDebug());
+  assert.equal(garden.cells.length, 0, 'closing planted a garden for a book that is gone');
+  assert.equal(garden.spine.length, 0);
+  assert.equal(garden.animating, false, 'a frame stayed scheduled after close');
+  assert.deepEqual(errors, []);
+});
+
+test('a reader started in Off never plants a garden, even before the app sends a mode', {timeout: 60000}, async t => {
+  const {page, errors} = await launch(t, {width: 1400, height: 900}, {reducedMotion: 'no-preference', gardenMode: 'off'});
+  await readTo(page, 0.5);
+  const garden = await page.evaluate(() => window.StillleafReader.gardenDebug());
+  assert.equal(garden.mode, 'off');
+  assert.equal(garden.cells.length, 0, 'an Off garden planted vines while waiting for the app');
+  assert.equal(garden.animating, false);
+  assert.deepEqual(await painted(page), [0, 0]);
+  assert.deepEqual(errors, []);
+});
+
+test('a reader started Still paints its first frame fully grown, with no fade-in', {timeout: 60000}, async t => {
+  const {page, errors} = await launch(t, {width: 1400, height: 900}, {reducedMotion: 'no-preference', gardenMode: 'still'});
+  await readTo(page, 0.5);
+  const garden = await page.evaluate(() => window.StillleafReader.gardenDebug());
+  assert.equal(garden.mode, 'still');
+  assert.ok(garden.cells.length > 100);
+  assert.equal(garden.animating, false, 'a Still garden faded in');
+  assert.equal(await page.evaluate(() => document.getElementById('garden').classList.contains('breathing')), false);
+  assert.ok((await painted(page))[0] > 0, 'the first frame was blank');
+  assert.deepEqual(errors, []);
+});
+
+const animated = {reducedMotion: 'no-preference'};
+const debug = async page => {
+  const garden = await page.evaluate(() => window.StillleafReader.gardenDebug());
+  assert.equal(typeof garden.ticks, 'number', 'gardenDebug() does not count frames');
+  assert.equal(typeof garden.ghosts, 'number', 'gardenDebug() does not count ghosts');
+  return garden;
+};
+/** Samples the margin canvas until the garden is planted, unfrozen and no longer animating (or the deadline passes). */
+async function watchGrowth(page, deadline = 12000) {
+  const samples = [];
+  const end = Date.now() + deadline;
+  for (;;) {
+    const [pixels] = await painted(page), {animating, ticks, frozen, cells} = await debug(page);
+    const breathing = await page.evaluate(() => document.getElementById('garden').classList.contains('breathing'));
+    samples.push({pixels, animating, ticks, breathing});
+    if ((!animating && !frozen && cells.length > 0) || Date.now() > end) return samples;
+    await page.waitForTimeout(200);
+  }
+}
+
+test('an animated garden fades its vines in one after another, not all at once', {timeout: 60000}, async t => {
+  const {page, errors} = await launch(t, {width: 1400, height: 900}, animated);
+  await page.evaluate(() => window.StillleafReader.go({href: 'one.html', type: 'text/html', locations: {progression: 0.3}}));
+  await page.waitForFunction(() => window.StillleafReader.gardenDebug().progress > 0.2);
+  const samples = await watchGrowth(page);
+  const counts = samples.map(s => s.pixels);
+  assert.equal(samples.at(-1).animating, false, 'the garden never finished growing');
+  assert.ok(counts.at(-1) > counts[0] * 1.5, `growth was not gradual: ${counts.join(', ')}`);
+  assert.ok(new Set(counts).size >= 4, `the garden appeared in too few steps: ${counts.join(', ')}`);
+  assert.ok(samples.slice(0, -1).every(s => !s.breathing), 'the garden breathed while it was still growing');
+  assert.deepEqual(errors, []);
+});
+
+test('a settled animated garden breathes in CSS and draws no more frames', {timeout: 60000}, async t => {
+  const {page} = await launch(t, {width: 1400, height: 900}, animated);
+  await page.evaluate(() => window.StillleafReader.go({href: 'one.html', type: 'text/html', locations: {progression: 0.2}}));
+  await page.waitForFunction(() => window.StillleafReader.gardenDebug().progress > 0.1);
+  const settled = (await watchGrowth(page)).at(-1);
+  assert.equal(settled.animating, false);
+  assert.equal(settled.breathing, true, 'a grown garden did not start breathing');
+  assert.notEqual(await page.locator('#garden').evaluate(e => getComputedStyle(e).animationName), 'none');
+  const before = (await debug(page)).ticks;
+  await page.waitForTimeout(800);
+  const after = await debug(page);
+  assert.equal(after.ticks, before, 'frames kept drawing after the garden settled');
+  assert.equal(after.animating, false);
+});
+
+test('a garden that loses cells fades them out as ghosts, then stops drawing', {timeout: 60000}, async t => {
+  const {page} = await launch(t, {width: 1400, height: 900}, animated);
+  await page.evaluate(() => window.StillleafReader.go({href: 'one.html', type: 'text/html', locations: {progression: 0.4}}));
+  await page.waitForFunction(() => window.StillleafReader.gardenDebug().progress > 0.3);
+  await watchGrowth(page);
+  await page.evaluate(() => window.StillleafReader.go({href: 'one.html', type: 'text/html', locations: {progression: 0.05}}));
+  await page.waitForFunction(() => window.StillleafReader.gardenDebug().progress < 0.1);
+  await page.waitForFunction(() => window.StillleafReader.gardenDebug().ghosts > 0, null, {timeout: 3000});
+  const settled = (await watchGrowth(page)).at(-1);
+  assert.equal(settled.animating, false);
+  assert.equal((await debug(page)).ghosts, 0, 'ghosts outlived their fade');
+});
+
+test('an Off garden never schedules a frame', {timeout: 60000}, async t => {
+  const {page} = await launch(t, {width: 1400, height: 900}, {...animated, gardenMode: 'off'});
+  await readTo(page, 0.5);
+  await page.setViewportSize({width: 1300, height: 850});
+  await page.waitForTimeout(600);
+  const garden = await debug(page);
+  assert.equal(garden.ticks, 0, 'an Off garden drew frames');
+  assert.equal(garden.animating, false);
+  assert.equal(await page.evaluate(() => document.getElementById('garden').classList.contains('breathing')), false);
+});
+
+test('switching a live garden to Off stops its frames and blanks both canvases', {timeout: 60000}, async t => {
+  const {page} = await launch(t, {width: 1400, height: 900}, animated);
+  await page.evaluate(() => window.StillleafReader.go({href: 'one.html', type: 'text/html', locations: {progression: 0.3}}));
+  await page.waitForFunction(() => window.StillleafReader.gardenDebug().progress > 0.2);
+  await page.waitForTimeout(500);
+  assert.ok((await debug(page)).animating, 'the garden was not mid-growth when switched off');
+  await page.evaluate(() => window.StillleafReader.setGardenMode('off'));
+  const ticks = (await debug(page)).ticks;
+  await page.waitForTimeout(600);
+  const garden = await debug(page);
+  assert.equal(garden.ticks, ticks, 'frames kept drawing after Off');
+  assert.equal(garden.animating, false);
+  assert.equal(garden.cells.length, 0);
+  assert.deepEqual(await painted(page), [0, 0]);
+});
+
+test('the spine vine paints above the live page but below the sliding page snapshots', {timeout: 60000}, async t => {
+  const {page, errors} = await launch(t, {width: 1500, height: 900});
+  await page.evaluate(() => window.StillleafReader.setPreferences({columns: 'two'}));
+  await readTo(page, 0.5);
+  const topmost = await page.evaluate(() => {
+    const viewport = document.getElementById('reading-viewport'), spine = document.getElementById('garden-spine');
+    const box = viewport.getBoundingClientRect(), x = box.left + box.width / 2, y = box.top + box.height / 2;
+    // pointer-events:none layers are skipped by hit testing; turn them on so elementFromPoint reports paint order.
+    const probe = document.createElement('style');
+    probe.textContent = '#garden-spine,.reader-page-slide,.reader-page-slide *{pointer-events:auto!important}';
+    document.head.append(probe);
+    const name = el => el === spine ? 'spine' : el.closest('.reader-page-slide') ? 'slide' : el.closest('#reader') ? 'page' : el.id || el.tagName;
+    const resting = name(document.elementFromPoint(x, y));
+    // The same stage page-slide.js raises over the live page while a turn animates (minus inert, which also skips hit testing).
+    const stage = document.createElement('div');
+    stage.className = 'reader-page-slide';
+    viewport.append(stage);
+    const sliding = name(document.elementFromPoint(x, y));
+    stage.remove(); probe.remove();
+    return {resting, sliding};
+  });
+  assert.equal(topmost.resting, 'spine', 'the spine vine is hidden behind the live page');
+  assert.equal(topmost.sliding, 'slide', 'the spine vine draws over the sliding page snapshots');
+  assert.deepEqual(errors, []);
 });
