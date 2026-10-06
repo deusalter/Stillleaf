@@ -7,6 +7,7 @@ import {createField, vinePalette, gardenSeed, isDarkColor} from './vines.js';
 const FONT = 13, LINE = 16, MIN_MARGIN_CELLS = 7, BUDGET = 1500, STAGGER = 7, FADE = 700, GHOST = 900, FREEZE = 300;
 const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 const overlaps = (a, b) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+const MODES = ['animated', 'still', 'off'];
 const hex = value => /^#[0-9a-f]{6}$/i.test(value) ? value : null;
 
 /**
@@ -21,11 +22,14 @@ const hex = value => /^#[0-9a-f]{6}$/i.test(value) ? value : null;
  */
 export function installGarden({canvas, spine, viewport, chrome, layout, enabled, edition}) {
   const reduce = matchMedia('(prefers-reduced-motion: reduce)');
-  let mode = 'animated', frozen = false, freezeTimer = 0, layoutTimer = 0, frame = 0;
-  let progress = 0, chapter = null, pending = null, metrics = null, palette = null, deferred = false;
+  // The app injects its Garden setting at document start so the first frame already honours Off and Still;
+  // setMode() then follows live changes.
+  let mode = MODES.includes(window.__stillleafGardenMode) ? window.__stillleafGardenMode : 'animated', frozen = false, freezeTimer = 0, layoutTimer = 0, frame = 0;
+  let ticks = 0, progress = 0, chapter = null, pending = null, metrics = null, palette = null, deferred = false;
   const margins = {field: null, born: new Map(), ghosts: [], context: canvas.getContext('2d'), origin: {left: 0, top: 0}};
   const column = {field: null, born: new Map(), ghosts: [], context: spine.getContext('2d'), origin: {left: 0, top: 0}};
 
+  document.documentElement.dataset.garden = mode;
   const active = () => mode !== 'off' && enabled();
   const still = () => mode === 'still' || reduce.matches;
 
@@ -103,17 +107,19 @@ export function installGarden({canvas, spine, viewport, chrome, layout, enabled,
     scene.field = field; scene.born = born;
   }
 
+  /** Drops every garden, fades and ghosts included, blanks both canvases and stops drawing. */
+  function wipe() {
+    for (const scene of [margins, column]) { scene.field = null; scene.born = new Map(); scene.ghosts = []; scene.context.clearRect(0, 0, 1e5, 1e5); }
+    cancelAnimationFrame(frame); frame = 0;
+    canvas.classList.remove('breathing');
+  }
+
   function rebuild() {
     // While input is arriving, keep the current garden on screen; regrow once it stops.
     if (frozen && active()) { deferred = true; return; }
     deferred = false;
     const now = performance.now();
-    if (!active()) {
-      for (const scene of [margins, column]) { scene.field = null; scene.born = new Map(); scene.ghosts = []; scene.context.clearRect(0, 0, 1e5, 1e5); }
-      cancelAnimationFrame(frame); frame = 0;
-      canvas.classList.remove('breathing');
-      return;
-    }
+    if (!active()) { wipe(); return; }
     measure();
     size(canvas, innerWidth, innerHeight);
     const page = viewport.getBoundingClientRect();
@@ -151,6 +157,7 @@ export function installGarden({canvas, spine, viewport, chrome, layout, enabled,
   function tick() {
     frame = 0;
     if (!active() || !metrics) return;
+    ticks++;
     const now = performance.now();
     const busy = draw(margins, now) | draw(column, now);
     // Draw only while something fades; a settled garden is a still image that breathes in CSS.
@@ -188,11 +195,16 @@ export function installGarden({canvas, spine, viewport, chrome, layout, enabled,
     },
     /** The app's Garden setting: animated, still or off. */
     setMode(value) {
-      mode = ['animated', 'still', 'off'].includes(value) ? value : 'animated';
+      mode = MODES.includes(value) ? value : 'animated';
       document.documentElement.dataset.garden = mode;
       rebuild();
     },
-    clear() { chapter = null; progress = 0; pending = null; for (const scene of [margins, column]) { scene.field = null; scene.ghosts = []; } rebuild(); },
+    /** The book closed: forget its chapter and blank everything without planting a placeholder garden. */
+    clear() {
+      clearTimeout(layoutTimer); clearTimeout(freezeTimer);
+      chapter = null; progress = 0; pending = null; frozen = false; deferred = false;
+      wipe();
+    },
     debug() {
       const rects = (scene, origin) => {
         if (!scene.field || !metrics) return [];
@@ -200,7 +212,7 @@ export function installGarden({canvas, spine, viewport, chrome, layout, enabled,
         return [...scene.field.cells.values()].map(c => ({left: origin.left + c.x * cw, right: origin.left + (c.x + 1) * cw, top: origin.top + c.y * ch, bottom: origin.top + (c.y + 1) * ch}));
       };
       return {cells: rects(margins, {left: 0, top: 0}), spine: rects(column, column.origin), progress, frozen, mode,
-        gutter: layout().gutter, animating: frame !== 0};
+        gutter: layout().gutter, animating: frame !== 0, ticks, ghosts: margins.ghosts.length + column.ghosts.length};
     }
   };
 }
