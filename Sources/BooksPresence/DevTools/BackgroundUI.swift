@@ -24,8 +24,11 @@ enum BackgroundUI {
                                   environment: [String: String] = ProcessInfo.processInfo.environment) {
         guard !isEnabled, shouldEnable(arguments: arguments, environment: environment) else { return }
         isEnabled = true
-        // An accessory app still activates when it starts its run loop; a prohibited one never does.
+        // An accessory app activates when its run loop starts, but a prohibited one cannot show
+        // popovers. Start prohibited and become an accessory once launch has finished; changing
+        // the policy does not activate the app.
         NSApp.setActivationPolicy(.prohibited)
+        DispatchQueue.main.async { NSApp.setActivationPolicy(.accessory) }
         swizzle(NSApplication.self, #selector(NSApplication.activate(ignoringOtherApps:)),
                 #selector(NSApplication.stillleafBackgroundActivate(ignoringOtherApps:)))
         swizzle(NSApplication.self, NSSelectorFromString("activate"), #selector(NSApplication.stillleafBackgroundActivateNow))
