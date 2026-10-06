@@ -1,6 +1,12 @@
 import SwiftUI
 import BooksCore
 
+/// TEMPORARY bisect switches (STILLLEAF_YEAR_VARIANT=a,b); never merged.
+enum PerfVariant {
+    static let flags: Set<String> = Set((ProcessInfo.processInfo.environment["STILLLEAF_YEAR_VARIANT"] ?? "").split(separator: ",").map(String.init))
+    static func on(_ name: String) -> Bool { flags.contains(name) }
+}
+
 /// History's per-book chart colours. Everything else uses ReadingPalette directly.
 enum AtlasStyle {
     static func book(_ id: String, dark: Bool) -> Color {
@@ -25,7 +31,7 @@ struct AtlasPanel<Content: View>: View {
             content
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .readingPanel()
+        .modifier(PanelSurfaceVariant())
     }
 }
 
@@ -75,6 +81,16 @@ struct AtlasBookLabel: View {
                 Text(detail.isEmpty ? (book?.author ?? "") : detail).font(.caption)
                     .foregroundStyle(ReadingPalette.secondaryInk).fixedSize(horizontal: false, vertical: true)
             }
+        }
+    }
+}
+
+private struct PanelSurfaceVariant: ViewModifier {
+    func body(content: Content) -> some View {
+        if PerfVariant.on("noPanelGlass") {
+            content.padding(ReadingMetrics.cardPadding).background(ReadingPalette.surface, in: RoundedRectangle(cornerRadius: 18))
+        } else {
+            content.readingPanel()
         }
     }
 }

@@ -13,6 +13,13 @@ struct RecordedDateMenu<Label: View>: View {
     @State private var isPresented = false
 
     var body: some View {
+        if PerfVariant.on("menuBare") {
+            Button { isPresented = true } label: { label().contentShape(Rectangle()) }
+                .buttonStyle(.plain).disabled(dates.isEmpty)
+        } else { full }
+    }
+
+    private var full: some View {
         Button { isPresented = true } label: {
             label().contentShape(Rectangle())
         }

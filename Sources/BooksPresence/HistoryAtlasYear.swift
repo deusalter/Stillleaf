@@ -63,19 +63,7 @@ struct AtlasYearView: View {
         let id = row.id, activity = row.activity
         let seconds = row.creditedSeconds, pages = row.pages, finished = row.finishes
         return HStack(spacing: 16) {
-            RecordedDateMenu(dates: row.recordedDates, timezoneID: navigation.timezoneID,
-                             bookTitle: title(id), select: select) {
-                HStack(spacing: 10) {
-                    BookCoverView(book: presentation.booksByID[id], size: .compact)
-                        .scaleEffect(0.62).frame(width: 33, height: 46)
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text(title(id)).font(.system(size: 13, weight: .medium)).lineLimit(3)
-                            .multilineTextAlignment(.leading)
-                        RecordedDateMenuCaption(count: row.recordedDates.count)
-                    }
-                }.frame(width: 170, alignment: .leading)
-            }
-            .accessibilityValue("\(activity.count) recorded days, \(pages) pages, \(ReadingFormat.duration(seconds)) recorded. \(finished.isEmpty ? "" : "Finished this year.")")
+            yearLabel(row, id: id, activity: activity, pages: pages, seconds: seconds, finished: finished)
             Canvas { context, size in
                 for fraction in presentation.monthPositions {
                     let x = CGFloat(fraction) * size.width
@@ -115,6 +103,29 @@ struct AtlasYearView: View {
                 } else { Text(finished.isEmpty ? "—" : "Finished").font(.caption) }
             }.foregroundStyle(ReadingPalette.secondaryInk).frame(width: 74, alignment: .trailing)
         }.frame(height: 76)
+    }
+    @ViewBuilder private func yearLabel(_ row: AtlasYearRow, id: String, activity: [AtlasYearMark], pages: Int, seconds: Double, finished: [Double]) -> some View {
+        let labelBody = HStack(spacing: 10) {
+            if PerfVariant.on("noCover") { Color.clear.frame(width: 33, height: 46) } else {
+                BookCoverView(book: presentation.booksByID[id], size: .compact)
+                    .scaleEffect(0.62).frame(width: 33, height: 46)
+            }
+            VStack(alignment: .leading, spacing: 5) {
+                Text(title(id)).font(.system(size: 13, weight: .medium)).lineLimit(3)
+                    .multilineTextAlignment(.leading)
+                RecordedDateMenuCaption(count: row.recordedDates.count)
+            }
+        }.frame(width: 170, alignment: .leading)
+        let described = "\(activity.count) recorded days, \(pages) pages, \(ReadingFormat.duration(seconds)) recorded. \(finished.isEmpty ? "" : "Finished this year.")"
+        if PerfVariant.on("plainButton") {
+            if PerfVariant.on("noA11y") { Button { select(Date()) } label: { labelBody }.buttonStyle(.plain) }
+            else { Button { select(Date()) } label: { labelBody }.buttonStyle(.plain).accessibilityValue(described) }
+        } else if PerfVariant.on("noA11y") {
+            RecordedDateMenu(dates: row.recordedDates, timezoneID: navigation.timezoneID, bookTitle: title(id), select: select) { labelBody }
+        } else {
+            RecordedDateMenu(dates: row.recordedDates, timezoneID: navigation.timezoneID, bookTitle: title(id), select: select) { labelBody }
+                .accessibilityValue(described)
+        }
     }
     private func title(_ id: String) -> String { presentation.booksByID[id]?.title ?? "Unknown book" }
 }

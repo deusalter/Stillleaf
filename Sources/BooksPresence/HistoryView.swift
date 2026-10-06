@@ -53,7 +53,7 @@ struct HistoryView: View {
                 Text(model.timezoneID.replacingOccurrences(of: "_", with: " "))
                     .font(.caption2).foregroundStyle(ReadingPalette.secondaryInk).help("History dates and times use this timezone.")
                     .padding(.horizontal, 10).padding(.vertical, 5)
-                    .glassSurface(cornerRadius: ReadingMetrics.Radius.control)
+                    .modifier(PillVariant())
             }
             .frame(maxWidth: 1120, alignment: .leading)
             .padding(.horizontal, 32).padding(.vertical, 30).frame(maxWidth: .infinity, alignment: .top)
@@ -85,6 +85,9 @@ struct HistoryView: View {
                 }
             }
             .opacity(canReveal ? 1 : 0).accessibilityHidden(!canReveal)
+            if PerfVariant.on("lightWrap") {
+                chart(displayed).id(periodID).onAppear { reportReady(prepared.key) }
+            } else {
             ZStack(alignment: .topLeading) {
                 chart(displayed)
                     .id(periodID)
@@ -98,9 +101,10 @@ struct HistoryView: View {
             .opacity(canReveal ? (current ? 1 : 0.55) : 0)
             .disabled(!current).allowsHitTesting(current)
             .accessibilityHidden(!canReveal)
+            }
         }
         .overlay(alignment: .topLeading) {
-            if !current {
+            if !current && !PerfVariant.on("lightWrap") {
                 ProgressView("Updating to \(Self.title(for: requested))…")
                     .controlSize(.small).font(.callout)
                     .padding(12)
@@ -193,5 +197,11 @@ struct HistoryView: View {
     private func selectDay(_ date: Date) {
         guard date <= navigation.calendar.startOfDay(for: Date()) else { return }
         navigation.select(date, scale: .day)
+    }
+}
+
+private struct PillVariant: ViewModifier {
+    func body(content: Content) -> some View {
+        if PerfVariant.on("noTzPill") { content } else { content.glassSurface(cornerRadius: ReadingMetrics.Radius.control) }
     }
 }

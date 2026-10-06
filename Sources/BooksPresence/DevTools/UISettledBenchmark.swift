@@ -84,7 +84,8 @@ import Darwin
     let measuredSamples = ProcessInfo.processInfo.environment["STILLLEAF_UI_BENCHMARK_SAMPLES"].flatMap(Int.init) ?? 20
     guard [5, 20].contains(measuredSamples) else { throw NSError(domain: "Stillleaf.Benchmark", code: 3) }
     var records: [[String: Any]] = [], warmups: [[String: Any]] = []
-    for scale in CalendarScale.allCases {
+    let onlyScales = ProcessInfo.processInfo.environment["STILLLEAF_BENCH_SCALES"].map { Set($0.split(separator: ",").map(String.init)) }
+    for scale in CalendarScale.allCases where onlyScales?.contains(scale.rawValue) ?? true {
         for sample in -2..<measuredSamples {
             host.rootView = AnyView(Text("Ready")); host.layoutSubtreeIfNeeded()
             await Task.yield()
