@@ -85,7 +85,11 @@ One algorithm, implemented twice: Swift for the dashboard, menu panel and sheets
   - the menu bar panel’s goal indicator uses the same dots
 - **Today.** Glass cards over the garden. The goal card keeps the dotted ring, and Last read uses the dotted progress row.
 - **Library.** The grid sits on the garden, cards are glass, and progress uses the dotted row.
-- **Menu bar panel.** A vine curls in from the top-right corner behind the glass. Goal progress uses the dotted ring style.
+- **Menu bar panel.** A small piece of the dashboard, floating over the desktop.
+  - *Shell:* clear glass, not frosted material. The theme canvas is laid thinly over the desktop (34% light, 40% dark) with a faint accent wash, a soft top highlight and a crisp rim. Before macOS 26 a light system blur is mixed in at 35%. Reduce Transparency and Increased Contrast make it the opaque canvas.
+  - *Cards:* the header, the book row, the goal ring, the streak and session block, and the actions each sit on their own glass card (`glassSurface`), so no text is ever drawn on the shell or the vines. Over the desktop a card is denser than on the dashboard (80% light, 92% dark) and blurs what is behind it, so text holds on any wallpaper. `PanelGlass` holds these numbers and `scripts/theme-contrast-smoke.swift` checks every theme against black, white, mid-grey and saturated desktops at WCAG AA.
+  - *Garden:* a trellis along the top and bottom edges with four corner vines, and a vine up each side (`MenuPanelGarden`). Vines grow only in the gutters around the cards and show softly blurred where a card overlaps them. It follows Animated, Still and Off like every garden. Growth, breathing and redraws stop while the panel is hidden.
+  - Goal progress keeps the dotted ring.
 - **Empty states.** A hand-drawn seedling (stem, leaves, bloom) is revealed in growth order, holds, then regrows.
 - **Finishing a book.** About 12 vines burst outward from the completion badge with alternating curl, flower and release spores.
 - **Onboarding.** The garden grows a little more with each step, so the final step shows it complete. This replaces the current 30 fps backdrop.

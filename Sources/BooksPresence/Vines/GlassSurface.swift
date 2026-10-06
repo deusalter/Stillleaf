@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 private struct GardenBackdropKey: EnvironmentKey { static let defaultValue = false }
@@ -69,6 +70,8 @@ private struct GlassSurface: ViewModifier {
         return content
             .background {
                 ZStack {
+                    // Over the desktop, text sits on a blurred copy of it, so wallpaper and windows never read through.
+                    if overDesktop { DesktopBlur().clipShape(shape) }
                     shape.fill(ReadingPalette.surface.opacity(overDesktop ? PanelGlass.cardTint(dark: dark) : GlassTint.cardFill(dark: dark)))
                     shape.fill(LinearGradient(colors: [.white.opacity(dark ? 0.08 : 0.34), .white.opacity(0)],
                                               startPoint: .topLeading, endPoint: UnitPoint(x: 0.55, y: 0.45)))
@@ -88,4 +91,20 @@ extension View {
     func glassSurface(cornerRadius: CGFloat = ReadingMetrics.Radius.card) -> some View {
         modifier(GlassSurface(cornerRadius: cornerRadius))
     }
+}
+
+/// A behind-window blur of whatever is on the desktop, for glass that floats over it.
+/// Drawn by AppKit, so offscreen renders show nothing here.
+struct DesktopBlur: NSViewRepresentable {
+    var material: NSVisualEffectView.Material = .popover
+
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = material
+        view.blendingMode = .behindWindow
+        view.state = .active
+        return view
+    }
+
+    func updateNSView(_ view: NSVisualEffectView, context: Context) { view.material = material }
 }

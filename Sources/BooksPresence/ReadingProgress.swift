@@ -194,7 +194,7 @@ struct MenuReadingGoal: View {
                     }
                     .frame(width: 90).offset(y: 3)
                 }
-                .frame(width: 132, height: 130)
+                .frame(width: 132, height: 116)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("Today's reading")
                 .accessibilityValue(daily.summary)

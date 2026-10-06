@@ -23,6 +23,8 @@ struct PopoverView: View {
     @State private var bodyHeight: CGFloat = 390
     /// Card frames for the garden to frost; a class so scrolling never re-renders the cards.
     @State private var frost = FrostRegions()
+    /// The scroll view's frame in the garden's space; cards scrolled partly out of it frost only what shows.
+    @State private var scrollFrame = CGRect.null
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -39,6 +41,17 @@ struct PopoverView: View {
             .frame(height: min(bodyHeight, limit + 2 * PanelMetrics.shadowBleed))
             // The scroll view spans the panel so card shadows are not clipped at the gutters.
             .padding(.horizontal, -PanelMetrics.side).padding(.vertical, -PanelMetrics.shadowBleed)
+            // An overlay, not a background: a background's frame is never delivered for a scroll view.
+            .overlay(GeometryReader { proxy in
+                Color.clear.preference(key: MenuScrollFrame.self, value: proxy.frame(in: .named(GardenCanvas.space)))
+            }.allowsHitTesting(false))
+            .onPreferenceChange(MenuScrollFrame.self) { scrollFrame = $0 }
+            .transformPreference(GlassRegionsKey.self) { regions in
+                guard !scrollFrame.isNull else { return }
+                // Negative padding shrinks the measured frame; the scroll view shows the bleed too.
+                let visible = scrollFrame.insetBy(dx: -PanelMetrics.side, dy: -PanelMetrics.shadowBleed)
+                regions = regions.map { $0.intersection(visible) }.filter { !$0.isNull && !$0.isEmpty }
+            }
             .onPreferenceChange(MenuBodyHeight.self) { height in
                 if height > 0, abs(height - bodyHeight) > 0.5 { bodyHeight = height }
             }
@@ -198,6 +211,11 @@ private extension View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .glassSurface(cornerRadius: ReadingMetrics.Radius.card)
     }
+}
+
+private struct MenuScrollFrame: PreferenceKey {
+    static var defaultValue = CGRect.null
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) { value = nextValue() }
 }
 
 private struct MenuBodyHeight: PreferenceKey {

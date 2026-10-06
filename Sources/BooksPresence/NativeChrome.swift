@@ -139,7 +139,7 @@ private struct NativePopoverSurface: ViewModifier {
 
     /// Before macOS 26: a faint blur, mixed in at `PanelGlass.blurMix` so the desktop stays recognisable.
     private func blur(_ shape: RoundedRectangle) -> some View {
-        PopoverMaterial().opacity(PanelGlass.blurMix).clipShape(shape)
+        DesktopBlur(material: .underWindowBackground).opacity(PanelGlass.blurMix).clipShape(shape)
     }
 
     private func rim(_ shape: RoundedRectangle, dark: Bool, solid: Bool) -> some View {
@@ -150,17 +150,6 @@ private struct NativePopoverSurface: ViewModifier {
         }
         .allowsHitTesting(false)
     }
-}
-
-private struct PopoverMaterial: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSVisualEffectView {
-        let view = NSVisualEffectView()
-        view.material = .underWindowBackground
-        view.blendingMode = .behindWindow
-        view.state = .active
-        return view
-    }
-    func updateNSView(_ nsView: NSVisualEffectView, context: Context) { }
 }
 
 /// Share sampling between adjacent controls without merging their shapes at rest.

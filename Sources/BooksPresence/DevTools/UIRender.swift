@@ -355,7 +355,7 @@ private enum UIPreviewError: Error { case renderFailed }
 /// black and a vivid band between. Offscreen renders cannot blur what is behind a window, so this
 /// shows how see-through the shell is and whether text holds on the worst backgrounds.
 private struct PopoverDesktopFixture<Content: View>: View {
-    static var size: NSSize { NSSize(width: 470, height: 700) }
+    static var size: NSSize { NSSize(width: 470, height: 720) }
     let content: Content
     init(@ViewBuilder content: () -> Content) { self.content = content() }
 
@@ -367,14 +367,14 @@ private struct PopoverDesktopFixture<Content: View>: View {
                     .frame(width: 90)
                 wallpaper(foreground: .white, background: .black)
             }
-            content.padding(.top, 24)
+            content.padding(.top, 24).frame(maxHeight: .infinity, alignment: .top)
         }
         .frame(width: Self.size.width, height: Self.size.height)
     }
 
     private func wallpaper(foreground: Color, background: Color) -> some View {
         VStack(alignment: .leading, spacing: 14) {
-            ForEach(0..<24) { _ in Text("Synthetic desktop text").font(.system(size: 20, weight: .semibold)) }
+            ForEach(0..<17) { _ in Text("Synthetic desktop text").font(.system(size: 20, weight: .semibold)) }
         }
         .foregroundStyle(foreground)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
