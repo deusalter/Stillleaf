@@ -1,6 +1,6 @@
 import Foundation
 
-/// Compiled together with Sources/BooksPresence/Theme.swift only, so every
+/// Compiled together with Theme.swift, VineField.swift, VinePalette.swift and PanelGlass.swift only, so every
 /// palette can be checked in milliseconds without launching the app.
 @main
 struct ThemeContrastSmoke {
@@ -48,6 +48,50 @@ struct ThemeContrastSmoke {
                 }
             }
         }
+        // The menu panel floats over any desktop: its cards must keep text at AA on the worst ones.
+        var panelChecks = 0, panelFailures: [String] = []
+        for theme in ReadingTheme.all {
+            for dark in [false, true] {
+                for accent in [nil] + AccentPreset.all.map(Optional.some) {
+                    let colors = theme.colors(dark: dark, accent: accent)
+                    for desktop in PanelGlass.probeDesktops {
+                        let card = PanelGlass.cardColor(colors, dark: dark, desktop: desktop)
+                        for (name, hex, floor) in [("ink", colors.ink, 4.5), ("secondary ink", colors.secondaryInk, 4.5), ("accent", colors.accent, 3)] {
+                            panelChecks += 1
+                            let ratio = ThemeContrast.ratio(hex, card)
+                            if ratio < floor {
+                                panelFailures.append("\(theme.id)/\(dark ? "dark" : "light")/\(accent?.id ?? "default") \(name) is \(String(format: "%.2f", ratio)):1 on a menu card over desktop \(String(desktop, radix: 16))")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        panelFailures.prefix(12).forEach { print("theme-contrast-smoke: FAIL \($0)") }
+        guard panelFailures.isEmpty else { print("theme-contrast-smoke: \(panelFailures.count) of \(panelChecks) menu panel checks fail"); exit(1) }
+        // Dashboard cards show the blurred garden through; text must hold even over the strongest vine colour.
+        var cardChecks = 0, cardFailures: [String] = []
+        for theme in ReadingTheme.all {
+            for dark in [false, true] {
+                let colors = theme.colors(dark: dark, accent: nil)
+                let palette = VinePalette.make(colors, dark: dark)
+                for vine in palette.stems + palette.leaves + palette.blooms {
+                    let card = GlassTint.worstCardColor(colors, dark: dark, vine: vine)
+                    for (name, hex) in [("ink", colors.ink), ("secondary ink", colors.secondaryInk)] {
+                        cardChecks += 1
+                        let ratio = ThemeContrast.ratio(hex, card)
+                        if ratio < 4.5 { cardFailures.append("\(theme.id)/\(dark ? "dark" : "light") \(name) is \(String(format: "%.2f", ratio)):1 on a card over vine \(String(vine, radix: 16))") }
+                    }
+                }
+            }
+        }
+        cardFailures.prefix(8).forEach { print("theme-contrast-smoke: FAIL \($0)") }
+        guard cardFailures.isEmpty else { print("theme-contrast-smoke: \(cardFailures.count) of \(cardChecks) glass card checks fail"); exit(1) }
+        print("theme-contrast-smoke: \(cardChecks) glass card text checks pass over the strongest vine colours")
+        guard PanelGlass.shellTint(dark: false) <= 0.4, PanelGlass.shellTint(dark: true) <= 0.4, PanelGlass.blurMix <= 0.5 else {
+            print("theme-contrast-smoke: the menu panel shell is frostier than clear glass"); exit(1)
+        }
+        print("theme-contrast-smoke: \(panelChecks) menu panel text checks pass over \(PanelGlass.probeDesktops.count) desktops")
         print("theme-contrast-smoke: \(ReadingTheme.all.count) themes × 2 appearances × \(AccentPreset.all.count + 1) accents pass WCAG AA; \(vineChecks) vine colours pass 3:1")
     }
 }

@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 private struct GardenBackdropKey: EnvironmentKey { static let defaultValue = false }
@@ -10,11 +11,29 @@ extension EnvironmentValues {
     }
 }
 
-/// Glass panel frames in the garden's coordinate space, so the garden can draw a
+private struct GlassOverDesktopKey: EnvironmentKey { static let defaultValue = false }
+
+extension EnvironmentValues {
+    /// True for glass that floats over the desktop (the menu bar panel) rather than
+    /// over the app's own canvas: its cards are denser so text holds on any wallpaper.
+    var glassOverDesktop: Bool {
+        get { self[GlassOverDesktopKey.self] }
+        set { self[GlassOverDesktopKey.self] = newValue }
+    }
+}
+
+/// One glass panel as the garden needs it: its frame in the garden's coordinate
+/// space and the corner radius of its (continuous) rounded rectangle.
+struct GlassRegion: Equatable {
+    var frame: CGRect
+    var cornerRadius: CGFloat
+}
+
+/// Glass panels in the garden's coordinate space, so the garden can draw a
 /// softly blurred copy of itself behind each one.
 struct GlassRegionsKey: PreferenceKey {
-    static let defaultValue: [CGRect] = []
-    static func reduce(value: inout [CGRect], nextValue: () -> [CGRect]) { value.append(contentsOf: nextValue()) }
+    static let defaultValue: [GlassRegion] = []
+    static func reduce(value: inout [GlassRegion], nextValue: () -> [GlassRegion]) { value.append(contentsOf: nextValue()) }
 }
 
 /// The one content surface over the garden.
@@ -28,6 +47,7 @@ private struct GlassSurface: ViewModifier {
     @Environment(\.colorSchemeContrast) private var contrast
     @Environment(\.nativePreviewOpaque) private var previewOpaque
     @Environment(\.gardenBackdrop) private var gardenBackdrop
+    @Environment(\.glassOverDesktop) private var overDesktop
     @Environment(\.colorScheme) private var colorScheme
 
     func body(content: Content) -> some View {
@@ -37,7 +57,7 @@ private struct GlassSurface: ViewModifier {
         } else if gardenBackdrop {
             frosted(content, shape)
                 .background(GeometryReader { proxy in
-                    Color.clear.preference(key: GlassRegionsKey.self, value: [proxy.frame(in: .named(GardenCanvas.space))])
+                    Color.clear.preference(key: GlassRegionsKey.self, value: [GlassRegion(frame: proxy.frame(in: .named(GardenCanvas.space)), cornerRadius: cornerRadius)])
                 })
         } else {
             #if compiler(>=6.2)
@@ -57,11 +77,14 @@ private struct GlassSurface: ViewModifier {
         return content
             .background {
                 ZStack {
-                    shape.fill(ReadingPalette.surface.opacity(dark ? 0.55 : 0.6))
+                    // Over the desktop, text sits on a blurred copy of it, so wallpaper and windows never read through.
+                    if overDesktop { DesktopBlur().clipShape(shape) }
+                    shape.fill(ReadingPalette.surface.opacity(overDesktop ? PanelGlass.cardTint(dark: dark) : GlassTint.cardFill(dark: dark)))
                     shape.fill(LinearGradient(colors: [.white.opacity(dark ? 0.08 : 0.34), .white.opacity(0)],
                                               startPoint: .topLeading, endPoint: UnitPoint(x: 0.55, y: 0.45)))
                 }
-                .shadow(color: .black.opacity(dark ? 0.38 : 0.12), radius: 18, x: 0, y: 10)
+                .shadow(color: .black.opacity(dark ? (overDesktop ? 0.24 : 0.38) : (overDesktop ? 0.08 : 0.12)),
+                        radius: overDesktop ? 10 : 18, x: 0, y: overDesktop ? 4 : 10)
             }
             .overlay {
                 shape.strokeBorder(LinearGradient(colors: [.white.opacity(dark ? 0.22 : 0.9), .white.opacity(dark ? 0.04 : 0.3)],
@@ -75,4 +98,20 @@ extension View {
     func glassSurface(cornerRadius: CGFloat = ReadingMetrics.Radius.card) -> some View {
         modifier(GlassSurface(cornerRadius: cornerRadius))
     }
+}
+
+/// A behind-window blur of whatever is on the desktop, for glass that floats over it.
+/// Drawn by AppKit, so offscreen renders show nothing here.
+struct DesktopBlur: NSViewRepresentable {
+    var material: NSVisualEffectView.Material = .popover
+
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = material
+        view.blendingMode = .behindWindow
+        view.state = .active
+        return view
+    }
+
+    func updateNSView(_ view: NSVisualEffectView, context: Context) { view.material = material }
 }
