@@ -244,7 +244,9 @@ private enum BareTextAudit {
         }
         func backed(_ x: Int, _ y: Int) -> Bool {
             for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
-                guard (1...reach).contains(where: { surface(x + dx * $0, y + dy * $0) }) else { return false }
+                // A ray that leaves the render is cut off by the window, as a panel running past its bottom edge is.
+                let leaves = x + dx * reach < 0 || x + dx * reach >= image.width || y + dy * reach < 0 || y + dy * reach >= image.height
+                guard leaves || (1...reach).contains(where: { surface(x + dx * $0, y + dy * $0) }) else { return false }
             }
             return true
         }
