@@ -185,25 +185,27 @@ func renderUIPreviews(to destination: URL) throws {
             .padding(24).frame(width: 550).background(ReadingPalette.canvas)
             .foregroundStyle(ReadingPalette.ink).tint(ReadingPalette.accent).buttonStyle(ReadingButtonStyle()))))
         previews.append(("manual-start", AnyView(ManualStartView(model: model))))
-        previews.append(("manual-add", AnyView(ManualAdditionView(model: model))))
+        previews.append(contentsOf: manualEntryPreviews(model: model))
         if let interval = model.displayIntervals.first {
             previews.append(("session-editor", AnyView(ReadingSessionEditor(model: model, interval: interval))))
         }
         for (name, view) in previews {
             if let filter, !filter.contains(name) { continue }
             let view = view.environment(\.colorScheme, scheme)
-            let sizes: [String: NSSize] = ["history-content-compact": NSSize(width: 694, height: 660), "reading-calendar": NSSize(width: 450, height: 410),
+            let sheetSize = NSSize(width: 540, height: 700)
+            var sizes: [String: NSSize] = ["history-content-compact": NSSize(width: 694, height: 660), "reading-calendar": NSSize(width: 450, height: 410),
                 "reading-dates": NSSize(width: 540, height: 500),
                 "reading-dates-expanded": NSSize(width: 540, height: 760),
 "manual-start": NSSize(width: 470, height: 350),
                 "book-format-text": NSSize(width: 680, height: 120), "book-format-audiobook": NSSize(width: 680, height: 310),
                 "audio-log": NSSize(width: 602, height: 690), "audio-playback": NSSize(width: 550, height: 190),
-                "manual-add": NSSize(width: 500, height: 510), "session-editor": NSSize(width: 560, height: 600),
+                "session-editor": NSSize(width: 560, height: 600),
                 "book-detail": NSSize(width: 760, height: 720), "troubleshooting": NSSize(width: 740, height: 650),
                 "rating-quarter": NSSize(width: 320, height: 200), "rating-zero": NSSize(width: 320, height: 200), "rating-empty": NSSize(width: 320, height: 200),
                 "written-review": NSSize(width: 590, height: 540), "popover-minutes": NSSize(width: 350, height: 580),
                 "popover": NSSize(width: 350, height: 580), "popover-manual": NSSize(width: 350, height: 580),
                 "popover-setup": NSSize(width: 350, height: 500)]
+            if name.hasPrefix("manual-add") { sizes[name] = sheetSize }
             try renderNativeView(AnyView(view), size: name.hasPrefix("onboarding-") ? OnboardingView.size : sizes[name] ?? NSSize(width: 1180, height: 820), appearance: appearance,
                                  to: destination.appendingPathComponent("\(name)-\(dark ? "dark" : "light").png"))
         }

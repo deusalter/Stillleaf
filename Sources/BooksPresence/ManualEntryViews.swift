@@ -53,7 +53,7 @@ struct ManualAdditionView: View {
     }
 
     @ObservedObject var model: AppModel
-    var maximumHeight: CGFloat = 720
+    var maximumHeight: CGFloat = 700
     private let service: BookSearchService
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -67,7 +67,7 @@ struct ManualAdditionView: View {
     @State private var saving = false
     @State private var saveError: String?
 
-    init(model: AppModel, service: BookSearchService = OpenLibraryClient(), preview: Preview = Preview(), maximumHeight: CGFloat = 720) {
+    init(model: AppModel, service: BookSearchService = OpenLibraryClient(), preview: Preview = Preview(), maximumHeight: CGFloat = 700) {
         self.model = model
         self.service = service
         self.maximumHeight = maximumHeight

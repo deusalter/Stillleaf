@@ -61,6 +61,7 @@ func runUISmoke() throws {
     guard model.visibleReadingSessions.contains(where: { $0.bookID == manualBook.id }) else {
         throw BooksAccessErrorForUI.failed("History visibility cache was not invalidated by manual addition")
     }
+    try checkManualEntry(model)
     let visibleIDs = model.visibleReadingSessions.map(\.id)
     let visibilityStarted = ProcessInfo.processInfo.systemUptime
     for _ in 0..<10_000 {
@@ -637,7 +638,7 @@ private func sameFixtureDate(_ lhs: Date?, _ rhs: Date, tolerance: TimeInterval 
     guard let lhs else { return false }
     return abs(lhs.timeIntervalSince(rhs)) <= tolerance
 }
-private enum BooksAccessErrorForUI: Error { case failed(String) }
+enum BooksAccessErrorForUI: Error { case failed(String) }
 
 /// A synthetic library near the reported history size; never opens the user's database.
 @MainActor
