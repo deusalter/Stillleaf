@@ -114,3 +114,9 @@ The footer displays measured **chapter-local** screen pages. One facing spread i
 New position/departure payloads include `pageUnit:"screen"` and `visiblePages:1`. The native bridge converts them to one-page `stillleaf-screen-v2` evidence with the full departure text interval. Older payloads retain their legacy interpretation. Layout changes announce layout only and add no traversal credit; journal events are never rewritten on toggle.
 
 Continuous geometry invalidation is scoped to dirty chapters. Body resize observations converge on dimension changes; mutation, image load/error, and font completion still invalidate internal geometry even at identical chapter height. The anchor fallback shares the indexed text candidates with visible-page evidence instead of rescanning offscreen paragraph prefixes.
+
+### Reader panels
+
+Contents, Bookmarks, Notes, Search and Appearance are one family. In the Mac app they are native panels (`ReaderPanelStyle.swift`, `ReaderPanels.swift`, `ReaderPanelRows.swift`): one glass frame tinted by the page theme, a native outline list and the system search field. The web panels in this renderer (`src/panels.css`) follow the same tokens, serve hosts without native panels, and remain the note editor everywhere.
+
+A native host asks for rows and sends ids back over the native-control channel: `panel` (`outline`, `bookmarks`, `notes`), `find` (a query), `go`, `remove` and `editNote`. The renderer keeps every locator, so a host can only open places the book really has. `src/panel-data.js` builds the rows, and shows an all-caps table of contents as titles in both the web and native panels.
