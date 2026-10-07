@@ -15,6 +15,9 @@ struct HistoryNavigationControls: View {
                     Picker("Timescale", selection: Binding(get: { navigation.scale }, set: { navigation.setScale($0) })) {
                         ForEach(CalendarScale.allCases) { scale in Text(scale.title).tag(scale) }
                     }.pickerStyle(.inline)
+                        // An inline picker's rows are toggles. The dashboard sets .switch for its
+                        // settings, which menu rows can't render: every scale came up disabled.
+                        .toggleStyle(.automatic)
                 } label: {
                     Text(navigation.scale.title).font(.system(size: 12, weight: .medium))
                 }.menuStyle(.borderlessButton).fixedSize()

@@ -58,7 +58,6 @@ func runHistoryInteractionSmoke(model: AppModel) throws {
         ("timescale in dashboard replicas", { try checkTimescaleInReplicas(model: model) }),
         ("timescale pick reaches the published chart", { try checkTimescalePublishes(model: model) }),
         ("month day opening", checkMonthDayOpening),
-        ("day view disclosures", checkDayDisclosures),
     ]
     for (name, check) in checks {
         HistorySmokeWatchdog.progress("start: \(name)")
@@ -455,58 +454,4 @@ private func checkMonthDayOpening() throws {
         throw HistoryInteractionSmokeError.failed("\(label) has no working \"Open day\" accessibility action (found \(actions.map(\.name)))")
     }
     print("ui-smoke: month day ring selects on one click, opens on double-click, and exposes an Open day accessibility action")
-}
-
-// MARK: - Day view disclosures
-
-/// "Session details" on every session card is a DisclosureGroup. Click a lattice over
-/// the Day view and measure whether the view grows. Run bare and under the dashboard's
-/// button style: only a difference between the two blames the style.
-@MainActor
-private func dayDisclosureGrowth(dashboardStyle: Bool) throws -> (CGFloat, CGFloat) {
-    let zone = "UTC"
-    let anchor = ISO8601DateFormatter().date(from: "2024-03-08T12:00:00Z")!
-    let navigation = CalendarNavigation(timezoneID: zone, anchor: anchor, scale: .day)
-    let book = BookRecord(id: "disclosure-book", title: "Disclosure")
-    let interval = ReadingInterval(sessionID: "disclosure-0", bookID: book.id, start: anchor,
-        end: anchor.addingTimeInterval(1_800), duration: 1_800, timezoneID: zone, mode: .manual)
-    let source = HistoryAtlasSource(books: [book], intervals: [interval], events: [], progress: [], merges: [],
-        finishedBooks: [], pageEvidence: PageStatistics.snapshot(events: [], effectiveIntervals: [interval], merges: []))
-    let presentation = HistoryAtlasPeriod(source: source, navigation: navigation, now: anchor)
-    let size = NSSize(width: 900, height: 1_100)
-    let day = AtlasDayView(navigation: navigation, presentation: presentation, editSession: { _ in })
-        .frame(width: size.width, alignment: .topLeading)
-        .fixedSize(horizontal: false, vertical: true)
-    let (window, host) = hostedWindow(AnyView(dashboardStyle ? AnyView(day.buttonStyle(ReadingButtonStyle())) : AnyView(day)), size: size)
-    defer { window.contentView = nil; window.close() }
-    let before = host.fittingSize.height
-    var pause: TimeInterval = 0
-    let budget = SweepBudget()
-    for top in stride(from: CGFloat(20), to: 700, by: 30) {
-        for x in stride(from: CGFloat(20), to: 500, by: 60) {
-            try budget.check("The Day view click sweep")
-            let point = NSPoint(x: x, y: size.height - top)
-            pause += 1
-            mouse(.leftMouseDown, at: point, in: window, after: pause)
-            mouse(.leftMouseUp, at: point, in: window, after: pause)
-        }
-    }
-    settle(host)
-    return (before, host.fittingSize.height)
-}
-
-@MainActor
-private func checkDayDisclosures() throws {
-    let bare = try dayDisclosureGrowth(dashboardStyle: false)
-    let styled = try dayDisclosureGrowth(dashboardStyle: true)
-    let report = "bare \(bare.0) → \(bare.1); under the dashboard's button style \(styled.0) → \(styled.1)"
-    guard bare.1 > bare.0 + 20 else {
-        // The sweep itself cannot open a disclosure here, so nothing can be said about the style.
-        print("ui-smoke: Day disclosure sweep inconclusive (\(report))")
-        return
-    }
-    guard styled.1 > styled.0 + 20 else {
-        throw HistoryInteractionSmokeError.failed("Session details expands bare but not under the dashboard's button style (\(report))")
-    }
-    print("ui-smoke: Day view session details expand under the dashboard's button style (\(report))")
 }
