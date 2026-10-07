@@ -22,13 +22,11 @@ private enum NativeChromeCaptureError: Error { case renderFailed }
             window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
             window.contentViewController = NSHostingController(rootView: DashboardView(model: model, initialSection: .library).environment(\.nativePreviewOpaque, opaque))
             window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
-            // Hosting installs toolbar items asynchronously. Check real readiness for
-            // the modern-built package on older runtimes, not a fixed capture delay.
+            // Hosting installs toolbar items asynchronously. The dashboard's own
+            // floating-sidebar toggle is the only sidebar control on every runtime;
+            // wait for it rather than a fixed capture delay.
             let deadline = Date().addingTimeInterval(3)
-            func sidebarToolbarReady() -> Bool {
-                if #available(macOS 14.0, *) { return dashboardSidebarToggleButtons(in: window).count == 1 }
-                return window.toolbar?.items.filter { $0.itemIdentifier.rawValue.contains("toggleSidebar") }.count == 1
-            }
+            func sidebarToolbarReady() -> Bool { dashboardSidebarToggleButtons(in: window).count == 1 }
             while Date() < deadline && !sidebarToolbarReady() {
                 try await Task.sleep(nanoseconds: 20_000_000)
             }
