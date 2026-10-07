@@ -4,6 +4,45 @@ import BooksCore
 
 private enum HistoryInteractionSmokeError: Error { case failed(String) }
 
+/// A blocked AppKit loop (menu tracking, event dispatch) cannot be timed out from
+/// the main thread. This watchdog runs elsewhere: if no step is reported for a
+/// while it names the stuck step and ends the process instead of hanging CI.
+private enum HistorySmokeWatchdog {
+    private static let lock = NSLock()
+    private static var step = "not started"
+    private static var lastProgress = Date()
+    private static var running = false
+
+    static func progress(_ name: String) {
+        lock.lock(); step = name; lastProgress = Date(); lock.unlock()
+    }
+
+    static func start(timeout: TimeInterval = 120) {
+        lock.lock()
+        let alreadyRunning = running
+        running = true
+        lastProgress = Date()
+        lock.unlock()
+        guard !alreadyRunning else { return }
+        let thread = Thread {
+            while true {
+                Thread.sleep(forTimeInterval: 2)
+                lock.lock()
+                let stalled = Date().timeIntervalSince(lastProgress), name = step, active = running
+                lock.unlock()
+                guard active else { return }
+                if stalled > timeout {
+                    FileHandle.standardError.write(Data("ui-smoke failed: History interaction smoke stalled \(Int(stalled))s in step \"\(name)\"\n".utf8))
+                    exit(3)
+                }
+            }
+        }
+        thread.start()
+    }
+
+    static func stop() { lock.lock(); running = false; lock.unlock() }
+}
+
 /// Drives History's controls the way a person does: native menus through real
 /// mouse events and their items, a day's ring through clicks. Exercised by
 /// `--self-test-ui` on macOS CI.
@@ -11,6 +50,8 @@ private enum HistoryInteractionSmokeError: Error { case failed(String) }
 func runHistoryInteractionSmoke(model: AppModel) throws {
     // Every check always runs so one CI pass reports every broken interaction.
     var failures: [String] = []
+    HistorySmokeWatchdog.start()
+    defer { HistorySmokeWatchdog.stop() }
     let checks: [(String, () throws -> Void)] = [
         ("timescale menu in isolation", checkHistoryTimescaleMenu),
         ("timescale menu in the dashboard window", { try checkTimescaleInDashboard(model: model) }),
@@ -19,6 +60,7 @@ func runHistoryInteractionSmoke(model: AppModel) throws {
         ("day view disclosures", checkDayDisclosures),
     ]
     for (name, check) in checks {
+        HistorySmokeWatchdog.progress("start: \(name)")
         do { try check() } catch { failures.append("[\(name)] \(error)") }
     }
     if !failures.isEmpty { throw HistoryInteractionSmokeError.failed(failures.joined(separator: "\n--\n")) }
@@ -62,7 +104,10 @@ private struct SweepBudget {
 @MainActor
 private func pump(timeout: TimeInterval = 10, until finished: () -> Bool) -> Bool {
     let deadline = Date().addingTimeInterval(timeout)
-    while !finished(), Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.02)) }
+    while !finished(), Date() < deadline {
+        HistorySmokeWatchdog.progress("waiting on a condition")
+        RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+    }
     return finished()
 }
 
@@ -86,6 +131,7 @@ private func mouse(_ type: NSEvent.EventType, at point: NSPoint, in window: NSWi
     guard let event = NSEvent.mouseEvent(with: type, location: point, modifierFlags: [],
         timestamp: ProcessInfo.processInfo.systemUptime + delay, windowNumber: window.windowNumber, context: nil,
         eventNumber: 0, clickCount: count, pressure: type == .leftMouseDown ? 1 : 0) else { return }
+    HistorySmokeWatchdog.progress("sending \(type) at \(point)")
     window.sendEvent(event)
 }
 
@@ -94,6 +140,7 @@ private func mouse(_ type: NSEvent.EventType, at point: NSPoint, in window: NSWi
 @MainActor
 private func trackMenu(of popup: NSPopUpButton, trigger: () -> Void) -> [NSMenuItem]? {
     var items: [NSMenuItem]?
+    HistorySmokeWatchdog.progress("tracking a popup menu")
     // The timer only fires once the menu's tracking loop is running.
     let timer = Timer(timeInterval: 0.02, repeats: true) { _ in
         MainActor.assumeIsolated {
@@ -254,9 +301,17 @@ private func checkTimescalePublishes(model: AppModel) throws {
 
 // MARK: - Double-click a day
 
-private func accessibilityNodes(_ root: Any) -> [NSAccessibilityProtocol] {
-    guard let node = root as? NSAccessibilityProtocol else { return [] }
-    return [node] + (node.accessibilityChildren() ?? []).flatMap { accessibilityNodes($0) }
+private func accessibilityNodes(_ root: Any, limit: Int = 4_000) -> [NSAccessibilityProtocol] {
+    var seen = Set<ObjectIdentifier>(), found: [NSAccessibilityProtocol] = [], queue: [Any] = [root]
+    while !queue.isEmpty, found.count < limit {
+        HistorySmokeWatchdog.progress("walking the accessibility tree (\(found.count) nodes)")
+        let next = queue.removeFirst()
+        guard let object = next as? NSObject, seen.insert(ObjectIdentifier(object)).inserted,
+              let node = next as? NSAccessibilityProtocol else { continue }
+        found.append(node)
+        queue += node.accessibilityChildren() ?? []
+    }
+    return found
 }
 
 @MainActor
@@ -320,6 +375,7 @@ private func checkMonthDayOpening() throws {
     // Accessibility: the open action must be exposed on each day. SwiftUI only
     // builds its accessibility tree for an active client, so report what exists.
     let label = DateText.string(readDay, zone: zone, pattern: "EEEE, MMMM d")
+    HistorySmokeWatchdog.progress("looking for the day's accessibility element")
     let nodes = accessibilityNodes(host)
     guard let node = nodes.first(where: { $0.accessibilityLabel()?.hasPrefix(label) == true }) else {
         let labels = nodes.compactMap { $0.accessibilityLabel() }.prefix(12)
