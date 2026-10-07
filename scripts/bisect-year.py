@@ -9,7 +9,7 @@ def pct(v, p): v = sorted(v); return v[min(len(v) - 1, math.ceil(len(v) * p) - 1
 def run(app, path, **env):
     subprocess.run([str(app), '--benchmark-settled-ui', str(path)], env=dict(os.environ, STILLLEAF_BENCH_SCALES='year', **env), check=True, stdout=subprocess.DEVNULL)
     return json.loads(path.read_text())['samples']
-ROUNDS = int(os.environ.get('ROUNDS', '6'))
+ROUNDS = int(os.environ.get('ROUNDS', '0'))
 samples = {k: {m: [] for m in metrics} for k in apps}; perbatch = {k: [] for k in apps}
 labels = list(apps)
 for r in range(ROUNDS):
@@ -20,18 +20,18 @@ for r in range(ROUNDS):
         perbatch[label].append(statistics.median(s['settledMs'] for s in batch))
         for s in batch:
             for m in metrics: samples[label][m].append(s[m])
-base = {m: pct(samples['baseline'][m], .95) for m in metrics}
+base = {m: (pct(samples['baseline'][m], .95) if samples['baseline'][m] else 1) for m in metrics}
 lines = ['A/B: Year only, interleaved whole-process batches; p50 / p95 / p95 relative to baseline p95 (gate limit 1.10)']
 lines.append(f'{"build":18s} n   ' + ' '.join(f'{m[:16]:>24s}' for m in metrics))
 for label in labels:
+    if not samples[label][metrics[0]]: continue
     cells = []
     for m in metrics:
         v = samples[label][m]; cells.append(f'{statistics.median(v):6.0f}/{pct(v,.95):6.0f}/{pct(v,.95)/base[m]:4.2f}x')
     lines.append(f'{label:18s} {len(samples[label][metrics[0]]):3d} ' + ' '.join(f'{c:>24s}' for c in cells))
-lines.append('per-batch median settledMs: ' + '; '.join(f'{k}: ' + ' '.join(f'{x:.0f}' for x in v) for k, v in perbatch.items()))
-VARIANTS = ['none', 'plainLabel', 'captionText', 'titleFrame', 'labelOneText', 'totalsOneText', 'lazyColumns', 'plainLabel,totalsOneText,captionText']
+VARIANTS = ['none', 'labelOneText', 'oneTextSymbol', 'oneTextNoChevron', 'oneTextSymbol,totalsOneText', 'captionText']
 vs = {v: {m: [] for m in metrics} for v in VARIANTS}
-for r in range(int(os.environ.get('VROUNDS', '3'))):
+for r in range(int(os.environ.get('VROUNDS', '6'))):
     for s in run(apps['fix'], out / f'var-{r}.json', STILLLEAF_UI_BENCHMARK_SAMPLES=str(25 * len(VARIANTS)), STILLLEAF_YEAR_VARIANTS=';'.join('' if v == 'none' else v for v in VARIANTS)):
         for m in metrics: vs[s['variant'] or 'none'][m].append(s[m])
 none = {m: statistics.median(vs['none'][m]) for m in metrics}

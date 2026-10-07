@@ -88,6 +88,13 @@ struct AtlasYearView: View {
                         .lineLimit(4).multilineTextAlignment(.leading)
                 }.frame(width: Self.labelWidth, alignment: .leading)
             }
+        } else if PerfVariant.on("oneTextSymbol") || PerfVariant.on("oneTextNoChevron") {
+            RecordedDateMenu(dates: row.recordedDates, timezoneID: navigation.timezoneID, bookTitle: title(id), select: select) {
+                HStack(spacing: 10) {
+                    BookCoverView(book: presentation.booksByID[id], size: .compact).scaleEffect(0.62).frame(width: 33, height: 46)
+                    labelText(row, chevron: PerfVariant.on("oneTextSymbol"))
+                }.frame(width: Self.labelWidth, alignment: .leading)
+            }
         } else if PerfVariant.on("captionText") {
             RecordedDateMenu(dates: row.recordedDates, timezoneID: navigation.timezoneID, bookTitle: title(id), select: select) {
                 HStack(spacing: 10) {
@@ -122,6 +129,15 @@ struct AtlasYearView: View {
         } else {
             standardLabel(row)
         }
+    }
+
+    private func labelText(_ row: AtlasYearRow, chevron: Bool) -> some View {
+        let secondary = ReadingPalette.secondaryInk
+        let count = row.recordedDates.count
+        let caption = Text("\(count) \(count == 1 ? "date" : "dates")").font(.caption2).foregroundColor(secondary)
+        let tail = chevron ? caption + Text(" ") + Text(Image(systemName: "chevron.down")).font(.system(size: 8, weight: .medium)).foregroundColor(secondary) : caption
+        return (Text(title(row.id)).font(.system(size: 13, weight: .medium)) + Text("\n") + tail)
+            .lineSpacing(3).lineLimit(4).multilineTextAlignment(.leading)
     }
 
     private func standardLabel(_ row: AtlasYearRow) -> some View {
