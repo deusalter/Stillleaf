@@ -223,6 +223,9 @@ func renderUIPreviews(to destination: URL) throws {
                                  to: destination.appendingPathComponent("today-compact-\(dark ? "dark" : "light").png"))
         }
     }
+    if filter?.contains("reader-controls") == true || filter == nil {
+        try renderReaderControlPreviews(to: destination.appendingPathComponent("reader-controls", isDirectory: true))
+    }
     if filter != nil { return }
     if CommandLine.arguments.contains("--all-themes") {
         try renderThemePreviews(model: model, to: destination.appendingPathComponent("themes", isDirectory: true))
