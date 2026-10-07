@@ -1,4 +1,5 @@
 import {nativeChromeAdapter} from './native-chrome';
+import {displayTitle,outlinePayload,bookmarkRows,noteRows,searchRow} from './panel-data';
 import {EpubNavigator,EpubPreferences,DecorationStyleType} from '@readium/navigator';
 import {Manifest,Publication,Locator} from '@readium/shared';
 import {PublicationResources,PublicationFetcher} from './resources';
@@ -587,28 +588,43 @@ for(const dialog of document.querySelectorAll('dialog')){
 }
 function button(text,cls,action){const node=document.createElement('button');node.type='button';node.className=cls;node.textContent=text;node.onclick=action;return node}
 function empty(parent,text){const p=document.createElement('p');p.className='empty-panel';p.textContent=text;parent.append(p)}
+// The book's navigation as plain entries: its table of contents (or the reading order), plus any landmarks and printed pages.
+function outlineEntries(){
+ const convert=(links,depth=0)=>depth>12?[]:links.slice(0,2000).map(link=>{
+  const locator=linkLocator(link);
+  return {title:link.title||(locator?headingFor(locator.href):'Untitled section'),locator,children:Array.isArray(link.children)&&link.children.length?convert(link.children,depth+1):undefined};
+ });
+ const entries=convert(Array.isArray(input.toc)&&input.toc.length?input.toc:input.readingOrder);
+ const groups=[['landmarks','Landmarks'],['pageList','Printed pages']].filter(([key])=>Array.isArray(input[key])&&input[key].length);
+ return [...entries,...groups.map(([key,label])=>({title:label,locator:null,group:true,children:convert(input[key])}))];
+}
 function renderPanel(tab=activeTab){
  activeTab=tab;$('panel-title').textContent=tab==='notes'?'Highlights and notes':'Your place in the book';const body=$('panel-body');body.replaceChildren();body.setAttribute('aria-labelledby','tab-'+tab);
  for(const key of ['contents','bookmarks','notes']){$('tab-'+key).setAttribute('aria-selected',String(key===tab));$('tab-'+key).tabIndex=key===tab?0:-1}
  if(tab==='contents'){
-  const renderLinks=(links,parent,depth=0)=>{
-   if(depth>12)return;
-   const list=document.createElement('ol');list.className='contents-tree';parent.append(list);
-   for(const link of links.slice(0,2000)){
-    const item=document.createElement('li');list.append(item);const locator=linkLocator(link);
-    const title=link.title|| (locator?headingFor(locator.href):'Untitled section');
-    const row=button(title,'chapter-button',()=>{closeDialog($('library-panel'));if(locator)void go(locator);else notice('This section cannot be opened in this reader.')});
-    if(locator?.href===lastLocator?.href)row.setAttribute('aria-current','true');
-    if(!locator)row.setAttribute('aria-description','This section has no supported local target.');item.append(row);
-    if(Array.isArray(link.children)&&link.children.length)renderLinks(link.children,item,depth+1);
+  const {rows,targets}=outlinePayload(outlineEntries(),{isCurrent:locator=>locator.href===lastLocator?.href});
+  const open=row=>{const locator=targets.get(row.id);closeDialog($('library-panel'));if(locator)void go(locator);else notice('This section cannot be opened in this reader.')};
+  // Nested chapters fold under their parent with a disclosure button, like the native outline.
+  const renderRows=(list,parent)=>{
+   const ol=document.createElement('ol');ol.className='contents-tree';parent.append(ol);
+   for(const row of list){
+    const item=document.createElement('li');ol.append(item);const line=document.createElement('div');line.className='contents-line';item.append(line);
+    const nested=Array.isArray(row.children)&&row.children.length>0;let sub;
+    const toggle=document.createElement('button');toggle.type='button';toggle.className='disclosure';
+    if(nested){toggle.setAttribute('aria-expanded','true');toggle.setAttribute('aria-label','Show or hide sections in '+row.title);toggle.onclick=()=>{const on=toggle.getAttribute('aria-expanded')!=='true';toggle.setAttribute('aria-expanded',String(on));sub.hidden=!on}}
+    else{toggle.disabled=true;toggle.tabIndex=-1;toggle.setAttribute('aria-hidden','true')}
+    const label=button(row.title,'chapter-button',()=>open(row));
+    if(row.current)label.setAttribute('aria-current','true');
+    if(!row.openable)label.setAttribute('aria-description','This section has no supported local target.');
+    line.append(toggle,label);
+    if(nested){renderRows(row.children,item);sub=item.lastElementChild}
    }
   };
-  renderLinks(Array.isArray(input.toc)&&input.toc.length?input.toc:input.readingOrder,body);
-  for(const [key,label]of [['landmarks','Landmarks'],['pageList','Printed pages']])if(Array.isArray(input[key])&&input[key].length){const section=document.createElement('details');section.className='navigation-group';const summary=document.createElement('summary');summary.textContent=label;section.append(summary);body.append(section);renderLinks(input[key],section);}
-
+  renderRows(rows.filter(row=>!row.group),body);
+  for(const group of rows.filter(row=>row.group)){const section=document.createElement('details');section.className='navigation-group';const summary=document.createElement('summary');summary.textContent=group.title;section.append(summary);body.append(section);renderRows(group.children??[],section)}
  }else if(tab==='bookmarks'){
   if(!state.bookmarks.length)empty(body,'Keep a place to return to. Use the bookmark button while you read.');
-  for(const item of state.bookmarks){const article=document.createElement('article');article.className='saved-item';const jump=button(item.label,'saved-link',()=>{closeDialog($('library-panel'));void go(item.locator)});const date=document.createElement('small');date.textContent=new Date(item.createdAt).toLocaleDateString(undefined,{month:'short',day:'numeric'});jump.append(date);const remove=button('×','remove-saved',()=>{state.bookmarks=state.bookmarks.filter(x=>x.id!==item.id);changed();updatePosition();renderPanel()});remove.setAttribute('aria-label','Remove bookmark: '+item.label);article.append(jump,remove);body.append(article)}
+  for(const item of state.bookmarks){const article=document.createElement('article');article.className='saved-item';const jump=button(displayTitle(item.label),'saved-link',()=>{closeDialog($('library-panel'));void go(item.locator)});const date=document.createElement('small');date.textContent=new Date(item.createdAt).toLocaleDateString(undefined,{month:'short',day:'numeric'});jump.append(date);const remove=button('×','remove-saved',()=>{state.bookmarks=state.bookmarks.filter(x=>x.id!==item.id);changed();updatePosition();renderPanel()});remove.setAttribute('aria-label','Remove bookmark: '+item.label);article.append(jump,remove);body.append(article)}
  }else{
   if(!state.annotations.length)empty(body,'Select a passage in the book to highlight it or leave yourself a note.');
   for(const item of state.annotations){const article=document.createElement('article');article.className='saved-item annotation-item';article.style.setProperty('--note-color',colors[item.color]??colors.gold);const jump=button('“'+item.quote+'”','saved-link',()=>{closeDialog($('library-panel'));void go(item.locator)});article.append(jump);if(item.note){const note=document.createElement('p');note.className='note-excerpt';note.textContent=item.note;article.append(note)}article.append(button(item.note?'Edit note':'Add a note','edit-note',()=>editNote(item)));body.append(article)}
@@ -722,23 +738,37 @@ installPageTurnWheel(window,{gesture:pageTurnGesture,enabled:event=>{
  const r=$('reader').getBoundingClientRect();
  return Boolean(state&&!state.preferences.scroll&&!document.querySelector('dialog[open]')&&event.clientX>=r.left&&event.clientX<=r.right&&event.clientY>=r.top&&event.clientY<=r.bottom);
 },rtl:()=>input?.readingProgression==='rtl'||navigator?.readingProgression==='rtl',turn});
-async function searchBook(){
- const query=$('search-query').value.trim(),generation=++searchGeneration;const results=$('search-results');results.replaceChildren();
- if(query.length<2){$('search-status').textContent='Enter at least two characters.';return}
- $('search-status').textContent='Searching…';let found=0;
+// Walks the book for passages containing `query`, handing each to `emit` as it is found. Returns the
+// number found, or null if a newer search superseded this one.
+async function searchPassages(query,generation,emit){
+ let found=0;
  for(const link of input.readingOrder){
-  if(generation!==searchGeneration)return;
+  if(generation!==searchGeneration)return null;
   let doc;try{doc=new DOMParser().parseFromString(await pool.chapter(link.href),'text/html')}catch{continue}
-  if(generation!==searchGeneration)return;
+  if(generation!==searchGeneration)return null;
   const candidates=[...doc.querySelectorAll('h1,h2,h3,p,li,blockquote,pre,td,dd,dt')].filter(x=>!x.querySelector('h1,h2,h3,p,li,blockquote,pre,td,dd,dt'));
   for(const element of candidates){
    const text=element.textContent,index=text.toLocaleLowerCase().indexOf(query.toLocaleLowerCase());if(index<0)continue;
-   const highlight=text.slice(index,index+query.length);const locator={href:link.href,type:'text/html',locations:{cssSelector:selectorFor(element)},text:{highlight,before:text.slice(Math.max(0,index-60),index),after:text.slice(index+query.length,index+query.length+60)}};
-   const row=button('','result-link',()=>{closeDialog($('search-panel'));void go(locator)});row.append(document.createTextNode((index>45?'…':'')+text.slice(Math.max(0,index-45),index)));const mark=document.createElement('mark');mark.textContent=highlight;row.append(mark,document.createTextNode(text.slice(index+query.length,index+query.length+70)+(text.length>index+query.length+70?'…':'')));const chapter=document.createElement('small');chapter.textContent=headingFor(link.href);row.append(chapter);results.append(row);if(++found>=200)break;
+   const match=text.slice(index,index+query.length),end=index+query.length;
+   emit({locator:{href:link.href,type:'text/html',locations:{cssSelector:selectorFor(element)},text:{highlight:match,before:text.slice(Math.max(0,index-60),index),after:text.slice(end,end+60)}},
+    before:(index>45?'…':'')+text.slice(Math.max(0,index-45),index),match,after:text.slice(end,end+70)+(text.length>end+70?'…':''),chapter:headingFor(link.href)});
+   if(++found>=200)break;
   }
   if(found>=200)break;await new Promise(resolve=>setTimeout(resolve,0));
  }
- if(generation===searchGeneration)$('search-status').textContent=found?`${found===200?'First ':''}${found} ${found===1?'matching passage':'matching passages'}`:'No matching passages.';
+ return found;
+}
+const searchSummary=found=>found?`${found===200?'First ':''}${found} ${found===1?'matching passage':'matching passages'}`:'No matching passages.';
+async function searchBook(){
+ const query=$('search-query').value.trim(),generation=++searchGeneration;const results=$('search-results');results.replaceChildren();
+ if(query.length<2){$('search-status').textContent='Enter at least two characters.';return}
+ $('search-status').textContent='Searching…';
+ const found=await searchPassages(query,generation,({locator,before,match,after,chapter})=>{
+  const row=button('','result-link',()=>{closeDialog($('search-panel'));void go(locator)});row.append(document.createTextNode(before));
+  const mark=document.createElement('mark');mark.textContent=match;row.append(mark,document.createTextNode(after));
+  const caption=document.createElement('small');caption.textContent=displayTitle(chapter);row.append(caption);results.append(row);
+ });
+ if(found!==null&&generation===searchGeneration)$('search-status').textContent=searchSummary(found);
 }
 // Route Readium's existing edge taps through the same motion/evidence path.
 function pageEdgeTap(event){
@@ -809,6 +839,36 @@ async function close(){
  for(const dialog of document.querySelectorAll('dialog[open]'))dialog.close();
  const current=navigator;navigator=undefined;navigationCompletion.dispose(current);await preferenceQueue.catch(()=>{});await destroyNavigator(current);await paginationClosed?.catch(()=>{});pool?.close();pool=undefined;state=undefined;lastLocator=undefined;selection=undefined;$('selection-tools').hidden=true;$('notice').hidden=true;editingNote=undefined;return true;
 }
+// Rows for the native host's panels. Ids are only meaningful until the next request of the same kind,
+// and the host sends them back instead of locators, so it can only open places the book really has.
+let hostOutline=new Map(),hostResults=new Map();
+const unavailable=()=>Error('That item is not available.');
+function hostPanel(name){
+ if(name==='outline'){const {rows,targets}=outlinePayload(outlineEntries(),{isCurrent:locator=>locator.href===lastLocator?.href});hostOutline=targets;return {name,rows,empty:'This book has no table of contents.'}}
+ if(name==='bookmarks')return {name,rows:bookmarkRows(state.bookmarks),empty:'Keep a place to return to. Use the bookmark button while you read.'};
+ return {name,rows:noteRows(state.annotations,colors),empty:'Select a passage in the book to highlight it or leave yourself a note.'};
+}
+async function hostFind(query){
+ const text=query.trim(),generation=++searchGeneration;hostResults=new Map();
+ if(text.length<2)return {name:'search',query,rows:[],status:'Enter at least two characters.'};
+ const rows=[],targets=new Map();
+ const found=await searchPassages(text,generation,hit=>{const id='r'+rows.length;targets.set(id,hit.locator);rows.push(searchRow(id,hit.before,hit.match,hit.after,hit.chapter))});
+ if(found===null)return {name:'search',query,rows:[],stale:true};
+ hostResults=targets;return {name:'search',query,rows,status:searchSummary(found)};
+}
+async function hostGo(kind,id){
+ const locator=kind==='outline'?hostOutline.get(id):kind==='result'?hostResults.get(id):kind==='bookmark'?state.bookmarks.find(x=>x.id===id)?.locator:state.annotations.find(x=>x.id===id)?.locator;
+ if(!locator)throw unavailable();
+ if(!await go(locator))throw Error('That place could not be opened.');
+}
+function hostRemove(kind,id){
+ if(kind==='bookmark'){
+  if(!state.bookmarks.some(x=>x.id===id))throw unavailable();
+  state.bookmarks=state.bookmarks.filter(x=>x.id!==id);changed();updatePosition();return hostPanel('bookmarks');
+ }
+ if(!state.annotations.some(x=>x.id===id))throw unavailable();
+ removeAnnotation(id);return hostPanel('notes');
+}
 let nativeDefinitionCache;
 function nativeDefinitions(){
  if(nativeDefinitionCache)return nativeDefinitionCache;
@@ -837,6 +897,11 @@ const nativeChrome=nativeChromeAdapter({edition:()=>input?.editionId,ready:()=>B
   if(command==='reset')return setPreferences(DEFAULT_PREFERENCES);
   if(document.querySelector('dialog[open]')&&!['policy'].includes(command))throw Error('Finish the open reader panel before using this control.');
   if(command==='next'||command==='previous')return turn(command);
+  if(command==='panel')return {panel:hostPanel(payload.name)};
+  if(command==='find')return {panel:await hostFind(payload.query)};
+  if(command==='go')return hostGo(payload.kind,payload.id);
+  if(command==='remove')return {panel:hostRemove(payload.kind,payload.id)};
+  if(command==='editNote'){const item=state.annotations.find(x=>x.id===payload.id);if(!item)throw unavailable();return editNote(item)}
   if(command==='contents'){renderPanel('contents');showDialog('library-panel','tab-contents')}
   if(command==='notes')openAnnotations();
   if(command==='search')showDialog('search-panel','search-query');
