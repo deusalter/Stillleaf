@@ -8,26 +8,44 @@ struct AppearancePicker: View {
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 34) {
-            ReadingSection("Display mode") {
-                VStack(alignment: .leading, spacing: 10) {
-                    ReadingSegmentedControl(
-                        label: "Display mode",
-                        options: DashboardAppearance.allCases,
-                        selection: Binding(get: { store.appearanceMode }, set: { store.select(appearance: $0) }),
-                        title: { $0.label },
-                        systemImage: { mode in
-                            switch mode {
-                            case .system: return "desktopcomputer"
-                            case .light: return "sun.max"
-                            case .dark: return "moon"
+        VStack(alignment: .leading, spacing: ReadingMetrics.Space.xl) {
+            ReadingSection("Display") {
+                VStack(spacing: 0) {
+                    SettingsRow(title: "Appearance", description: "System follows your Mac’s appearance.") {
+                        GlassSegmentedControl(
+                            label: "Display mode",
+                            options: DashboardAppearance.allCases,
+                            selection: Binding(get: { store.appearanceMode }, set: { store.select(appearance: $0) }),
+                            title: { $0.label },
+                            systemImage: { mode in
+                                switch mode {
+                                case .system: return "desktopcomputer"
+                                case .light: return "sun.max"
+                                case .dark: return "moon"
+                                }
                             }
-                        }
-                    )
-                    .frame(maxWidth: 380)
-                    .accessibilityIdentifier("dashboard-appearance-mode")
-                    Text("System follows your Mac’s appearance.")
-                        .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
+                        )
+                        .frame(width: 390)
+                        .accessibilityIdentifier("dashboard-appearance-mode")
+                    }
+                    SettingsDivider()
+                    SettingsRow(title: "Garden", description: "Animated vines grow when a window opens, then breathe. Still shows them without motion. Reduce Motion and Low Power use Still.") {
+                        GlassSegmentedControl(
+                            label: "Garden",
+                            options: GardenMode.allCases,
+                            selection: Binding(get: { store.gardenMode }, set: { store.select(garden: $0) }),
+                            title: { $0.label },
+                            systemImage: { mode in
+                                switch mode {
+                                case .animated: return "leaf"
+                                case .still: return "pause.circle"
+                                case .off: return "circle.slash"
+                                }
+                            }
+                        )
+                        .frame(width: 390)
+                        .accessibilityIdentifier("dashboard-garden-mode")
+                    }
                 }
             }
             ReadingSection("Theme") {
@@ -40,31 +58,9 @@ struct AppearancePicker: View {
                     }
                 }
             }
-            ReadingSection("Garden") {
-                VStack(alignment: .leading, spacing: 10) {
-                    ReadingSegmentedControl(
-                        label: "Garden",
-                        options: GardenMode.allCases,
-                        selection: Binding(get: { store.gardenMode }, set: { store.select(garden: $0) }),
-                        title: { $0.label },
-                        systemImage: { mode in
-                            switch mode {
-                            case .animated: return "leaf"
-                            case .still: return "pause.circle"
-                            case .off: return "circle.slash"
-                            }
-                        }
-                    )
-                    .frame(maxWidth: 380)
-                    .accessibilityIdentifier("dashboard-garden-mode")
-                    Text("Animated vines grow when a window opens, then breathe. Still shows them without motion. Reduce Motion and Low Power use Still.")
-                        .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
             ReadingSection("Accent") {
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack(spacing: 12) {
+                SettingsRow(title: accentName, description: "Tints buttons, selections and the vines.") {
+                    HStack(spacing: 8) {
                         AccentDot(name: "Theme default", color: ReadingPalette.fixed(store.theme.colors(dark: colorScheme == .dark, accent: nil).accent),
                                   selected: store.accentID == nil, showsDefaultMark: true) { store.select(accent: nil) }
                         ForEach(AccentPreset.all) { accent in
@@ -75,6 +71,10 @@ struct AppearancePicker: View {
                 }
             }
         }
+    }
+
+    private var accentName: String {
+        AccentPreset.all.first { $0.id == store.accentID }?.name ?? "Theme default"
     }
 }
 
