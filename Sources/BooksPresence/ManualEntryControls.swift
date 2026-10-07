@@ -6,7 +6,7 @@ import BooksPlatform
 // be swapped for the shared Settings segmented/stepper components when those land.
 
 /// A glass track with a sliding accent pill behind the chosen option.
-struct GlassSegmentedControl<Value: Hashable>: View {
+struct ManualSegmentedControl<Value: Hashable>: View {
     let label: String
     let options: [Value]
     @Binding var selection: Value

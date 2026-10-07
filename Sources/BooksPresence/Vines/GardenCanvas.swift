@@ -519,7 +519,7 @@ extension GardenModel {
         let pixelsPerPoint = Double(cg.width) / max(1, sharp.size.width) * Self.frostDownscale
         let input = CIImage(cgImage: cg).transformed(by: CGAffineTransform(scaleX: Self.frostDownscale, y: Self.frostDownscale))
         let output = input.clampedToExtent()
-            .applyingGaussianBlur(sigma: 3.5 * pixelsPerPoint)
+            .applyingGaussianBlur(sigma: 2.8 * pixelsPerPoint)
             .applyingFilter("CIColorControls", parameters: [kCIInputSaturationKey: 1.6, kCIInputBrightnessKey: 0.0])
             .cropped(to: input.extent)
         guard let blurred = Self.imageContext.createCGImage(output, from: input.extent) else { return nil }

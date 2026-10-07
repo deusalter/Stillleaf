@@ -862,7 +862,7 @@ private func checkDottedProgressRow() throws {
 
 
 /// The garden recolours when the theme changes, keeps its growth across a
-/// History clearing change, and the menu panel's vine stays in its trailing padding.
+/// History clearing change, and the menu panel's vines stay in their gutters.
 @MainActor
 private func checkGardenFollowsThemeAndNavigation() throws {
     let previousFrozen = GardenClock.frozenTime
@@ -915,15 +915,36 @@ private func checkGardenFollowsThemeAndNavigation() throws {
         throw BooksAccessErrorForUI.failed("Visiting History regrew the garden from scratch")
     }
 
-    for seed in UInt32(1)...UInt32(7) {
-        var panel = GardenModel.plant(GardenLayout(size: CGSize(width: 350, height: 520), seed: seed, roots: 0, pollen: false,
-                                                   cornerRoots: [.bottomTrailing, .topTrailing], budget: 200, edgeBand: 2, bandEdges: [.trailing]))
-        panel.growToCompletion(limit: 2_000)
-        guard panel.cells.values.allSatisfy({ $0.x >= panel.columns - 2 }) else {
-            throw BooksAccessErrorForUI.failed("The menu panel vine left its trailing padding on day seed \(seed)")
+    // The menu panel's garden: a trellis confined to the top and bottom bands, plus a vine up each side,
+    // on every day's seed. Cards fill the middle, so nothing may grow there, and the garden must be real.
+    var blooms = 0
+    for dayIndex in 0..<60 {
+        let day = String(format: "2026-%02d-%02d", 1 + dayIndex / 28, 1 + dayIndex % 28)
+        var trellisLayout = MenuPanelGarden.trellis(day: day)
+        trellisLayout.size = CGSize(width: 350, height: 560)
+        var trellis = GardenModel.plant(trellisLayout)
+        trellis.growToCompletion(limit: 4_000)
+        let band = MenuPanelGarden.trellisBand
+        guard trellis.cells.values.allSatisfy({ $0.y < band || $0.y >= trellis.rows - band }) else {
+            throw BooksAccessErrorForUI.failed("The menu panel trellis grew into the card area on \(day)")
+        }
+        guard trellis.cells.count >= 60 else {
+            throw BooksAccessErrorForUI.failed("The menu panel trellis is too sparse on \(day): \(trellis.cells.count) cells")
+        }
+        blooms += trellis.cells.values.filter { $0.kind == .bloom }.count
+        for side in [MenuPanelGarden.Side.leading, .trailing] {
+            var layout = MenuPanelGarden.side(side, day: day)
+            layout.size = CGSize(width: MenuPanelGarden.sideWidth, height: 560 - 2 * CGFloat(band) * CGFloat(GardenModel.cellHeight))
+            var vine = GardenModel.plant(layout)
+            vine.growToCompletion(limit: 4_000)
+            guard vine.cells.count >= 20, vine.cells.values.map(\.y).max()! - vine.cells.values.map(\.y).min()! > vine.rows / 2 else {
+                throw BooksAccessErrorForUI.failed("The menu panel \(side) vine does not climb the side on \(day)")
+            }
+            blooms += vine.cells.values.filter { $0.kind == .bloom }.count
         }
     }
-    print("ui-smoke: garden recolours with the theme, survives History's clearing, and keeps the panel vine in its padding")
+    guard blooms > 0 else { throw BooksAccessErrorForUI.failed("The menu panel garden never blooms") }
+    print("ui-smoke: garden recolours with the theme, survives History's clearing, and grows the menu panel trellis and side vines in their gutters")
 }
 
 /// Dev-tool launches stay out of the way unless asked to come forward or running on CI.

@@ -16,6 +16,7 @@ import {syncTypographyChoices} from './appearance-choices';
 import {fontCSS,installFont,contrast} from './bundled-fonts';
 import {DEFAULT_PREFERENCES,preferences,restoreState,selectorFor,rangePoint} from './state';
 import {installGarden} from './garden';
+import {backdropColor,cardColors} from './vines';
 import {THEMES,FONTS,MARGINS,resolveTheme,fontStack,fontAvailable,marginMetrics,averageCharacterWidth} from './appearance';
 
 const $=id=>document.getElementById(id);
@@ -36,8 +37,8 @@ const deferredAnnotationHrefs=new Set();
 let deferredAnnotationDocuments=new WeakSet();
 const backgroundActivity=()=>{backgroundQuietUntil=performance.now()+350;garden.activity()};
 // Vines in the empty margins and the facing-page gap; they freeze while the reader scrolls.
-const garden=installGarden({canvas:$('garden'),spine:$('garden-spine'),viewport:$('reading-viewport'),
- chrome:()=>[...document.querySelectorAll('.reader-bar,.reading-footer')],
+const garden=installGarden({canvas:$('garden'),spine:$('garden-spine'),footer:$('garden-footer'),percent:$('footer-percent'),viewport:$('reading-viewport'),
+ chrome:()=>[...document.querySelectorAll('.reader-bar,.footer-navigation,.footer-pill')],
  layout:()=>({columns:effectiveColumns(),gutter:state?readingMargins().gutter:0,scroll:Boolean(state?.preferences.scroll)}),
  enabled:()=>Boolean(state)&&state.preferences.vines!=='off',edition:()=>input?.editionId??''});
 for(const type of ['wheel','scroll','pointerdown','keydown','input'])window.addEventListener(type,backgroundActivity,{capture:true,passive:true});
@@ -340,7 +341,8 @@ function readingWidth(){
 }
 function applyChromeTheme(t){
  const root=document.documentElement.style;root.colorScheme=t.scheme;
- for(const [name,value]of [['chrome',t.chrome],['paper',t.background],['ink',t.text],['muted',t.muted],['accent',t.link],['line',t.text+(t.scheme==='dark'?'20':'1c')],['hover',t.scheme==='dark'?'#ffffff0d':t.text+'0f'],['panel',t.panel]])root.setProperty('--'+name,value);
+ const card=cardColors(t.background,t.text);
+ for(const [name,value]of [['chrome',t.chrome],['paper',t.background],['ink',t.text],['muted',t.muted],['accent',t.link],['line',t.text+(t.scheme==='dark'?'20':'1c')],['hover',t.scheme==='dark'?'#ffffff0d':t.text+'0f'],['panel',t.panel],['backdrop',backdropColor(t.background,t.text)],['card-fold',card.fold],['card-rule',card.rule],['card-shadow',card.shadow]])root.setProperty('--'+name,value);
 }
 function renderVinesControl(){
  const vines=$('vines');

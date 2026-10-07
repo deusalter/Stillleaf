@@ -121,7 +121,7 @@ struct ManualAdditionView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             ReadingSheetHeader(title: "Add reading time", subtitle: nil, close: { dismiss() })
-            GlassSegmentedControl(label: "What are you logging?", options: ManualEntryKind.allCases,
+            ManualSegmentedControl(label: "What are you logging?", options: ManualEntryKind.allCases,
                                   selection: $draft.kind, title: { $0.rawValue },
                                   systemImage: { $0 == .book ? "book" : "headphones" })
                 .onChange(of: draft.kind) { _ in switchKind() }
@@ -171,7 +171,7 @@ struct ManualAdditionView: View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 14) {
                 Text("What did you read?").font(.headline)
-                GlassSegmentedControl(label: "What did you read?", options: ManualContent.allCases,
+                ManualSegmentedControl(label: "What did you read?", options: ManualContent.allCases,
                                       selection: $draft.content, title: { $0.rawValue })
                 if draft.includesTime { lengthControls }
                 if draft.includesPages { pageControls }
@@ -232,7 +232,7 @@ struct ManualAdditionView: View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Pages").font(.subheadline.weight(.semibold)).foregroundStyle(ReadingPalette.secondaryInk)
             if totalPages != nil {
-                GlassSegmentedControl(label: "How to enter pages", options: ManualPagesStyle.allCases,
+                ManualSegmentedControl(label: "How to enter pages", options: ManualPagesStyle.allCases,
                                       selection: $draft.pagesStyle, title: { $0.rawValue })
             }
             if draft.pagesStyle == .count || totalPages == nil {
