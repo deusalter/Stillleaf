@@ -15,6 +15,11 @@ const book = {
   resources: [['one.html', 'The shore'], ['two.html', 'The long water'], ['three.html', 'Evening']].map(([href, title]) => ({href, type: 'text/html', dataBase64: Buffer.from(chapter(title)).toString('base64')})),
 };
 
+async function emulateTransparency(page, value) {
+  const session = await page.context().newCDPSession(page);
+  await session.send('Emulation.setEmulatedMedia', {features: [{name: 'prefers-reduced-transparency', value}]});
+}
+
 async function launch(t, viewport = {width: 1100, height: 860}) {
   const root = path.resolve(import.meta.dirname, '../dist');
   const server = createServer(async (req, res) => {
@@ -31,6 +36,8 @@ async function launch(t, viewport = {width: 1100, height: 860}) {
     : await chromium.launch({executablePath: process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', headless: true});
   t.after(() => browser.close());
   const page = await browser.newPage({viewport, reducedMotion: 'reduce'});
+  // The host's own Reduce Transparency setting (CI runners have it on) must not decide what these tests see.
+  if (browser.browserType() === chromium) await emulateTransparency(page, 'no-preference');
   await page.goto(`http://127.0.0.1:${server.address().port}/index.html`);
   await page.evaluate(input => window.StillleafReader.open(input), book);
   await mkdir(output, {recursive: true});
@@ -85,6 +92,7 @@ test('appearance panel is grouped, with advanced typography behind a disclosure'
 
 test('every panel shares one light glass surface and header', {timeout: 90000}, async t => {
   const page = await launch(t);
+  const browser = page.context().browser();
   const seen = [];
   for (const panel of PANELS) {
     await page.locator(panel.trigger).click();
@@ -100,7 +108,17 @@ test('every panel shares one light glass surface and header', {timeout: 90000}, 
     for (const key of ['filter', 'background', 'radius', 'shadow', 'border', 'headingSize', 'headingWeight', 'headingPad']) assert.equal(s[key], seen[0][key], `${s.name} shares ${key}`);
     assert.match(s.shadow, /inset/, `${s.name} has a crisp inner rim`);
   }
-  // Reduced transparency makes the same surface opaque.
+  // Reduced transparency makes the same surface opaque, whether the host or the system asks for it.
+  if (browser.browserType() === chromium) {
+    await emulateTransparency(page, 'reduce');
+    for (const panel of PANELS) {
+      await page.locator(panel.trigger).click();
+      const s = await surface(page, panel.id);
+      assert.ok(!/blur/.test(s.filter) && parseColor(s.background).alpha === 1, `${panel.name} is opaque under prefers-reduced-transparency`);
+      await page.keyboard.press('Escape');
+    }
+    await emulateTransparency(page, 'no-preference');
+  }
   await page.evaluate(() => document.body.classList.add('native-reduceTransparency'));
   for (const panel of PANELS) {
     await page.locator(panel.trigger).click();
