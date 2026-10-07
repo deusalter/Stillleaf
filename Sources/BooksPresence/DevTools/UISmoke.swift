@@ -8,6 +8,7 @@ import CSQLite
 /// Explicit developer-only self-check. Uses temporary synthetic history and an isolated defaults suite.
 @MainActor
 func runUISmoke() throws {
+    if ProcessInfo.processInfo.environment["STILLLEAF_MEASURE_GARDEN"] != nil { try measureGardenCPU(); return }
     try checkBackgroundUIPolicy()
     try checkFormSaveResults()
     try checkHistoryDateFormatting()
@@ -422,6 +423,7 @@ func runUISmoke() throws {
         throw BooksAccessErrorForUI.failed("Tour steps do not visibly grow the garden: \(counts)")
     }
     try checkGardenFollowsThemeAndNavigation()
+    try checkGardenRenderEfficiency()
     print("ui-smoke: garden mode defaults to animated, persists, and stills for Reduce Motion and Low Power")
     store.select(theme: "stillleaf")
     print("ui-smoke: \(ReadingTheme.all.count) themes persisted, fell back, passed contrast and laid out popover, timeline and appearance")
