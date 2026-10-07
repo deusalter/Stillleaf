@@ -121,9 +121,10 @@ struct ManualAdditionView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             ReadingSheetHeader(title: "Add reading time", subtitle: nil, close: { dismiss() })
-            ManualSegmentedControl(label: "What are you logging?", options: ManualEntryKind.allCases,
+            GlassSegmentedControl(label: "What are you logging?", options: ManualEntryKind.allCases,
                                   selection: $draft.kind, title: { $0.rawValue },
-                                  systemImage: { $0 == .book ? "book" : "headphones" })
+                                  systemImage: { $0 == .book ? "book" : "headphones" },
+                                  style: .navigation, onGlass: true)
                 .onChange(of: draft.kind) { _ in switchKind() }
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
@@ -141,7 +142,7 @@ struct ManualAdditionView: View {
         .padding(26)
         .frame(width: 540, height: min(maximumHeight, max(420, (NSScreen.main?.visibleFrame.height ?? 800) - 100)))
         .background(ReadingPalette.canvas).foregroundStyle(ReadingPalette.ink)
-        .tint(ReadingPalette.accent).textFieldStyle(ReadingTextFieldStyle())
+        .tint(ReadingPalette.accent).textFieldStyle(GlassTextFieldStyle())
         .buttonStyle(ReadingButtonStyle())
         .onChange(of: choice) { _ in saveError = nil; trimPagesStyle() }
         .onChange(of: draft) { _ in saveError = nil }
@@ -171,7 +172,7 @@ struct ManualAdditionView: View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 14) {
                 Text("What did you read?").font(.headline)
-                ManualSegmentedControl(label: "What did you read?", options: ManualContent.allCases,
+                GlassSegmentedControl(label: "What did you read?", options: ManualContent.allCases,
                                       selection: $draft.content, title: { $0.rawValue })
                 if draft.includesTime { lengthControls }
                 if draft.includesPages { pageControls }
@@ -202,7 +203,7 @@ struct ManualAdditionView: View {
             } else {
                 HStack(spacing: 8) {
                     ForEach(DurationPreset.allCases, id: \.self) { preset in
-                        GlassChip(title: preset.label, isSelected: draft.preset == preset) { draft.preset = preset }
+                        ManualChip(title: preset.label, isSelected: draft.preset == preset) { draft.preset = preset }
                     }
                 }
                 if draft.preset == .custom { customLength }
@@ -212,7 +213,7 @@ struct ManualAdditionView: View {
 
     private var customLength: some View {
         HStack(spacing: 10) {
-            GlassStepper(decrementLabel: "Five minutes shorter", incrementLabel: "Five minutes longer",
+            ManualStepper(decrementLabel: "Five minutes shorter", incrementLabel: "Five minutes longer",
                          decrement: { nudgeCustom(by: -5) }, increment: { nudgeCustom(by: 5) }) {
                 TextField("1h 20m", text: $draft.customDuration).textFieldStyle(.plain)
                     .font(.system(size: 14, weight: .medium).monospacedDigit())
@@ -232,7 +233,7 @@ struct ManualAdditionView: View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Pages").font(.subheadline.weight(.semibold)).foregroundStyle(ReadingPalette.secondaryInk)
             if totalPages != nil {
-                ManualSegmentedControl(label: "How to enter pages", options: ManualPagesStyle.allCases,
+                GlassSegmentedControl(label: "How to enter pages", options: ManualPagesStyle.allCases,
                                       selection: $draft.pagesStyle, title: { $0.rawValue })
             }
             if draft.pagesStyle == .count || totalPages == nil {
@@ -259,9 +260,9 @@ struct ManualAdditionView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("When?").font(.headline)
             HStack(spacing: 8) {
-                GlassChip(title: "Today", isSelected: draft.day == .today) { choose(.today) }
-                GlassChip(title: "Yesterday", isSelected: draft.day == .yesterday) { choose(.yesterday) }
-                GlassChip(title: otherDayTitle, systemImage: "calendar", isSelected: isOtherDay) { showingCalendar = true }
+                ManualChip(title: "Today", isSelected: draft.day == .today) { choose(.today) }
+                ManualChip(title: "Yesterday", isSelected: draft.day == .yesterday) { choose(.yesterday) }
+                ManualChip(title: otherDayTitle, systemImage: "calendar", isSelected: isOtherDay) { showingCalendar = true }
                     .popover(isPresented: $showingCalendar, arrowEdge: .bottom) { calendarPopover }
             }
             if draft.includesTime { clockRows }
@@ -309,7 +310,7 @@ struct ManualAdditionView: View {
                 Text(draft.usesStartTime ? "Finished" : "Finished at").frame(width: 70, alignment: .leading)
                 ClockField(label: "Finish time", clock: finishBinding, zone: zone)
                 if draft.day == .today {
-                    GlassChip(title: "Now", isSelected: draft.finishesNow) { draft.finishClock = nil }
+                    ManualChip(title: "Now", isSelected: draft.finishesNow) { draft.finishClock = nil }
                 }
             }
             Button(draft.usesStartTime ? "Use a length instead" : "I know when I started") {
@@ -339,11 +340,15 @@ struct ManualAdditionView: View {
                     .font(.caption).foregroundStyle(ReadingPalette.secondaryInk).fixedSize(horizontal: false, vertical: true)
             }.readingPanel()
             VStack(alignment: .leading, spacing: 14) {
-                ReadingSwitchRow(title: "Also log listening time", isOn: Binding(
-                    get: { draft.logsListeningTime },
-                    set: { value in
-                        if reduceMotion { draft.logsListeningTime = value } else { withAnimation(ReadingMotion.selection) { draft.logsListeningTime = value } }
-                    }))
+                HStack(spacing: 12) {
+                    Text("Also log listening time")
+                    Spacer(minLength: 4)
+                    GlassSwitch(label: "Also log listening time", isOn: Binding(
+                        get: { draft.logsListeningTime },
+                        set: { value in
+                            if reduceMotion { draft.logsListeningTime = value } else { withAnimation(ReadingMotion.selection) { draft.logsListeningTime = value } }
+                        }))
+                }
                 if draft.logsListeningTime { lengthControls.transition(formTransition) }
                 Text("Enter the time you actually listened, excluding breaks. At 2×, one hour of content takes about 30 minutes.")
                     .font(.caption).foregroundStyle(ReadingPalette.secondaryInk).fixedSize(horizontal: false, vertical: true)

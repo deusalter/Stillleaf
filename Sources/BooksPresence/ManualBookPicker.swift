@@ -200,3 +200,44 @@ private struct ResultRow<Cover: View>: View {
         .accessibilityAddTraits(.isButton)
     }
 }
+
+/// A result's cover, fetched through the search service and remembered for the session.
+struct RemoteCover: View {
+    let book: OutsideBook
+    let service: BookSearchService
+    @State private var image: NSImage?
+    private static let cache = NSCache<NSString, NSImage>()
+
+    var body: some View {
+        Group {
+            if let image { Image(nsImage: image).resizable().scaledToFill() }
+            else { CoverPlaceholder(title: book.title) }
+        }
+        .frame(width: 38, height: 54)
+        .clipShape(RoundedRectangle(cornerRadius: 3, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 3, style: .continuous).stroke(ReadingPalette.ink.opacity(0.13)))
+        .task(id: book.key) {
+            if let cached = Self.cache.object(forKey: book.key as NSString) { image = cached; return }
+            guard book.coverURL != nil, let data = try? await service.coverData(for: book),
+                  let loaded = NSImage(data: data), !Task.isCancelled else { return }
+            Self.cache.setObject(loaded, forKey: book.key as NSString)
+            image = loaded
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+struct CoverPlaceholder: View {
+    let title: String
+    var body: some View {
+        ZStack {
+            ReadingPalette.elevated
+            HStack(spacing: 0) {
+                Rectangle().fill(ReadingPalette.accent.opacity(0.3)).frame(width: 4)
+                Spacer()
+            }
+            Image(systemName: "book.closed").font(.system(size: 13, weight: .light))
+                .foregroundStyle(ReadingPalette.ink.opacity(0.6))
+        }
+    }
+}
