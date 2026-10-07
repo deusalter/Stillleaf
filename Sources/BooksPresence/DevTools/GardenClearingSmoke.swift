@@ -180,7 +180,7 @@ private enum BareTextAudit {
         window.appearance = appearance
         let root = item.view
             .environment(\.colorScheme, dark ? .dark : .light)
-            .onPreferenceChange(GlassRegionsKey.self) { glass = $0 }
+            .onPreferenceChange(GlassRegionsKey.self) { glass = $0.map(\.frame) }
             .onPreferenceChange(GardenClearingKey.self) { clearing = $0 }
             .transaction { $0.animation = nil; $0.disablesAnimations = true }
         let controller = NSHostingController(rootView: root)
