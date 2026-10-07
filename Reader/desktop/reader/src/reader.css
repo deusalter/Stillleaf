@@ -116,11 +116,10 @@ input[type=range]::-moz-range-thumb{width:12px;height:12px;border:2px solid var(
 .footer-pill{display:contents}.footer-vine,#footer-percent{display:none}
 .garden-on .reading-footer{border-top:0;grid-template-columns:minmax(auto,1fr) minmax(0,var(--reading-width,688px)) minmax(auto,1fr);column-gap:12px}
 .garden-on .footer-navigation{grid-column:1;grid-row:1;justify-self:start;min-width:max-content}
-.garden-on .footer-pill{display:flex;grid-column:2;grid-row:1;align-items:center;gap:14px;height:40px;padding-inline:18px;border:1px solid var(--line);border-radius:999px;background:color-mix(in srgb,var(--paper) 74%,transparent);box-shadow:0 8px 24px var(--card-shadow);container-type:inline-size}
+.garden-on .footer-pill{display:flex;grid-column:2;grid-row:1;align-items:center;gap:14px;height:40px;padding-inline:18px;border:1px solid var(--line);border-radius:999px;background:color-mix(in srgb,var(--paper) 74%,transparent);box-shadow:0 8px 24px var(--card-shadow)}
 .garden-on .footer-pill #position-label,.garden-on .footer-pill #chapter-label,.garden-on #footer-percent{font:12px/1 ui-monospace,"SF Mono",Menlo,monospace;color:var(--muted);white-space:nowrap}
 .garden-on .footer-pill #position-label{flex:0 1 auto}
 .garden-on .footer-pill #chapter-label{flex:0 1 auto;align-self:auto;justify-self:auto;line-height:1}
 .garden-on #footer-percent{display:block;flex:none;min-width:4ch;text-align:end;font-variant-numeric:tabular-nums}
 .garden-on .footer-vine{display:block;position:relative;flex:1 1 60px;min-width:48px;height:40px;margin-block:-1px}
-@container (max-width:560px){#chapter-label{display:none}}
-@media(max-width:460px){.garden-on .reading-footer{grid-template-columns:auto minmax(0,1fr);grid-template-rows:auto;align-content:center}.garden-on .footer-pill{grid-column:2}.native-chrome.garden-on .reading-footer{height:42px}}
+@media(max-width:460px){.garden-on #chapter-label{display:none}.garden-on .reading-footer{grid-template-columns:auto minmax(0,1fr);grid-template-rows:auto;align-content:center}.garden-on .footer-pill{grid-column:2}.native-chrome.garden-on .reading-footer{height:42px}}
