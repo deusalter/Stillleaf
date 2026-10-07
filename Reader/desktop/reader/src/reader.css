@@ -102,3 +102,24 @@ input[type=range]::-moz-range-thumb{width:12px;height:12px;border:2px solid var(
 /* Margin garden: decorative layers that never take input or affect layout. */
 #garden{position:fixed;inset:0;width:100vw;height:100vh;pointer-events:none;z-index:0}#garden.breathing{animation:garden-breathe 9s ease-in-out infinite}@keyframes garden-breathe{50%{opacity:.8}}/* Above the live page, below the .reader-page-slide stage (z 2) so turning snapshots cover the vine; it stacks inside #reading-viewport, so dialogs and overlays are unaffected. */
 #garden-spine{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1}.reader-bar,.reading-footer,#reading-viewport{position:relative;z-index:1}
+
+/* The page is a card on a backdrop: the card is the reading viewport (plus a sliver of its inset), so text,
+   pagination and annotations keep their geometry. Only while the garden is on and there is room around the page. */
+:root{--card-y:max(6px,calc(var(--page-inset,22px) - 12px))}
+.garden-card{background:var(--backdrop)}
+.garden-card #reading-viewport::before{content:"";position:absolute;inset:calc(-1 * var(--card-y)) 0;z-index:-1;pointer-events:none;border-radius:10px;background:var(--paper);box-shadow:0 1px 0 var(--card-rule),0 16px 44px var(--card-shadow)}
+.garden-card.garden-facing #reading-viewport::after{content:"";position:absolute;inset:calc(-1 * var(--card-y)) auto;left:50%;width:48px;transform:translateX(-50%);pointer-events:none;background:linear-gradient(90deg,transparent,var(--card-fold) 50%,transparent)}
+#garden-footer{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+#garden.breathing,#garden-spine.breathing,#garden-footer.breathing{animation:garden-breathe 9s ease-in-out infinite}
+
+/* Footer: a pill holding the page, a thin vine along a dotted track to the chapter progress, and the percentage. */
+.footer-pill{display:contents}.footer-vine,#footer-percent{display:none}
+.garden-on .reading-footer{border-top:0;grid-template-columns:minmax(auto,1fr) minmax(0,var(--reading-width,688px)) minmax(auto,1fr);column-gap:12px}
+.garden-on .footer-navigation{grid-column:1;grid-row:1;justify-self:start;min-width:max-content}
+.garden-on .footer-pill{display:flex;grid-column:2;grid-row:1;align-items:center;gap:14px;height:40px;padding-inline:18px;border:1px solid var(--line);border-radius:999px;background:color-mix(in srgb,var(--paper) 74%,transparent);box-shadow:0 8px 24px var(--card-shadow)}
+.garden-on .footer-pill #position-label,.garden-on .footer-pill #chapter-label,.garden-on #footer-percent{font:12px/1 ui-monospace,"SF Mono",Menlo,monospace;color:var(--muted);white-space:nowrap}
+.garden-on .footer-pill #position-label{flex:0 1 auto}
+.garden-on .footer-pill #chapter-label{flex:0 1 auto;align-self:auto;justify-self:auto;line-height:1}
+.garden-on #footer-percent{display:block;flex:none;min-width:4ch;text-align:end;font-variant-numeric:tabular-nums}
+.garden-on .footer-vine{display:block;position:relative;flex:1 1 60px;min-width:48px;height:40px;margin-block:-1px}
+@media(max-width:460px){.garden-on #chapter-label{display:none}.garden-on .reading-footer{grid-template-columns:auto minmax(0,1fr);grid-template-rows:auto;align-content:center}.garden-on .footer-pill{grid-column:2}.native-chrome.garden-on .reading-footer{height:42px}}
