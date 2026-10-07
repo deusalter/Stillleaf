@@ -1,6 +1,12 @@
 import SwiftUI
 import BooksCore
 
+/// TEMPORARY bisect switches; never merged.
+enum PerfVariant {
+    static var flags: Set<String> = []
+    static func on(_ name: String) -> Bool { flags.contains(name) }
+}
+
 /// History's per-book chart colours. Everything else uses ReadingPalette directly.
 enum AtlasStyle {
     static func book(_ id: String, dark: Bool) -> Color {

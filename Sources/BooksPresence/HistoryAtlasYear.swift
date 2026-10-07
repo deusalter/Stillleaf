@@ -39,11 +39,11 @@ struct AtlasYearView: View {
                         // Three columns of fixed-height rows, with every book's chart drawn by
                         // one canvas: sixty canvases and tap gestures cost far more to lay out.
                         HStack(alignment: .top, spacing: Self.columnSpacing) {
-                            VStack(spacing: 0) {
+                            columnStack {
                                 ForEach(rows) { row in label(row).frame(width: Self.labelWidth, height: Self.rowHeight, alignment: .leading) }
                             }
                             chart(rows, period: period, calendar: calendar, chartWidth: chartWidth)
-                            VStack(spacing: 0) {
+                            columnStack {
                                 ForEach(rows) { row in totals(row).frame(width: Self.totalsWidth, height: Self.rowHeight, alignment: .trailing) }
                             }
                         }
@@ -57,6 +57,10 @@ struct AtlasYearView: View {
             }
         }
     }
+    @ViewBuilder private func columnStack<C: View>(@ViewBuilder _ content: () -> C) -> some View {
+        if PerfVariant.on("lazyColumns") { LazyVStack(spacing: 0) { content() } } else { VStack(spacing: 0) { content() } }
+    }
+
     @ViewBuilder private var legend: some View {
         Label("Recorded day", systemImage: "rectangle.fill").font(.caption)
         Label("Finished", systemImage: "diamond.fill").font(.caption)
@@ -73,7 +77,54 @@ struct AtlasYearView: View {
             }
         }.foregroundStyle(ReadingPalette.secondaryInk)
     }
-    private func label(_ row: AtlasYearRow) -> some View {
+    @ViewBuilder private func label(_ row: AtlasYearRow) -> some View {
+        let id = row.id, activity = row.activity
+        let seconds = row.creditedSeconds, pages = row.pages, finished = row.finishes
+        if PerfVariant.on("labelOneText") {
+            RecordedDateMenu(dates: row.recordedDates, timezoneID: navigation.timezoneID, bookTitle: title(id), select: select) {
+                HStack(spacing: 10) {
+                    BookCoverView(book: presentation.booksByID[id], size: .compact).scaleEffect(0.62).frame(width: 33, height: 46)
+                    (Text(title(id)).font(.system(size: 13, weight: .medium)) + Text("\n") + Text("\(row.recordedDates.count) dates").font(.caption2).foregroundColor(.secondary))
+                        .lineLimit(4).multilineTextAlignment(.leading)
+                }.frame(width: Self.labelWidth, alignment: .leading)
+            }
+        } else if PerfVariant.on("captionText") {
+            RecordedDateMenu(dates: row.recordedDates, timezoneID: navigation.timezoneID, bookTitle: title(id), select: select) {
+                HStack(spacing: 10) {
+                    BookCoverView(book: presentation.booksByID[id], size: .compact).scaleEffect(0.62).frame(width: 33, height: 46)
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(title(id)).font(.system(size: 13, weight: .medium)).lineLimit(3).multilineTextAlignment(.leading)
+                        Text("\(row.recordedDates.count) dates").font(.caption2).foregroundStyle(ReadingPalette.secondaryInk)
+                    }
+                }.frame(width: Self.labelWidth, alignment: .leading)
+            }
+        } else if PerfVariant.on("titleFrame") {
+            RecordedDateMenu(dates: row.recordedDates, timezoneID: navigation.timezoneID, bookTitle: title(id), select: select) {
+                HStack(spacing: 10) {
+                    BookCoverView(book: presentation.booksByID[id], size: .compact).scaleEffect(0.62).frame(width: 33, height: 46)
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(title(id)).font(.system(size: 13, weight: .medium)).lineLimit(3).multilineTextAlignment(.leading)
+                            .frame(width: 127, alignment: .leading).fixedSize(horizontal: false, vertical: true)
+                        RecordedDateMenuCaption(count: row.recordedDates.count)
+                    }
+                }.frame(width: Self.labelWidth, alignment: .leading)
+            }
+        } else if PerfVariant.on("plainLabel") {
+            Button { select(Date()) } label: {
+                HStack(spacing: 10) {
+                    BookCoverView(book: presentation.booksByID[id], size: .compact).scaleEffect(0.62).frame(width: 33, height: 46)
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(title(id)).font(.system(size: 13, weight: .medium)).lineLimit(3).multilineTextAlignment(.leading)
+                        RecordedDateMenuCaption(count: row.recordedDates.count)
+                    }
+                }.frame(width: Self.labelWidth, alignment: .leading)
+            }.buttonStyle(.plain)
+        } else {
+            standardLabel(row)
+        }
+    }
+
+    private func standardLabel(_ row: AtlasYearRow) -> some View {
         let id = row.id, activity = row.activity
         let seconds = row.creditedSeconds, pages = row.pages, finished = row.finishes
         return RecordedDateMenu(dates: row.recordedDates, timezoneID: navigation.timezoneID,
@@ -91,7 +142,18 @@ struct AtlasYearView: View {
         .accessibilityValue("\(activity.count) recorded days, \(pages) pages, \(ReadingFormat.duration(seconds)) recorded. \(finished.isEmpty ? "" : "Finished this year.")")
     }
 
-    private func totals(_ row: AtlasYearRow) -> some View {
+    @ViewBuilder private func totals(_ row: AtlasYearRow) -> some View {
+        if PerfVariant.on("totalsOneText") {
+            let seconds = row.creditedSeconds, pages = row.pages, finished = row.finishes
+            Group {
+                if pages > 0 { Text(pages.formatted()).font(.callout.weight(.medium)) + Text("\npages").font(.caption2) }
+                else if seconds > 0 { Text(ReadingFormat.duration(seconds)).font(.callout.weight(.medium)) + Text("\nrecorded").font(.caption2) }
+                else { Text(finished.isEmpty ? "—" : "Finished").font(.caption) }
+            }.multilineTextAlignment(.trailing).foregroundStyle(ReadingPalette.secondaryInk)
+        } else { standardTotals(row) }
+    }
+
+    private func standardTotals(_ row: AtlasYearRow) -> some View {
         let seconds = row.creditedSeconds, pages = row.pages, finished = row.finishes
         return VStack(alignment: .trailing, spacing: 5) {
             if pages > 0 {

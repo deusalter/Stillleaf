@@ -82,11 +82,15 @@ import Darwin
     CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
     defer { CFRunLoopRemoveObserver(CFRunLoopGetMain(), observer, .commonModes) }
     let measuredSamples = ProcessInfo.processInfo.environment["STILLLEAF_UI_BENCHMARK_SAMPLES"].flatMap(Int.init) ?? 20
-    guard [5, 20].contains(measuredSamples) else { throw NSError(domain: "Stillleaf.Benchmark", code: 3) }
+    let variantList = ProcessInfo.processInfo.environment["STILLLEAF_YEAR_VARIANTS"].map { $0.split(separator: ";", omittingEmptySubsequences: false).map(String.init) }
+    guard variantList != nil || [5, 20].contains(measuredSamples) else { throw NSError(domain: "Stillleaf.Benchmark", code: 3) }
+    let warmupCount = variantList?.count ?? 2
     var records: [[String: Any]] = [], warmups: [[String: Any]] = []
     let onlyScales = ProcessInfo.processInfo.environment["STILLLEAF_BENCH_SCALES"].map { Set($0.split(separator: ",").map(String.init)) }
     for scale in CalendarScale.allCases where onlyScales?.contains(scale.rawValue) ?? true {
-        for sample in -2..<measuredSamples {
+        for sample in -warmupCount..<measuredSamples {
+            var variantName = ""
+            if let variantList { variantName = variantList[(sample + warmupCount) % variantList.count]; PerfVariant.flags = Set(variantName.split(separator: ",").map(String.init)) }
             host.rootView = AnyView(Text("Ready")); host.layoutSubtreeIfNeeded()
             await Task.yield()
             var ready = false
@@ -113,7 +117,7 @@ import Darwin
             let settledCPU = elapsedCPU(totalCPUStart, processCPU())
             recording = false
             guard abs(host.bounds.width - viewport.width) < 0.5, abs(host.bounds.height - viewport.height) < 0.5 else { throw NSError(domain: "Stillleaf.Benchmark", code: 4, userInfo: [NSLocalizedDescriptionKey: "Rendered bounds \(host.bounds) differ from \(viewport); outer frame \(window.frame)"]) }
-            let record: [String: Any] = ["viewportWidth": host.bounds.width, "viewportHeight": host.bounds.height, "appActive": NSApp.isActive, "keyWindow": window.isKeyWindow, "scale": scale.rawValue, "sample": sample, "settledMs": (ProcessInfo.processInfo.systemUptime - start) * 1000, "maxMainWorkMs": work.max() ?? 0, "settledProcessCPUMs": settledCPU, "maxMainThreadCPUMs": cpuWork.max() ?? 0]
+            let record: [String: Any] = ["viewportWidth": host.bounds.width, "viewportHeight": host.bounds.height, "appActive": NSApp.isActive, "keyWindow": window.isKeyWindow, "scale": scale.rawValue, "sample": sample, "variant": variantName, "settledMs": (ProcessInfo.processInfo.systemUptime - start) * 1000, "maxMainWorkMs": work.max() ?? 0, "settledProcessCPUMs": settledCPU, "maxMainThreadCPUMs": cpuWork.max() ?? 0]
             if sample >= 0 { records.append(record) } else { warmups.append(record) }
         }
     }

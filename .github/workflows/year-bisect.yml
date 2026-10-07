@@ -20,6 +20,8 @@ jobs:
       - name: Build baseline, main-before-fix and fix
         run: |
           python3 scripts/install-native-benchmark-harness.py .native-baseline
+          printf 'enum PerfVariant { static var flags: Set<String> = [] }\n' > .native-baseline/Sources/BooksPresence/PerfVariantStub.swift
+          printf 'enum PerfVariant { static var flags: Set<String> = [] }\n' > .native-main/Sources/BooksPresence/PerfVariantStub.swift
           cp Sources/BooksPresence/DevTools/UISettledBenchmark.swift .native-main/Sources/BooksPresence/DevTools/UISettledBenchmark.swift
           swift build --package-path .native-baseline -c release
           swift build --package-path .native-main -c release
