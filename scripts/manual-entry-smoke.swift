@@ -139,6 +139,15 @@ do {
     let intervalCount = try store.archive().intervals.count
     try require(intervalCount == archive.intervals.count, "a rejected entry left an interval behind")
 
+    // Observed page turns still need a tracked session; only a person's own count may sit on manual time.
+    guard let manualInterval = archive.intervals.first(where: { $0.mode == .manual && $0.duration == 1_800 }) else {
+        throw ManualEntrySmokeFailure.failed("manual interval missing")
+    }
+    try rejects("an observed page turn was accepted on a manual session") {
+        try store.appendEvent(AuditEvent(date: manualInterval.end, kind: "pageTurn", bookID: outside.id, sessionID: manualInterval.sessionID,
+            detail: "Observed", pageTurn: PageTurnEvidence(fromPage: 1, toPage: 2, pagesRead: 1, visiblePages: 1, layoutSignature: "smoke")))
+    }
+
     // Evidence the store must refuse.
     func evidence(_ pages: Int, from: Int?, to: Int?) -> ManualEntryRecords {
         var records = entry(book: outside.id, end: now.addingTimeInterval(-10_000), pages: .count(5)).records(now: now)
