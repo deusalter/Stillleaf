@@ -235,8 +235,8 @@ private enum BareTextAudit {
         let cell: CGFloat = 16
         let columns = Int((size.width / cell).rounded(.up))
         var counts: [Int: Int] = [:]
-        // Text on a control's own capsule: a surface colour lies close by in all four directions.
-        let reach = Int(16 * scale)
+        // Text on a control's own capsule: a surface colour lies within 40 pt in all four directions (display type has long solid runs).
+        let reach = Int(40 * scale)
         func surface(_ x: Int, _ y: Int) -> Bool {
             guard x >= 0, y >= 0, x < image.width, y < image.height else { return false }
             let p = y * stride + x * step
