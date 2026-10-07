@@ -13,8 +13,17 @@
 /* Inert page surfaces slide together above the unchanged live text geometry. */
 #reading-viewport{position:relative}
 .reader-page-slide{position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:2;background:var(--paper);contain:strict}
-.page-slide-track{position:absolute;inset:0;will-change:transform}
-.page-slide-snapshot{position:absolute;top:0;border:0;display:block;pointer-events:none;background:var(--paper)}
+/* One persistent stage: hidden when idle, all but invisible while the outgoing page rasterises, then covering the page for the turn. */
+.reader-page-slide[data-state=idle]{visibility:hidden}
+.reader-page-slide[data-state=arming]{opacity:.001}
+.page-slide-track{position:absolute;inset:0}
+.reader-page-slide[data-state=active] .page-slide-track,.reader-page-slide[data-state=active] .page-slide-shade,.reader-page-slide[data-state=active] .page-slide-edge{will-change:transform,opacity}
+.page-slide-snapshot{position:absolute;top:0;left:-100000px;border:0;display:block;pointer-events:none;background:var(--paper)}
+/* Depth: the departing page fades toward the paper, the arriving one fades up, and a soft shadow rides the leading edge. */
+.page-slide-shade{position:absolute;top:0;height:100%;background:var(--paper);opacity:0;z-index:1;pointer-events:none}
+.page-slide-edge{position:absolute;top:0;height:100%;opacity:0;z-index:1;pointer-events:none}
+.page-slide-edge-right{background:linear-gradient(to right,transparent,var(--card-shadow,#00000024))}
+.page-slide-edge-left{background:linear-gradient(to left,transparent,var(--card-shadow,#00000024))}
 
 #reader{margin-inline:auto}
 
@@ -111,6 +120,7 @@ input[type=range]::-moz-range-thumb{width:12px;height:12px;border:2px solid var(
 .garden-card.garden-facing #reading-viewport::after{content:"";position:absolute;inset:calc(-1 * var(--card-y)) auto;left:50%;width:48px;transform:translateX(-50%);pointer-events:none;background:linear-gradient(90deg,transparent,var(--card-fold) 50%,transparent)}
 #garden-footer{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
 #garden.breathing,#garden-spine.breathing,#garden-footer.breathing{animation:garden-breathe 9s ease-in-out infinite}
+#garden.held,#garden-spine.held,#garden-footer.held{animation-play-state:paused}
 
 /* Footer: a pill holding the page, a thin vine along a dotted track to the chapter progress, and the percentage. */
 .footer-pill{display:contents}.footer-vine,#footer-percent{display:none}
