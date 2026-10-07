@@ -190,34 +190,33 @@ struct MenuReadingGoal: View {
                             .minimumScaleFactor(0.5).lineLimit(1)
                         Text(daily.todayLabel)
                             .font(.system(size: 10, weight: .medium))
-                            .foregroundStyle(ReadingPalette.ink)
+                            .foregroundStyle(ReadingPalette.secondaryInk)
                     }
-                    .frame(width: 96).offset(y: 3)
+                    .frame(width: 90).offset(y: 3)
                 }
-                .frame(width: 140, height: 138)
+                .frame(width: 132, height: 116)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("Today's reading")
                 .accessibilityValue(daily.summary)
 
                 VStack(alignment: .leading, spacing: 7) {
                     Text(daily.reached ? "Goal reached" : "Daily reading")
-                        .font(ReadingType.bookTitle(20))
+                        .font(ReadingType.bookTitle(19))
                         .fixedSize(horizontal: false, vertical: true)
                     Text(daily.target == nil ? daily.targetText : "\(daily.targetText) daily goal")
-                        .font(.caption).foregroundStyle(ReadingPalette.ink)
+                        .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
                         .fixedSize(horizontal: false, vertical: true)
                     Label(daily.unit == .pages ? ReadingFormat.duration(model.today.creditedSeconds) : "\(model.todayPages) pages",
                           systemImage: daily.unit == .pages ? "clock" : "book")
-                        .font(.caption.weight(.medium)).foregroundStyle(ReadingPalette.ink)
+                        .font(.caption.weight(.medium)).foregroundStyle(ReadingPalette.secondaryInk)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             if model.today.manualSeconds > 0 {
                 Text("Includes \(ReadingFormat.duration(model.today.manualSeconds)) manual time")
-                    .font(.caption2).foregroundStyle(ReadingPalette.ink)
+                    .font(.caption2).foregroundStyle(ReadingPalette.secondaryInk)
             }
         }
-        .padding(.vertical, 8)
         .accessibilityElement(children: .contain)
         .accessibilityHint("Pages include tracked page turns and explicit manual corrections. Time is recorded separately.")
     }

@@ -163,6 +163,8 @@ func renderUIPreviews(to destination: URL) throws {
         previews.append(("popover-minutes", AnyView(PopoverView(model: timeModel))))
         previews.append(("popover", AnyView(PopoverView(model: exceededModel))))
         previews.append(("popover-manual", AnyView(PopoverView(model: manualModel))))
+        previews.append(("popover-desktop", AnyView(PopoverDesktopFixture { PopoverView(model: exceededModel) })))
+        previews.append(("popover-desktop-empty", AnyView(PopoverDesktopFixture { PopoverView(model: emptyModel, maximumHeight: 500) })))
         previews.append(("popover-setup", AnyView(PopoverView(model: emptyModel, maximumHeight: 500))))
         previews.append(("today-empty", AnyView(DashboardView(model: emptyModel))))
         for step in OnboardingStep.allCases {
@@ -221,7 +223,8 @@ func renderUIPreviews(to destination: URL) throws {
                 "popover-setup": NSSize(width: 350, height: 500),
                 "settings-reading-tall": NSSize(width: 960, height: 1500), "settings-reading-yearly": NSSize(width: 960, height: 1500),
                 "settings-reading-unsaved": NSSize(width: 960, height: 760), "settings-reading-invalid": NSSize(width: 960, height: 760),
-                "settings-data-tall": NSSize(width: 960, height: 1500), "settings-discord-setup": NSSize(width: 960, height: 1000)]
+                "settings-data-tall": NSSize(width: 960, height: 1500), "settings-discord-setup": NSSize(width: 960, height: 1000),
+                "popover-desktop": PopoverDesktopFixture<EmptyView>.size, "popover-desktop-empty": PopoverDesktopFixture<EmptyView>.size]
             try renderNativeView(AnyView(view), size: name.hasPrefix("onboarding-") ? OnboardingView.size : sizes[name] ?? NSSize(width: 1180, height: 820), appearance: appearance,
                                  to: destination.appendingPathComponent("\(name)-\(dark ? "dark" : "light").png"))
         }
@@ -365,6 +368,37 @@ func seedPreviewHistory(at support: URL) throws {
 }
 
 private enum UIPreviewError: Error { case renderFailed }
+
+/// The menu panel over a deliberately harsh synthetic desktop: black text on white, white text on
+/// black and a vivid band between. Offscreen renders cannot blur what is behind a window, so this
+/// shows how see-through the shell is and whether text holds on the worst backgrounds.
+private struct PopoverDesktopFixture<Content: View>: View {
+    static var size: NSSize { NSSize(width: 470, height: 720) }
+    let content: Content
+    init(@ViewBuilder content: () -> Content) { self.content = content() }
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            HStack(spacing: 0) {
+                wallpaper(foreground: .black, background: .white)
+                LinearGradient(colors: [.red, .yellow, .green, .cyan, .blue, .purple], startPoint: .top, endPoint: .bottom)
+                    .frame(width: 90)
+                wallpaper(foreground: .white, background: .black)
+            }
+            content.padding(.top, 24).frame(maxHeight: .infinity, alignment: .top)
+        }
+        .frame(width: Self.size.width, height: Self.size.height)
+    }
+
+    private func wallpaper(foreground: Color, background: Color) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            ForEach(0..<17) { _ in Text("Synthetic desktop text").font(.system(size: 20, weight: .semibold)) }
+        }
+        .foregroundStyle(foreground)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(background)
+    }
+}
 
 /// Every dashboard screen and the popover in every theme, light and dark:
 /// `<dir>/themes/<theme>/<screen>-<light|dark>.png`.
