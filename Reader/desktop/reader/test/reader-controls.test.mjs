@@ -20,7 +20,7 @@ async function emulateTransparency(page, value) {
   await session.send('Emulation.setEmulatedMedia', {features: [{name: 'prefers-reduced-transparency', value}]});
 }
 
-async function launch(t, viewport = {width: 1100, height: 860}) {
+async function launch(t, viewport = {width: 1100, height: 860}, opened = book) {
   const root = path.resolve(import.meta.dirname, '../dist');
   const server = createServer(async (req, res) => {
     try {
@@ -39,7 +39,7 @@ async function launch(t, viewport = {width: 1100, height: 860}) {
   // The host's own Reduce Transparency setting (CI runners have it on) must not decide what these tests see.
   if (browser.browserType() === chromium) await emulateTransparency(page, 'no-preference');
   await page.goto(`http://127.0.0.1:${server.address().port}/index.html`);
-  await page.evaluate(input => window.StillleafReader.open(input), book);
+  await page.evaluate(input => window.StillleafReader.open(input), opened);
   await mkdir(output, {recursive: true});
   return page;
 }
@@ -244,4 +244,28 @@ test('panel screenshots in dark and compact windows', {timeout: 90000}, async t 
   const box = await page.locator('#appearance-panel').boundingBox();
   assert.ok(box.x >= 0 && box.x + box.width <= 430 && box.y >= 0 && box.y + box.height <= 700, 'compact panel stays inside the window');
   await page.screenshot({path: path.join(output, 'appearance-compact.png')});
+});
+
+test('contents folds nested chapters and shows an all-caps table of contents as titles', {timeout: 60000}, async t => {
+  const titles = ['PROLOGUE', 'BOOK ONE', 'CHAPTER ONE', 'CHAPTER TWO'];
+  const nested = {
+    ...book, editionId: 'contents-fold',
+    readingOrder: titles.map((title, i) => ({href: `c${i}.html`, type: 'text/html', title})),
+    toc: [{title: 'PROLOGUE', href: 'c0.html'}, {title: 'BOOK ONE', href: 'c1.html', children: [{title: 'CHAPTER ONE', href: 'c2.html'}, {title: 'CHAPTER TWO', href: 'c3.html'}]}],
+    resources: titles.map((title, i) => ({href: `c${i}.html`, type: 'text/html', dataBase64: Buffer.from(chapter(title)).toString('base64')})),
+  };
+  const page = await launch(t, {width: 1100, height: 860}, nested);
+  await page.evaluate(() => window.StillleafReader.setPreferences({theme: 'midnight'}));
+  await page.locator('#contents').click();
+  const shown = await page.locator('#library-panel .chapter-button').allTextContents();
+  assert.deepEqual(shown, ['Prologue', 'Book One', 'Chapter One', 'Chapter Two']);
+  const toggle = page.getByRole('button', {name: 'Show or hide sections in Book One'});
+  assert.equal(await toggle.getAttribute('aria-expanded'), 'true');
+  await page.screenshot({path: path.join(output, 'contents-nested-midnight.png')});
+  await toggle.click();
+  assert.equal(await toggle.getAttribute('aria-expanded'), 'false');
+  assert.equal(await page.getByRole('button', {name: 'Chapter One', exact: true}).isVisible(), false, 'folded chapters are hidden');
+  await toggle.click();
+  await page.getByRole('button', {name: 'Chapter Two', exact: true}).click();
+  await page.waitForFunction(() => window.StillleafReader.bookmark()?.href === 'c3.html');
 });

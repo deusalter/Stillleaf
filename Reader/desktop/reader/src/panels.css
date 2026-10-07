@@ -115,3 +115,21 @@ dialog::backdrop{background:transparent}
 .advanced-appearance[open]>summary{margin-bottom:16px}
 
 @media(max-width:640px){#appearance-panel{width:auto}.appearance-body{padding-inline:18px}}
+
+/* Contents: nested chapters fold under their parent, with the same chevron the native outline uses. */
+.contents-tree .contents-tree{margin-inline-start:18px;padding:0;border:0}
+.contents-line{display:flex;align-items:center;gap:2px}
+.contents-line .chapter-button{flex:1;width:auto;min-width:0}
+.disclosure{position:relative;flex:none;width:24px;height:32px;padding:0;border-radius:6px;background:transparent;color:var(--text-secondary)}
+.disclosure::before{content:'';position:absolute;left:8px;top:12px;width:6px;height:6px;border:solid currentColor;border-width:0 1.5px 1.5px 0;transform:rotate(-45deg)}
+.disclosure[aria-expanded=true]::before{transform:rotate(45deg) translate(-1px,-1px)}
+.disclosure:hover{background:var(--row-hover);color:var(--ink)}
+.disclosure:disabled{opacity:0;cursor:default}
+.contents-tree [hidden]{display:none}
+.navigation-group{border-top:0;margin-top:6px;padding-top:2px}
+.navigation-group summary{font-size:11px;font-weight:650;letter-spacing:.07em;text-transform:uppercase;color:var(--text-secondary);padding:10px 12px}
+
+/* Keyboard focus is a soft, rounded ring that sits with the control, never a hard box. */
+.panel :focus-visible,.note-panel :focus-visible{outline:2px solid color-mix(in srgb,var(--accent) 65%,transparent);outline-offset:-2px;border-radius:var(--control-radius)}
+.panel .close-button:focus-visible{border-radius:50%}
+.panel-tabs button:focus-visible,.segmented button:focus-visible,.choice-options button:focus-visible{border-radius:8px}
