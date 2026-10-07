@@ -262,16 +262,16 @@ struct SettingsView: View {
                         VStack(alignment: .leading, spacing: 7) {
                             Text("Discord Application ID").font(.headline)
                             TextField("Application ID", text: edited($drafts.discordApplicationIDDraft))
-                                .textFieldStyle(ReadingTextFieldStyle()).onSubmit { applyDiscordDrafts() }
+                                .textFieldStyle(GlassTextFieldStyle()).onSubmit { applyDiscordDrafts() }
                             Text("Use the Application ID from your Discord Developer Portal, not a token.")
                                 .font(.callout).foregroundStyle(ReadingPalette.secondaryInk)
                             Link("Open Discord Developer Portal ↗", destination: URL(string: "https://discord.com/developers/applications")!)
-                                .font(.callout)
+                                .font(.callout).buttonStyle(.plain).foregroundStyle(ReadingPalette.accent)
                         }
                         VStack(alignment: .leading, spacing: 7) {
                             Text("Fallback artwork (optional)").font(.headline)
                             TextField("Uploaded asset key", text: edited($drafts.discordAssetKeyDraft))
-                                .textFieldStyle(ReadingTextFieldStyle()).onSubmit { applyDiscordDrafts() }
+                                .textFieldStyle(GlassTextFieldStyle()).onSubmit { applyDiscordDrafts() }
                             Text("Used when a public cover isn't available. Leave blank if you haven't uploaded a Discord asset.")
                                 .font(.callout).foregroundStyle(ReadingPalette.secondaryInk)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -399,6 +399,8 @@ struct SettingsView: View {
             .disabled(!valid)
         }
         .padding(.horizontal, ReadingMetrics.Space.l).padding(.vertical, ReadingMetrics.Space.m)
+        // Cards scroll under the bar. Glass alone lets their text show through, so it sits on a near-opaque backing.
+        .background(ReadingPalette.canvas.opacity(0.94), in: RoundedRectangle(cornerRadius: ReadingMetrics.Radius.card, style: .continuous))
         .glassSurface(cornerRadius: ReadingMetrics.Radius.card)
         .id(theme.revision)
     }
@@ -408,6 +410,7 @@ struct SettingsView: View {
             .font(.callout.weight(.medium))
             .foregroundStyle(applyFailed ? ReadingPalette.warning : ReadingPalette.accent)
             .padding(.horizontal, ReadingMetrics.Space.l).padding(.vertical, ReadingMetrics.Space.s + 2)
+            .background(ReadingPalette.canvas.opacity(0.94), in: Capsule())
             .glassSurface(cornerRadius: 20)
             .id(theme.revision)
             .accessibilityElement(children: .combine)

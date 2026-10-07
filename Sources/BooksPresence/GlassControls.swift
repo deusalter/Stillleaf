@@ -278,6 +278,28 @@ private struct GlassStepButtonStyle: ButtonStyle {
     }
 }
 
+// MARK: - Text field
+
+/// A single-line text field as an inset well, for use inside a card. Unlike
+/// `ReadingTextFieldStyle` it adds no shadow of its own, so it doesn't smudge the card behind it.
+struct GlassTextFieldStyle: TextFieldStyle {
+    func _body(configuration: TextField<Self._Label>) -> some View {
+        GlassTextFieldBody(field: configuration)
+    }
+}
+
+private struct GlassTextFieldBody<Label: View>: View {
+    let field: TextField<Label>
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        field.textFieldStyle(.plain).focused($focused)
+            .padding(.horizontal, 12).frame(minHeight: 34)
+            .glassWell(RoundedRectangle(cornerRadius: ReadingMetrics.Radius.control, style: .continuous),
+                       outline: focused ? ReadingPalette.accent : nil, outlineWidth: focused ? 1.5 : 1)
+    }
+}
+
 // MARK: - Switch
 
 /// A glass switch: an inset track that fills with the accent, and a thumb that
