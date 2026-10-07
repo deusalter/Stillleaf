@@ -9,9 +9,8 @@ struct TimeZoneChooser: View {
     var body: some View {
         Button { isPresented = true } label: {
             HStack(spacing: 8) {
-                Text(selection.replacingOccurrences(of: "_", with: " "))
-                Spacer()
-                Image(systemName: "chevron.up.chevron.down").font(.caption)
+                Text(selection.replacingOccurrences(of: "_", with: " ")).lineLimit(1)
+                Image(systemName: "chevron.up.chevron.down").font(.caption2)
             }
         }
         .accessibilityLabel("Calendar time zone")
