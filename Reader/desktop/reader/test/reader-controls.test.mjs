@@ -61,6 +61,19 @@ const parseColor = text => {
 };
 const over = (top, bottom) => top.rgb.map((v, i) => v * top.alpha + bottom[i] * (1 - top.alpha));
 
+// What the stylesheet declares for the glass, resolved through its variable. WebKit on a Mac that has
+// Reduce Transparency on reports a computed backdrop filter of none, so the declaration is the evidence there.
+const declaredFilter = page => page.evaluate(() => {
+  for (const sheet of document.styleSheets) for (const rule of sheet.cssRules) {
+    if (rule.selectorText?.replace(/\s/g, '') === '.panel,.note-panel' && rule.style.getPropertyValue('border-radius') === 'var(--panel-radius)') {
+      const value = rule.style.getPropertyValue('backdrop-filter') || rule.style.getPropertyValue('-webkit-backdrop-filter');
+      const name = value.match(/var\((--[\w-]+)\)/)?.[1];
+      return name ? getComputedStyle(document.documentElement).getPropertyValue(name).trim() : value;
+    }
+  }
+  return '';
+});
+
 const surface = (page, id) => page.evaluate(id => {
   const panel = document.getElementById(id), s = getComputedStyle(panel), heading = getComputedStyle(panel.querySelector('.panel-heading')), root = getComputedStyle(document.documentElement);
   return {filter: s.backdropFilter || s.webkitBackdropFilter, background: s.backgroundColor, radius: s.borderTopLeftRadius, shadow: s.boxShadow, border: s.borderTopWidth + ' ' + s.borderTopStyle,
@@ -107,7 +120,10 @@ test('every panel shares one light glass surface and header', {timeout: 90000}, 
   const seen = [];
   for (const panel of PANELS) {
     await page.locator(panel.trigger).click();
-    seen.push({name: panel.name, ...await surface(page, panel.id)});
+    const measured = await surface(page, panel.id);
+    assert.match(await declaredFilter(page), /blur\(\d+px\)/, 'the stylesheet declares the glass blur');
+    if (browser.browserType() !== chromium && measured.filter === 'none') measured.filter = await declaredFilter(page);
+    seen.push({name: panel.name, ...measured});
     await page.screenshot({path: path.join(output, `${panel.name}-paper.png`)});
     await page.keyboard.press('Escape');
   }
