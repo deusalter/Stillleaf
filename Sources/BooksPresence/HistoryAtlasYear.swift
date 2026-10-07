@@ -3,6 +3,10 @@ import BooksCore
 
 @MainActor
 struct AtlasYearView: View {
+    static let rowHeight: CGFloat = 76
+    static let labelWidth: CGFloat = 170
+    static let totalsWidth: CGFloat = 74
+    static let columnSpacing: CGFloat = 16
     let navigation: CalendarNavigation
     let presentation: HistoryAtlasPeriod
     let select: (Date) -> Void
@@ -24,18 +28,28 @@ struct AtlasYearView: View {
                   let canvasWidth = max(730, geometry.size.width)
                   // Every row shares the same fixed label, totals and spacing.
                   // Resolve its plot width once instead of measuring each row.
-                  let chartWidth = canvasWidth - 170 - 74 - 2 * 16
+                  let chartWidth = canvasWidth - Self.labelWidth - Self.totalsWidth - 2 * Self.columnSpacing
                   ScrollView(.horizontal) {
                     VStack(spacing: 0) {
-                        HStack(spacing: 16) {
-                            Color.clear.frame(width: 170, height: 28)
+                        HStack(spacing: Self.columnSpacing) {
+                            Color.clear.frame(width: Self.labelWidth, height: 28)
                             monthLinks.frame(width: chartWidth)
-                            Color.clear.frame(width: 74, height: 28)
+                            Color.clear.frame(width: Self.totalsWidth, height: 28)
                         }
-                        ForEach(rows) { row in yearRow(row, period: period, calendar: calendar, chartWidth: chartWidth) }
+                        // Three columns of fixed-height rows, with every book's chart drawn by
+                        // one canvas: sixty canvases and tap gestures cost far more to lay out.
+                        HStack(alignment: .top, spacing: Self.columnSpacing) {
+                            VStack(spacing: 0) {
+                                ForEach(rows) { row in label(row).frame(width: Self.labelWidth, height: Self.rowHeight, alignment: .leading) }
+                            }
+                            chart(rows, period: period, calendar: calendar, chartWidth: chartWidth)
+                            VStack(spacing: 0) {
+                                ForEach(rows) { row in totals(row).frame(width: Self.totalsWidth, height: Self.rowHeight, alignment: .trailing) }
+                            }
+                        }
                     }.frame(width: canvasWidth)
                   }
-                }.frame(height: CGFloat(rows.count) * 76 + 32)
+                }.frame(height: CGFloat(rows.count) * Self.rowHeight + 32)
                 ViewThatFits(in: .horizontal) {
                     HStack(spacing: 20) { legend }
                     VStack(alignment: .leading, spacing: 9) { legend }
@@ -59,62 +73,82 @@ struct AtlasYearView: View {
             }
         }.foregroundStyle(ReadingPalette.secondaryInk)
     }
-    private func yearRow(_ row: AtlasYearRow, period: DateInterval, calendar: Calendar, chartWidth: CGFloat) -> some View {
+    private func label(_ row: AtlasYearRow) -> some View {
         let id = row.id, activity = row.activity
         let seconds = row.creditedSeconds, pages = row.pages, finished = row.finishes
-        return HStack(spacing: 16) {
-            RecordedDateMenu(dates: row.recordedDates, timezoneID: navigation.timezoneID,
-                             bookTitle: title(id), select: select) {
-                HStack(spacing: 10) {
-                    BookCoverView(book: presentation.booksByID[id], size: .compact)
-                        .scaleEffect(0.62).frame(width: 33, height: 46)
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text(title(id)).font(.system(size: 13, weight: .medium)).lineLimit(3)
-                            .multilineTextAlignment(.leading)
-                        RecordedDateMenuCaption(count: row.recordedDates.count)
-                    }
-                }.frame(width: 170, alignment: .leading)
+        return RecordedDateMenu(dates: row.recordedDates, timezoneID: navigation.timezoneID,
+                                bookTitle: title(id), select: select) {
+            HStack(spacing: 10) {
+                BookCoverView(book: presentation.booksByID[id], size: .compact)
+                    .scaleEffect(0.62).frame(width: 33, height: 46)
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(title(id)).font(.system(size: 13, weight: .medium)).lineLimit(3)
+                        .multilineTextAlignment(.leading)
+                    RecordedDateMenuCaption(count: row.recordedDates.count)
+                }
+            }.frame(width: Self.labelWidth, alignment: .leading)
+        }
+        .accessibilityValue("\(activity.count) recorded days, \(pages) pages, \(ReadingFormat.duration(seconds)) recorded. \(finished.isEmpty ? "" : "Finished this year.")")
+    }
+
+    private func totals(_ row: AtlasYearRow) -> some View {
+        let seconds = row.creditedSeconds, pages = row.pages, finished = row.finishes
+        return VStack(alignment: .trailing, spacing: 5) {
+            if pages > 0 {
+                Text(pages.formatted()).font(.callout.weight(.medium)); Text("pages").font(.caption2)
+            } else if seconds > 0 {
+                Text(ReadingFormat.duration(seconds)).font(.callout.weight(.medium)); Text("recorded").font(.caption2)
+            } else { Text(finished.isEmpty ? "—" : "Finished").font(.caption) }
+        }.foregroundStyle(ReadingPalette.secondaryInk)
+    }
+
+    /// The day a tap at `x` selects, or nil for a day that has not happened yet.
+    static func day(atX x: CGFloat, chartWidth: CGFloat, period: DateInterval, calendar: Calendar, today: Date) -> Date? {
+        let fraction = min(0.999999, max(0, x / max(1, chartWidth)))
+        let day = calendar.startOfDay(for: period.start.addingTimeInterval(period.duration * fraction))
+        return day <= calendar.startOfDay(for: today) ? day : nil
+    }
+
+    private func chart(_ rows: [AtlasYearRow], period: DateInterval, calendar: Calendar, chartWidth: CGFloat) -> some View {
+        let colors = rows.map { AtlasStyle.book($0.id, dark: dark) }
+        let border = ReadingPalette.border
+        let monthPositions = presentation.monthPositions
+        return Canvas { context, size in
+            for (index, row) in rows.enumerated() {
+                var rowContext = context
+                rowContext.translateBy(x: 0, y: CGFloat(index) * Self.rowHeight)
+                Self.draw(row, color: colors[index], border: border, monthPositions: monthPositions, in: &rowContext, width: size.width)
             }
-            .accessibilityValue("\(activity.count) recorded days, \(pages) pages, \(ReadingFormat.duration(seconds)) recorded. \(finished.isEmpty ? "" : "Finished this year.")")
-            Canvas { context, size in
-                for fraction in presentation.monthPositions {
-                    let x = CGFloat(fraction) * size.width
-                    var path = Path(); path.move(to: CGPoint(x: x, y: 0)); path.addLine(to: CGPoint(x: x, y: size.height))
-                    context.stroke(path, with: .color(ReadingPalette.border), lineWidth: 0.6)
-                }
-                let color = AtlasStyle.book(id, dark: dark)
-                if let first = activity.first, let last = activity.last {
-                    let start = CGFloat(first.start) * size.width, end = CGFloat(last.start) * size.width
-                    context.fill(Path(roundedRect: CGRect(x: start, y: 37, width: max(2, end - start), height: 7), cornerRadius: 3), with: .color(color.opacity(0.18)))
-                }
-                for mark in activity {
-                    let start = CGFloat(mark.start) * size.width
-                    context.fill(Path(CGRect(x: start, y: 30, width: max(1, CGFloat(mark.end - mark.start) * size.width - 0.3), height: 21)), with: .color(color))
-                }
-                for fraction in finished {
-                    let x = CGFloat(fraction) * size.width
-                    var diamond = Path(); diamond.move(to: CGPoint(x: x, y: 17)); diamond.addLine(to: CGPoint(x: x + 5, y: 22))
-                    diamond.addLine(to: CGPoint(x: x, y: 27)); diamond.addLine(to: CGPoint(x: x - 5, y: 22)); diamond.closeSubpath()
-                    context.fill(diamond, with: .color(color))
-                }
-            }
-            .frame(width: chartWidth, height: 76)
-            .contentShape(Rectangle())
-            .gesture(SpatialTapGesture().onEnded { event in
-                let fraction = min(0.999999, max(0, event.location.x / max(1, chartWidth)))
-                let date = period.start.addingTimeInterval(period.duration * fraction)
-                let day = calendar.startOfDay(for: date)
-                if day <= calendar.startOfDay(for: Date()) { select(day) }
-            })
-            .accessibilityHidden(true)
-            VStack(alignment: .trailing, spacing: 5) {
-                if pages > 0 {
-                    Text(pages.formatted()).font(.callout.weight(.medium)); Text("pages").font(.caption2)
-                } else if seconds > 0 {
-                    Text(ReadingFormat.duration(seconds)).font(.callout.weight(.medium)); Text("recorded").font(.caption2)
-                } else { Text(finished.isEmpty ? "—" : "Finished").font(.caption) }
-            }.foregroundStyle(ReadingPalette.secondaryInk).frame(width: 74, alignment: .trailing)
-        }.frame(height: 76)
+        }
+        .frame(width: chartWidth, height: CGFloat(rows.count) * Self.rowHeight)
+        .contentShape(Rectangle())
+        .gesture(SpatialTapGesture().onEnded { event in
+            if let day = Self.day(atX: event.location.x, chartWidth: chartWidth, period: period, calendar: calendar, today: Date()) { select(day) }
+        })
+        .accessibilityHidden(true)
+    }
+
+    private static func draw(_ row: AtlasYearRow, color: Color, border: Color, monthPositions: [Double], in context: inout GraphicsContext, width: CGFloat) {
+        for fraction in monthPositions {
+            let x = CGFloat(fraction) * width
+            var path = Path(); path.move(to: CGPoint(x: x, y: 0)); path.addLine(to: CGPoint(x: x, y: rowHeight))
+            context.stroke(path, with: .color(border), lineWidth: 0.6)
+        }
+        let activity = row.activity
+        if let first = activity.first, let last = activity.last {
+            let start = CGFloat(first.start) * width, end = CGFloat(last.start) * width
+            context.fill(Path(roundedRect: CGRect(x: start, y: 37, width: max(2, end - start), height: 7), cornerRadius: 3), with: .color(color.opacity(0.18)))
+        }
+        for mark in activity {
+            let start = CGFloat(mark.start) * width
+            context.fill(Path(CGRect(x: start, y: 30, width: max(1, CGFloat(mark.end - mark.start) * width - 0.3), height: 21)), with: .color(color))
+        }
+        for fraction in row.finishes {
+            let x = CGFloat(fraction) * width
+            var diamond = Path(); diamond.move(to: CGPoint(x: x, y: 17)); diamond.addLine(to: CGPoint(x: x + 5, y: 22))
+            diamond.addLine(to: CGPoint(x: x, y: 27)); diamond.addLine(to: CGPoint(x: x - 5, y: 22)); diamond.closeSubpath()
+            context.fill(diamond, with: .color(color))
+        }
     }
     private func title(_ id: String) -> String { presentation.booksByID[id]?.title ?? "Unknown book" }
 }
