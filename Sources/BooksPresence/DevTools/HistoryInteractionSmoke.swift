@@ -16,6 +16,7 @@ func runHistoryInteractionSmoke(model: AppModel) throws {
         ("timescale menu in the dashboard window", { try checkTimescaleInDashboard(model: model) }),
         ("timescale pick reaches the published chart", { try checkTimescalePublishes(model: model) }),
         ("month day opening", checkMonthDayOpening),
+        ("day view disclosures", checkDayDisclosures),
     ]
     for (name, check) in checks {
         do { try check() } catch { failures.append("[\(name)] \(error)") }
@@ -68,9 +69,10 @@ private func describe(_ view: NSView, depth: Int = 0) -> String {
 }
 
 @MainActor
-private func mouse(_ type: NSEvent.EventType, at point: NSPoint, in window: NSWindow, count: Int = 1) {
+private func mouse(_ type: NSEvent.EventType, at point: NSPoint, in window: NSWindow, count: Int = 1,
+                   after delay: TimeInterval = 0) {
     guard let event = NSEvent.mouseEvent(with: type, location: point, modifierFlags: [],
-        timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil,
+        timestamp: ProcessInfo.processInfo.systemUptime + delay, windowNumber: window.windowNumber, context: nil,
         eventNumber: 0, clickCount: count, pressure: type == .leftMouseDown ? 1 : 0) else { return }
     window.sendEvent(event)
 }
@@ -190,21 +192,24 @@ private func checkTimescaleInDashboard(model: AppModel) throws {
     mouse(.leftMouseUp, at: point, in: window)
     // Path 2: open it programmatically, then choose Week. If this fails but the same
     // steps pass outside the dashboard, something in the dashboard undoes the pick.
+    // SwiftUI may replace the platform popup after a pick, so always look it up afresh.
+    func labels() -> [[String]] { popupButtons(in: host).map { textFields(in: $0) } }
+    func scaleLabelIs(_ title: String) -> Bool { labels().contains { $0.contains(title) } }
     var observed: [String] = []
-    for _ in 0..<2 {
-        guard textFields(in: popup).contains("Week") == false else { break }
-        guard trackMenu(of: popup, trigger: { popup.performClick(nil) }) != nil,
-              let index = popup.menu?.items.firstIndex(where: { $0.title == "Week" }) else {
-            failures.append("Dashboard timescale popup did not open with a Week item")
-            break
+    if let current = popupButtons(in: host).first(where: { textFields(in: $0).contains("Month") }) {
+        let item = current.menu?.items.first(where: { $0.title == "Week" })
+        observed.append("popups \(labels().count), Week item enabled \(String(describing: item?.isEnabled)), popup enabled \(current.isEnabled), key \(window.isKeyWindow), active \(NSApp.isActive)")
+        guard trackMenu(of: current, trigger: { current.performClick(nil) }) != nil,
+              let index = current.menu?.items.firstIndex(where: { $0.title == "Week" }) else {
+            throw HistoryInteractionSmokeError.failed((failures + ["Dashboard timescale popup did not open with a Week item"]).joined(separator: " / "))
         }
-        popup.menu?.performActionForItem(at: index)
-        observed.append("right after: \(textFields(in: popup))")
-        _ = pump(timeout: 3, until: { textFields(in: popup).contains("Week") })
-        observed.append("settled: \(textFields(in: popup))")
+        current.menu?.performActionForItem(at: index)
+        observed.append("right after: \(labels())")
+        _ = pump(timeout: 3, until: { scaleLabelIs("Week") })
+        observed.append("settled: \(labels())")
     }
-    guard textFields(in: popup).contains("Week") else {
-        failures.append("Choosing Week in the dashboard left the control reading \(textFields(in: popup)) (\(observed.joined(separator: "; ")); theme revision \(revision) → \(ThemeStore.shared.revision))")
+    guard scaleLabelIs("Week") else {
+        failures.append("Choosing Week in the dashboard left the control reading \(labels()) (\(observed.joined(separator: "; ")); theme revision \(revision) → \(ThemeStore.shared.revision))")
         throw HistoryInteractionSmokeError.failed(failures.joined(separator: " / "))
     }
     if !failures.isEmpty { throw HistoryInteractionSmokeError.failed(failures.joined(separator: " / ")) }
@@ -267,20 +272,28 @@ private func checkMonthDayOpening() throws {
     defer { window.contentView = nil; window.close() }
 
     // Black-box scan: SwiftUI vends no per-cell NSViews, so click a lattice over
-    // the grid. Rows are ~90pt and columns ~80pt, so a 28pt step lands in every cell.
-    let points: [NSPoint] = stride(from: CGFloat(30), to: 640, by: 28).flatMap { top in
-        stride(from: CGFloat(14), to: size.width, by: 28).map { NSPoint(x: $0, y: size.height - top) }
+    // the grid. Cells are ~75 x 91 pt. Single clicks use a lattice coarser than a
+    // cell so no two consecutive clicks share one (two clicks in a cell inside the
+    // double-click interval are, correctly, a double-click).
+    func lattice(_ dx: CGFloat, _ dy: CGFloat) -> [NSPoint] {
+        stride(from: CGFloat(30), to: 640, by: dy).flatMap { top in
+            stride(from: CGFloat(14), to: size.width, by: dx).map { NSPoint(x: $0, y: size.height - top) }
+        }
     }
-    for point in points {
+    for point in lattice(96, 104) {
         mouse(.leftMouseDown, at: point, in: window); mouse(.leftMouseUp, at: point, in: window)
     }
     settle(host)
     guard opened.isEmpty else {
         throw HistoryInteractionSmokeError.failed("Single clicks opened \(opened.count) days; a click must only select")
     }
-    for point in points {
+    var pause: TimeInterval = 0
+    for point in lattice(28, 28) {
+        // Each pair is a separate gesture: leave more than the double-click interval between pairs.
+        pause += 1
         for count in 1...2 {
-            mouse(.leftMouseDown, at: point, in: window, count: count); mouse(.leftMouseUp, at: point, in: window, count: count)
+            mouse(.leftMouseDown, at: point, in: window, count: count, after: pause)
+            mouse(.leftMouseUp, at: point, in: window, count: count, after: pause)
         }
     }
     settle(host)
@@ -304,4 +317,44 @@ private func checkMonthDayOpening() throws {
         throw HistoryInteractionSmokeError.failed("\(label) has no working \"Open day\" accessibility action (found \(actions.map(\.name)))")
     }
     print("ui-smoke: month day ring selects on one click, opens on double-click, and exposes an Open day accessibility action")
+}
+
+// MARK: - Day view disclosures
+
+/// "Session details" on every session card is a DisclosureGroup. Click a lattice over
+/// the Day view and require that at least one expands: the view must grow.
+@MainActor
+private func checkDayDisclosures() throws {
+    let zone = "UTC"
+    let anchor = ISO8601DateFormatter().date(from: "2024-03-08T12:00:00Z")!
+    let navigation = CalendarNavigation(timezoneID: zone, anchor: anchor, scale: .day)
+    let book = BookRecord(id: "disclosure-book", title: "Disclosure")
+    let interval = ReadingInterval(sessionID: "disclosure-0", bookID: book.id, start: anchor,
+        end: anchor.addingTimeInterval(1_800), duration: 1_800, timezoneID: zone, mode: .manual)
+    let source = HistoryAtlasSource(books: [book], intervals: [interval], events: [], progress: [], merges: [],
+        finishedBooks: [], pageEvidence: PageStatistics.snapshot(events: [], effectiveIntervals: [interval], merges: []))
+    let presentation = HistoryAtlasPeriod(source: source, navigation: navigation, now: anchor)
+    let size = NSSize(width: 900, height: 1_100)
+    let view = AtlasDayView(navigation: navigation, presentation: presentation, editSession: { _ in })
+        .frame(width: size.width, alignment: .topLeading)
+        .fixedSize(horizontal: false, vertical: true)
+        .buttonStyle(ReadingButtonStyle())
+    let (window, host) = hostedWindow(view, size: size)
+    defer { window.contentView = nil; window.close() }
+    let before = host.fittingSize.height
+    var pause: TimeInterval = 0
+    for top in stride(from: CGFloat(20), to: 700, by: 24) {
+        for x in stride(from: CGFloat(20), to: 500, by: 40) {
+            let point = NSPoint(x: x, y: size.height - top)
+            pause += 1
+            mouse(.leftMouseDown, at: point, in: window, after: pause)
+            mouse(.leftMouseUp, at: point, in: window, after: pause)
+        }
+    }
+    settle(host)
+    let after = host.fittingSize.height
+    guard after > before + 20 else {
+        throw HistoryInteractionSmokeError.failed("Clicking across the Day view expanded no \"Session details\" disclosure (height \(before) → \(after))")
+    }
+    print("ui-smoke: Day view session details expand under the dashboard's button style")
 }
