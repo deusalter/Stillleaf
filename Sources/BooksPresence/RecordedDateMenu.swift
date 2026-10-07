@@ -36,8 +36,21 @@ struct RecordedDateMenuCaption: View {
     var body: some View {
         HStack(spacing: 4) {
             Text("\(count) \(count == 1 ? "date" : "dates")")
-            Image(systemName: "chevron.down").font(.system(size: 8, weight: .medium)).accessibilityHidden(true)
+            DisclosureChevron().stroke(style: StrokeStyle(lineWidth: 1.2, lineCap: .round, lineJoin: .round))
+                .frame(width: 6, height: 3.5).accessibilityHidden(true)
         }.font(.caption2).foregroundStyle(ReadingPalette.secondaryInk)
+    }
+}
+
+/// A down chevron drawn as a path: it replaces an SF Symbol image, which is resolved again for
+/// every row of the Year view and was among the costlier things on its settle path.
+private struct DisclosureChevron: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.midX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+        return path
     }
 }
 
