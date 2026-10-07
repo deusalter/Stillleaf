@@ -26,7 +26,7 @@ func manualEntryPreviews(model: AppModel) -> [(String, AnyView)] {
     }
     let found = [PreviewBookSearch.piranesi, PreviewBookSearch.notebooks]
     // A day with no seeded history, so the sheets show their summary rather than an overlap warning.
-    let quietDay = ManualDayChoice.other(Date().addingTimeInterval(-9 * 86_400))
+    let quietDay = ManualDayChoice.other(Date().addingTimeInterval(-240 * 86_400))
     var yesterday = ManualEntryDraft(); yesterday.choose(day: quietDay); yesterday.preset = .threeQuarters
     var pages = ManualEntryDraft(); pages.choose(day: quietDay); pages.content = .both; pages.pagesStyle = .range; pages.fromPage = "10"; pages.toPage = "30"
     var pagesOnly = ManualEntryDraft(); pagesOnly.choose(day: .yesterday); pagesOnly.content = .pages; pagesOnly.pageCount = "25"
