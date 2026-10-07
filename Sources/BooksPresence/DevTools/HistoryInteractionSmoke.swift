@@ -250,11 +250,15 @@ private func exerciseTimescalePick(in host: NSView, window: NSWindow, what: Stri
     return "\(what): ok (\(detail))"
 }
 
-/// What the dashboard wraps around History, rebuilt piece by piece to find which piece takes the pick away.
+/// What the dashboard wraps around History, with exactly one of its window-level modifiers applied
+/// so a disabled menu can be blamed on one of them.
+private enum DashboardModifier: String, CaseIterable {
+    case none, coordinateSpace, gardenBackdrop, glassRegions, sidebarToggleToolbar, motionTransaction, minFrame, toggleStyle, tint
+}
+
 private struct DashboardContentReplica: View {
     @ObservedObject var model: AppModel
-    let windowLevel: Bool
-    let garden: Bool
+    let modifier: DashboardModifier
     @State private var frost = FrostRegions()
     var body: some View {
         let content = VStack(spacing: 0) {
@@ -264,34 +268,16 @@ private struct DashboardContentReplica: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .foregroundStyle(ReadingPalette.ink)
         .buttonStyle(ReadingButtonStyle())
-        if !windowLevel { content }
-        else if !garden {
-            content
-                .coordinateSpace(name: GardenCanvas.space)
-                .environment(\.gardenBackdrop, true)
-                .onPreferenceChange(GlassRegionsKey.self) { frost.rects = $0 }
-                .nativeDashboardSidebarToggle(isCollapsed: false) {}
-                .readingMotionAccessibility()
-                .frame(minWidth: 920, minHeight: 660)
-                .toggleStyle(.switch).tint(ReadingPalette.accent)
-        } else {
-            content
-                .background {
-                    GeometryReader { proxy in
-                        ZStack {
-                            ReadingPalette.canvas
-                            GardenCanvas(layout: GardenLayout(clearingHeight: 198, seed: GardenSeed.daily("dashboard", day: model.today.day), pollenScale: 0.5),
-                                         mode: ThemeStore.shared.effectiveGardenMode(reduceMotion: false), frost: frost, frostOffset: proxy.safeAreaInsets.top)
-                        }.ignoresSafeArea()
-                    }
-                }
-                .coordinateSpace(name: GardenCanvas.space)
-                .environment(\.gardenBackdrop, true)
-                .onPreferenceChange(GlassRegionsKey.self) { frost.rects = $0 }
-                .nativeDashboardSidebarToggle(isCollapsed: false) {}
-                .readingMotionAccessibility()
-                .frame(minWidth: 920, minHeight: 660)
-                .toggleStyle(.switch).tint(ReadingPalette.accent)
+        switch modifier {
+        case .none: content
+        case .coordinateSpace: content.coordinateSpace(name: GardenCanvas.space)
+        case .gardenBackdrop: content.environment(\.gardenBackdrop, true)
+        case .glassRegions: content.onPreferenceChange(GlassRegionsKey.self) { frost.rects = $0 }
+        case .sidebarToggleToolbar: content.nativeDashboardSidebarToggle(isCollapsed: false) {}
+        case .motionTransaction: content.readingMotionAccessibility()
+        case .minFrame: content.frame(minWidth: 920, minHeight: 660)
+        case .toggleStyle: content.toggleStyle(.switch)
+        case .tint: content.tint(ReadingPalette.accent)
         }
     }
 }
@@ -299,11 +285,10 @@ private struct DashboardContentReplica: View {
 @MainActor
 private func checkTimescaleInReplicas(model: AppModel) throws {
     var report: [String] = [], broken: [String] = []
-    for (name, windowLevel, garden) in [("replica: content wrappers", false, false),
-                                        ("replica: + window-level modifiers", true, false),
-                                        ("replica: + garden background", true, true)] {
+    for modifier in DashboardModifier.allCases {
+        let name = "replica+\(modifier.rawValue)"
         HistorySmokeWatchdog.progress(name)
-        let (window, host) = hostedWindow(DashboardContentReplica(model: model, windowLevel: windowLevel, garden: garden),
+        let (window, host) = hostedWindow(DashboardContentReplica(model: model, modifier: modifier),
                                           size: NSSize(width: 1_000, height: 800))
         defer { window.contentView = nil; window.close() }
         do { report.append(try exerciseTimescalePick(in: host, window: window, what: name)) }
