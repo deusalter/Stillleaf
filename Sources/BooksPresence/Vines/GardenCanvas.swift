@@ -214,6 +214,8 @@ struct GardenCanvas: View {
     @State private var visible = true
     @State private var resizing = false
     @State private var pendingLayout: GardenLayout?
+    /// Pixels per point of the hosting window, so bitmaps are no larger than that display needs.
+    @State private var scale = NSScreen.main?.backingScaleFactor ?? 2
     /// Observed so a theme or accent change recolours the garden.
     @ObservedObject private var theme = ThemeStore.shared
     @Environment(\.colorScheme) private var colorScheme
@@ -242,6 +244,7 @@ struct GardenCanvas: View {
                 }
         }
         .background(WindowVisibility(isVisible: $visible, isResizing: $resizing))
+        .background(WindowScale(scale: $scale))
         .allowsHitTesting(false)
         .accessibilityHidden(true)
     }
@@ -263,8 +266,9 @@ struct GardenCanvas: View {
             // Sharp vines stop at the glass; inside it the garden shows through softly blurred.
             ZStack(alignment: .topLeading) {
                 sharp(size: size).mask(FrostMask(regions: frost, offset: frostOffset, inverted: true))
-                if !model.growing, let image = model.frostedRaster(palette: palette) {
+                if !model.growing, let image = model.frostedRaster(palette: palette, scale: scale) {
                     Image(nsImage: image)
+                        .resizable().interpolation(.high)
                         .frame(width: size.width, height: size.height, alignment: .topLeading)
                         .mask(FrostMask(regions: frost, offset: frostOffset, inverted: false))
                         .transition(.opacity)
@@ -288,31 +292,55 @@ struct GardenCanvas: View {
                     GardenRenderer(model: model, palette: palette, time: time).draw(in: &graphics)
                 }
             }
-        } else if let image = model.raster(palette: palette) {
-            GardenStill(image: image, size: size, breathing: mode == .animated && visible && GardenClock.frozenTime == nil)
+        } else if let image = model.raster(palette: palette, scale: scale) {
+            GardenStill(image: image, breathing: mode == .animated && visible && GardenClock.frozenTime == nil)
+                .frame(width: size.width, height: size.height)
         }
     }
 
     private static var now: TimeInterval { Date().timeIntervalSinceReferenceDate }
 }
 
-/// Glass panel frames, observed only by the garden so scrolling never
+/// Glass panels, observed only by the garden so scrolling never
 /// re-renders the screens themselves.
 @MainActor
 final class FrostRegions: ObservableObject {
-    @Published var rects: [CGRect] = []
+    @Published private(set) var regions: [GlassRegion] = []
+
+    /// Where `GlassRegionsKey` values are delivered. Moves under a point are not
+    /// published: the frost would not visibly differ, and the garden skips a redraw.
+    var rects: [GlassRegion] {
+        get { regions }
+        set { if !Self.equivalent(regions, newValue) { regions = newValue } }
+    }
+
+    private static func equivalent(_ old: [GlassRegion], _ new: [GlassRegion]) -> Bool {
+        guard old.count == new.count else { return false }
+        return zip(old, new).allSatisfy { a, b in
+            a.cornerRadius == b.cornerRadius && abs(a.frame.minX - b.frame.minX) < 1 && abs(a.frame.minY - b.frame.minY) < 1
+                && abs(a.frame.width - b.frame.width) < 1 && abs(a.frame.height - b.frame.height) < 1
+        }
+    }
 }
 
 /// The union of glass panels (or everything but them, when inverted).
-private struct FrostMask: View {
+struct FrostMask: View {
     @ObservedObject var regions: FrostRegions
     let offset: CGFloat
     let inverted: Bool
 
+    /// The panels' outlines, each with its own corner radius.
+    static func path(for regions: [GlassRegion], offset: CGFloat) -> Path {
+        var panels = Path()
+        for region in regions {
+            panels.addRoundedRect(in: region.frame.offsetBy(dx: 0, dy: offset), cornerSize: CGSize(width: region.cornerRadius, height: region.cornerRadius), style: .continuous)
+        }
+        return panels
+    }
+
     var body: some View {
         Canvas { context, size in
-            var panels = Path()
-            for rect in regions.rects { panels.addRoundedRect(in: rect.offsetBy(dx: 0, dy: offset), cornerSize: CGSize(width: 16, height: 16), style: .continuous) }
+            let panels = Self.path(for: regions.regions, offset: offset)
             if inverted {
                 var everything = Path(CGRect(origin: .zero, size: size))
                 everything.addPath(panels)
@@ -324,34 +352,113 @@ private struct FrostMask: View {
     }
 }
 
-/// A grown garden: one image, with a soft band of light drifting across it.
-private struct GardenStill: View {
+/// A grown garden: one layer, with a soft band of light drifting across it.
+private struct GardenStill: NSViewRepresentable {
     let image: NSImage
-    let size: CGSize
     let breathing: Bool
 
-    var body: some View {
-        Image(nsImage: image)
-            .frame(width: size.width, height: size.height, alignment: .topLeading)
-            .mask {
-                if breathing { BreathingBand(size: size) } else { Color.white }
-            }
+    func makeNSView(context: Context) -> GardenStillView { GardenStillView(frame: .zero) }
+    func updateNSView(_ view: GardenStillView, context: Context) { view.apply(image: image, breathing: breathing) }
+}
+
+/// Shows the grown garden as one layer. While `breathing`, its mask carries a band of light
+/// that a Core Animation animation sweeps across: the render server runs it, so the idle
+/// garden asks nothing of the app (a SwiftUI `repeatForever` kept the app re-evaluating
+/// the view tree every frame). Stopping removes the mask, and breathing again starts afresh.
+final class GardenStillView: NSView {
+    static let breatheKey = "breathe"
+    /// Seconds for the band to cross the garden, as the SwiftUI animation it replaces did; it then sweeps back.
+    static let breathePeriod: CFTimeInterval = 16
+    private var image: NSImage?
+    private var breathing = false
+    private var bandWidth: CGFloat = 0
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    var breathingMask: CALayer? { layer?.mask }
+
+    func apply(image: NSImage, breathing: Bool) {
+        if self.image !== image { self.image = image; needsDisplay = true }
+        guard breathing != self.breathing else { return }
+        self.breathing = breathing
+        refreshBand()
+    }
+
+    override var wantsUpdateLayer: Bool { true }
+
+    override func updateLayer() {
+        guard let layer else { return }
+        layer.contentsGravity = .resize
+        layer.contents = image?.cgImage(forProposedRect: nil, context: nil, hints: nil)
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        if breathing, bandWidth != newSize.width { refreshBand() }
+    }
+
+    /// The mask is a gradient three garden-widths wide whose centre travels from just left of the
+    /// garden to beyond its right edge, so the garden's brightness drifts between 74% and 100%.
+    private func refreshBand() {
+        guard let layer else { return }
+        guard breathing else { layer.mask = nil; return }
+        let width = bounds.width, height = bounds.height
+        bandWidth = width
+        let band = CAGradientLayer()
+        band.colors = [0.74, 1, 0.74].map { CGColor(gray: 1, alpha: $0) }
+        band.locations = [0, 0.5, 1]
+        band.startPoint = CGPoint(x: 0, y: 0.5)
+        band.endPoint = CGPoint(x: 1, y: 0.5)
+        band.bounds = CGRect(x: 0, y: 0, width: width * 3, height: height)
+        band.position = CGPoint(x: width / 2, y: height / 2)
+        let sweep = CABasicAnimation(keyPath: "position.x")
+        sweep.fromValue = NSNumber(value: Double(-width / 2))
+        sweep.toValue = NSNumber(value: Double(width * 1.5))
+        sweep.duration = Self.breathePeriod
+        sweep.autoreverses = true
+        sweep.repeatCount = .infinity
+        sweep.timingFunction = CAMediaTimingFunction(name: .linear)
+        band.add(sweep, forKey: Self.breatheKey)
+        layer.mask = band
     }
 }
 
-/// Recreated whenever breathing resumes, so its animation always starts afresh.
-private struct BreathingBand: View {
-    let size: CGSize
-    @State private var sweep = false
+/// Reports the hosting window's backing scale, and follows it across displays.
+private struct WindowScale: NSViewRepresentable {
+    @Binding var scale: CGFloat
 
-    var body: some View {
-        LinearGradient(stops: [.init(color: .white.opacity(0.74), location: 0), .init(color: .white, location: 0.5),
-                               .init(color: .white.opacity(0.74), location: 1)],
-                       startPoint: .leading, endPoint: .trailing)
-            .frame(width: size.width * 3)
-            .offset(x: sweep ? size.width : -size.width)
-            .frame(width: size.width, height: size.height)
-            .onAppear { withAnimation(.linear(duration: 16).repeatForever(autoreverses: true)) { sweep = true } }
+    func makeNSView(context: Context) -> Probe {
+        let probe = Probe()
+        probe.report = { value in
+            DispatchQueue.main.async { if scale != value { scale = value } }
+        }
+        return probe
+    }
+
+    func updateNSView(_ nsView: Probe, context: Context) {}
+
+    final class Probe: NSView {
+        var report: ((CGFloat) -> Void)?
+        private var observer: NSObjectProtocol?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            observer.map(NotificationCenter.default.removeObserver)
+            observer = nil
+            guard let window else { return }
+            observer = NotificationCenter.default.addObserver(forName: NSWindow.didChangeBackingPropertiesNotification, object: window, queue: .main) { [weak self] _ in
+                self?.report?(window.backingScaleFactor)
+            }
+            report?(window.backingScaleFactor)
+        }
+
+        deinit { observer.map(NotificationCenter.default.removeObserver) }
     }
 }
 
@@ -360,12 +467,12 @@ private struct BreathingBand: View {
 enum GlyphAtlas {
     private static var images: [String: NSImage] = [:]
 
-    static func image(_ glyph: Character, _ hex: UInt32) -> NSImage {
-        let key = "\(glyph)\(hex)"
+    static func image(_ glyph: Character, _ hex: UInt32, scale: CGFloat) -> NSImage {
+        let key = "\(glyph)\(hex)@\(scale)"
         if let cached = images[key] { return cached }
         if images.count > 600 { images.removeAll(keepingCapacity: true) }
         let size = CGSize(width: GardenModel.cellWidth * 1.6, height: GardenModel.cellHeight)
-        let image = GardenModel.bitmap(size: size) {
+        let image = GardenModel.bitmap(size: size, scale: scale) {
             NSAttributedString(string: String(glyph), attributes: [.font: GardenModel.font, .foregroundColor: ReadingPalette.nsColor(hex)])
                 .draw(at: .zero)
         }
@@ -376,13 +483,13 @@ enum GlyphAtlas {
 
 extension GardenModel {
     /// The grown garden as one image: pollen, then every cell at rest.
-    func raster(palette: VinePalette) -> NSImage? {
+    func raster(palette: VinePalette, scale: CGFloat) -> NSImage? {
         guard let layout, field.maxCells > 0, layout.size.width > 0 else { return nil }
         let key = RasterKey(generation: generation, steps: field.stepCount, cells: field.cells.count, palette: palette, size: layout.size,
-                            pollenScale: layout.pollenScale, clearing: layout.clearingHeight)
+                            pollenScale: layout.pollenScale, clearing: layout.clearingHeight, scale: scale)
         if let cachedRaster, cachedRasterKey == key { return cachedRaster }
         let field = field, w = field.cellWidth, h = field.cellHeight
-        let image = Self.bitmap(size: layout.size) {
+        let image = Self.bitmap(size: layout.size, scale: scale) {
             func draw(_ glyph: Character, _ hex: UInt32, _ alpha: Double, _ x: Double, _ y: Double) {
                 NSAttributedString(string: String(glyph), attributes: [.font: Self.font,
                     .foregroundColor: ReadingPalette.nsColor(hex).withAlphaComponent(min(1, alpha))]).draw(at: CGPoint(x: x, y: y))
@@ -403,14 +510,16 @@ extension GardenModel {
     }
 
     /// The grown garden softly blurred and a little more saturated: what shows through glass.
-    func frostedRaster(palette: VinePalette) -> NSImage? {
-        guard let sharp = raster(palette: palette), let key = cachedRasterKey else { return nil }
+    func frostedRaster(palette: VinePalette, scale: CGFloat) -> NSImage? {
+        guard let sharp = raster(palette: palette, scale: scale), let key = cachedRasterKey else { return nil }
         if let cachedFrost, cachedFrostKey == key { return cachedFrost }
         guard let cg = sharp.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
-        let scale = Double(cg.width) / max(1, sharp.size.width)
-        let input = CIImage(cgImage: cg)
+        // The blur hides detail, so build it at a fraction of the raster's resolution: it needs
+        // a quarter of the memory, and the image is stretched back over the same points.
+        let pixelsPerPoint = Double(cg.width) / max(1, sharp.size.width) * Self.frostDownscale
+        let input = CIImage(cgImage: cg).transformed(by: CGAffineTransform(scaleX: Self.frostDownscale, y: Self.frostDownscale))
         let output = input.clampedToExtent()
-            .applyingGaussianBlur(sigma: 3.5 * scale)
+            .applyingGaussianBlur(sigma: 3.5 * pixelsPerPoint)
             .applyingFilter("CIColorControls", parameters: [kCIInputSaturationKey: 1.6, kCIInputBrightnessKey: 0.0])
             .cropped(to: input.extent)
         guard let blurred = Self.imageContext.createCGImage(output, from: input.extent) else { return nil }
@@ -420,11 +529,13 @@ extension GardenModel {
         return image
     }
 
+    /// The frost bitmap's resolution relative to the raster's.
+    static let frostDownscale: CGFloat = 0.5
+
     private static let imageContext = CIContext(options: [.cacheIntermediates: false])
 
-    /// Draws into a flipped, screen-scale bitmap once, so the result never re-runs drawing code.
-    static func bitmap(size: CGSize, _ draw: () -> Void) -> NSImage {
-        let scale = NSScreen.main?.backingScaleFactor ?? 2
+    /// Draws into a flipped bitmap at the hosting window's scale once, so the result never re-runs drawing code.
+    static func bitmap(size: CGSize, scale: CGFloat, _ draw: () -> Void) -> NSImage {
         guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: max(1, Int(size.width * scale)), pixelsHigh: max(1, Int(size.height * scale)),
                                          bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
                                          bytesPerRow: 0, bitsPerPixel: 0),
@@ -443,6 +554,8 @@ extension GardenModel {
     }
 }
 
+/// What a cached raster was drawn from. `generation` counts replants, so a different garden
+/// never matches even when it happens to grow the same number of steps and cells.
 struct RasterKey: Equatable {
     let generation: Int
     let steps: Int
@@ -451,6 +564,8 @@ struct RasterKey: Equatable {
     let size: CGSize
     let pollenScale: Double
     let clearing: CGFloat
+    /// Pixels per point of the window the raster was drawn for.
+    let scale: CGFloat
 }
 
 /// Draws one frame of a growing garden from cached glyph bitmaps.
@@ -480,11 +595,12 @@ private struct GardenRenderer {
         let field = model.field
         guard let layout = model.layout, field.maxCells > 0 else { return }
         let w = field.cellWidth, h = field.cellHeight
+        let scale = context.environment.displayScale
         var resolved: [String: GraphicsContext.ResolvedImage] = [:]
         func put(_ glyph: Character, _ hex: UInt32, _ x: Double, _ y: Double, _ alpha: Double) {
             guard alpha > 0.01 else { return }
             let key = "\(glyph)\(hex)"
-            let image = resolved[key] ?? context.resolve(Image(nsImage: GlyphAtlas.image(glyph, hex)))
+            let image = resolved[key] ?? context.resolve(Image(nsImage: GlyphAtlas.image(glyph, hex, scale: scale)))
             resolved[key] = image
             var cell = context
             cell.opacity = min(1, alpha)
@@ -508,14 +624,9 @@ private struct GardenRenderer {
             let age = time - born
             // A new bloom flashes as it opens, then releases two spores that drift up.
             let pop = 1 - smoothstep(0, 0.9, age)
-            if pop > 0 { put(cell.glyph, hex, x, y - pop * 2, pop * 0.6) }
-            for spore in 0..<2 where age < 10 {
-                let seed = cell.phase * 10 + Double(spore)
-                let vx = (Noise.unit(seed) - 0.5) * 6, vy = -(6 + Noise.unit(seed + 3) * 10)
-                let life = 5 + Noise.unit(seed + 7) * 5
-                guard age < life else { continue }
-                put(VineGlyphs.sporeGlyph(Int(seed)), palette.leaves[1], x + w / 2 + vx * age + sin(age * 1.3 + seed) * 6, y + vy * age,
-                    0.7 * smoothstep(0, 0.8, age) * (1 - smoothstep(life - 1.6, life, age)))
+            if pop > 0, GardenSpores.isClear(x: x, y: y - pop * 2, layout: layout, cellWidth: w, cellHeight: h) { put(cell.glyph, hex, x, y - pop * 2, pop * 0.6) }
+            for spore in GardenSpores.drifting(from: cell, age: age, layout: layout, cellWidth: w, cellHeight: h) {
+                put(spore.glyph, palette.leaves[1], spore.x, spore.y, spore.alpha)
             }
         }
         for head in field.heads where field.isGrowing {
@@ -527,6 +638,41 @@ private struct GardenRenderer {
 private func smoothstep(_ a: Double, _ b: Double, _ x: Double) -> Double {
     let t = min(1, max(0, (x - a) / (b - a)))
     return t * t * (3 - 2 * t)
+}
+
+/// The pollen a bloom releases as it opens: two spores drifting up and sideways.
+enum GardenSpores {
+    struct Spore: Equatable {
+        let glyph: Character
+        let alpha: Double
+        let x: Double
+        let y: Double
+    }
+
+    /// Whether a glyph at (x, y) stays out of the header clearing and a cell clear of every avoided rectangle.
+    static func isClear(x: Double, y: Double, layout: GardenLayout, cellWidth w: Double, cellHeight h: Double) -> Bool {
+        guard y >= Double(layout.clearingHeight) else { return false }
+        if layout.avoid.isEmpty { return true }
+        let glyph = CGRect(x: x, y: y, width: w, height: h)
+        return !layout.avoid.contains { $0.insetBy(dx: -CGFloat(w), dy: -CGFloat(h)).intersects(glyph) }
+    }
+
+    /// Where `cell`'s spores are `age` seconds after it opened. Spores that would drift over
+    /// the header or an avoided rectangle are dropped rather than drawn over bare text.
+    static func drifting(from cell: VineCell, age: Double, layout: GardenLayout, cellWidth w: Double, cellHeight h: Double) -> [Spore] {
+        guard age < 10 else { return [] }
+        var spores: [Spore] = []
+        for spore in 0..<2 {
+            let seed = cell.phase * 10 + Double(spore)
+            let vx = (Noise.unit(seed) - 0.5) * 6, vy = -(6 + Noise.unit(seed + 3) * 10)
+            let life = 5 + Noise.unit(seed + 7) * 5
+            guard age < life else { continue }
+            let x = Double(cell.x) * w + w / 2 + vx * age + sin(age * 1.3 + seed) * 6, y = Double(cell.y) * h + vy * age
+            guard isClear(x: x, y: y, layout: layout, cellWidth: w, cellHeight: h) else { continue }
+            spores.append(Spore(glyph: VineGlyphs.sporeGlyph(Int(seed)), alpha: 0.7 * smoothstep(0, 0.8, age) * (1 - smoothstep(life - 1.6, life, age)), x: x, y: y))
+        }
+        return spores
+    }
 }
 
 extension VineGlyphs {

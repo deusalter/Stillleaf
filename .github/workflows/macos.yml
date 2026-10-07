@@ -61,6 +61,13 @@ jobs:
           python3 scripts/reader-review-fixture.py "$RUNNER_TEMP/reader-fixture.epub" --chapters 3
           mkdir -p "$RUNNER_TEMP/reader-appearance"
           python3 scripts/run-native-reader-smoke.py --timeout 300 --output "$RUNNER_TEMP/reader-diagnostics/release" -- .build/release/BooksPresence --self-test-epub "$RUNNER_TEMP/reader-fixture.epub" --reader-appearance-review --reader-artifacts "$RUNNER_TEMP/reader-appearance"
+      - name: Native EPUB reader continuous smoke (synthetic 12-chapter book)
+        id: continuous-smoke
+        timeout-minutes: 7
+        if: ${{ !cancelled() && steps.reader-assets.outcome == 'success' }}
+        run: |
+          python3 scripts/reader-review-fixture.py "$RUNNER_TEMP/reader-continuous.epub" --chapters 12
+          python3 scripts/run-native-reader-smoke.py --timeout 300 --output "$RUNNER_TEMP/reader-diagnostics/continuous" -- .build/release/BooksPresence --self-test-epub "$RUNNER_TEMP/reader-continuous.epub" --reader-experimental-continuous
       - name: Native EPUB reader crash diagnostics
         timeout-minutes: 10
         if: ${{ failure() && steps.epub-smoke.outcome == 'failure' }}

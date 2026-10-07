@@ -321,6 +321,10 @@ struct BooksPresenceMain {
             do { try runUIBenchmark(); exit(0) }
             catch { fputs("ui-benchmark failed: \(error)\n", stderr); exit(1) }
         }
+        if let index = CommandLine.arguments.firstIndex(of: "--measure-seedling"), index + 1 < CommandLine.arguments.count {
+            measureSeedlingCPU(seconds: Double(CommandLine.arguments[index + 1]) ?? 21)
+            exit(0)
+        }
         if CommandLine.arguments.contains("--self-test-ui") {
             do { try runUISmoke(); exit(0) }
             catch { fputs("ui-smoke failed: \(error)\n", stderr); exit(1) }
