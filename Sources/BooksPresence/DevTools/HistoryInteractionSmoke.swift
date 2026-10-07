@@ -55,6 +55,7 @@ func runHistoryInteractionSmoke(model: AppModel) throws {
     let checks: [(String, () throws -> Void)] = [
         ("timescale menu in isolation", checkHistoryTimescaleMenu),
         ("timescale menu in the dashboard window", { try checkTimescaleInDashboard(model: model) }),
+        ("timescale in dashboard replicas", { try checkTimescaleInReplicas(model: model) }),
         ("timescale pick reaches the published chart", { try checkTimescalePublishes(model: model) }),
         ("month day opening", checkMonthDayOpening),
         ("day view disclosures", checkDayDisclosures),
@@ -135,16 +136,25 @@ private func mouse(_ type: NSEvent.EventType, at point: NSPoint, in window: NSWi
     window.sendEvent(event)
 }
 
+/// Item titles and enabled states captured while the last tracked menu was open.
+@MainActor private var lastTrackedMenu = "never opened"
+
 /// Runs `trigger` (a click) and reads the popup's items while its menu is
 /// tracking, then cancels. nil means tracking never began: the click did nothing.
 @MainActor
 private func trackMenu(of popup: NSPopUpButton, trigger: () -> Void) -> [NSMenuItem]? {
     var items: [NSMenuItem]?
+    lastTrackedMenu = "never opened"
     HistorySmokeWatchdog.progress("tracking a popup menu")
     // The timer only fires once the menu's tracking loop is running.
     let timer = Timer(timeInterval: 0.02, repeats: true) { _ in
         MainActor.assumeIsolated {
-            if items == nil { items = popup.menu?.items }
+            if items == nil {
+                items = popup.menu?.items
+                lastTrackedMenu = (items ?? []).map { item in
+                    "\(item.title.isEmpty ? "·" : item.title)[\(item.isEnabled ? "on" : "OFF")\(item.isHidden ? ",hidden" : "")\(item.action == nil ? ",noaction" : "")]"
+                }.joined(separator: " ") + " autoenables=\(popup.menu?.autoenablesItems ?? false)"
+            }
             popup.menu?.cancelTracking()
         }
     }
@@ -217,6 +227,92 @@ private func checkHistoryTimescaleMenu() throws {
     print("ui-smoke: History timescale menu opens under the dashboard's button style and each scale applies through its binding")
 }
 
+/// Opens the timescale popup of `host` with performClick, reports the items' states while it is
+/// open, picks Week, and requires the control to read Week (looked up afresh each time).
+@MainActor
+private func exerciseTimescalePick(in host: NSView, window: NSWindow, what: String) throws -> String {
+    func labels() -> [[String]] { popupButtons(in: host).map { textFields(in: $0) } }
+    func scaleLabelIs(_ title: String) -> Bool { labels().contains { $0.contains(title) } }
+    guard let current = popupButtons(in: host).first(where: { textFields(in: $0).contains("Month") }) else {
+        throw HistoryInteractionSmokeError.failed("\(what): no popup labelled Month (\(labels()))")
+    }
+    guard trackMenu(of: current, trigger: { current.performClick(nil) }) != nil,
+          let index = current.menu?.items.firstIndex(where: { $0.title == "Week" }) else {
+        throw HistoryInteractionSmokeError.failed("\(what): popup did not open with a Week item (\(lastTrackedMenu))")
+    }
+    let detail = "items while open: \(lastTrackedMenu); key \(window.isKeyWindow), active \(NSApp.isActive)"
+    HistorySmokeWatchdog.progress("\(what): performing the Week item")
+    current.menu?.performActionForItem(at: index)
+    _ = pump(timeout: 3, until: { scaleLabelIs("Week") })
+    guard scaleLabelIs("Week") else {
+        throw HistoryInteractionSmokeError.failed("\(what): choosing Week left the control reading \(labels()) (\(detail))")
+    }
+    return "\(what): ok (\(detail))"
+}
+
+/// What the dashboard wraps around History, rebuilt piece by piece to find which piece takes the pick away.
+private struct DashboardContentReplica: View {
+    @ObservedObject var model: AppModel
+    let windowLevel: Bool
+    let garden: Bool
+    @State private var frost = FrostRegions()
+    var body: some View {
+        let content = VStack(spacing: 0) {
+            Group { HistoryView(model: model, initialScale: .month) }
+                .id("content-1").readingEntrance().id(DashboardSection.history)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .foregroundStyle(ReadingPalette.ink)
+        .buttonStyle(ReadingButtonStyle())
+        if !windowLevel { content }
+        else if !garden {
+            content
+                .coordinateSpace(name: GardenCanvas.space)
+                .environment(\.gardenBackdrop, true)
+                .onPreferenceChange(GlassRegionsKey.self) { frost.rects = $0 }
+                .nativeDashboardSidebarToggle(isCollapsed: false) {}
+                .readingMotionAccessibility()
+                .frame(minWidth: 920, minHeight: 660)
+                .toggleStyle(.switch).tint(ReadingPalette.accent)
+        } else {
+            content
+                .background {
+                    GeometryReader { proxy in
+                        ZStack {
+                            ReadingPalette.canvas
+                            GardenCanvas(layout: GardenLayout(clearingHeight: 198, seed: GardenSeed.daily("dashboard", day: model.today.day), pollenScale: 0.5),
+                                         mode: ThemeStore.shared.effectiveGardenMode(reduceMotion: false), frost: frost, frostOffset: proxy.safeAreaInsets.top)
+                        }.ignoresSafeArea()
+                    }
+                }
+                .coordinateSpace(name: GardenCanvas.space)
+                .environment(\.gardenBackdrop, true)
+                .onPreferenceChange(GlassRegionsKey.self) { frost.rects = $0 }
+                .nativeDashboardSidebarToggle(isCollapsed: false) {}
+                .readingMotionAccessibility()
+                .frame(minWidth: 920, minHeight: 660)
+                .toggleStyle(.switch).tint(ReadingPalette.accent)
+        }
+    }
+}
+
+@MainActor
+private func checkTimescaleInReplicas(model: AppModel) throws {
+    var report: [String] = [], broken: [String] = []
+    for (name, windowLevel, garden) in [("replica: content wrappers", false, false),
+                                        ("replica: + window-level modifiers", true, false),
+                                        ("replica: + garden background", true, true)] {
+        HistorySmokeWatchdog.progress(name)
+        let (window, host) = hostedWindow(DashboardContentReplica(model: model, windowLevel: windowLevel, garden: garden),
+                                          size: NSSize(width: 1_000, height: 800))
+        defer { window.contentView = nil; window.close() }
+        do { report.append(try exerciseTimescalePick(in: host, window: window, what: name)) }
+        catch { broken.append("\(error)") }
+    }
+    print("ui-smoke: timescale replicas — \(report.joined(separator: " | "))")
+    if !broken.isEmpty { throw HistoryInteractionSmokeError.failed(broken.joined(separator: " / ")) }
+}
+
 /// The full dashboard window: garden, frost, floating sidebar and transparent
 /// title bar all share the window with History's controls.
 @MainActor
@@ -230,9 +326,8 @@ private func checkTimescaleInDashboard(model: AppModel) throws {
     settle(host, passes: 10)
     defer { window.contentView = nil; window.close() }
 
-    let popups = popupButtons(in: host)
-    guard let popup = popups.first(where: { textFields(in: $0).contains("Month") }) else {
-        throw HistoryInteractionSmokeError.failed("No popup labelled Month in the dashboard (\(popups.count) popups). Tree:\n\(describe(host))")
+    guard let popup = popupButtons(in: host).first(where: { textFields(in: $0).contains("Month") }) else {
+        throw HistoryInteractionSmokeError.failed("No popup labelled Month in the dashboard. Tree:\n\(describe(host))")
     }
     let point = windowPoint(of: popup)
     // Whatever draws over the control decides whether a click reaches it.
@@ -242,37 +337,19 @@ private func checkTimescaleInDashboard(model: AppModel) throws {
     guard ancestor === popup else {
         throw HistoryInteractionSmokeError.failed("A click on History's timescale control lands on \(hit.map { String(describing: type(of: $0)) } ?? "nothing") instead of the popup at \(point)")
     }
+    // The pick first: a second tracking session after a cancelled real click hangs on macOS 14.
     let revision = ThemeStore.shared.revision
-    var failures: [String] = []
-    // Path 1: a real mouse-down must begin menu tracking (this is what a person does).
-    if trackMenu(of: popup, trigger: { mouse(.leftMouseDown, at: point, in: window) }) == nil {
-        failures.append("A real mouse-down on the timescale popup never began menu tracking")
+    var picked = ""
+    do { picked = try exerciseTimescalePick(in: host, window: window, what: "dashboard") }
+    catch { throw HistoryInteractionSmokeError.failed("\(error); theme revision \(revision) → \(ThemeStore.shared.revision)") }
+    // Then a real mouse-down must begin tracking (this is what a person does).
+    let target = popupButtons(in: host).first(where: { textFields(in: $0).contains("Week") }) ?? popup
+    let realPoint = windowPoint(of: target)
+    guard trackMenu(of: target, trigger: { mouse(.leftMouseDown, at: realPoint, in: window) }) != nil else {
+        throw HistoryInteractionSmokeError.failed("A real mouse-down on the timescale popup never began menu tracking")
     }
-    mouse(.leftMouseUp, at: point, in: window)
-    // Path 2: open it programmatically, then choose Week. If this fails but the same
-    // steps pass outside the dashboard, something in the dashboard undoes the pick.
-    // SwiftUI may replace the platform popup after a pick, so always look it up afresh.
-    func labels() -> [[String]] { popupButtons(in: host).map { textFields(in: $0) } }
-    func scaleLabelIs(_ title: String) -> Bool { labels().contains { $0.contains(title) } }
-    var observed: [String] = []
-    if let current = popupButtons(in: host).first(where: { textFields(in: $0).contains("Month") }) {
-        let item = current.menu?.items.first(where: { $0.title == "Week" })
-        observed.append("popups \(labels().count), Week item enabled \(String(describing: item?.isEnabled)), popup enabled \(current.isEnabled), key \(window.isKeyWindow), active \(NSApp.isActive)")
-        guard trackMenu(of: current, trigger: { current.performClick(nil) }) != nil,
-              let index = current.menu?.items.firstIndex(where: { $0.title == "Week" }) else {
-            throw HistoryInteractionSmokeError.failed((failures + ["Dashboard timescale popup did not open with a Week item"]).joined(separator: " / "))
-        }
-        current.menu?.performActionForItem(at: index)
-        observed.append("right after: \(labels())")
-        _ = pump(timeout: 3, until: { scaleLabelIs("Week") })
-        observed.append("settled: \(labels())")
-    }
-    guard scaleLabelIs("Week") else {
-        failures.append("Choosing Week in the dashboard left the control reading \(labels()) (\(observed.joined(separator: "; ")); theme revision \(revision) → \(ThemeStore.shared.revision))")
-        throw HistoryInteractionSmokeError.failed(failures.joined(separator: " / "))
-    }
-    if !failures.isEmpty { throw HistoryInteractionSmokeError.failed(failures.joined(separator: " / ")) }
-    print("ui-smoke: the dashboard's timescale popup receives real clicks, opens, and applies a pick")
+    mouse(.leftMouseUp, at: realPoint, in: window)
+    print("ui-smoke: the dashboard's timescale popup receives real clicks, opens, and applies a pick (\(picked))")
 }
 
 @MainActor
@@ -378,6 +455,11 @@ private func checkMonthDayOpening() throws {
     HistorySmokeWatchdog.progress("looking for the day's accessibility element")
     let nodes = accessibilityNodes(host)
     guard let node = nodes.first(where: { $0.accessibilityLabel()?.hasPrefix(label) == true }) else {
+        guard nodes.count > 1 else {
+            // No assistive client is attached on CI, so SwiftUI vends no tree to inspect.
+            print("ui-smoke: month day double-click opens days; accessibility tree not vended on this runner (\(nodes.count) nodes), Open day action needs a live VoiceOver check")
+            return
+        }
         let labels = nodes.compactMap { $0.accessibilityLabel() }.prefix(12)
         throw HistoryInteractionSmokeError.failed("No accessibility element for \(label); tree has \(nodes.count) nodes, labels \(Array(labels))")
     }
@@ -393,9 +475,10 @@ private func checkMonthDayOpening() throws {
 // MARK: - Day view disclosures
 
 /// "Session details" on every session card is a DisclosureGroup. Click a lattice over
-/// the Day view and require that at least one expands: the view must grow.
+/// the Day view and measure whether the view grows. Run bare and under the dashboard's
+/// button style: only a difference between the two blames the style.
 @MainActor
-private func checkDayDisclosures() throws {
+private func dayDisclosureGrowth(dashboardStyle: Bool) throws -> (CGFloat, CGFloat) {
     let zone = "UTC"
     let anchor = ISO8601DateFormatter().date(from: "2024-03-08T12:00:00Z")!
     let navigation = CalendarNavigation(timezoneID: zone, anchor: anchor, scale: .day)
@@ -406,11 +489,10 @@ private func checkDayDisclosures() throws {
         finishedBooks: [], pageEvidence: PageStatistics.snapshot(events: [], effectiveIntervals: [interval], merges: []))
     let presentation = HistoryAtlasPeriod(source: source, navigation: navigation, now: anchor)
     let size = NSSize(width: 900, height: 1_100)
-    let view = AtlasDayView(navigation: navigation, presentation: presentation, editSession: { _ in })
+    let day = AtlasDayView(navigation: navigation, presentation: presentation, editSession: { _ in })
         .frame(width: size.width, alignment: .topLeading)
         .fixedSize(horizontal: false, vertical: true)
-        .buttonStyle(ReadingButtonStyle())
-    let (window, host) = hostedWindow(view, size: size)
+    let (window, host) = hostedWindow(AnyView(dashboardStyle ? AnyView(day.buttonStyle(ReadingButtonStyle())) : AnyView(day)), size: size)
     defer { window.contentView = nil; window.close() }
     let before = host.fittingSize.height
     var pause: TimeInterval = 0
@@ -425,9 +507,21 @@ private func checkDayDisclosures() throws {
         }
     }
     settle(host)
-    let after = host.fittingSize.height
-    guard after > before + 20 else {
-        throw HistoryInteractionSmokeError.failed("Clicking across the Day view expanded no \"Session details\" disclosure (height \(before) → \(after))")
+    return (before, host.fittingSize.height)
+}
+
+@MainActor
+private func checkDayDisclosures() throws {
+    let bare = try dayDisclosureGrowth(dashboardStyle: false)
+    let styled = try dayDisclosureGrowth(dashboardStyle: true)
+    let report = "bare \(bare.0) → \(bare.1); under the dashboard's button style \(styled.0) → \(styled.1)"
+    guard bare.1 > bare.0 + 20 else {
+        // The sweep itself cannot open a disclosure here, so nothing can be said about the style.
+        print("ui-smoke: Day disclosure sweep inconclusive (\(report))")
+        return
     }
-    print("ui-smoke: Day view session details expand under the dashboard's button style")
+    guard styled.1 > styled.0 + 20 else {
+        throw HistoryInteractionSmokeError.failed("Session details expands bare but not under the dashboard's button style (\(report))")
+    }
+    print("ui-smoke: Day view session details expand under the dashboard's button style (\(report))")
 }
