@@ -93,6 +93,17 @@ test('appearance panel is grouped, with advanced typography behind a disclosure'
 test('every panel shares one light glass surface and header', {timeout: 90000}, async t => {
   const page = await launch(t);
   const browser = page.context().browser();
+  // WebKit cannot emulate this preference, so on a host that has Reduce Transparency on (CI runners do),
+  // the honest check is that every panel is opaque.
+  if (await page.evaluate(() => matchMedia('(prefers-reduced-transparency: reduce)').matches)) {
+    for (const panel of PANELS) {
+      await page.locator(panel.trigger).click();
+      const s = await surface(page, panel.id);
+      assert.ok(!/blur/.test(s.filter) && parseColor(s.background).alpha === 1, `${panel.name} is opaque on a host that reduces transparency`);
+      await page.keyboard.press('Escape');
+    }
+    return;
+  }
   const seen = [];
   for (const panel of PANELS) {
     await page.locator(panel.trigger).click();
