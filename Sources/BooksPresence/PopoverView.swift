@@ -50,7 +50,10 @@ struct PopoverView: View {
                 guard !scrollFrame.isNull else { return }
                 // Negative padding shrinks the measured frame; the scroll view shows the bleed too.
                 let visible = scrollFrame.insetBy(dx: -PanelMetrics.side, dy: -PanelMetrics.shadowBleed)
-                regions = regions.map { $0.intersection(visible) }.filter { !$0.isNull && !$0.isEmpty }
+                regions = regions.compactMap { region in
+                    let frame = region.frame.intersection(visible)
+                    return frame.isNull || frame.isEmpty ? nil : GlassRegion(frame: frame, cornerRadius: region.cornerRadius)
+                }
             }
             .onPreferenceChange(MenuBodyHeight.self) { height in
                 if height > 0, abs(height - bodyHeight) > 0.5 { bodyHeight = height }

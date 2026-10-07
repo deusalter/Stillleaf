@@ -140,6 +140,21 @@ func renderUIPreviews(to destination: URL) throws {
         for category in SettingsCategory.allCases {
             previews.append(("settings-\(category.rawValue.lowercased())", AnyView(DashboardView(model: model, initialSection: .settings, initialSettingsCategory: category))))
         }
+        // Full-height and stateful Settings pages, so the parts below the fold and the
+        // floating save bar can be reviewed. The panels are drawn over the plain canvas.
+        let settingsSheet: (AppModel, SettingsCategory, SettingsDraftStore?) -> AnyView = { model, category, drafts in
+            AnyView(SettingsView(model: model, present: { _ in }, deleteAll: {}, uninstall: {}, initialCategory: category, drafts: drafts)
+                .environment(\.gardenBackdrop, true).background(ReadingPalette.canvas))
+        }
+        let unsavedDrafts = SettingsDraftStore(); unsavedDrafts.loadIfNeeded(from: model); unsavedDrafts.pageGoalDraft = "45"
+        let invalidDrafts = SettingsDraftStore(); invalidDrafts.loadIfNeeded(from: model); invalidDrafts.pageGoalDraft = "0"
+        let yearlyDrafts = SettingsDraftStore(); yearlyDrafts.loadIfNeeded(from: model); yearlyDrafts.annualEnabledDraft = true
+        previews.append(("settings-reading-tall", settingsSheet(model, .reading, nil)))
+        previews.append(("settings-reading-yearly", settingsSheet(model, .reading, yearlyDrafts)))
+        previews.append(("settings-reading-unsaved", settingsSheet(model, .reading, unsavedDrafts)))
+        previews.append(("settings-reading-invalid", settingsSheet(model, .reading, invalidDrafts)))
+        previews.append(("settings-data-tall", settingsSheet(model, .data, nil)))
+        previews.append(("settings-discord-setup", settingsSheet(emptyModel, .discord, nil)))
         for section in [DashboardSection.today, .library, .timeline, .review, .health] {
             previews.append((section.rawValue, AnyView(DashboardView(model: model, initialSection: section))))
         }
@@ -206,6 +221,9 @@ func renderUIPreviews(to destination: URL) throws {
                 "written-review": NSSize(width: 590, height: 540), "popover-minutes": NSSize(width: 350, height: 580),
                 "popover": NSSize(width: 350, height: 580), "popover-manual": NSSize(width: 350, height: 580),
                 "popover-setup": NSSize(width: 350, height: 500),
+                "settings-reading-tall": NSSize(width: 960, height: 1500), "settings-reading-yearly": NSSize(width: 960, height: 1500),
+                "settings-reading-unsaved": NSSize(width: 960, height: 760), "settings-reading-invalid": NSSize(width: 960, height: 760),
+                "settings-data-tall": NSSize(width: 960, height: 1500), "settings-discord-setup": NSSize(width: 960, height: 1000),
                 "popover-desktop": PopoverDesktopFixture<EmptyView>.size, "popover-desktop-empty": PopoverDesktopFixture<EmptyView>.size]
             try renderNativeView(AnyView(view), size: name.hasPrefix("onboarding-") ? OnboardingView.size : sizes[name] ?? NSSize(width: 1180, height: 820), appearance: appearance,
                                  to: destination.appendingPathComponent("\(name)-\(dark ? "dark" : "light").png"))

@@ -22,11 +22,18 @@ extension EnvironmentValues {
     }
 }
 
-/// Glass panel frames in the garden's coordinate space, so the garden can draw a
+/// One glass panel as the garden needs it: its frame in the garden's coordinate
+/// space and the corner radius of its (continuous) rounded rectangle.
+struct GlassRegion: Equatable {
+    var frame: CGRect
+    var cornerRadius: CGFloat
+}
+
+/// Glass panels in the garden's coordinate space, so the garden can draw a
 /// softly blurred copy of itself behind each one.
 struct GlassRegionsKey: PreferenceKey {
-    static let defaultValue: [CGRect] = []
-    static func reduce(value: inout [CGRect], nextValue: () -> [CGRect]) { value.append(contentsOf: nextValue()) }
+    static let defaultValue: [GlassRegion] = []
+    static func reduce(value: inout [GlassRegion], nextValue: () -> [GlassRegion]) { value.append(contentsOf: nextValue()) }
 }
 
 /// The one content surface over the garden.
@@ -50,7 +57,7 @@ private struct GlassSurface: ViewModifier {
         } else if gardenBackdrop {
             frosted(content, shape)
                 .background(GeometryReader { proxy in
-                    Color.clear.preference(key: GlassRegionsKey.self, value: [proxy.frame(in: .named(GardenCanvas.space))])
+                    Color.clear.preference(key: GlassRegionsKey.self, value: [GlassRegion(frame: proxy.frame(in: .named(GardenCanvas.space)), cornerRadius: cornerRadius)])
                 })
         } else {
             #if compiler(>=6.2)
