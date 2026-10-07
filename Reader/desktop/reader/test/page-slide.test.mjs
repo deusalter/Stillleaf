@@ -283,6 +283,8 @@ test('turns in a row reuse the copies and the stage; a held key fast-forwards in
   await page.evaluate(async () => { await window.StillleafReader.next(); await window.StillleafReader.next(); });
   await page.evaluate(async () => { await Promise.all([window.StillleafReader.previous(), window.StillleafReader.previous()]); });
   const result = await page.evaluate(() => ({states: window.states, made: window.iframesMade, durations: window.durations, same: [...document.querySelectorAll('.page-slide-snapshot')].filter(f => window.frames0.includes(f)).length}));
+  // The reading position is reported by Readium a moment after the last turn settles.
+  await page.waitForFunction(place => JSON.stringify(window.StillleafReader.bookmark()) === place, JSON.stringify(start), {timeout: 5000}).catch(() => {});
   assert.deepEqual(await page.evaluate(() => window.StillleafReader.bookmark()), start, 'four turns did not return to the start');
   assert.equal(result.made, 0, 'turns in a row built new snapshots');
   assert.equal(result.same, 2, 'the chapter copies were replaced');

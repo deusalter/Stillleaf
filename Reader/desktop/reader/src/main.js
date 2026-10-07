@@ -21,7 +21,7 @@ import {THEMES,FONTS,MARGINS,resolveTheme,fontStack,fontAvailable,marginMetrics,
 
 const $=id=>document.getElementById(id);
 // A turn holds the garden still while it moves and for a moment after, so vines never regrow mid-slide.
-const pageSlide=new PageSlide($('reader'),{motion:ms=>garden.activity(ms+300)});
+const pageSlide=new PageSlide($('reader'),{motion:ms=>{garden.activity(ms+300);backgroundQuietUntil=Math.max(backgroundQuietUntil,performance.now()+ms+150)}});
 const warmSlide=()=>pageSlide.warm(()=>Boolean(state)&&!state.preferences.scroll&&!document.body.classList.contains('native-reduceMotion'));
 const navigationCompletion=new NavigationCompletion();
 const pageTurnGesture={distance:0,sign:0,latched:false,last:0};

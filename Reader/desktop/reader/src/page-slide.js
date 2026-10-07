@@ -158,8 +158,32 @@ export class PageSlide {
       if (!enabled() || this.reduced.matches || this.running) return;
       const source = liveFrame(this.reader);
       if (!source?.contentDocument?.body) return;
-      try { await this.ensure(source); } catch { /* the next turn builds them itself */ }
+      try {
+        const entry = await this.ensure(source);
+        if (entry && !entry.primed) await this.prime(entry, source);
+      } catch { /* the next turn builds them itself */ }
     }, 350);
+  }
+
+  /**
+   * Shows the outgoing copy once, all but invisibly, so its first paint (text shaping, raster) happens at rest and
+   * not in the first turn. Does nothing if a turn or another stage state is in the way.
+   */
+  async prime(entry, source) {
+    const stage = this.stage;
+    if (!stage || stage.dataset.state !== 'idle' || this.running || this.cache !== entry) return;
+    entry.primed = true;
+    const revision = this.revision, x = source.contentWindow.scrollX, y = source.contentWindow.scrollY;
+    // Each copy takes the page's place in turn, so both have painted once before either is used.
+    for (const frame of entry.frames) {
+      for (const other of entry.frames) if (other !== frame) other.style.left = '-100000px';
+      place(frame, source, 0, x, y);
+      stage.dataset.state = 'arming';
+      await paint(); await paint();
+      if (stage.dataset.state !== 'arming' || revision !== this.revision || this.running) return;
+    }
+    for (const frame of entry.frames) frame.style.left = '-100000px';
+    this.hide();
   }
 
   /** The two copies of the live chapter (outgoing and incoming), built or completed as needed, one task each. */
