@@ -1,0 +1,33 @@
+name: Year A/B (temporary)
+on:
+  push:
+    branches: [perf/year-ab]
+jobs:
+  ab:
+    runs-on: macos-26
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.0.1.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          ref: 471d297e11fe4efa239af0bb022a2964dee76e52
+          path: .native-baseline
+      - uses: actions/checkout@v4
+        with:
+          ref: feebfb00ee9ae9bbb46fcf5cf8867ef895614455
+          path: .native-main
+      - name: Build baseline, main-before-fix and fix
+        run: |
+          python3 scripts/install-native-benchmark-harness.py .native-baseline
+          cp Sources/BooksPresence/DevTools/UISettledBenchmark.swift .native-main/Sources/BooksPresence/DevTools/UISettledBenchmark.swift
+          swift build --package-path .native-baseline -c release
+          swift build --package-path .native-main -c release
+          swift build -c release
+      - name: Interleaved Year runs
+        run: python3 scripts/bisect-year.py .native-baseline/.build/release/BooksPresence .native-main/.build/release/BooksPresence .build/release/BooksPresence "$RUNNER_TEMP/ab"
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: year-ab
+          path: ${{ runner.temp }}/ab
