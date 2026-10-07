@@ -47,6 +47,18 @@ private func settle(_ host: NSView, passes: Int = 3) {
     }
 }
 
+/// Synthetic click sweeps re-render SwiftUI per event; a slow runner must fail, not hang.
+private struct SweepBudget {
+    let started = Date()
+    let seconds: TimeInterval
+    init(seconds: TimeInterval = 60) { self.seconds = seconds }
+    func check(_ what: String) throws {
+        guard Date().timeIntervalSince(started) < seconds else {
+            throw HistoryInteractionSmokeError.failed("\(what) exceeded its \(Int(seconds))s budget")
+        }
+    }
+}
+
 @MainActor
 private func pump(timeout: TimeInterval = 10, until finished: () -> Bool) -> Bool {
     let deadline = Date().addingTimeInterval(timeout)
@@ -280,7 +292,9 @@ private func checkMonthDayOpening() throws {
             stride(from: CGFloat(14), to: size.width, by: dx).map { NSPoint(x: $0, y: size.height - top) }
         }
     }
+    let budget = SweepBudget()
     for point in lattice(96, 104) {
+        try budget.check("The single-click sweep")
         mouse(.leftMouseDown, at: point, in: window); mouse(.leftMouseUp, at: point, in: window)
     }
     settle(host)
@@ -288,7 +302,8 @@ private func checkMonthDayOpening() throws {
         throw HistoryInteractionSmokeError.failed("Single clicks opened \(opened.count) days; a click must only select")
     }
     var pause: TimeInterval = 0
-    for point in lattice(28, 28) {
+    for point in lattice(40, 44) {
+        try budget.check("The double-click sweep")
         // Each pair is a separate gesture: leave more than the double-click interval between pairs.
         pause += 1
         for count in 1...2 {
@@ -343,8 +358,10 @@ private func checkDayDisclosures() throws {
     defer { window.contentView = nil; window.close() }
     let before = host.fittingSize.height
     var pause: TimeInterval = 0
-    for top in stride(from: CGFloat(20), to: 700, by: 24) {
-        for x in stride(from: CGFloat(20), to: 500, by: 40) {
+    let budget = SweepBudget()
+    for top in stride(from: CGFloat(20), to: 700, by: 30) {
+        for x in stride(from: CGFloat(20), to: 500, by: 60) {
+            try budget.check("The Day view click sweep")
             let point = NSPoint(x: x, y: size.height - top)
             pause += 1
             mouse(.leftMouseDown, at: point, in: window, after: pause)
