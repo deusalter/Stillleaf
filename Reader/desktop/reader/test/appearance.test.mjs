@@ -69,7 +69,7 @@ test('themes, typefaces and margins apply to the page and persist',{timeout:1200
  state=await frame();assert.match(state.font,/Athelas/);
  const athelas=page.getByRole('radio',{name:'Athelas',exact:true});
  assert.equal(await athelas.getAttribute('aria-checked'),'true','a saved typeface stays visible even when it is not installed here');
- await page.getByRole('radio',{name:'Original',exact:true}).click();await settle();
+ await page.locator('#font-options').getByRole('radio',{name:'Original',exact:true}).click();await settle();
  state=await frame();assert.equal(state.prefs.fontFamily,'publisher');
  if(!offered.includes('athelas'))assert.equal(await athelas.count(),0,'an uninstalled typeface disappears once deselected');
  assert.ok(sansWidth>200&&Number.isFinite(state.width),JSON.stringify({sansWidth,width:state.width}));
