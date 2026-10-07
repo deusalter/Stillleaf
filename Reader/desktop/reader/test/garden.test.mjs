@@ -512,6 +512,9 @@ test('the footer is a pill with the page, a vine along a dotted track and the pe
     assert.ok(Math.abs((pill.left + pill.right) / 2 - (c.left + c.right) / 2) < 40, 'the pill is not under the card');
     assert.ok(pill.width <= c.right - c.left + 4, 'the pill is wider than the card');
     assert.ok(await page.locator('.footer-pill #position-label').isVisible());
+    // The vine's canvas matches the room its labels leave, so its glyphs are never stretched.
+    const canvas = await page.evaluate(() => { const c = document.getElementById('garden-footer'), r = c.getBoundingClientRect(); return {pixels: c.width / (devicePixelRatio || 1), width: r.width}; });
+    assert.ok(Math.abs(canvas.pixels - canvas.width) < 2, `the footer canvas is ${canvas.pixels}px wide but shown ${canvas.width}px wide`);
   }
   assert.ok(reaches[0] < reaches[1] && reaches[1] < reaches[2], `the footer vine did not grow with reading: ${reaches}`);
   assert.deepEqual(errors, []);

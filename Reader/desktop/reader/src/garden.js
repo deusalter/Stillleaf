@@ -227,7 +227,9 @@ export function installGarden({canvas, spine, footer, percent, viewport, chrome,
   /** The footer vine's room changes with its labels ("Page 9 of 20" to "Page 10 of 20"): regrow just that vine to fit. */
   let footTimer = 0;
   function fitFoot() {
-    if (!active() || frozen || !palette) return;
+    if (!active() || !palette) return;
+    // Input is arriving: the rebuild that follows it will size the vine.
+    if (frozen) { deferred = true; return; }
     const rect = footer.getBoundingClientRect();
     if (Math.abs(rect.width * (devicePixelRatio || 1) - footer.width) < 1.5 && Math.abs(rect.height * (devicePixelRatio || 1) - footer.height) < 1.5) return;
     size(foot, rect.width, rect.height);
