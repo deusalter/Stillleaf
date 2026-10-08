@@ -85,6 +85,7 @@ struct PopoverView: View {
                     if model.manualActive { model.stopManual() } else { showingManualStart = true }
                 }
                 .buttonStyle(ReadingButtonStyle(emphasis: model.manualActive ? .primary : .secondary)).controlSize(.small)
+                .fixedSize()
                 Menu {
                     Button("Settings…") { model.showDashboard(section: .settings) }
                     Divider()
@@ -103,10 +104,13 @@ struct PopoverView: View {
                 .font(ReadingType.numeral(20)).monospacedDigit()
                 .foregroundStyle(ReadingPalette.accent)
                 .lineLimit(1).minimumScaleFactor(0.8)
-            Text(model.dailyGoalStreak.todayPending ? "Goal streak · today open" : "Goal streak")
-                .font(.caption2).foregroundStyle(ReadingPalette.secondaryInk).lineLimit(1)
+            // The long form when it fits; "Stop manual reading" leaves less room.
+            ViewThatFits(in: .horizontal) {
+                Text(model.dailyGoalStreak.todayPending ? "Streak · today open" : "Goal streak")
+                Text(model.dailyGoalStreak.todayPending ? "Streak · open" : "Streak")
+            }
+            .font(.caption2).foregroundStyle(ReadingPalette.secondaryInk).lineLimit(1)
         }
-        .fixedSize(horizontal: true, vertical: false)
         .accessibilityElement(children: .combine)
         .help("Consecutive days that met your daily goal.")
     }

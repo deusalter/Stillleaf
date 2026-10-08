@@ -12,7 +12,7 @@ struct MenuPanelGarden: View {
     let mode: GardenMode
 
     /// The panel's side margin: text starts this far from the edge.
-    static let margin: CGFloat = 28
+    static let margin: CGFloat = 30
     /// Four glyph columns, narrower than the margin so the text stays clear of them.
     static let stripWidth: CGFloat = 25
 
