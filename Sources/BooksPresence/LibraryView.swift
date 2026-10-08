@@ -68,69 +68,71 @@ struct LibraryView: View {
                         }
                     }
                 }
-                EPUBImportStatusView(controller: model.epubLibrary)
-                if model.importingAudio { ProgressView("Importing local audio…") }
-                AudiobookLibraryPlayer(model: model, player: model.audiobookPlayer)
-                ReadingGlassGroup {
-                    ViewThatFits(in: .horizontal) {
-                        HStack(spacing: 14) { shelfPicker(books: books, finishedIDs: finishedIDs); Spacer(minLength: 12); searchAndSort }
-                        VStack(alignment: .leading, spacing: 14) { shelfPicker(books: books, finishedIDs: finishedIDs); searchAndSort }
-                    }
-                }
-                if visible.isEmpty {
-                    VStack(spacing: 16) {
-                        ReadingEmptyState(title: browsing.search.isEmpty ? (browsing.shelf == .finished ? "Stories to look back on" : "Your next chapter awaits") : "No matching books",
-                            symbol: "books.vertical",
-                            message: browsing.search.isEmpty ? (browsing.shelf == .finished ? "Books you mark finished will appear here." : "Import an EPUB, open a book in Apple Books, or add a reading session to start your shelf.") : "Try another title or author.")
-                        if !browsing.search.isEmpty || browsing.shelf != .all {
-                            Button("Show all books") { browsing.search = ""; browsing.shelf = .all }
+                // The shelf is one surface: tools, status and books group by spacing, not by card.
+                VStack(alignment: .leading, spacing: 26) {
+                    EPUBImportStatusView(controller: model.epubLibrary)
+                    if model.importingAudio { ProgressView("Importing local audio…") }
+                    AudiobookLibraryPlayer(model: model, player: model.audiobookPlayer)
+                    ReadingGlassGroup {
+                        ViewThatFits(in: .horizontal) {
+                            HStack(spacing: 14) { shelfPicker(books: books, finishedIDs: finishedIDs); Spacer(minLength: 12); searchAndSort }
+                            VStack(alignment: .leading, spacing: 14) { shelfPicker(books: books, finishedIDs: finishedIDs); searchAndSort }
                         }
-                    }.padding(.vertical, 35)
-                } else {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 168, maximum: 210), spacing: 28, alignment: .topLeading)],
-                              alignment: .leading, spacing: 36) {
-                        ForEach(visible) { book in
-                            VStack(alignment: .leading, spacing: 2) {
-                                BookLibraryCard(book: book, pages: model.pages(forBookID: book.id),
-                                    finished: finishedIDs.contains(book.id), date: finishedIDs.contains(book.id) ? finishes[book.id] : recent[book.id],
-                                    rating: model.rating(for: book.id), progress: positions[book.id]) { present(.book(book)) }
-                                HStack {
-                                    if model.hasImportedEPUB(book) && model.hasEPUB(book) {
-                                        Button(model.isOpeningEPUB(book) ? "Opening…" : "Read") { model.readEPUB(book) }
-                                            .controlSize(.small).disabled(model.isOpeningEPUB(book))
-                                    } else if model.canReadAppleBooksCopy(book) {
-                                        // Books added to Apple Books by the reader open here; store purchases stay in Apple Books.
-                                        Button(model.preparingAppleBooksIDs.contains(book.id) ? "Opening…" : "Read here") { model.readFromAppleBooks(book) }
-                                            .controlSize(.small).disabled(model.preparingAppleBooksIDs.contains(book.id))
-                                            .help("Open the copy Apple Books keeps of this book. Apple Books is not changed.")
-                                    } else if model.hasImportedEPUB(book) {
-                                        Button("Import to read") { model.epubLibrary.chooseFiles() }.controlSize(.small)
-                                    }
-                                    Spacer()
-                                    Menu {
-                                        Button {
-                                            if let entry = model.markFinished(book) { present(.completion(entry)) }
-                                        } label: { Label("Mark as finished", systemImage: "checkmark.circle") }.disabled(finishedIDs.contains(book.id))
-                                        Divider()
-                                        if model.hasEPUB(book) {
-                                            Button("Export notes and reading settings…") { model.transferReaderState(book, importing: false) }
-                                            Button("Import notes and reading settings…") { model.transferReaderState(book, importing: true) }
-                                            Divider()
-                                            Button("Remove EPUB…") { removingEPUB = book }
-                                        } else {
-                                            Button("Delete journal entry…", role: .destructive) { removingBook = book }
-                                        }
-                                    } label: { Image(systemName: "ellipsis").frame(width: 32, height: 28).contentShape(Rectangle()) }
-                                    .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
-                                    .foregroundStyle(ReadingPalette.secondaryInk)
-                                    .accessibilityLabel("Actions for \(book.title)")
-                                }.padding(.horizontal, 6)
+                    }
+                    if visible.isEmpty {
+                        VStack(spacing: 16) {
+                            ReadingEmptyState(title: browsing.search.isEmpty ? (browsing.shelf == .finished ? "Stories to look back on" : "Your next chapter awaits") : "No matching books",
+                                symbol: "books.vertical",
+                                message: browsing.search.isEmpty ? (browsing.shelf == .finished ? "Books you mark finished will appear here." : "Import an EPUB, open a book in Apple Books, or add a reading session to start your shelf.") : "Try another title or author.")
+                            if !browsing.search.isEmpty || browsing.shelf != .all {
+                                Button("Show all books") { browsing.search = ""; browsing.shelf = .all }
                             }
-                            .padding(6)
-                            .glassSurface()
+                        }.padding(.vertical, 35)
+                    } else {
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 168, maximum: 210), spacing: 28, alignment: .topLeading)],
+                                  alignment: .leading, spacing: 36) {
+                            ForEach(visible) { book in
+                                VStack(alignment: .leading, spacing: 2) {
+                                    BookLibraryCard(book: book, pages: model.pages(forBookID: book.id),
+                                        finished: finishedIDs.contains(book.id), date: finishedIDs.contains(book.id) ? finishes[book.id] : recent[book.id],
+                                        rating: model.rating(for: book.id), progress: positions[book.id]) { present(.book(book)) }
+                                    HStack {
+                                        if model.hasImportedEPUB(book) && model.hasEPUB(book) {
+                                            Button(model.isOpeningEPUB(book) ? "Opening…" : "Read") { model.readEPUB(book) }
+                                                .controlSize(.small).disabled(model.isOpeningEPUB(book))
+                                        } else if model.canReadAppleBooksCopy(book) {
+                                            // Books added to Apple Books by the reader open here; store purchases stay in Apple Books.
+                                            Button(model.preparingAppleBooksIDs.contains(book.id) ? "Opening…" : "Read here") { model.readFromAppleBooks(book) }
+                                                .controlSize(.small).disabled(model.preparingAppleBooksIDs.contains(book.id))
+                                                .help("Open the copy Apple Books keeps of this book. Apple Books is not changed.")
+                                        } else if model.hasImportedEPUB(book) {
+                                            Button("Import to read") { model.epubLibrary.chooseFiles() }.controlSize(.small)
+                                        }
+                                        Spacer()
+                                        Menu {
+                                            Button {
+                                                if let entry = model.markFinished(book) { present(.completion(entry)) }
+                                            } label: { Label("Mark as finished", systemImage: "checkmark.circle") }.disabled(finishedIDs.contains(book.id))
+                                            Divider()
+                                            if model.hasEPUB(book) {
+                                                Button("Export notes and reading settings…") { model.transferReaderState(book, importing: false) }
+                                                Button("Import notes and reading settings…") { model.transferReaderState(book, importing: true) }
+                                                Divider()
+                                                Button("Remove EPUB…") { removingEPUB = book }
+                                            } else {
+                                                Button("Delete journal entry…", role: .destructive) { removingBook = book }
+                                            }
+                                        } label: { Image(systemName: "ellipsis").frame(width: 32, height: 28).contentShape(Rectangle()) }
+                                        .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+                                        .foregroundStyle(ReadingPalette.secondaryInk)
+                                        .accessibilityLabel("Actions for \(book.title)")
+                                    }.padding(.horizontal, 6)
+                                }
+                            }
                         }
                     }
                 }
+                .readingPanel()
             }
             .readingPage()
         }
