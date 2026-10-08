@@ -21,35 +21,39 @@ struct PersonalReviewsView: View {
                 PageHeader("Reviews", subtitle: nil) {
                     Button("Choose a book") { model.showDashboard(section: .library) }.controlSize(.small)
                 }
-                TextField("Find a book or a thought", text: $search).textFieldStyle(ReadingTextFieldStyle()).frame(maxWidth: 360)
-                if entries.isEmpty {
-                    ReadingEmptyState(title: search.isEmpty ? "Some stories stay with you" : "No matching reviews",
-                        symbol: "square.and.pencil", message: search.isEmpty ? "Open any book in your Library to write a private review. A rating and a review are both optional." : "Try another book title, author, or phrase.")
-                        .padding(.vertical, 36)
-                } else {
-                    LazyVStack(alignment: .leading, spacing: 16) {
-                        ForEach(entries, id: \.book.id) { entry in
-                            HStack(alignment: .top, spacing: 22) {
-                                BookCoverView(book: entry.book, size: .timeline)
-                                VStack(alignment: .leading, spacing: 10) {
-                                    HStack(alignment: .top) {
-                                        VStack(alignment: .leading, spacing: 4) {
-                                            Text(entry.book.title).font(ReadingType.bookTitle(21))
-                                            if let author = entry.book.author { Text(author).font(.callout).foregroundStyle(ReadingPalette.secondaryInk) }
+                // Search and reviews share one surface; reviews are told apart by spacing and a faint rule.
+                VStack(alignment: .leading, spacing: 28) {
+                    TextField("Find a book or a thought", text: $search).textFieldStyle(ReadingTextFieldStyle()).frame(maxWidth: 360)
+                    if entries.isEmpty {
+                        ReadingEmptyState(title: search.isEmpty ? "Some stories stay with you" : "No matching reviews",
+                            symbol: "square.and.pencil", message: search.isEmpty ? "Open any book in your Library to write a private review. A rating and a review are both optional." : "Try another book title, author, or phrase.")
+                            .padding(.vertical, 20)
+                    } else {
+                        LazyVStack(alignment: .leading, spacing: 28) {
+                            ForEach(Array(entries.enumerated()), id: \.element.book.id) { offset, entry in
+                                if offset > 0 { Hairline().opacity(0.6) }
+                                HStack(alignment: .top, spacing: 22) {
+                                    BookCoverView(book: entry.book, size: .timeline)
+                                    VStack(alignment: .leading, spacing: 10) {
+                                        HStack(alignment: .top) {
+                                            VStack(alignment: .leading, spacing: 4) {
+                                                Text(entry.book.title).font(ReadingType.bookTitle(21))
+                                                if let author = entry.book.author { Text(author).font(.callout).foregroundStyle(ReadingPalette.secondaryInk) }
+                                            }
+                                            Spacer()
+                                            Button("Read & edit") { selectedBook = entry.book }.controlSize(.small)
                                         }
-                                        Spacer()
-                                        Button("Read & edit") { selectedBook = entry.book }.controlSize(.small)
-                                    }
-                                    if let rating = model.rating(for: entry.book.id) { RatingStars(rating: rating) }
-                                    Text(entry.text).font(.system(size: 14, design: .serif)).lineSpacing(5).lineLimit(7).textSelection(.enabled)
-                                    Text("Written review · updated \(entry.date.formatted(date: .abbreviated, time: .omitted))")
-                                        .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
-                                }.frame(maxWidth: .infinity, alignment: .leading)
+                                        if let rating = model.rating(for: entry.book.id) { RatingStars(rating: rating) }
+                                        Text(entry.text).font(.system(size: 14, design: .serif)).lineSpacing(5).lineLimit(7).textSelection(.enabled)
+                                        Text("Written review · updated \(entry.date.formatted(date: .abbreviated, time: .omitted))")
+                                            .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
+                                    }.frame(maxWidth: .infinity, alignment: .leading)
+                                }
                             }
-                            .readingPanel()
                         }
                     }
                 }
+                .readingPanel()
             }
             .readingPage(maxWidth: ReadingMetrics.listWidth)
         }
@@ -70,6 +74,7 @@ struct ReadingRecordsSheet: View {
                 if case .review(let interval) = destination { editing = interval }
             }, showsHeading: false)
         }.frame(width: 880, height: 680)
+        .readingSheetSurface()
         .background(ReadingPalette.canvas).foregroundStyle(ReadingPalette.ink)
         .sheet(item: $editing) { interval in ReadingSessionEditor(model: model, interval: interval).readingMotionAccessibility() }
     }

@@ -69,6 +69,7 @@ struct BookReviewEditor: View {
                     .disabled(draft.count > 50_000)
             }
         }.padding(24).frame(width: 590, height: 540)
+        .readingSheetSurface()
         .background(ReadingPalette.canvas).foregroundStyle(ReadingPalette.ink)
         .buttonStyle(ReadingButtonStyle())
         .interactiveDismissDisabled(isDirty)

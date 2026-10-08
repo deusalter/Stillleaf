@@ -65,6 +65,8 @@ struct FinishedBookTimeline: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        // Every year sits on this one surface; years are told apart by their numerals.
+        .readingPanel()
         .buttonStyle(ReadingButtonStyle())
     }
 
@@ -82,12 +84,11 @@ struct FinishedBookTimeline: View {
                 Text(note).font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
                     .multilineTextAlignment(.trailing)
             }
-            Hairline().padding(.bottom, 6)
+            .padding(.bottom, 6)
             ForEach(entries) { entry in
                 FinishedBookTimelineRow(model: model, entry: entry, calendar: calendar, present: present)
             }
         }
-        .readingPanel()
     }
 }
 
@@ -100,12 +101,15 @@ struct ReadingTimelineView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 30) {
-                PageHeader("Timeline", subtitle: nil) {
+                PageHeader("Timeline", subtitle: nil)
+                // The search sits on the same surface as the finished books it filters.
+                VStack(alignment: .leading, spacing: 28) {
                     TextField("Find a finished title or author", text: $search)
                         .textFieldStyle(ReadingTextFieldStyle())
-                        .frame(width: 260)
+                        .frame(maxWidth: 320)
+                    FinishedBookTimeline(model: model, search: search, showsHeading: false, present: present)
                 }
-                FinishedBookTimeline(model: model, search: search, showsHeading: false, present: present)
+                .readingPanel()
             }
             .readingPage(maxWidth: ReadingMetrics.listWidth)
         }

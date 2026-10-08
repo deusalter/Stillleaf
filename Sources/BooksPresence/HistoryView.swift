@@ -51,10 +51,6 @@ struct HistoryView: View {
                         .frame(maxWidth: .infinity, minHeight: 260, alignment: .topLeading)
                         .padding(.top, 20)
                 }
-                Text(model.timezoneID.replacingOccurrences(of: "_", with: " "))
-                    .font(.caption2).foregroundStyle(ReadingPalette.secondaryInk).help("History dates and times use this timezone.")
-                    .padding(.horizontal, 10).padding(.vertical, 5)
-                    .glassSurface(cornerRadius: ReadingMetrics.Radius.control)
             }
             .frame(maxWidth: 1120, alignment: .leading)
             .padding(.horizontal, 32).padding(.vertical, 30).frame(maxWidth: .infinity, alignment: .top)
@@ -74,6 +70,7 @@ struct HistoryView: View {
         let periodID = "\(prepared.key.scale.rawValue)-\(prepared.key.period.start)-\(prepared.key.timezoneID)"
         let dailyGoal = prepared.key.scale == .day
             ? model.dailyGoal(on: displayed.navigation.dayKey(for: prepared.key.period.start)) : nil
+        // The summary and the chart share History's one surface; it appears with the content.
         return VStack(alignment: .leading, spacing: 26) {
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 25) {
@@ -99,7 +96,12 @@ struct HistoryView: View {
             .opacity(canReveal ? (current ? 1 : 0.55) : 0)
             .disabled(!current).allowsHitTesting(current)
             .accessibilityHidden(!canReveal)
+            Text(model.timezoneID.replacingOccurrences(of: "_", with: " "))
+                .font(.caption2).foregroundStyle(ReadingPalette.secondaryInk).help("History dates and times use this timezone.")
+                .opacity(canReveal ? 1 : 0)
         }
+        .readingPanel()
+        .opacity(canReveal ? 1 : 0)
         .overlay(alignment: .topLeading) {
             if !current {
                 ReadingStatusLabel(title: "Updating to \(Self.title(for: requested))…")

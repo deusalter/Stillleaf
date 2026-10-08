@@ -24,27 +24,31 @@ struct TodayView: View {
                         .background(ReadingPalette.accent.opacity(0.10), in: Capsule())
                         .fixedSize()
                 }
-                // Keep the next reading action above the tall goal summaries,
-                // including at the dashboard's minimum window height.
-                featuredReading
-                if let entry = model.pendingCompletion, model.snapshot.phase != .reading, !model.manualActive {
-                    FinishedBookPrompt(model: model, entry: entry)
-                }
-                ReadingSection("Manual reading", glass: true) {
-                    HStack(spacing: 10) {
-                        if model.manualActive {
-                            Button("Stop manual reading") { model.stopManual() }
-                                .buttonStyle(ReadingButtonStyle(emphasis: .primary))
-                        } else {
-                            Button("Read manually") { present(.manualStart) }
-                        }
-                        Button { present(.manualAdd) } label: { Label("Add time", systemImage: "plus") }
+                // One surface holds the whole day; its parts are grouped by spacing and type.
+                // The next reading action stays above the tall goal summaries, including at
+                // the dashboard's minimum window height.
+                VStack(alignment: .leading, spacing: 40) {
+                    featuredReading
+                    if let entry = model.pendingCompletion, model.snapshot.phase != .reading, !model.manualActive {
+                        FinishedBookPrompt(model: model, entry: entry)
                     }
-                    .buttonStyle(ReadingButtonStyle(glass: false))
-                    .controlSize(.small)
+                    ReadingSection("Manual reading") {
+                        HStack(spacing: 10) {
+                            if model.manualActive {
+                                Button("Stop manual reading") { model.stopManual() }
+                                    .buttonStyle(ReadingButtonStyle(emphasis: .primary))
+                            } else {
+                                Button("Read manually") { present(.manualStart) }
+                            }
+                            Button { present(.manualAdd) } label: { Label("Add time", systemImage: "plus") }
+                        }
+                        .buttonStyle(ReadingButtonStyle(glass: false))
+                        .controlSize(.small)
+                    }
+                    DailyReadingOverview(model: model)
+                    AnnualReadingGoalView(model: model, openBook: { present(.book($0)) })
                 }
-                DailyReadingOverview(model: model)
-                AnnualReadingGoalView(model: model, openBook: { present(.book($0)) })
+                .readingPanel()
             }
             .readingPage()
         }
@@ -56,7 +60,7 @@ struct TodayView: View {
     }
 
     private var featuredReading: some View {
-        ReadingSection(featuredBook == nil ? "Your next read" : (model.snapshot.book == nil ? "Last read" : "Your current read"), glass: true, accessory: {
+        ReadingSection(featuredBook == nil ? "Your next read" : (model.snapshot.book == nil ? "Last read" : "Your current read"), accessory: {
             if let book = featuredBook {
                 Button("Book details") { present(.book(book)) }.buttonStyle(ReadingButtonStyle(glass: false)).controlSize(.small)
             }

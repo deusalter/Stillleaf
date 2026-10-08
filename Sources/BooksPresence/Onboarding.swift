@@ -299,11 +299,9 @@ private struct OnboardingReveal: ViewModifier {
 extension View {
     fileprivate func onboardingReveal(_ order: Int) -> some View { modifier(OnboardingReveal(order: order)) }
 
-    /// A glass card over the garden; a selected card gets an accent ring.
-    fileprivate func onboardingGlass(cornerRadius: CGFloat = 18, highlighted: Bool = false) -> some View {
-        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-        return glassSurface(cornerRadius: cornerRadius)
-            .overlay(shape.strokeBorder(ReadingPalette.accent.opacity(highlighted ? 1 : 0), lineWidth: 1.5))
+    /// A glass surface over the garden: one per step, holding that step's choices.
+    fileprivate func onboardingGlass(cornerRadius: CGFloat = 18) -> some View {
+        glassSurface(cornerRadius: cornerRadius)
     }
 }
 
@@ -472,13 +470,16 @@ private struct OnboardingTourStep: View {
         VStack(spacing: 28) {
             OnboardingTitle(title: "Your reading, quietly kept",
                             subtitle: "Stillleaf sits in your menu bar and does the bookkeeping, so you can simply read.")
-            LazyVGrid(columns: [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)], spacing: 14) {
+            // One surface holds all four features; they are grouped by spacing, not a card each.
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 28), GridItem(.flexible(), spacing: 28)], spacing: 26) {
                 ForEach(Array(features.enumerated()), id: \.offset) { index, feature in
                     OnboardingFeatureCard(symbol: feature.symbol, title: feature.title, detail: feature.detail)
                         .onboardingReveal(index + 2)
                 }
             }
+            .padding(26)
             .frame(maxWidth: 640)
+            .onboardingGlass(cornerRadius: 22)
             Text("Reading time is recorded while tracking is active. You can edit saved sessions whenever needed.")
                 .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
                 .onboardingReveal(6)
@@ -510,11 +511,7 @@ private struct OnboardingFeatureCard: View {
             }
             Spacer(minLength: 0)
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, minHeight: 112, alignment: .topLeading)
-        .onboardingGlass()
-        .offset(y: hovering && !reduceMotion ? -2 : 0)
-        .shadow(color: ReadingPalette.ink.opacity(hovering ? 0.08 : 0), radius: 14, x: 0, y: 8)
+        .frame(maxWidth: .infinity, minHeight: 84, alignment: .topLeading)
         .animation(reduceMotion ? nil : ReadingMotion.hover, value: hovering)
         .onHover { hovering = $0 }
         .accessibilityElement(children: .combine)
@@ -688,22 +685,28 @@ private struct OnboardingAccessStep: View {
             VStack(spacing: 20) {
                 OnboardingTitle(title: "Read inside Stillleaf",
                                 subtitle: "Import a DRM-free EPUB and start reading. Stillleaf keeps your place and records page coverage and active reading time automatically.")
-                Label("No Accessibility permission needed", systemImage: "book.pages")
-                    .font(.callout.weight(.medium)).foregroundStyle(ReadingPalette.accent)
-                    .padding(18).frame(width: 560).onboardingGlass()
-                    .onboardingReveal(2)
-                DisclosureGroup(isExpanded: $showingAppleBooks) {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Accessibility access is required only to track reading in Apple Books. It lets Stillleaf read the open book’s title and page number, without reading its page text or other apps.")
-                            .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
-                            .fixedSize(horizontal: false, vertical: true)
-                        statusCard
-                    }.padding(.top, 12)
-                } label: {
-                    Text("Optional Apple Books integration").font(.callout.weight(.medium))
+                // One surface holds the three choices, told apart by spacing and a faint rule.
+                VStack(alignment: .leading, spacing: 18) {
+                    Label("No Accessibility permission needed", systemImage: "book.pages")
+                        .font(.callout.weight(.medium)).foregroundStyle(ReadingPalette.accent)
+                        .onboardingReveal(2)
+                    Hairline().opacity(0.6)
+                    DisclosureGroup(isExpanded: $showingAppleBooks) {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Accessibility access is required only to track reading in Apple Books. It lets Stillleaf read the open book’s title and page number, without reading its page text or other apps.")
+                                .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
+                                .fixedSize(horizontal: false, vertical: true)
+                            statusCard
+                        }.padding(.top, 12)
+                    } label: {
+                        Text("Optional Apple Books integration").font(.callout.weight(.medium))
+                    }
+                    .onboardingReveal(3)
+                    Hairline().opacity(0.6)
+                    loginRow.onboardingReveal(4)
                 }
-                .frame(width: 560).onboardingReveal(3)
-                loginRow.onboardingReveal(4)
+                .padding(20).frame(width: 560)
+                .onboardingGlass()
             }
             .padding(.horizontal, 40).padding(.vertical, 12)
         }
@@ -754,9 +757,9 @@ private struct OnboardingAccessStep: View {
                     .transition(.opacity.combined(with: .scale(scale: 0.9)))
             }
         }
-        .padding(18)
-        .frame(width: 560)
-        .onboardingGlass(highlighted: granted)
+        .padding(14)
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .strokeBorder(ReadingPalette.accent.opacity(granted ? 1 : 0), lineWidth: 1.5))
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Accessibility access for Apple Books tracking")
         .accessibilityValue(granted ? "Allowed" : "Not allowed")
@@ -779,9 +782,6 @@ private struct OnboardingAccessStep: View {
             Toggle("Open at login", isOn: Binding(get: { model.launchAtLogin }, set: { model.setLaunchAtLogin($0) }))
                 .labelsHidden()
         }
-        .padding(.horizontal, 16).padding(.vertical, 12)
-        .frame(width: 560)
-        .onboardingGlass(cornerRadius: 14)
     }
 }
 
@@ -853,13 +853,18 @@ private struct OnboardingReadyStep: View {
             OnboardingBurst(play: animated)
             OnboardingTitle(title: "You’re all set",
                             subtitle: "Import an EPUB to begin reading. Stillleaf records your progress and active time, and saves your place. Your journal is always available from the menu bar.")
-            MenuBarHint().onboardingReveal(2)
-            HStack(spacing: 8) {
-                summaryChip(symbol: "target", text: goalText)
-                summaryChip(symbol: "book.pages", text: "Stillleaf reader ready")
-                summaryChip(symbol: "paintpalette", text: theme.theme.name)
+            // The menu bar and the summary of your choices share one surface.
+            VStack(spacing: 14) {
+                MenuBarHint().onboardingReveal(2)
+                HStack(spacing: 18) {
+                    summaryItem(symbol: "target", text: goalText)
+                    summaryItem(symbol: "book.pages", text: "Stillleaf reader ready")
+                    summaryItem(symbol: "paintpalette", text: theme.theme.name)
+                }
+                .onboardingReveal(3)
             }
-            .onboardingReveal(3)
+            .padding(.horizontal, 22).padding(.vertical, 16)
+            .onboardingGlass(cornerRadius: 18)
             HStack(spacing: 10) {
                 Button { finish(.dashboard) } label: { Label("Open dashboard", systemImage: "rectangle.grid.2x2") }
             }
@@ -875,11 +880,9 @@ private struct OnboardingReadyStep: View {
         return "\(value) \(unit == .pages ? "pages" : "minutes") a day"
     }
 
-    private func summaryChip(symbol: String, text: String) -> some View {
+    private func summaryItem(symbol: String, text: String) -> some View {
         Label(text, systemImage: symbol)
             .font(.system(size: 12, weight: .medium))
-            .padding(.horizontal, 12).padding(.vertical, 7)
-            .onboardingGlass(cornerRadius: 16)
     }
 }
 
@@ -905,8 +908,6 @@ private struct MenuBarHint: View {
                 .foregroundStyle(ReadingPalette.secondaryInk)
         }
         .font(.system(size: 13, weight: .medium))
-        .padding(.horizontal, 18).padding(.vertical, 8)
-        .onboardingGlass(cornerRadius: 12)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("The Stillleaf icon in the menu bar")
         .onAppear {

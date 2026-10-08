@@ -41,6 +41,9 @@ func runUISmoke() throws {
     model.dashboardSectionRequest = nil; model.settingsCategoryRequest = nil
     try checkLivePagination(model)
     try checkOnboarding(root: root.appendingPathComponent("onboarding"))
+    let surfaceEmpty = try AppModel(support: root.appendingPathComponent("surfaces-empty"), defaults: defaults, startTracking: false)
+    defer { surfaceEmpty.shutdown() }
+    try checkGlassSurfaceCounts(model: model, emptyModel: surfaceEmpty)
     model.discordEnabled = true
     model.discordApplicationID = ""
     model.saveSettings()

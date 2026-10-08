@@ -45,6 +45,7 @@ struct MergeBooksView: View {
         }
         .padding(24)
         .frame(width: 480)
+        .readingSheetSurface()
         .background(ReadingPalette.canvas)
         .foregroundStyle(ReadingPalette.ink)
         .tint(ReadingPalette.accent)

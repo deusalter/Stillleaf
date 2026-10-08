@@ -34,6 +34,7 @@ struct ManualStartView: View {
             }
         }
         .padding(26).frame(width: 470)
+        .readingSheetSurface()
         .background(ReadingPalette.canvas).foregroundStyle(ReadingPalette.ink)
         .tint(ReadingPalette.accent).textFieldStyle(ReadingTextFieldStyle())
         .buttonStyle(ReadingButtonStyle())
@@ -124,7 +125,7 @@ struct ManualAdditionView: View {
             GlassSegmentedControl(label: "What are you logging?", options: ManualEntryKind.allCases,
                                   selection: $draft.kind, title: { $0.rawValue },
                                   systemImage: { $0 == .book ? "book" : "headphones" },
-                                  style: .navigation, onGlass: true)
+                                  style: .navigation)
                 .onChange(of: draft.kind) { _ in switchKind() }
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
@@ -141,6 +142,7 @@ struct ManualAdditionView: View {
         }
         .padding(26)
         .frame(width: 540, height: min(maximumHeight, max(420, (NSScreen.main?.visibleFrame.height ?? 800) - 100)))
+        .readingSheetSurface()
         .background(ReadingPalette.canvas).foregroundStyle(ReadingPalette.ink)
         .tint(ReadingPalette.accent).textFieldStyle(GlassTextFieldStyle())
         .buttonStyle(ReadingButtonStyle())

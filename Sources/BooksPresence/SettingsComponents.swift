@@ -25,9 +25,9 @@ struct SettingsRow<Control: View>: View {
     }
 }
 
-/// The rule between two rows in a card.
+/// A faint rule between two rows of one group.
 struct SettingsDivider: View {
-    var body: some View { Hairline() }
+    var body: some View { Hairline().opacity(0.5) }
 }
 
 /// A line of dynamic status under a row, such as the Discord connection state.

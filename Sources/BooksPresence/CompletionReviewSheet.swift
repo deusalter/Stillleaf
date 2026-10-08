@@ -20,6 +20,7 @@ struct CompletionReviewSheet: View {
             if let error = model.errorMessage { Text(error).font(.caption).foregroundStyle(ReadingPalette.warning) }
         }
         .padding(24).frame(width: 660)
+        .readingSheetSurface()
         .background(ReadingPalette.canvas).foregroundStyle(ReadingPalette.ink)
         .buttonStyle(ReadingButtonStyle())
         .onChange(of: model.pendingCompletion?.id) { id in if id != entry.id { dismiss() } }
