@@ -25,6 +25,7 @@ struct LibraryView: View {
     @State private var removingBook: BookRecord?
     @State private var removingEPUB: BookRecord?
     @State private var loggingAudio = false
+    @Environment(\.forcedScreenStates) private var forced
 
     var body: some View {
         let summary = model.librarySummary
@@ -69,7 +70,7 @@ struct LibraryView: View {
                     }
                 }
                 EPUBImportStatusView(controller: model.epubLibrary)
-                if model.importingAudio { ProgressView("Importing local audio…") }
+                if model.importingAudio || forced.importingAudio { ReadingStatusLabel(title: "Importing local audio…") }
                 AudiobookLibraryPlayer(model: model, player: model.audiobookPlayer)
                 ReadingGlassGroup {
                     ViewThatFits(in: .horizontal) {
