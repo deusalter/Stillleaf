@@ -1,0 +1,457 @@
+import AppKit
+import SwiftUI
+import BooksCore
+
+private enum HistoryInteractionSmokeError: Error { case failed(String) }
+
+/// A blocked AppKit loop (menu tracking, event dispatch) cannot be timed out from
+/// the main thread. This watchdog runs elsewhere: if no step is reported for a
+/// while it names the stuck step and ends the process instead of hanging CI.
+private enum HistorySmokeWatchdog {
+    private static let lock = NSLock()
+    private static var step = "not started"
+    private static var lastProgress = Date()
+    private static var running = false
+
+    static func progress(_ name: String) {
+        lock.lock(); step = name; lastProgress = Date(); lock.unlock()
+    }
+
+    static func start(timeout: TimeInterval = 120) {
+        lock.lock()
+        let alreadyRunning = running
+        running = true
+        lastProgress = Date()
+        lock.unlock()
+        guard !alreadyRunning else { return }
+        let thread = Thread {
+            while true {
+                Thread.sleep(forTimeInterval: 2)
+                lock.lock()
+                let stalled = Date().timeIntervalSince(lastProgress), name = step, active = running
+                lock.unlock()
+                guard active else { return }
+                if stalled > timeout {
+                    FileHandle.standardError.write(Data("ui-smoke failed: History interaction smoke stalled \(Int(stalled))s in step \"\(name)\"\n".utf8))
+                    exit(3)
+                }
+            }
+        }
+        thread.start()
+    }
+
+    static func stop() { lock.lock(); running = false; lock.unlock() }
+}
+
+/// Drives History's controls the way a person does: native menus through real
+/// mouse events and their items, a day's ring through clicks. Exercised by
+/// `--self-test-ui` on macOS CI.
+@MainActor
+func runHistoryInteractionSmoke(model: AppModel) throws {
+    // Every check always runs so one CI pass reports every broken interaction.
+    var failures: [String] = []
+    HistorySmokeWatchdog.start()
+    defer { HistorySmokeWatchdog.stop() }
+    let checks: [(String, () throws -> Void)] = [
+        ("timescale menu in isolation", checkHistoryTimescaleMenu),
+        ("timescale menu in the dashboard window", { try checkTimescaleInDashboard(model: model) }),
+        ("timescale in dashboard replicas", { try checkTimescaleInReplicas(model: model) }),
+        ("timescale pick reaches the published chart", { try checkTimescalePublishes(model: model) }),
+        ("month day opening", checkMonthDayOpening),
+    ]
+    for (name, check) in checks {
+        HistorySmokeWatchdog.progress("start: \(name)")
+        do { try check() } catch { failures.append("[\(name)] \(error)") }
+    }
+    if !failures.isEmpty { throw HistoryInteractionSmokeError.failed(failures.joined(separator: "\n--\n")) }
+}
+
+// MARK: - Shared helpers
+
+@MainActor
+private func hostedWindow<V: View>(_ view: V, size: NSSize) -> (NSWindow, NSHostingView<V>) {
+    let window = NSWindow(contentRect: NSRect(origin: NSPoint(x: 80, y: 80), size: size),
+                          styleMask: [.titled], backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false
+    let host = NSHostingView(rootView: view)
+    host.frame = NSRect(origin: .zero, size: size)
+    window.contentView = host
+    window.makeKeyAndOrderFront(nil)
+    settle(host)
+    return (window, host)
+}
+
+@MainActor
+private func settle(_ host: NSView, passes: Int = 3) {
+    for _ in 0..<passes {
+        host.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+    }
+}
+
+/// Synthetic click sweeps re-render SwiftUI per event; a slow runner must fail, not hang.
+private struct SweepBudget {
+    let started = Date()
+    let seconds: TimeInterval
+    init(seconds: TimeInterval = 60) { self.seconds = seconds }
+    func check(_ what: String) throws {
+        guard Date().timeIntervalSince(started) < seconds else {
+            throw HistoryInteractionSmokeError.failed("\(what) exceeded its \(Int(seconds))s budget")
+        }
+    }
+}
+
+@MainActor
+private func pump(timeout: TimeInterval = 10, until finished: () -> Bool) -> Bool {
+    let deadline = Date().addingTimeInterval(timeout)
+    while !finished(), Date() < deadline {
+        HistorySmokeWatchdog.progress("waiting on a condition")
+        RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+    }
+    return finished()
+}
+
+private func popupButtons(in view: NSView) -> [NSPopUpButton] {
+    ((view as? NSPopUpButton).map { [$0] } ?? []) + view.subviews.flatMap { popupButtons(in: $0) }
+}
+
+private func textFields(in view: NSView) -> [String] {
+    ((view as? NSTextField).map { [$0.stringValue] } ?? []) + view.subviews.flatMap { textFields(in: $0) }
+}
+
+private func describe(_ view: NSView, depth: Int = 0) -> String {
+    let line = String(repeating: "  ", count: depth) + String(describing: type(of: view))
+        + (view.menu.map { " menu[\($0.items.map(\.title).joined(separator: "|"))]" } ?? "")
+    return ([line] + view.subviews.map { describe($0, depth: depth + 1) }).joined(separator: "\n")
+}
+
+@MainActor
+private func mouse(_ type: NSEvent.EventType, at point: NSPoint, in window: NSWindow, count: Int = 1,
+                   after delay: TimeInterval = 0) {
+    guard let event = NSEvent.mouseEvent(with: type, location: point, modifierFlags: [],
+        timestamp: ProcessInfo.processInfo.systemUptime + delay, windowNumber: window.windowNumber, context: nil,
+        eventNumber: 0, clickCount: count, pressure: type == .leftMouseDown ? 1 : 0) else { return }
+    HistorySmokeWatchdog.progress("sending \(type) at \(point)")
+    window.sendEvent(event)
+}
+
+/// Item titles and enabled states captured while the last tracked menu was open.
+@MainActor private var lastTrackedMenu = "never opened"
+
+/// Runs `trigger` (a click) and reads the popup's items while its menu is
+/// tracking, then cancels. nil means tracking never began: the click did nothing.
+@MainActor
+private func trackMenu(of popup: NSPopUpButton, trigger: () -> Void) -> [NSMenuItem]? {
+    var items: [NSMenuItem]?
+    lastTrackedMenu = "never opened"
+    HistorySmokeWatchdog.progress("tracking a popup menu")
+    // The timer only fires once the menu's tracking loop is running.
+    let timer = Timer(timeInterval: 0.02, repeats: true) { _ in
+        MainActor.assumeIsolated {
+            if items == nil {
+                items = popup.menu?.items
+                lastTrackedMenu = (items ?? []).map { item in
+                    "\(item.title.isEmpty ? "·" : item.title)[\(item.isEnabled ? "on" : "OFF")\(item.isHidden ? ",hidden" : "")\(item.action == nil ? ",noaction" : "")]"
+                }.joined(separator: " ") + " autoenables=\(popup.menu?.autoenablesItems ?? false)"
+            }
+            popup.menu?.cancelTracking()
+        }
+    }
+    RunLoop.main.add(timer, forMode: .default)
+    RunLoop.main.add(timer, forMode: .eventTracking)
+    defer { timer.invalidate() }
+    trigger()
+    return items
+}
+
+private func windowPoint(of view: NSView) -> NSPoint {
+    view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil)
+}
+
+// MARK: - Timescale menu
+
+@MainActor
+private final class NavigationProbe: ObservableObject {
+    @Published var navigation: CalendarNavigation
+    var controlPicks = 0
+    init(_ navigation: CalendarNavigation) { self.navigation = navigation }
+}
+
+private struct NavigationProbeView: View {
+    @ObservedObject var probe: NavigationProbe
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HistoryNavigationControls(navigation: $probe.navigation, canMoveForward: true)
+            // Control: a menu styled the way Library and Settings style theirs.
+            Menu("Control") { Button("One") { probe.controlPicks += 1 }; Button("Two") { probe.controlPicks += 1 } }
+                .menuStyle(ReadingMenuStyle())
+        }
+        .padding(20)
+        // The dashboard wraps every screen in this style; the controls must work under it.
+        .buttonStyle(ReadingButtonStyle())
+    }
+}
+
+@MainActor
+private func checkHistoryTimescaleMenu() throws {
+    let anchor = ISO8601DateFormatter().date(from: "2024-03-15T12:00:00Z")!
+    let probe = NavigationProbe(CalendarNavigation(timezoneID: "UTC", anchor: anchor, scale: .month))
+    let (window, host) = hostedWindow(NavigationProbeView(probe: probe), size: NSSize(width: 420, height: 160))
+    defer { window.contentView = nil; window.close() }
+
+    let popups = popupButtons(in: host)
+    guard let scalePopup = popups.first, popups.count == 2 else {
+        throw HistoryInteractionSmokeError.failed("Expected the timescale and control popups, found \(popups.count). Tree:\n\(describe(host))")
+    }
+    guard let opened = trackMenu(of: scalePopup, trigger: { scalePopup.performClick(nil) }) else {
+        throw HistoryInteractionSmokeError.failed("Clicking History's timescale popup never began menu tracking. Tree:\n\(describe(host))")
+    }
+    let titles = CalendarScale.allCases.map(\.title)
+    guard titles.allSatisfy({ title in opened.contains { $0.title == title } }) else {
+        throw HistoryInteractionSmokeError.failed("Timescale menu opened as \(opened.map(\.title)), missing some of \(titles)")
+    }
+    for scale in [CalendarScale.week, .year, .day, .month] {
+        guard let index = scalePopup.menu?.items.firstIndex(where: { $0.title == scale.title }) else {
+            throw HistoryInteractionSmokeError.failed("Timescale menu has no \(scale.title) item after a selection")
+        }
+        scalePopup.menu?.performActionForItem(at: index)
+        settle(host)
+        guard probe.navigation.scale == scale else {
+            throw HistoryInteractionSmokeError.failed("Choosing \(scale.title) left History on \(probe.navigation.scale.title)")
+        }
+        guard probe.navigation.anchor == anchor else {
+            throw HistoryInteractionSmokeError.failed("Choosing \(scale.title) moved History's anchor date")
+        }
+    }
+    print("ui-smoke: History timescale menu opens under the dashboard's button style and each scale applies through its binding")
+}
+
+/// Opens the timescale popup of `host` with performClick, reports the items' states while it is
+/// open, picks Week, and requires the control to read Week (looked up afresh each time).
+@MainActor
+private func exerciseTimescalePick(in host: NSView, window: NSWindow, what: String) throws -> String {
+    func labels() -> [[String]] { popupButtons(in: host).map { textFields(in: $0) } }
+    func scaleLabelIs(_ title: String) -> Bool { labels().contains { $0.contains(title) } }
+    guard let current = popupButtons(in: host).first(where: { textFields(in: $0).contains("Month") }) else {
+        throw HistoryInteractionSmokeError.failed("\(what): no popup labelled Month (\(labels()))")
+    }
+    guard trackMenu(of: current, trigger: { current.performClick(nil) }) != nil,
+          let index = current.menu?.items.firstIndex(where: { $0.title == "Week" }) else {
+        throw HistoryInteractionSmokeError.failed("\(what): popup did not open with a Week item (\(lastTrackedMenu))")
+    }
+    let detail = "items while open: \(lastTrackedMenu); key \(window.isKeyWindow), active \(NSApp.isActive)"
+    HistorySmokeWatchdog.progress("\(what): performing the Week item")
+    current.menu?.performActionForItem(at: index)
+    _ = pump(timeout: 3, until: { scaleLabelIs("Week") })
+    guard scaleLabelIs("Week") else {
+        throw HistoryInteractionSmokeError.failed("\(what): choosing Week left the control reading \(labels()) (\(detail))")
+    }
+    return "\(what): ok (\(detail))"
+}
+
+/// What the dashboard wraps around History, with exactly one of its window-level modifiers applied
+/// so a disabled menu can be blamed on one of them.
+private enum DashboardModifier: String, CaseIterable {
+    case none, coordinateSpace, gardenBackdrop, glassRegions, sidebarToggleToolbar, motionTransaction, minFrame, toggleStyle, tint
+}
+
+private struct DashboardContentReplica: View {
+    @ObservedObject var model: AppModel
+    let modifier: DashboardModifier
+    @State private var frost = FrostRegions()
+    var body: some View {
+        let content = VStack(spacing: 0) {
+            Group { HistoryView(model: model, initialScale: .month) }
+                .id("content-1").readingEntrance().id(DashboardSection.history)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .foregroundStyle(ReadingPalette.ink)
+        .buttonStyle(ReadingButtonStyle())
+        switch modifier {
+        case .none: content
+        case .coordinateSpace: content.coordinateSpace(name: GardenCanvas.space)
+        case .gardenBackdrop: content.environment(\.gardenBackdrop, true)
+        case .glassRegions: content.onPreferenceChange(GlassRegionsKey.self) { frost.rects = $0 }
+        case .sidebarToggleToolbar: content.nativeDashboardSidebarToggle(isCollapsed: false) {}
+        case .motionTransaction: content.readingMotionAccessibility()
+        case .minFrame: content.frame(minWidth: 920, minHeight: 660)
+        case .toggleStyle: content.toggleStyle(.switch)
+        case .tint: content.tint(ReadingPalette.accent)
+        }
+    }
+}
+
+@MainActor
+private func checkTimescaleInReplicas(model: AppModel) throws {
+    var report: [String] = [], broken: [String] = []
+    for modifier in DashboardModifier.allCases {
+        let name = "replica+\(modifier.rawValue)"
+        HistorySmokeWatchdog.progress(name)
+        let (window, host) = hostedWindow(DashboardContentReplica(model: model, modifier: modifier),
+                                          size: NSSize(width: 1_000, height: 800))
+        defer { window.contentView = nil; window.close() }
+        do { report.append(try exerciseTimescalePick(in: host, window: window, what: name)) }
+        catch { broken.append("\(error)") }
+    }
+    print("ui-smoke: timescale replicas — \(report.joined(separator: " | "))")
+    if !broken.isEmpty { throw HistoryInteractionSmokeError.failed(broken.joined(separator: " / ")) }
+}
+
+/// The full dashboard window: garden, frost, floating sidebar and transparent
+/// title bar all share the window with History's controls.
+@MainActor
+private func checkTimescaleInDashboard(model: AppModel) throws {
+    let window = DashboardWindow(contentRect: NSRect(x: 80, y: 80, width: 1180, height: 820),
+                                 styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false
+    let host = NSHostingView(rootView: DashboardView(model: model, initialSection: .history, initialCalendarScale: .month))
+    window.contentView = host
+    window.makeKeyAndOrderFront(nil)
+    settle(host, passes: 10)
+    defer { window.contentView = nil; window.close() }
+
+    guard let popup = popupButtons(in: host).first(where: { textFields(in: $0).contains("Month") }) else {
+        throw HistoryInteractionSmokeError.failed("No popup labelled Month in the dashboard. Tree:\n\(describe(host))")
+    }
+    let point = windowPoint(of: popup)
+    // Whatever draws over the control decides whether a click reaches it.
+    let hit = host.superview?.hitTest(host.superview!.convert(point, from: nil))
+    var ancestor: NSView? = hit
+    while let view = ancestor, view !== popup { ancestor = view.superview }
+    guard ancestor === popup else {
+        throw HistoryInteractionSmokeError.failed("A click on History's timescale control lands on \(hit.map { String(describing: type(of: $0)) } ?? "nothing") instead of the popup at \(point)")
+    }
+    // The pick first: a second tracking session after a cancelled real click hangs on macOS 14.
+    let revision = ThemeStore.shared.revision
+    var picked = ""
+    do { picked = try exerciseTimescalePick(in: host, window: window, what: "dashboard") }
+    catch { throw HistoryInteractionSmokeError.failed("\(error); theme revision \(revision) → \(ThemeStore.shared.revision)") }
+    // Then a real mouse-down must begin tracking (this is what a person does).
+    let target = popupButtons(in: host).first(where: { textFields(in: $0).contains("Week") }) ?? popup
+    let realPoint = windowPoint(of: target)
+    guard trackMenu(of: target, trigger: { mouse(.leftMouseDown, at: realPoint, in: window) }) != nil else {
+        throw HistoryInteractionSmokeError.failed("A real mouse-down on the timescale popup never began menu tracking")
+    }
+    mouse(.leftMouseUp, at: realPoint, in: window)
+    print("ui-smoke: the dashboard's timescale popup receives real clicks, opens, and applies a pick (\(picked))")
+}
+
+@MainActor
+private func checkTimescalePublishes(model: AppModel) throws {
+    var published: [HistoryAtlasKey] = []
+    let view = HistoryView(model: model, initialScale: .month, benchmarkReady: { published.append($0) })
+        .buttonStyle(ReadingButtonStyle())
+        .frame(width: 1000, height: 800)
+    let (window, host) = hostedWindow(view, size: NSSize(width: 1000, height: 800))
+    defer { window.contentView = nil; window.close() }
+    guard pump(until: { published.contains { $0.scale == .month } }) else {
+        throw HistoryInteractionSmokeError.failed("History never published its initial month")
+    }
+    guard let popup = popupButtons(in: host).first(where: { textFields(in: $0).contains("Month") }),
+          let opened = trackMenu(of: popup, trigger: { popup.performClick(nil) }),
+          let index = popup.menu?.items.firstIndex(where: { $0.title == "Week" }) else {
+        throw HistoryInteractionSmokeError.failed("History's timescale popup did not open with a Week item")
+    }
+    _ = opened
+    popup.menu?.performActionForItem(at: index)
+    guard pump(until: { published.contains { $0.scale == .week } }) else {
+        throw HistoryInteractionSmokeError.failed("Choosing Week never published a week chart; published \(published.map { $0.scale.rawValue })")
+    }
+    print("ui-smoke: picking a timescale publishes that scale's chart")
+}
+
+// MARK: - Double-click a day
+
+private func accessibilityNodes(_ root: Any, limit: Int = 4_000) -> [NSAccessibilityProtocol] {
+    var seen = Set<ObjectIdentifier>(), found: [NSAccessibilityProtocol] = [], queue: [Any] = [root]
+    while !queue.isEmpty, found.count < limit {
+        HistorySmokeWatchdog.progress("walking the accessibility tree (\(found.count) nodes)")
+        let next = queue.removeFirst()
+        guard let object = next as? NSObject, seen.insert(ObjectIdentifier(object)).inserted,
+              let node = next as? NSAccessibilityProtocol else { continue }
+        found.append(node)
+        queue += node.accessibilityChildren() ?? []
+    }
+    return found
+}
+
+@MainActor
+private func checkMonthDayOpening() throws {
+    let zone = "UTC"
+    let anchor = ISO8601DateFormatter().date(from: "2024-03-15T12:00:00Z")!
+    let navigation = CalendarNavigation(timezoneID: zone, anchor: anchor, scale: .month)
+    let calendar = navigation.calendar
+    let book = BookRecord(id: "double-click-book", title: "Double Click")
+    let readDay = calendar.date(from: DateComponents(year: 2024, month: 3, day: 8, hour: 12))!
+    let interval = ReadingInterval(sessionID: "double-click-0", bookID: book.id, start: readDay,
+        end: readDay.addingTimeInterval(1_200), duration: 1_200, timezoneID: zone, mode: .manual)
+    let source = HistoryAtlasSource(books: [book], intervals: [interval], events: [], progress: [], merges: [],
+        finishedBooks: [], pageEvidence: PageStatistics.snapshot(events: [], effectiveIntervals: [interval], merges: []))
+    let presentation = HistoryAtlasPeriod(source: source, navigation: navigation, now: anchor)
+
+    // Narrow enough that the detail pane (with its own Open day button) sits
+    // below the grid, so every click in the scanned band lands on a day cell.
+    let size = NSSize(width: 640, height: 1_500)
+    var opened: [Date] = []
+    let (window, host) = hostedWindow(
+        AtlasMonthView(navigation: navigation, presentation: presentation, select: { opened.append($0) })
+            .frame(width: size.width, height: size.height, alignment: .top),
+        size: size)
+    defer { window.contentView = nil; window.close() }
+
+    // Black-box scan: SwiftUI vends no per-cell NSViews, so click a lattice over
+    // the grid. Cells are ~75 x 91 pt. Single clicks use a lattice coarser than a
+    // cell so no two consecutive clicks share one (two clicks in a cell inside the
+    // double-click interval are, correctly, a double-click).
+    func lattice(_ dx: CGFloat, _ dy: CGFloat) -> [NSPoint] {
+        stride(from: CGFloat(30), to: 640, by: dy).flatMap { top in
+            stride(from: CGFloat(14), to: size.width, by: dx).map { NSPoint(x: $0, y: size.height - top) }
+        }
+    }
+    let budget = SweepBudget()
+    for point in lattice(96, 104) {
+        try budget.check("The single-click sweep")
+        mouse(.leftMouseDown, at: point, in: window); mouse(.leftMouseUp, at: point, in: window)
+    }
+    settle(host)
+    guard opened.isEmpty else {
+        throw HistoryInteractionSmokeError.failed("Single clicks opened \(opened.count) days; a click must only select")
+    }
+    var pause: TimeInterval = 0
+    for point in lattice(40, 44) {
+        try budget.check("The double-click sweep")
+        // Each pair is a separate gesture: leave more than the double-click interval between pairs.
+        pause += 1
+        for count in 1...2 {
+            mouse(.leftMouseDown, at: point, in: window, count: count, after: pause)
+            mouse(.leftMouseUp, at: point, in: window, count: count, after: pause)
+        }
+    }
+    settle(host)
+    let openedDays = Set(opened.map { calendar.component(.day, from: $0) })
+    guard openedDays.contains(8), openedDays.count > 20 else {
+        throw HistoryInteractionSmokeError.failed("Double-clicking across the grid opened days \(openedDays.sorted()); expected every cell, including the 8th")
+    }
+
+    // Accessibility: the open action must be exposed on each day. SwiftUI only
+    // builds its accessibility tree for an active client, so report what exists.
+    let label = DateText.string(readDay, zone: zone, pattern: "EEEE, MMMM d")
+    HistorySmokeWatchdog.progress("looking for the day's accessibility element")
+    let nodes = accessibilityNodes(host)
+    guard let node = nodes.first(where: { $0.accessibilityLabel()?.hasPrefix(label) == true }) else {
+        guard nodes.count > 1 else {
+            // No assistive client is attached on CI, so SwiftUI vends no tree to inspect.
+            print("ui-smoke: month day double-click opens days; accessibility tree not vended on this runner (\(nodes.count) nodes), Open day action needs a live VoiceOver check")
+            return
+        }
+        let labels = nodes.compactMap { $0.accessibilityLabel() }.prefix(12)
+        throw HistoryInteractionSmokeError.failed("No accessibility element for \(label); tree has \(nodes.count) nodes, labels \(Array(labels))")
+    }
+    opened = []
+    let actions = node.accessibilityCustomActions() ?? []
+    guard let open = actions.first(where: { $0.name == "Open day" }), open.handler?() == true,
+          opened.count == 1, calendar.isDate(opened[0], inSameDayAs: readDay) else {
+        throw HistoryInteractionSmokeError.failed("\(label) has no working \"Open day\" accessibility action (found \(actions.map(\.name)))")
+    }
+    print("ui-smoke: month day ring selects on one click, opens on double-click, and exposes an Open day accessibility action")
+}

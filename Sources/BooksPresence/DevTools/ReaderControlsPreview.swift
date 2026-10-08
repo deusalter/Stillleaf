@@ -72,4 +72,73 @@ func renderReaderControlPreviews(to destination: URL) throws {
                              appearance: NSAppearance(named: ReaderPanelPalette(appearance: ["panelColor": panel, "textColor": theme.text]).dark ? .darkAqua : .aqua),
                              to: destination.appendingPathComponent("\(name).png"))
     }
+    try renderReaderPanelPreviews(to: destination)
+}
+
+/// Offscreen renders of the native Contents, Bookmarks, Notes and Search panels, with rows shaped like the renderer's.
+@MainActor
+func renderReaderPanelPreviews(to destination: URL) throws {
+    try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+    func outline(_ id: String, _ title: String, current: Bool = false, children: [[String: Any]] = [], group: Bool = false, openable: Bool = true) -> [String: Any] {
+        var row: [String: Any] = ["id": id, "title": title, "current": current, "openable": openable && !group]
+        if !children.isEmpty { row["children"] = children }
+        if group { row["group"] = true }
+        return row
+    }
+    let contents: [String: Any] = ["name": "outline", "empty": "This book has no table of contents.", "rows": [
+        outline("o0", "Prologue"), outline("o1", "Book One", children: [outline("o2", "Chapter One", current: true), outline("o3", "Chapter Two"), outline("o4", "Chapter Three")]),
+        outline("o5", "Book Two", children: [outline("o6", "Chapter Four"), outline("o7", "Chapter Five")]), outline("o8", "Notes on the Text"), outline("o9", "Afterword"),
+        outline("o10", "Landmarks", children: [outline("o11", "Start of reading")], group: true),
+    ]]
+    let bookmarks: [String: Any] = ["name": "bookmarks", "empty": "Keep a place to return to. Use the bookmark button while you read.", "rows": [
+        ["id": "b1", "title": "Chapter One", "detail": "2026-10-01T10:00:00.000Z"], ["id": "b2", "title": "Chapter Three", "detail": "2026-10-03T10:00:00.000Z"],
+        ["id": "b3", "title": "The Long Water", "detail": "2026-10-05T10:00:00.000Z"],
+    ]]
+    let notes: [String: Any] = ["name": "notes", "empty": "Select a passage in the book to highlight it or leave yourself a note.", "rows": [
+        ["id": "n1", "quote": "The light fell across the open book, and she turned a page and settled into her chair.", "note": "Remember the opening image of light; it returns in the last chapter.", "color": "#e4c778"],
+        ["id": "n2", "quote": "The long water went quiet.", "note": "", "color": "#a7cbb0"],
+        ["id": "n3", "quote": "Nobody had told her the house would be so still.", "note": "Compare with the prologue.", "color": "#d7a9b4"],
+    ]]
+    let search: [String: Any] = ["name": "search", "query": "light", "status": "12 matching passages", "rows": [
+        ["id": "r0", "before": "…opened the shutters and let the ", "match": "light", "after": " fall across the open book on the table, the pages…", "chapter": "Prologue"],
+        ["id": "r1", "before": "The ", "match": "light", "after": " fell across the open book. She turned a page and settled into her chair.", "chapter": "Chapter One"],
+        ["id": "r2", "before": "A thin ", "match": "light", "after": " under the door.", "chapter": "Chapter Two"],
+        ["id": "r3", "before": "…the lamp gave little ", "match": "light", "after": " but enough to read by, and she read until the last of the…", "chapter": "Book Two"],
+    ]]
+    let themes: [(id: String, background: String, text: String, panel: String, accent: String)] = [
+        ("paper", "#F0F7F3", "#183D33", "#F6FAF7", "#087D65"), ("midnight", "#0D121A", "#D4DAE5", "#0D121A", "#9CBFF2"), ("sepia", "#F6F1E3", "#403B2C", "#FBF7EC", "#7A5A22"),
+    ]
+    for theme in themes {
+        let chrome = ReaderChromeModel()
+        chrome.accept(["effectiveAppearance": ["backgroundColor": theme.background, "textColor": theme.text], "panelAppearance": ["panelColor": theme.panel, "accentColor": theme.accent]])
+        let page = ReaderPanelPalette(appearance: ["backgroundColor": theme.background, "textColor": theme.text])
+        let appearance = NSAppearance(named: chrome.panelPalette.dark ? .darkAqua : .aqua)
+        func render(_ name: String, tab: ReaderPanelsModel.Tab, searching: Bool = false) throws {
+            let panels = ReaderPanelsModel()
+            panels.apply(contents); panels.apply(bookmarks); panels.apply(notes)
+            panels.tab = tab
+            if searching { panels.query = "light"; panels.apply(search) }
+            let panel: AnyView = searching
+                ? AnyView(ReaderSearchPanelView(chrome: chrome, panels: panels, close: {}))
+                : AnyView(ReaderLibraryPanelView(chrome: chrome, panels: panels, close: {}))
+            let view = ZStack(alignment: .topLeading) {
+                page.panel
+                VStack(alignment: .leading, spacing: 14) {
+                    ForEach(0..<14, id: \.self) { _ in
+                        Text("The light fell across the open book. She turned a page and settled into her chair, and the long water went quiet.")
+                            .font(.custom("Georgia", size: 15)).foregroundStyle(page.ink).lineLimit(2)
+                    }
+                }
+                .padding(40).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                panel.frame(width: 380, height: 560).padding(14)
+            }
+            .environment(\.nativePreviewOpaque, false)
+            try renderNativeView(AnyView(view), size: NSSize(width: 640, height: 600), appearance: appearance,
+                                 to: destination.appendingPathComponent("reader-panel-\(name)-\(theme.id).png"))
+        }
+        try render("contents", tab: .contents)
+        try render("bookmarks", tab: .bookmarks)
+        try render("notes", tab: .notes)
+        try render("search", tab: .contents, searching: true)
+    }
 }
