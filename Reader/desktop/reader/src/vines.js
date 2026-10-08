@@ -57,11 +57,11 @@ export function createField({columns, rows, cellWidth, cellHeight, seed, maxCell
 
   const permits = (x, y) => x >= 0 && y >= 0 && x < columns && y < rows && field.allows(x, y);
 
-  function put(x, y, glyph, kind, slot) {
+  function put(x, y, glyph, kind, slot, generation = 0) {
     if (!permits(x, y) || cells.size >= maxCells) return false;
     const key = y * columns + x, existing = cells.get(key);
     if (existing && RANK[existing.kind] >= RANK[kind]) return false;
-    cells.set(key, {x, y, glyph, alternate: kind === 'leaf' ? FLUTTER[glyph] ?? null : null, kind, slot, step: field.stepCount, phase: next() * TAU});
+    cells.set(key, {x, y, glyph, alternate: kind === 'leaf' ? FLUTTER[glyph] ?? null : null, kind, slot, generation, step: field.stepCount, phase: next() * TAU});
     return true;
   }
 
@@ -78,7 +78,7 @@ export function createField({columns, rows, cellWidth, cellHeight, seed, maxCell
       const side = next() < 0.5 ? -1 : 1;
       const pair = LEAVES[Math.floor(next() * LEAVES.length)];
       const glyph = vertical ? (side < 0 ? pair[0] : pair[1]) : (next() < 0.5 ? pair[0] : pair[1]);
-      put(vertical ? x + side : x, vertical ? y : y + side, glyph, 'leaf', Math.floor(next() * 5));
+      put(vertical ? x + side : x, vertical ? y : y + side, glyph, 'leaf', Math.floor(next() * 5), s.generation);
     }
     if (s.generation < s.maxGeneration && next() < s.branchChance && tips.length < field.maxTips) {
       let heading = Math.atan2(dy, dx) + (next() < 0.5 ? -1 : 1) * (0.55 + next() * 0.65);
@@ -108,7 +108,7 @@ export function createField({columns, rows, cellWidth, cellHeight, seed, maxCell
       let glyph = stemGlyph(dx, dy);
       if (s.generation >= 2 && Math.abs(tip.drift) > 0.32) glyph = tip.drift > 0 ? ')' : '(';
       else if (s.generation >= 2 && glyph === '─') glyph = '~';
-      put(cx, cy, glyph, 'stem', (s.generation + s.hue) % 4);
+      put(cx, cy, glyph, 'stem', (s.generation + s.hue) % 4, s.generation);
       sprout(tip, cx, cy, dx, dy);
       tip.lastX = cx; tip.lastY = cy;
     }
@@ -130,7 +130,7 @@ export function createField({columns, rows, cellWidth, cellHeight, seed, maxCell
       tip.px = (fx + 0.5) * cellWidth; tip.py = (fy + 0.5) * cellHeight;
       if (cx === tip.lastX && cy === tip.lastY) continue;
       const dx = (cx - tip.lastX) * cellWidth, dy = (cy - tip.lastY) * cellHeight;
-      put(cx, cy, stemGlyph(dx, dy), 'stem', tip.spec.hue % 4);
+      put(cx, cy, stemGlyph(dx, dy), 'stem', tip.spec.hue % 4, tip.spec.generation);
       sprout(tip, cx, cy, dx, dy);
       tip.lastX = cx; tip.lastY = cy;
       placed = true;
@@ -141,7 +141,7 @@ export function createField({columns, rows, cellWidth, cellHeight, seed, maxCell
   function finish(tip) {
     if (next() >= tip.spec.bloomChance) return;
     const glyph = BLOOMS[Math.floor(next() * BLOOMS.length)];
-    put(tip.lastX + Math.round(Math.cos(tip.heading)), tip.lastY + Math.round(Math.sin(tip.heading)), glyph, 'bloom', Math.floor(next() * 4));
+    put(tip.lastX + Math.round(Math.cos(tip.heading)), tip.lastY + Math.round(Math.sin(tip.heading)), glyph, 'bloom', Math.floor(next() * 4), tip.spec.generation);
   }
 
   /** Advances every tip by one cell. */
@@ -196,15 +196,39 @@ function legible(hex, paper, dark) {
   return color;
 }
 
-/** Vine colours from the page theme's accent, nudged to 3:1 on the paper. */
-export function vinePalette({accent, ink, paper}, dark) {
-  const [hue, saturation] = toHSL(accent), s = Math.min(0.8, Math.max(0.38, saturation));
+/**
+ * The colour behind the page card: the paper pulled toward the ink in light themes and toward black in dark
+ * ones, so the card edge reads on every theme and the margin vines sit on a surface darker than the page.
+ * A page that is already nearly black (Night, Midnight) cannot get meaningfully darker, so its backdrop is
+ * lifted toward the ink instead and the card reads as the darker, inset surface.
+ */
+export function backdropColor(paper, ink) {
+  if (!isDarkColor(paper)) return mixColor(paper, ink, 0.07);
+  const darker = mixColor(paper, '#000000', 0.42);
+  return contrastRatio(darker, paper) >= 1.12 ? darker : mixColor(paper, ink, 0.09);
+}
+
+/** The page card's fold shade, edge rule and shadow, as CSS colours. */
+export function cardColors(paper, ink) {
+  const dark = isDarkColor(paper), [r, g, b] = channels(dark ? '#000000' : ink);
+  const shade = alpha => `rgba(${r},${g},${b},${alpha})`;
+  return {fold: shade(dark ? 0.28 : 0.07), rule: shade(dark ? 0.5 : 0.12), shadow: shade(dark ? 0.42 : 0.14)};
+}
+
+/**
+ * Vine colours from the page theme, as in the approved mockup: stems and leaves fan out around the accent hue,
+ * blooms are a warm tone plus two hues across the wheel. Near vines are nudged to 3:1 on the backdrop they grow on.
+ */
+export function vinePalette({accent, ink, paper, muted = ink, backdrop = paper}, dark) {
+  const [hue, saturation] = toHSL(accent);
+  // A grey accent (a custom page with plain text) keeps the vines grey-green instead of reading as red.
+  const s = saturation < 0.1 ? 0.12 : Math.min(0.8, Math.max(0.38, saturation));
   const lightness = dark ? [0.64, 0.71, 0.57, 0.75, 0.67] : [0.36, 0.42, 0.32, 0.29, 0.40];
-  const fix = color => legible(color, paper, dark);
+  const fix = color => legible(color, backdrop, dark);
   return {
-    stems: [accent, mixColor(accent, ink, 0.25), fromHSL(hue, s * 0.9, dark ? 0.46 : 0.26), fromHSL(hue - 12, s, dark ? 0.52 : 0.3)].map(fix),
+    stems: [accent, mixColor(accent, ink, 0.25), mixColor(accent, muted, 0.35), fromHSL(hue, s * 0.9, dark ? 0.46 : 0.26)].map(fix),
     leaves: [0, 16, -14, 30, -28].map((offset, i) => fix(fromHSL(hue + offset, s, lightness[i]))),
-    blooms: [dark ? '#f5c65e' : '#d48e14', fromHSL(hue + 150, 0.62, dark ? 0.72 : 0.52), fromHSL(hue + 205, 0.55, dark ? 0.74 : 0.5), dark ? '#e2b574' : '#9a6424'].map(fix),
+    blooms: [dark ? '#e2b574' : '#9a6424', dark ? '#f5c65e' : '#d48e14', fromHSL(hue + 150, 0.62, dark ? 0.72 : 0.52), fromHSL(hue + 205, 0.55, dark ? 0.74 : 0.5)].map(fix),
     head: dark ? mixColor(accent, '#ffffff', 0.7) : mixColor(accent, '#000000', 0.35),
     track: ink, baseAlpha: dark ? 0.85 : 0.96
   };

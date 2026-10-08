@@ -376,3 +376,222 @@ test('the spine vine paints above the live page but below the sliding page snaps
   assert.equal(topmost.sliding, 'slide', 'the spine vine draws over the sliding page snapshots');
   assert.deepEqual(errors, []);
 });
+
+// ---- The page as a card on a backdrop, the footer vine and the mockup's garden density ----
+
+const rgb = hex => `rgb(${[1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16)).join(', ')})`;
+const luminance = css => {
+  const [r, g, b] = css.match(/\d+/g).slice(0, 3).map(v => v / 255).map(v => v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+};
+const ratio = (a, b) => { const [x, y] = [luminance(a), luminance(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+
+/** The page card: the viewport grown by the card's vertical sliver, with its painted colour, radius and shadow. */
+const card = page => page.evaluate(() => {
+  const viewport = document.getElementById('reading-viewport'), r = viewport.getBoundingClientRect(), s = getComputedStyle(viewport, '::before');
+  const dy = (parseFloat(s.height) - r.height) / 2, dx = (parseFloat(s.width) - r.width) / 2;
+  return {left: r.left - dx, right: r.right + dx, top: r.top - dy, bottom: r.bottom + dy, background: s.backgroundColor, radius: parseFloat(s.borderTopLeftRadius), shadow: s.boxShadow, content: s.content,
+    backdrop: getComputedStyle(document.documentElement).backgroundColor, paper: getComputedStyle(document.documentElement).getPropertyValue('--paper').trim()};
+});
+const rectOf = (page, selector) => page.evaluate(selector => { const e = document.querySelector(selector); if (!e) return null; const r = e.getBoundingClientRect(); return {left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width, height: r.height}; }, selector);
+const waitForGarden = async (page, progression) => { await readTo(page, progression); await page.waitForFunction(() => window.StillleafReader.gardenDebug().on); await page.waitForTimeout(300); };
+const nativeChrome = page => page.evaluate(() => window.StillleafReader.nativeControl({version: 1, editionId: 'margin-garden', id: 1, command: 'activate'}));
+
+test('the page is a raised card on a tinted backdrop in every theme, light and dark', {timeout: 120000}, async t => {
+  const {page, errors} = await launch(t, {width: 1400, height: 900});
+  await waitForGarden(page, 0.5);
+  const themes = [['paper'], ['sepia'], ['white'], ['original'], ['dark'], ['midnight'], ['night'], ['custom', {backgroundColor: '#efe4cf', textColor: '#2a2118'}], ['custom', {backgroundColor: '#101820', textColor: '#e8eef5'}]];
+  for (const [theme, extra] of themes) {
+    await page.evaluate(p => window.StillleafReader.setPreferences(p), {theme, ...extra});
+    await page.waitForTimeout(500);
+    const c = await card(page), garden = await page.evaluate(() => window.StillleafReader.gardenDebug());
+    const label = `${theme} ${JSON.stringify(extra ?? {})}`;
+    assert.equal(garden.card, true, `${label}: no card`);
+    assert.equal(c.background, rgb(c.paper), `${label}: the card is not the page colour`);
+    assert.notEqual(c.backdrop, c.background, `${label}: the backdrop equals the card`);
+    assert.ok(ratio(c.backdrop, c.background) >= 1.1, `${label}: the card edge would not read (${ratio(c.backdrop, c.background).toFixed(3)})`);
+    assert.ok(c.radius >= 6, `${label}: the card has no soft corners`);
+    assert.notEqual(c.shadow, 'none', `${label}: the card has no shadow`);
+    // Near vines hold 3:1 against the backdrop they grow on.
+    for (const color of [...garden.palette.stems, ...garden.palette.leaves]) assert.ok(ratio(color.length === 7 ? rgb(color) : color, c.backdrop) >= 3, `${label}: ${color} on ${c.backdrop}`);
+  }
+  assert.deepEqual(errors, []);
+});
+
+test('the card holds the whole text frame, never meets the vines or the footer, and the page geometry is the same with or without it', {timeout: 90000}, async t => {
+  const {page, errors} = await launch(t, {width: 1400, height: 900});
+  await nativeChrome(page);
+  await waitForGarden(page, 0.6);
+  const c = await card(page), viewport = await viewportRect(page), garden = await page.evaluate(() => window.StillleafReader.gardenDebug());
+  assert.ok(c.left <= viewport.left + 0.5 && c.right >= viewport.right - 0.5 && c.top < viewport.top && c.bottom > viewport.bottom, 'the card does not hold the viewport');
+  for (const frame of await page.evaluate(() => [...document.querySelectorAll('#reader iframe')].map(f => { const r = f.getBoundingClientRect(); return {left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width}; })).then(all => all.filter(r => r.width > 0))) {
+    assert.ok(frame.left >= c.left - 1 && frame.right <= c.right + 1 && frame.top >= c.top - 1 && frame.bottom <= c.bottom + 1, `text frame outside the card: ${JSON.stringify(frame)}`);
+  }
+  for (const cell of garden.cells) assert.ok(!overlaps(cell, c), `vine inside the card at ${JSON.stringify(cell)}`);
+  const pill = await rectOf(page, '.footer-pill');
+  assert.ok(c.bottom <= pill.top, `the card runs into the footer pill (${c.bottom} against ${pill.top})`);
+  assert.ok(c.top >= 0, 'the card starts above the window');
+  for (const selector of ['.footer-pill', '.footer-navigation']) {
+    const rect = await rectOf(page, selector);
+    if (rect?.width) for (const cell of garden.cells) assert.ok(!overlaps(cell, rect), `vine over ${selector}`);
+  }
+  // The same page without vines: identical viewport, text frames and footer height.
+  const snapshot = () => page.evaluate(() => ({viewport: JSON.stringify(document.getElementById('reading-viewport').getBoundingClientRect()), reader: JSON.stringify(document.getElementById('reader').getBoundingClientRect()),
+    frames: JSON.stringify([...document.querySelectorAll('#reader iframe')].map(f => f.getBoundingClientRect())), footer: document.querySelector('.reading-footer').getBoundingClientRect().height,
+    position: document.getElementById('position-label').textContent}));
+  const withVines = await snapshot();
+  await page.evaluate(() => window.StillleafReader.setPreferences({vines: 'off'}));
+  await page.waitForTimeout(500);
+  assert.deepEqual(await snapshot(), withVines, 'the card, backdrop or footer pill moved the page');
+  assert.deepEqual(errors, []);
+});
+
+test('with vines off the page is the flat full-bleed page it was', {timeout: 60000}, async t => {
+  const {page} = await launch(t, {width: 1400, height: 900});
+  await waitForGarden(page, 0.5);
+  await page.evaluate(() => window.StillleafReader.setPreferences({vines: 'off'}));
+  await page.waitForTimeout(500);
+  const flat = await page.evaluate(() => {
+    const root = document.documentElement, vp = document.getElementById('reading-viewport');
+    return {classes: [...root.classList], background: getComputedStyle(root).backgroundColor, paper: getComputedStyle(root).getPropertyValue('--paper').trim(), card: getComputedStyle(vp, '::before').content,
+      pill: getComputedStyle(document.querySelector('.footer-pill')).display, percent: getComputedStyle(document.getElementById('footer-percent')).display, vine: getComputedStyle(document.querySelector('.footer-vine')).display};
+  });
+  assert.ok(!flat.classes.includes('garden-card') && !flat.classes.includes('garden-on'), `garden classes left behind: ${flat.classes}`);
+  assert.equal(flat.background, rgb(flat.paper));
+  assert.equal(flat.card, 'none');
+  assert.equal(flat.pill, 'contents');
+  assert.equal(flat.percent, 'none');
+  assert.equal(flat.vine, 'none');
+});
+
+test('every chapter starts as a young garden and fills out to the full garden by its end', {timeout: 90000}, async t => {
+  const {page, errors} = await launch(t, {width: 1400, height: 900});
+  const counts = [];
+  // (go() to exactly 0 from the end of a chapter does not move the reader, so the start is 0.01.)
+  for (const progression of [0.01, 0.5, 1]) { await waitForGarden(page, progression); counts.push((await page.evaluate(() => window.StillleafReader.gardenDebug())).cells.length); }
+  assert.ok(counts[0] >= 150, `page 1 is nearly bare: ${counts[0]} cells`);
+  assert.ok(counts[0] < counts[1] && counts[1] < counts[2], `the garden did not fill out with reading: ${counts}`);
+  assert.ok(counts[2] >= counts[0] * 1.8, `the end of the chapter is not clearly fuller than the start: ${counts}`);
+  // The same chapter grows the same garden: going back to the start gives the start garden again
+  // (give or take the cells the Return button keeps clear once the reader has jumped).
+  await waitForGarden(page, 0.01);
+  const again = (await page.evaluate(() => window.StillleafReader.gardenDebug())).cells.length;
+  assert.ok(Math.abs(again - counts[0]) <= counts[0] * 0.1, `the start of the chapter grew ${again} cells the second time, ${counts[0]} the first`);
+  assert.deepEqual(errors, []);
+});
+
+test('vines climb the margins from the bottom corners up most of the window, on both sides', {timeout: 60000}, async t => {
+  const {page} = await launch(t, {width: 1400, height: 900});
+  await waitForGarden(page, 1);
+  const {cells} = await page.evaluate(() => window.StillleafReader.gardenDebug());
+  for (const [name, side] of [['left', cells.filter(c => c.right <= 700)], ['right', cells.filter(c => c.left >= 700)]]) {
+    assert.ok(side.length > 100, `${name} margin has ${side.length} cells`);
+    assert.ok(Math.min(...side.map(c => c.top)) < 900 * 0.35, `${name} vines only reach y=${Math.min(...side.map(c => c.top))}`);
+    assert.ok(Math.max(...side.map(c => c.bottom)) > 900 - 40, `${name} vines do not root at the bottom`);
+  }
+});
+
+test('the footer is a pill with the page, a vine along a dotted track and the percentage, and the vine tracks reading', {timeout: 120000}, async t => {
+  const {page, errors} = await launch(t, {width: 1400, height: 900});
+  await nativeChrome(page);
+  const reaches = [];
+  for (const progression of [0.1, 0.5, 0.9]) {
+    await waitForGarden(page, progression);
+    // The footer labels settle ("Calculating book pages…" first), and the vine regrows to the room they leave.
+    await page.waitForFunction(() => window.StillleafReader.gardenDebug().footTrack.length > 20, null, {timeout: 8000});
+    await page.waitForTimeout(400);
+    const garden = await page.evaluate(() => window.StillleafReader.gardenDebug());
+    const stems = garden.foot.filter(cell => cell.kind === 'stem'), left = Math.min(...garden.footTrack.map(r => r.left)), right = Math.max(...garden.footTrack.map(r => r.right));
+    assert.ok(garden.footTrack.length > 10, 'the footer vine has no dotted track');
+    const reach = (Math.max(...stems.map(cell => cell.right)) - left) / (right - left);
+    assert.ok(Math.abs(reach - garden.progress) < 0.12, `the vine reaches ${reach.toFixed(2)} of its track at progress ${garden.progress.toFixed(2)}`);
+    reaches.push(reach);
+    assert.equal(await page.locator('#footer-percent').textContent(), `${Math.round(garden.progress * 100)}%`);
+    const pill = await rectOf(page, '.footer-pill'), c = await card(page);
+    for (const cell of garden.foot) assert.ok(cell.left >= pill.left && cell.right <= pill.right && cell.top >= pill.top - 2 && cell.bottom <= pill.bottom + 2, `footer vine cell outside the pill: ${JSON.stringify(cell)}`);
+    assert.ok(Math.abs((pill.left + pill.right) / 2 - (c.left + c.right) / 2) < 40, 'the pill is not under the card');
+    assert.ok(pill.width <= c.right - c.left + 4, 'the pill is wider than the card');
+    assert.ok(await page.locator('.footer-pill #position-label').isVisible());
+    // The vine's canvas matches the room its labels leave, so its glyphs are never stretched.
+    const canvas = await page.evaluate(() => { const c = document.getElementById('garden-footer'), r = c.getBoundingClientRect(); return {pixels: c.width / (devicePixelRatio || 1), width: r.width}; });
+    assert.ok(Math.abs(canvas.pixels - canvas.width) < 2, `the footer canvas is ${canvas.pixels}px wide but shown ${canvas.width}px wide`);
+  }
+  assert.ok(reaches[0] < reaches[1] && reaches[1] < reaches[2], `the footer vine did not grow with reading: ${reaches}`);
+  assert.deepEqual(errors, []);
+});
+
+test('focus reading hides the footer and its vine, and bringing it back regrows the vine', {timeout: 90000}, async t => {
+  const {page, errors} = await launch(t, {width: 1400, height: 900});
+  await waitForGarden(page, 0.5);
+  assert.ok((await page.evaluate(() => window.StillleafReader.gardenDebug())).foot.length > 3);
+  await page.evaluate(() => window.StillleafReader.setPreferences({immersive: true}));
+  await page.waitForTimeout(600);
+  assert.equal(await page.locator('.reading-footer').isVisible(), false);
+  assert.equal((await page.evaluate(() => window.StillleafReader.gardenDebug())).foot.length, 0, 'a hidden footer kept a vine');
+  const c = await card(page), garden = await page.evaluate(() => window.StillleafReader.gardenDebug());
+  assert.equal(garden.card, true, 'focus reading lost the card');
+  for (const cell of garden.cells) assert.ok(!overlaps(cell, c), 'vine inside the card in focus reading');
+  await page.evaluate(() => window.StillleafReader.setPreferences({immersive: false}));
+  await page.waitForFunction(() => window.StillleafReader.gardenDebug().foot.length > 3, null, {timeout: 5000});
+  assert.deepEqual(errors, []);
+});
+
+test('facing pages sit on one card with a fold, one spine vine in the gap and a footer vine', {timeout: 90000}, async t => {
+  const {page, errors} = await launch(t, {width: 1800, height: 900});
+  await page.evaluate(() => window.StillleafReader.setPreferences({columns: 'two'}));
+  await waitForGarden(page, 0.5);
+  const garden = await page.evaluate(() => window.StillleafReader.gardenDebug()), c = await card(page);
+  assert.equal(garden.card, true);
+  assert.ok(await page.evaluate(() => document.documentElement.classList.contains('garden-facing')));
+  assert.notEqual(await page.evaluate(() => getComputedStyle(document.getElementById('reading-viewport'), '::after').content), 'none', 'no fold in the gap');
+  assert.ok(garden.spine.length > 5 && garden.foot.length > 3);
+  assert.ok(garden.cells.length > 50, 'the outer margins hold no garden');
+  for (const cell of garden.cells) assert.ok(!overlaps(cell, c), 'vine inside the facing card');
+  const center = (c.left + c.right) / 2;
+  for (const cell of garden.spine) assert.ok(cell.left >= center - garden.gutter && cell.right <= center + garden.gutter, 'spine cell outside the gap');
+  assert.deepEqual(errors, []);
+});
+
+test('continuous scroll reads as a card column with the garden fixed beside it', {timeout: 90000}, async t => {
+  const {page, errors} = await launch(t, {width: 1400, height: 900});
+  await page.evaluate(() => window.StillleafReader.setPreferences({scroll: true}));
+  await waitForGarden(page, 0.4);
+  const garden = await page.evaluate(() => window.StillleafReader.gardenDebug()), c = await card(page);
+  assert.equal(garden.card, true);
+  assert.equal(await page.evaluate(() => document.documentElement.classList.contains('garden-facing')), false);
+  assert.ok(garden.cells.length > 100 && garden.foot.length > 3);
+  for (const cell of garden.cells) assert.ok(!overlaps(cell, c), 'vine inside the scroll card');
+  assert.deepEqual(errors, []);
+});
+
+test('a window too narrow for margins keeps the page edge to edge, with no card and no margin vines', {timeout: 60000}, async t => {
+  const {page, errors} = await launch(t, {width: 700, height: 700});
+  await page.evaluate(() => window.StillleafReader.setPreferences({measure: 120, contentWidth: 100, margins: 'narrow'}));
+  await waitForGarden(page, 0.5);
+  const garden = await page.evaluate(() => window.StillleafReader.gardenDebug());
+  assert.equal(garden.card, false);
+  assert.equal(garden.cells.length, 0);
+  const root = await page.evaluate(() => ({background: getComputedStyle(document.documentElement).backgroundColor, paper: getComputedStyle(document.documentElement).getPropertyValue('--paper').trim()}));
+  assert.equal(root.background, rgb(root.paper));
+  assert.equal(await page.evaluate(() => getComputedStyle(document.getElementById('reading-viewport'), '::before').content), 'none');
+  assert.ok(garden.foot.length > 2, 'the footer vine goes with the garden, whatever the window size');
+  assert.deepEqual(errors, []);
+});
+
+test('growing the garden stays cheap: each growth frame costs a few milliseconds of drawing, and the frames stop when it settles', {timeout: 90000}, async t => {
+  const {page} = await launch(t, {width: 1400, height: 900}, animated);
+  await waitForGarden(page, 0.1);
+  const before = await debug(page);
+  await page.evaluate(() => window.StillleafReader.go({href: 'one.html', type: 'text/html', locations: {progression: 0.95}}));
+  await page.waitForFunction(() => window.StillleafReader.gardenDebug().progress > 0.8);
+  // The garden fades in over a few seconds; measure the drawing itself with performance.now(), which the frame rate of a busy machine cannot blur.
+  await page.waitForFunction(() => { const g = window.StillleafReader.gardenDebug(); return !g.animating && !g.frozen && g.cells.length > 400; }, null, {timeout: 20000, polling: 250});
+  const after = await debug(page);
+  const frames = after.ticks - before.ticks, average = (after.drawMs - before.drawMs) / frames;
+  assert.ok(frames > 10, `the regrow drew only ${frames} frames`);
+  assert.ok(average < 10, `a growth frame took ${average.toFixed(1)} ms of drawing on average (${frames} frames, ${after.cells.length} cells)`);
+  assert.ok(after.slowestDraw < 60, `one frame took ${after.slowestDraw.toFixed(0)} ms to draw`);
+  const settled = after.ticks;
+  await page.waitForTimeout(700);
+  assert.equal((await debug(page)).ticks, settled, 'frames kept drawing after the garden settled');
+});

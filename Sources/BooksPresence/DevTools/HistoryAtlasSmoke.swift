@@ -12,6 +12,7 @@ func runHistoryAtlasNavigationSmoke(source: HistoryAtlasSource) throws {
     try checkCachedHistoryTitles()
     try checkMonthCivilDayIndex()
     try checkRecordedDateMenu()
+    try checkHistoryYearRows()
     try checkRetainedHistoryNavigation(source: source)
     var pending: [CheckedContinuation<HistoryAtlasPeriod, Error>] = []
     var navigations: [CalendarNavigation] = []
