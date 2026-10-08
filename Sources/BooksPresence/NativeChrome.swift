@@ -95,9 +95,9 @@ private struct NativeMenuSurface: ViewModifier {
     }
 }
 
-/// The menu panel's shell: clear glass tinted from the theme, with a crisp rim
-/// and a soft highlight. Text never sits on it directly; the cards do the work
-/// (see `PanelGlass`), so the shell can stay light.
+/// The menu panel's one glass surface. All of the panel's text sits straight on it,
+/// so it is dense enough to read over any wallpaper (see `PanelGlass`); the blur,
+/// a soft highlight and a crisp rim keep it glass.
 private struct NativePopoverSurface: ViewModifier {
     @Environment(\.accessibilityReduceTransparency) private var opaque
     @Environment(\.colorSchemeContrast) private var contrast
@@ -108,38 +108,31 @@ private struct NativePopoverSurface: ViewModifier {
         let shape = RoundedRectangle(cornerRadius: ReadingMetrics.Radius.window, style: .continuous)
         let dark = colorScheme == .dark
         if (previewOpaque ?? opaque) || contrast == .increased {
-            content.background(ReadingPalette.canvas, in: shape).overlay(rim(shape, dark: dark, solid: true))
+            content.background(ReadingPalette.surface, in: shape).overlay(rim(shape, dark: dark, solid: true))
         } else {
-            clear(content, shape: shape, dark: dark).overlay(rim(shape, dark: dark, solid: false))
+            glass(content, shape: shape, dark: dark).overlay(rim(shape, dark: dark, solid: false))
         }
     }
 
-    @ViewBuilder private func clear(_ content: Content, shape: RoundedRectangle, dark: Bool) -> some View {
+    @ViewBuilder private func glass(_ content: Content, shape: RoundedRectangle, dark: Bool) -> some View {
         #if compiler(>=6.2)
         if #available(macOS 26.0, *) {
             content.glassEffect(.clear, in: shape).background(tint(shape, dark: dark))
         } else {
-            content.background(tint(shape, dark: dark)).background { blur(shape) }
+            content.background(tint(shape, dark: dark)).background { DesktopBlur().clipShape(shape) }
         }
         #else
-        content.background(tint(shape, dark: dark)).background { blur(shape) }
+        content.background(tint(shape, dark: dark)).background { DesktopBlur().clipShape(shape) }
         #endif
     }
 
-    /// The theme canvas laid thinly over the desktop, with a wash of the accent from a corner.
+    /// The theme surface colour over the desktop, lit softly from the top.
     private func tint(_ shape: RoundedRectangle, dark: Bool) -> some View {
         ZStack {
-            shape.fill(ReadingPalette.canvas.opacity(PanelGlass.shellTint(dark: dark)))
-            shape.fill(LinearGradient(colors: [ReadingPalette.accent.opacity(dark ? 0.12 : 0.10), .clear],
-                                      startPoint: .topTrailing, endPoint: UnitPoint(x: 0.4, y: 0.6)))
-            shape.fill(LinearGradient(colors: [.white.opacity(dark ? 0.05 : 0.22), .white.opacity(0)],
-                                      startPoint: .top, endPoint: UnitPoint(x: 0.5, y: 0.3)))
+            shape.fill(ReadingPalette.surface.opacity(PanelGlass.surfaceTint))
+            shape.fill(LinearGradient(colors: [.white.opacity(PanelGlass.highlight(dark: dark)), .white.opacity(0)],
+                                      startPoint: .top, endPoint: UnitPoint(x: 0.5, y: 0.35)))
         }
-    }
-
-    /// Before macOS 26: a faint blur, mixed in at `PanelGlass.blurMix` so the desktop stays recognisable.
-    private func blur(_ shape: RoundedRectangle) -> some View {
-        DesktopBlur(material: .underWindowBackground).opacity(PanelGlass.blurMix).clipShape(shape)
     }
 
     private func rim(_ shape: RoundedRectangle, dark: Bool, solid: Bool) -> some View {
