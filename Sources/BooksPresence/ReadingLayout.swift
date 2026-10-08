@@ -89,9 +89,10 @@ struct PageHeading: View {
     var body: some View { PageHeader(title, subtitle: subtitle) }
 }
 
-/// A labelled section with a plain sentence-case heading. With `glass`, the
-/// heading and content sit together on one glass card, so no text is drawn
-/// straight over the garden.
+/// A labelled section with a plain sentence-case heading. Sections group by spacing and
+/// type, never by a card of their own. With `glass` (or over the garden) the section is
+/// the screen's surface when nothing around it is one yet, so no text is drawn straight
+/// over the garden; inside a surface it is just its heading and content.
 struct ReadingSection<Content: View, Accessory: View>: View {
     let title: String
     let glass: Bool
@@ -107,23 +108,12 @@ struct ReadingSection<Content: View, Accessory: View>: View {
     }
 
     var body: some View {
-        if glass || gardenBackdrop {
-            VStack(alignment: .leading, spacing: 16) {
-                heading
-                content
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .readingPanel()
-        } else {
-            VStack(alignment: .leading, spacing: 14) {
-                VStack(alignment: .leading, spacing: 8) {
-                    heading
-                    Hairline()
-                }
-                content
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
+        let sections = VStack(alignment: .leading, spacing: ReadingMetrics.Space.l) {
+            heading
+            content
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        if glass || gardenBackdrop { sections.readingPanel() } else { sections }
     }
 
     private var heading: some View {
@@ -179,10 +169,39 @@ extension View {
             .frame(maxWidth: .infinity, alignment: .top)
     }
 
-    /// The one surface level: a glass card for a screen's primary block.
-    func readingPanel() -> some View {
-        // Sections and empty states inside a panel stay plain: one layer of glass.
-        environment(\.gardenBackdrop, false).padding(ReadingMetrics.cardPadding).glassSurface()
+    /// A screen's one glass surface. Everything on the screen sits inside it and is grouped
+    /// with spacing and type; a panel asked for inside a surface (a section, a card from an
+    /// older layout, a sheet's content) adds nothing, so glass never nests in glass.
+    func readingPanel() -> some View { modifier(ReadingPanel()) }
+
+    /// Marks a sheet's content as already sitting on one surface (the sheet itself).
+    func readingSheetSurface() -> some View { environment(\.insideReadingSurface, true) }
+}
+
+private struct InsideReadingSurfaceKey: EnvironmentKey { static let defaultValue = false }
+
+extension EnvironmentValues {
+    /// True below a screen's glass surface or inside a sheet: no further glass is drawn.
+    var insideReadingSurface: Bool {
+        get { self[InsideReadingSurfaceKey.self] }
+        set { self[InsideReadingSurfaceKey.self] = newValue }
+    }
+}
+
+private struct ReadingPanel: ViewModifier {
+    @Environment(\.insideReadingSurface) private var inside
+
+    func body(content: Content) -> some View {
+        if inside {
+            content
+        } else {
+            // The garden frosts this one surface; what it holds stays plain.
+            content
+                .environment(\.gardenBackdrop, false)
+                .environment(\.insideReadingSurface, true)
+                .padding(ReadingMetrics.cardPadding)
+                .glassSurface()
+        }
     }
 }
 

@@ -128,6 +128,10 @@ func renderUIPreviews(to destination: URL) throws {
     }
     emptyModel.discordEnabled = true
     emptyModel.discordApplicationID = ""
+    if arguments.contains("--surface-report") {
+        printGlassSurfaceReport(model: model, emptyModel: emptyModel)
+        return
+    }
     for dark in [true, false] {
         let scheme: ColorScheme = dark ? .dark : .light
         let appearance = NSAppearance(named: dark ? .darkAqua : .aqua)

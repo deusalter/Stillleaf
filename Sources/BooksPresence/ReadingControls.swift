@@ -98,9 +98,25 @@ struct ReadingSearchField: View {
             }
         }
         .padding(.horizontal, 11).padding(.vertical, 9)
-        .glassSurface(cornerRadius: 9)
-        .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous)
-            .stroke(focused ? ReadingPalette.accent : ReadingPalette.border, lineWidth: focused ? 1.5 : 1))
+        .modifier(ReadingFieldSurface(focused: focused))
+    }
+}
+
+/// A text field's surface: glass when the field floats over the page, an inset well
+/// when it already sits on a surface, so glass never nests in glass.
+private struct ReadingFieldSurface: ViewModifier {
+    let focused: Bool
+    @Environment(\.insideReadingSurface) private var inside
+
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 9, style: .continuous)
+        let outline = focused ? ReadingPalette.accent : ReadingPalette.border
+        if inside {
+            content.glassWell(shape, outline: outline, outlineWidth: focused ? 1.5 : 1)
+        } else {
+            content.glassSurface(cornerRadius: 9)
+                .overlay(shape.stroke(outline, lineWidth: focused ? 1.5 : 1))
+        }
     }
 }
 
@@ -110,8 +126,7 @@ private struct ReadingFieldBody<Label: View>: View {
     var body: some View {
         field.textFieldStyle(.plain).focused($focused)
             .padding(.horizontal, 11).padding(.vertical, 9)
-            .glassSurface(cornerRadius: 9)
-            .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).stroke(focused ? ReadingPalette.accent : ReadingPalette.border, lineWidth: focused ? 1.5 : 1))
+            .modifier(ReadingFieldSurface(focused: focused))
     }
 }
 
