@@ -1,9 +1,9 @@
 import AppKit
 import SwiftUI
 
-// The reader's panels share one visual language: Contents, Search and Highlights are web
-// dialogs styled by `panels.css`; the Appearance panel is native and styled here. The two
-// use the same glass, header, rows, spacing and selection states, so they read as one family.
+// The reader's panels share one visual language. In the native reader, Appearance, Contents,
+// Bookmarks, Notes and Search are all built from the pieces here, so they cannot drift apart.
+// The web panels (`panels.css`) follow the same tokens for the desktop host and the note editor.
 
 /// Colours for a reader panel, taken from the page theme the reader is currently showing.
 struct ReaderPanelPalette {
@@ -11,6 +11,10 @@ struct ReaderPanelPalette {
     let ink: Color
     let accent: Color
     let dark: Bool
+    /// The same colours for AppKit views, such as the outline list.
+    let nsPanel: NSColor
+    let nsInk: NSColor
+    let nsAccent: NSColor
 
     /// Mirrors the web tokens in `panels.css`.
     var secondary: Color { ink.opacity(0.88) }
@@ -19,6 +23,10 @@ struct ReaderPanelPalette {
     var hover: Color { ink.opacity(0.08) }
     var selected: Color { accent.opacity(0.18) }
     var field: Color { panel.opacity(0.6) }
+    var nsSecondary: NSColor { nsInk.withAlphaComponent(0.88) }
+    var nsRim: NSColor { nsInk.withAlphaComponent(0.18) }
+    var nsHover: NSColor { nsInk.withAlphaComponent(0.08) }
+    var nsSelected: NSColor { nsAccent.withAlphaComponent(0.18) }
 
     init(appearance: [String: Any]) {
         func rgb(_ hex: String?) -> (Double, Double, Double)? {
@@ -28,9 +36,11 @@ struct ReaderPanelPalette {
         func color(_ value: (Double, Double, Double)) -> Color { Color(.sRGB, red: value.0, green: value.1, blue: value.2, opacity: 1) }
         let background = rgb(appearance["panelColor"] as? String) ?? rgb(appearance["backgroundColor"] as? String) ?? (0.94, 0.97, 0.95)
         let text = rgb(appearance["textColor"] as? String) ?? (0.09, 0.24, 0.2)
-        panel = color(background)
-        ink = color(text)
-        accent = rgb(appearance["accentColor"] as? String).map(color) ?? color(text)
+        let accentRGB = rgb(appearance["accentColor"] as? String) ?? text
+        func ns(_ value: (Double, Double, Double)) -> NSColor { NSColor(srgbRed: value.0, green: value.1, blue: value.2, alpha: 1) }
+        panel = color(background); nsPanel = ns(background)
+        ink = color(text); nsInk = ns(text)
+        accent = color(accentRGB); nsAccent = ns(accentRGB)
         // Relative luminance decides the control scheme so system sliders and menus stay legible.
         func luminance(_ c: (Double, Double, Double)) -> Double {
             func linear(_ v: Double) -> Double { v <= 0.03928 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4) }
@@ -76,13 +86,21 @@ private struct ReaderGlass: ViewModifier {
     }
 }
 
-/// The panel frame: title and close button, a scrolling body and an optional footer.
+/// The panel frame: title and close button, a body and an optional footer. The body scrolls unless it is a
+/// list that scrolls itself.
 struct ReaderPanelFrame<Content: View, Footer: View>: View {
     let title: String
     let close: () -> Void
-    @ViewBuilder let content: Content
-    @ViewBuilder let footer: Footer
+    let scrolls: Bool
+    let content: Content
+    let footer: Footer
     @Environment(\.readerPalette) private var palette
+
+    init(title: String, close: @escaping () -> Void, scrolls: Bool = true,
+         @ViewBuilder content: () -> Content, @ViewBuilder footer: () -> Footer) {
+        self.title = title; self.close = close; self.scrolls = scrolls
+        self.content = content(); self.footer = footer()
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -98,16 +116,28 @@ struct ReaderPanelFrame<Content: View, Footer: View>: View {
                 .keyboardShortcut(.cancelAction)
             }
             .padding(.leading, 20).padding(.trailing, 16).padding(.top, 16).padding(.bottom, 10)
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) { content }
-                    .padding(.horizontal, 22).padding(.top, 4).padding(.bottom, 8)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            if scrolls {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) { content }
+                        .padding(.horizontal, 22).padding(.top, 4).padding(.bottom, 8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            } else {
+                content.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
-            Rectangle().fill(palette.hairline).frame(height: 1)
-            footer.padding(.horizontal, 20).padding(.vertical, 12)
+            if Footer.self != EmptyView.self {
+                Rectangle().fill(palette.hairline).frame(height: 1)
+                footer.padding(.horizontal, 20).padding(.vertical, 12)
+            }
         }
         .foregroundStyle(palette.ink)
         .modifier(ReaderGlass())
+    }
+}
+
+extension ReaderPanelFrame where Footer == EmptyView {
+    init(title: String, close: @escaping () -> Void, scrolls: Bool = true, @ViewBuilder content: () -> Content) {
+        self.init(title: title, close: close, scrolls: scrolls, content: content, footer: { EmptyView() })
     }
 }
 
@@ -371,16 +401,27 @@ struct ReaderDisclosure<Content: View>: View {
         effect.frame = container.bounds; host.frame = container.bounds
     }
 
+    /// What VoiceOver calls the panel.
+    func setTitle(_ title: String) { panel.setAccessibilityLabel(title); panel.title = title }
+
     func setDark(_ dark: Bool) { panel.appearance = NSAppearance(named: dark ? .darkAqua : .aqua) }
 
-    func show(over owner: NSWindow) {
+    /// Opens under `anchor` (a toolbar button, in screen coordinates) when given, otherwise at the window's top right.
+    func show(over owner: NSWindow, below anchor: NSRect? = nil) {
         guard !isShown else { return }
         self.owner = owner
         let area = owner.contentLayoutRect
-        let height = min(size.height, max(260, area.height - 16))
-        let anchor = owner.convertToScreen(NSRect(x: area.maxX - 12, y: area.maxY - 8, width: 0, height: 0)).origin
+        let contentTop = owner.convertToScreen(NSRect(x: area.minX, y: area.maxY, width: 0, height: 0)).origin.y
+        var top = contentTop - 8
+        var left = owner.frame.maxX - 12 - size.width
+        if let anchor {
+            left = anchor.midX - size.width / 2
+            top = min(anchor.minY - 6, contentTop - 4)
+        }
+        left = max(owner.frame.minX + 8, min(left, owner.frame.maxX - size.width - 8))
+        let height = min(size.height, max(260, top - owner.frame.minY - 16))
         panel.setContentSize(NSSize(width: size.width, height: height))
-        panel.setFrameTopLeftPoint(NSPoint(x: anchor.x - size.width, y: anchor.y))
+        panel.setFrameTopLeftPoint(NSPoint(x: left, y: top))
         effect.isHidden = NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
         owner.addChildWindow(panel, ordered: .above)
         panel.makeKeyAndOrderFront(nil)
