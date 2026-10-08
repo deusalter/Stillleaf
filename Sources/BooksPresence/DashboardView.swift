@@ -22,6 +22,8 @@ struct DashboardView: View {
     @State private var deleteAllConfirmation = false
     @State private var uninstallConfirmation = false
     @State private var sidebarVisible = true
+    /// Height of the error banner above the page, which pushes the header (and so the clearing) down.
+    @State private var bannerHeight: CGFloat = 0
     /// Glass panel frames for the garden to frost; a class so scrolling only redraws the garden.
     @State private var frost = FrostRegions()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -46,6 +48,9 @@ struct DashboardView: View {
             VStack(spacing: 0) {
                 if let error = model.errorMessage ?? model.trackingRecoveryMessage, !error.isEmpty {
                     ErrorBanner(message: error, refresh: { model.refresh() })
+                        .background(GeometryReader { proxy in
+                            Color.clear.preference(key: ErrorBannerHeightKey.self, value: proxy.size.height)
+                        })
                 }
                 Group {
                     switch section {
@@ -77,10 +82,12 @@ struct DashboardView: View {
                     // The garden stays put behind scrolling content. Screens adopt it
                     // once all their text sits on glass.
                     if gardenVisible {
-                        GardenCanvas(layout: GardenLayout(clearingHeight: proxy.safeAreaInsets.top + Self.gardenClearing + (section == .history ? 84 : 0),
+                        let clearing = Self.gardenClearingHeight(safeTop: proxy.safeAreaInsets.top, section: section, bannerHeight: bannerHeight)
+                        GardenCanvas(layout: GardenLayout(clearingHeight: clearing,
                                                           seed: GardenSeed.daily("dashboard", day: model.today.day),
                                                           pollenScale: section == .history ? 0.5 : 1),
                                      mode: gardenMode, frost: frost, frostOffset: proxy.safeAreaInsets.top)
+                            .preference(key: GardenClearingKey.self, value: clearing)
                     }
                 }
                 .ignoresSafeArea()
@@ -89,6 +96,7 @@ struct DashboardView: View {
         .coordinateSpace(name: GardenCanvas.space)
         .environment(\.gardenBackdrop, gardenVisible)
         .onPreferenceChange(GlassRegionsKey.self) { frost.rects = $0 }
+        .onPreferenceChange(ErrorBannerHeightKey.self) { bannerHeight = $0 }
         .nativeDashboardSidebarToggle(isCollapsed: !sidebarVisible) {
             withAnimation((previewReduceMotion ?? reduceMotion) ? nil : ReadingMotion.selection) {
                 sidebarVisible.toggle()
@@ -126,6 +134,13 @@ struct DashboardView: View {
     /// History adds its period title and summary line (84 pt) to that.
     static let gardenClearing: CGFloat = 114
 
+    /// How far down from the window's top the garden keeps clear: the safe area, the page header
+    /// and any error banner above it.
+    static func gardenClearingHeight(safeTop: CGFloat, section: DashboardSection, bannerHeight: CGFloat) -> CGFloat {
+        let historyHeader: CGFloat = section == .history ? 84 : 0
+        return safeTop + gardenClearing + historyHeader + bannerHeight
+    }
+
     private var gardenMode: GardenMode { theme.effectiveGardenMode(reduceMotion: previewReduceMotion ?? reduceMotion) }
     private var gardenVisible: Bool { Self.gardenSections.contains(section) && gardenMode != .off }
 
@@ -161,6 +176,32 @@ struct DashboardView: View {
         case .trackingHelp:
             TrackingHelpView(model: model)
         }
+    }
+}
+
+struct ErrorBannerHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
+}
+
+/// The clearing height the dashboard gave its garden, so self-checks can read what is really drawn.
+struct GardenClearingKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
+}
+
+/// States that are hard to reach from a self-check, forced on through the environment.
+struct ForcedScreenStates: Equatable {
+    var importingAudio = false
+    var historyUpdating = false
+}
+
+private struct ForcedScreenStatesKey: EnvironmentKey { static let defaultValue = ForcedScreenStates() }
+
+extension EnvironmentValues {
+    var forcedScreenStates: ForcedScreenStates {
+        get { self[ForcedScreenStatesKey.self] }
+        set { self[ForcedScreenStatesKey.self] = newValue }
     }
 }
 
@@ -285,7 +326,7 @@ private struct DashboardSidebar: View {
 }
 
 @MainActor
-private struct ErrorBanner: View {
+struct ErrorBanner: View {
     let message: String
     let refresh: () -> Void
     var body: some View {
