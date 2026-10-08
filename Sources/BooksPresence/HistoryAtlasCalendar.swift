@@ -15,7 +15,7 @@ struct AtlasWeekView: View {
         // rescanning the week's days from each GeometryReader/segment closure.
         let maximumMinutes = max(30, ceil((days.map(\.creditedSeconds).max() ?? 0) / 60 / 30) * 30)
         return ViewThatFits(in: .horizontal) {
-            HStack(alignment: .top, spacing: 24) { chart(maximumMinutes: maximumMinutes).frame(minWidth: 420); bookSummary.frame(width: 210) }
+            HStack(alignment: .top, spacing: 24) { chart(maximumMinutes: maximumMinutes).frame(minWidth: 420); bookSummary.frame(width: 258) }
             VStack(alignment: .leading, spacing: 24) { chart(maximumMinutes: maximumMinutes); bookSummary }
         }
     }
@@ -92,7 +92,7 @@ struct AtlasWeekView: View {
                 AtlasBookLabel(booksByID: presentation.booksByID, id: id,
                     detail: (pages > 0 ? "\(pages) pages\n" : "") + "\(ReadingFormat.duration(seconds)) recorded", small: true)
             }
-        }.frame(maxWidth: .infinity, alignment: .leading)
+        }.frame(maxWidth: .infinity, alignment: .leading).modifier(OptionalPanel(show: !bookIDs.isEmpty))
     }
 }
 
@@ -162,7 +162,7 @@ struct AtlasMonthView: View {
                                  cells: navigation.monthCells, weekdayNames: weekdayNames)
         let details = detail(selectedDate: selectedDate, selectedDay: selectedDay)
         return ViewThatFits(in: .horizontal) {
-            HStack(alignment: .top, spacing: 24) { grid.frame(minWidth: 440); details.frame(width: 220) }
+            HStack(alignment: .top, spacing: 24) { grid.frame(minWidth: 440); details.frame(width: 268) }
             VStack(alignment: .leading, spacing: 24) { grid; details }
         }
     }
@@ -238,7 +238,15 @@ struct AtlasMonthView: View {
                     }
                 }
             }
-        }.frame(maxWidth: .infinity, alignment: .leading)
+        }.frame(maxWidth: .infinity, alignment: .leading).readingPanel()
+    }
+}
+
+/// A glass panel around a block of text that would otherwise sit straight over the garden.
+private struct OptionalPanel: ViewModifier {
+    let show: Bool
+    @ViewBuilder func body(content: Content) -> some View {
+        if show { content.readingPanel() } else { content }
     }
 }
 
