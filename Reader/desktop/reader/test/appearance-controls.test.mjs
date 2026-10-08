@@ -29,14 +29,14 @@ test('typography choices support keyboard, saved custom values, and compact foot
     resources: [{href: 'chapter.html', type: 'text/html', dataBase64: Buffer.from(text).toString('base64')}],
   });
   await page.getByRole('button', {name: 'Appearance', exact: true}).click();
-  await page.locator('.advanced-appearance > summary').click();
-  const weight = page.getByRole('radiogroup', {name: 'Text weight', exact: true});
+  const weight = page.getByRole('radiogroup', {name: 'Weight', exact: true});
   await weight.getByRole('radio', {name: 'Regular', exact: true}).click();
   await page.keyboard.press('ArrowRight');
   await page.waitForFunction(() => window.StillleafReader.exportState().preferences.fontWeight === 700);
   assert.equal(await weight.getByRole('radio', {name: 'Bold', exact: true}).getAttribute('aria-checked'), 'true');
   await page.keyboard.press('Home');
   await page.waitForFunction(() => window.StillleafReader.exportState().preferences.fontWeight === null);
+  await page.locator('.advanced-appearance > summary').click();
   await page.getByRole('radiogroup', {name: 'Alignment', exact: true}).getByRole('radio', {name: 'Justified'}).click();
   await page.getByRole('radiogroup', {name: 'Hyphenation', exact: true}).getByRole('radio', {name: 'Off'}).click();
   await page.waitForFunction(() => {

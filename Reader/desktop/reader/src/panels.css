@@ -1,0 +1,150 @@
+/* Reader panels: Contents, Search, Highlights and notes, Appearance and the note editor.
+   One glass, one header, one row, one set of controls. Loaded after reader.css, so these
+   rules replace the older per-panel styling; the page, garden and footer stay in reader.css. */
+
+:root{
+ /* Light, clear glass tinted by the page theme: a little blur, never milky. */
+ --glass-fill:color-mix(in srgb,var(--panel) 82%,transparent);
+ --glass-blur:blur(10px) saturate(1.2);
+ --glass-rim:color-mix(in srgb,var(--ink) 18%,transparent);
+ --glass-highlight:color-mix(in srgb,#fff 60%,transparent);
+ --row-hover:color-mix(in srgb,var(--ink) 8%,transparent);
+ --row-selected:color-mix(in srgb,var(--accent) 16%,transparent);
+ --text-secondary:color-mix(in srgb,var(--ink) 90%,var(--panel));
+ --field-fill:color-mix(in srgb,var(--paper) 60%,transparent);
+ --panel-radius:16px;
+ --control-radius:10px;
+}
+:root[data-theme=dark],:root[data-theme=quiet],:root[data-theme=night],:root[data-theme=dusk],:root[data-theme=midnight]{--glass-highlight:color-mix(in srgb,#fff 14%,transparent)}
+
+/* Surface */
+.panel,.note-panel{background:var(--glass-fill);-webkit-backdrop-filter:var(--glass-blur);backdrop-filter:var(--glass-blur);border:1px solid var(--glass-rim);border-radius:var(--panel-radius);box-shadow:inset 0 1px 0 var(--glass-highlight),0 18px 48px #0000001f,0 2px 6px #0000001a;color:var(--ink)}
+dialog::backdrop{background:transparent}
+.panel[open]{display:flex;flex-direction:column}
+.native-reduceTransparency .panel,.native-reduceTransparency .note-panel,.native-increaseContrast .panel,.native-increaseContrast .note-panel{background:var(--panel);-webkit-backdrop-filter:none;backdrop-filter:none}
+@media(prefers-reduced-transparency:reduce){.panel,.note-panel{background:var(--panel);-webkit-backdrop-filter:none;backdrop-filter:none}}
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.panel,.note-panel{background:var(--panel)}}
+
+/* Header */
+.panel-heading{padding:18px 16px 12px 20px;flex:none}
+.panel-heading h2{font-size:15px;font-weight:600;letter-spacing:-.01em;margin:0}
+.close-button{width:30px;height:30px;border-radius:50%;color:var(--text-secondary);display:inline-flex;align-items:center;justify-content:center;padding:0;flex:none}
+.close-button:hover{background:var(--row-hover);color:var(--ink)}
+.panel-body{flex:1 1 auto;min-height:0;max-height:none;padding:4px 12px 14px;overflow:auto}
+.panel-footer{flex:none;display:flex;align-items:center;justify-content:space-between;gap:14px;padding:12px 20px 14px;border-top:1px solid var(--line)}
+.panel-footer .small-note{margin:0}
+
+/* Rows: chapters, saved passages and search results look and behave the same. */
+.chapter-button,.saved-link,.result-link{display:block;width:100%;min-height:40px;padding:10px 12px;border-radius:var(--control-radius);font-size:13px;line-height:1.5;color:var(--ink);text-align:start;background:transparent}
+.chapter-button:hover,.saved-link:hover,.result-link:hover{background:var(--row-hover)}
+.chapter-button:focus-visible,.saved-link:focus-visible,.result-link:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.chapter-button[aria-current=true]{background:var(--row-selected);font-weight:600;box-shadow:inset 3px 0 0 var(--accent)}
+.chapter-button small,.result-link small,.saved-link small{color:var(--text-secondary);font-size:11px;margin-top:3px}
+.saved-item{padding-right:34px}
+.remove-saved{width:28px;height:28px;top:8px;display:inline-flex;align-items:center;justify-content:center;color:var(--text-secondary)}
+.remove-saved:hover{background:var(--row-hover);color:var(--ink)}
+.note-excerpt,.empty-panel{color:var(--text-secondary)}
+.edit-note{color:var(--accent)}
+.result-link mark{background:color-mix(in srgb,var(--accent) 28%,transparent);border-radius:3px}
+.navigation-group summary{color:var(--text-secondary)}
+
+/* Tabs and every small choice set share one segmented control. */
+.panel-tabs,.segmented,.choice-options{display:flex;gap:2px;padding:3px;border:0;border-radius:var(--control-radius);background:var(--row-hover)}
+.segmented{display:inline-flex}
+.panel-tabs{margin:0 16px 8px}
+.panel-tabs button,.segmented button,.choice-options button{flex:1;min-width:0;min-height:32px;padding:6px 12px;border:0;border-bottom:0;border-radius:8px;background:transparent;color:var(--text-secondary);font-size:12px;line-height:1.3;font-weight:400}
+.panel-tabs button:hover,.segmented button:hover,.choice-options button:hover{background:var(--row-hover);color:var(--ink)}
+.panel-tabs button[aria-selected=true],.segmented button[aria-checked=true],.choice-options button[aria-checked=true]{background:color-mix(in srgb,var(--accent) 20%,var(--panel));color:var(--ink);font-weight:600;box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--accent) 45%,transparent)}
+.choice-options button[data-value="700"]{font-weight:700}
+
+/* Fields */
+#search-form{padding:0 16px}
+#search-query,.note-panel textarea{width:100%;border:1px solid var(--glass-rim);border-radius:var(--control-radius);background:var(--field-fill);color:var(--ink);padding:10px 12px;font-size:13px}
+#search-query::placeholder,.note-panel textarea::placeholder{color:var(--text-secondary)}
+.search-status{padding:0 20px;margin:10px 0 4px}
+.small-note{color:var(--text-secondary)}
+.secondary-button{border:1px solid var(--glass-rim);border-radius:var(--control-radius);padding:8px 14px;background:transparent;color:var(--ink);font-size:12px}
+.secondary-button:hover{background:var(--row-hover)}
+.primary-button{border-radius:var(--control-radius)}
+.note-panel .panel-heading{padding:18px 0 8px}
+
+/* Appearance */
+#appearance-panel{width:400px}
+.appearance-body{padding:4px 22px 8px}
+.appearance-section{padding:2px 0 22px;margin:0 0 22px;border-bottom:1px solid var(--line)}
+.appearance-section>h3{margin:0 0 16px;font-size:11px;font-weight:650;letter-spacing:.07em;text-transform:uppercase;color:var(--text-secondary)}
+.appearance-section .control-heading,.advanced-appearance .control-heading{margin:0 0 10px;font-size:12px;font-weight:500}
+.appearance-section .range-label,.advanced-appearance .range-label{margin:0 0 20px}
+.appearance-section>:last-child,.advanced-appearance>:last-child{margin-bottom:0}
+.theme-options{grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:0}
+.theme-options button{padding:5px 0 7px;border-radius:12px;color:var(--text-secondary);font-size:10px}
+.theme-options button:hover{background:var(--row-hover)}
+.theme-options button[aria-pressed=true]{color:var(--ink);font-weight:600}
+.swatch{width:100%;max-width:76px;height:40px;border-radius:12px;border:1px solid var(--glass-rim)}
+.theme-options button[aria-pressed=true] .swatch{outline:2px solid var(--accent);outline-offset:3px}
+.font-options{gap:8px;margin:0 0 20px}
+.font-option,.mode-option{border:1px solid var(--glass-rim);border-radius:var(--control-radius);background:transparent;color:var(--ink)}
+.font-option{padding:10px 12px}
+.font-option:hover,.mode-option:hover{background:var(--row-hover)}
+.font-option[aria-checked=true],.mode-option[aria-checked=true]{background:var(--row-selected);border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent);color:var(--ink)}
+.mode-picker{margin:0 0 12px}
+.mode-option{color:var(--text-secondary)}
+#columns-note{margin:0 0 20px}
+.select-label{margin:0 0 20px;font-size:12px;gap:16px}
+.select-label>span{font-weight:500}
+.select-label .segmented{flex:1;max-width:240px}
+.range-label span{font-size:12px;font-weight:500}
+.range-label output{font-weight:400;color:var(--text-secondary)}
+.size-adjust{margin:-6px 0 20px}
+.size-adjust button{border:1px solid var(--glass-rim);border-radius:var(--control-radius);background:transparent;color:var(--ink);min-height:34px}
+.size-adjust button:hover{background:var(--row-hover)}
+.size-adjust span{color:var(--text-secondary)}
+.typography-choice{margin:0 0 20px}
+.focus-toggle{flex-direction:row-reverse;justify-content:space-between;margin:0;font-size:12px;font-weight:500;cursor:pointer}
+.color-pickers{gap:20px;margin:0 0 4px}
+.color-pickers input{border:1px solid var(--glass-rim);border-radius:8px;background:var(--field-fill);width:38px;height:32px}
+.custom-colors{margin-top:4px}
+
+/* Progressive disclosure for the advanced typography. */
+.advanced-appearance{margin:0;padding:0 0 6px;border-top:0}
+.advanced-appearance>summary{display:flex;align-items:center;justify-content:space-between;list-style:none;margin:0 0 4px;padding:10px 0;font-size:11px;font-weight:650;letter-spacing:.07em;text-transform:uppercase;color:var(--text-secondary);cursor:pointer;border-radius:8px}
+.advanced-appearance>summary::-webkit-details-marker{display:none}
+.advanced-appearance>summary::after{content:'';width:7px;height:7px;margin-inline-end:4px;border:solid currentColor;border-width:0 1.5px 1.5px 0;transform:rotate(45deg) translateY(-2px)}
+.advanced-appearance[open]>summary::after{transform:rotate(-135deg) translateY(-1px)}
+.advanced-appearance>summary:hover{color:var(--ink)}
+.advanced-appearance[open]>summary{margin-bottom:16px}
+
+@media(max-width:640px){#appearance-panel{width:auto}.appearance-body{padding-inline:18px}}
+
+/* Contents: nested chapters fold under their parent, with the same chevron the native outline uses. */
+.contents-tree .contents-tree{margin-inline-start:18px;padding:0;border:0}
+.contents-line{display:flex;align-items:center;gap:2px}
+.contents-line .chapter-button{flex:1;width:auto;min-width:0}
+.disclosure{position:relative;flex:none;width:24px;height:32px;padding:0;border-radius:6px;background:transparent;color:var(--text-secondary)}
+.disclosure::before{content:'';position:absolute;left:8px;top:12px;width:6px;height:6px;border:solid currentColor;border-width:0 1.5px 1.5px 0;transform:rotate(-45deg)}
+.disclosure[aria-expanded=true]::before{transform:rotate(45deg) translate(-1px,-1px)}
+.disclosure:hover{background:var(--row-hover);color:var(--ink)}
+.disclosure:disabled{opacity:0;cursor:default}
+.contents-tree [hidden]{display:none}
+.navigation-group{border-top:0;margin-top:6px;padding-top:2px}
+.navigation-group summary{font-size:11px;font-weight:650;letter-spacing:.07em;text-transform:uppercase;color:var(--text-secondary);padding:10px 12px}
+
+/* Keyboard focus is a soft, rounded ring that sits with the control, never a hard box. */
+.panel :focus-visible,.note-panel :focus-visible{outline:2px solid color-mix(in srgb,var(--accent) 65%,transparent);outline-offset:-2px;border-radius:var(--control-radius)}
+.panel .close-button:focus-visible{border-radius:50%}
+.panel-tabs button:focus-visible,.segmented button:focus-visible,.choice-options button:focus-visible{border-radius:8px}
+
+/* The note editor and its prompts are the one panel that stays on the web; they match the native family. */
+.note-panel legend{font-size:11px;font-weight:650;letter-spacing:.07em;text-transform:uppercase;color:var(--text-secondary);margin-bottom:10px}
+.note-panel blockquote{border-inline-start:3px solid var(--accent);border-radius:1.5px}
+.annotation-colors{display:inline-flex;gap:2px;padding:3px;border-radius:var(--control-radius);background:var(--row-hover)}
+.annotation-colors label{position:relative;gap:7px;padding:6px 12px;border-radius:8px;font-size:12px;color:var(--text-secondary);cursor:pointer}
+.annotation-colors label:hover{background:var(--row-hover);color:var(--ink)}
+.annotation-colors label:has(input:checked){background:color-mix(in srgb,var(--accent) 20%,var(--panel));color:var(--ink);font-weight:600;box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--accent) 45%,transparent)}
+.annotation-colors label:has(input:focus-visible){outline:2px solid color-mix(in srgb,var(--accent) 65%,transparent);outline-offset:-2px}
+.annotation-colors input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;cursor:pointer}
+.quiet-danger{font-size:12px;color:var(--text-secondary);padding:7px 10px;margin-left:-10px;border-radius:8px}
+.quiet-danger:hover{color:var(--ink);background:transparent;text-decoration:underline}
+.primary-button{padding:9px 18px;font-size:12px}
+.note-actions{margin-top:20px}
+#note-status,.note-panel .small-note{color:var(--text-secondary)}

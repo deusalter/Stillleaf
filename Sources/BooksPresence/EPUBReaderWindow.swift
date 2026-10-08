@@ -27,8 +27,7 @@ final class EPUBReaderWindows {
     var hasCommandReader: Bool { commandReader != nil }
     func performControl(_ command: String) {
         guard let owner = commandReader else { return }
-        if command == "appearance" { owner.chrome.openAppearance() }
-        else { owner.chrome.command(command) }
+        owner.chrome.performControl(command)
     }
     var focusedPublicationID: String? { focusedReader?.publication.id }
     var focusedProgress: ProgressObservation? { focusedReader?.progress }
@@ -691,6 +690,12 @@ private extension EPUBReaderWindow {
         while !chrome.isConnected && Date() < deadline { try await Task.sleep(nanoseconds: 50_000_000) }
         guard chrome.isConnected, window?.toolbar === chrome.toolbar else { throw EPUBImportError.invalid("Native toolbar handshake did not finish") }
         guard chrome.model.definitions.count == chrome.model.preferences.count else { throw EPUBImportError.invalid("Native appearance omits a preference") }
+        let keys = chrome.model.definitions.map(\.key)
+        guard Set(ReaderControlLayout.sections(for: keys).flatMap(\.keys)) == Set(keys),
+              ReaderControlLayout.sections(for: keys).map(\.group) == ReaderControlGroup.allCases else { throw EPUBImportError.invalid("Native appearance groups omit or reorder a control") }
+        guard let themes = chrome.model.definitions.first(where: { $0.key == "theme" })?.options, themes.count > 10,
+              themes.allSatisfy({ $0.background != nil && $0.text != nil }) else { throw EPUBImportError.invalid("Native theme swatches lack their colours") }
+        guard chrome.model.panelAppearance["panelColor"] is String, chrome.model.panelAppearance["accentColor"] is String else { throw EPUBImportError.invalid("Native panel lacks the page theme's tint") }
         try await chrome.testPendingFeedback()
         let before = try await webView.evaluateJavaScript("JSON.stringify(window.StillleafReader.exportState())") as? String ?? ""
         try chrome.testClick("bookmark")
@@ -714,6 +719,8 @@ private extension EPUBReaderWindow {
             show() // Match the normal reader presentation path for active chrome captures.
             try await captureNativeWindow(window, to: directory.appendingPathComponent("native-reader-toolbar.png"))
             print("native-reader-capture-focus: appActive=\(NSApp.isActive) key=\(window.isKeyWindow)")
+            try await chrome.testAppearancePopup()
+            try await chrome.testPanels(evaluate: { script in try await self.webView.evaluateJavaScript(script) }, captureDirectory: directory)
             try await chrome.testCaptureAppearance(to: directory.appendingPathComponent("native-reader-appearance.png"))
             try await chrome.benchmarkFeedback(output: directory.appendingPathComponent("native-feedback.json"))
             let originalFrame = window.frame, originalAppearance = window.appearance, originalPreferences = chrome.model.preferences

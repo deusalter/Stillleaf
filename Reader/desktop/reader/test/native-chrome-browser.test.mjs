@@ -63,7 +63,7 @@ test('native host retains complete preferences, modal ownership and backwards-co
  assert.equal(explicit.preferences.sideMargin,28,'an explicit custom gutter in the same patch remains intentional');
  await dispatch(nextRequest++,'deactivate');assert.equal(await page.locator('.reader-bar').isVisible(),true);
  await page.locator('#appearance').click();
- await page.locator('#measure').focus();await page.keyboard.press('Tab');
+ await page.locator('#reading-mode [aria-checked=true]').focus();await page.keyboard.press('Tab');
  const margins=page.getByRole('radiogroup',{name:'Margins',exact:true});
  assert.equal(await margins.getByRole('radio',{name:'Wide',exact:true}).evaluate(button=>document.activeElement===button),true,'custom spacing leaves the preset group reachable by Tab');
  assert.equal(await margins.getByRole('radio',{name:'Wide',exact:true}).getAttribute('aria-checked'),'false','custom spacing is not misrepresented as a selected preset');

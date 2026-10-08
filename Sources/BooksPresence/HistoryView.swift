@@ -148,26 +148,7 @@ struct HistoryView: View {
         }
     }
     private var navigationButtons: some View {
-        ReadingGlassGroup {
-            HStack(spacing: 7) {
-                Menu {
-                    Picker("Timescale", selection: Binding(get: { navigation.scale }, set: { navigation.setScale($0) })) {
-                        ForEach(CalendarScale.allCases) { scale in Text(scale.title).tag(scale) }
-                    }.pickerStyle(.inline)
-                } label: {
-                    Text(navigation.scale.title).font(.system(size: 12, weight: .medium))
-                }.menuStyle(.borderlessButton).fixedSize()
-                    .accessibilityLabel("History timescale").accessibilityValue(navigation.scale.title)
-                    .help("Choose day, week, month, or year")
-                Rectangle().fill(ReadingPalette.border).frame(width: 1, height: 16).padding(.horizontal, 4)
-                    .accessibilityHidden(true)
-                Button { navigation.move(by: -1) } label: { Image(systemName: "chevron.left") }
-                    .accessibilityLabel("Previous \(navigation.scale.title.lowercased())")
-                Button { if canMoveForward { navigation.move(by: 1) } } label: { Image(systemName: "chevron.right") }
-                    .disabled(!canMoveForward).accessibilityLabel("Next \(navigation.scale.title.lowercased())")
-                Button("Today") { navigation.goToToday() }
-            }.buttonStyle(AtlasButtonStyle())
-        }
+        HistoryNavigationControls(navigation: $navigation, canMoveForward: canMoveForward)
     }
     @ViewBuilder private func summary(pages: Int, seconds: Double, activeDays: Int, scale: CalendarScale) -> some View {
         if pages > 0 { metric(pages.formatted(), "pages") }

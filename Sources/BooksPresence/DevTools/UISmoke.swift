@@ -25,6 +25,7 @@ func runUISmoke() throws {
     try runSettingsDraftSmoke(model: model)
     guard let atlasSource = model.historyAtlasSource else { throw BooksAccessErrorForUI.failed("History source was not published") }
     try runHistoryAtlasNavigationSmoke(source: atlasSource)
+    try runHistoryInteractionSmoke(model: model)
     guard model.manualPages(forBookID: "smoke-pages-a") == 7 else {
         throw BooksAccessErrorForUI.failed("Manual page corrections were not exposed to the journal")
     }
