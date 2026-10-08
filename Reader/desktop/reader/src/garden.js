@@ -36,7 +36,7 @@ export function installGarden({canvas, spine, footer, percent, viewport, chrome,
   // The app injects its Garden setting at document start so the first frame already honours Off and Still;
   // setMode() then follows live changes.
   let mode = MODES.includes(window.__stillleafGardenMode) ? window.__stillleafGardenMode : 'animated', frozen = false, freezeTimer = 0, layoutTimer = 0, frame = 0;
-  let ticks = 0, drawMs = 0, slowestDraw = 0, progress = 0, chapter = null, pending = null, palette = null, deferred = false;
+  let holdUntil = 0, ticks = 0, drawMs = 0, slowestDraw = 0, progress = 0, chapter = null, pending = null, palette = null, deferred = false;
   const scene = (target, font, line, trackAlpha) => ({canvas: target, field: null, born: new Map(), ghosts: [], context: target.getContext('2d'), origin: {left: 0, top: 0}, font, line, cw: 7.8, ch: line, track: [], trackAlpha});
   const margins = scene(canvas, FONT, LINE, 0), column = scene(spine, FONT, LINE, 0.55), foot = scene(footer, FOOT_FONT, FOOT_LINE, 0.9);
   const scenes = [margins, column, foot];
@@ -143,7 +143,7 @@ export function installGarden({canvas, spine, footer, percent, viewport, chrome,
 
   /** Drops every garden, fades and ghosts included, blanks every canvas and stops drawing. */
   function wipe() {
-    for (const s of scenes) { s.field = null; s.born = new Map(); s.ghosts = []; s.track = []; s.context.clearRect(0, 0, 1e5, 1e5); s.canvas.classList.remove('breathing'); }
+    for (const s of scenes) { s.field = null; s.born = new Map(); s.ghosts = []; s.track = []; s.context.clearRect(0, 0, 1e5, 1e5); s.canvas.classList.remove('breathing', 'held'); }
     cancelAnimationFrame(frame); frame = 0;
     root.classList.remove('garden-card', 'garden-facing');
   }
@@ -258,17 +258,21 @@ export function installGarden({canvas, spine, footer, percent, viewport, chrome,
       progress = value; rebuild();
     },
     /** Wheel or scroll input: hold the garden still until it stops. */
-    activity() {
+    activity(hold = FREEZE) {
       // An Off garden has nothing to hold still and must never schedule a frame.
       if (!active()) return;
       frozen = true;
       cancelAnimationFrame(frame); frame = 0;
-      for (const s of scenes) s.canvas.classList.remove('breathing');
+      // Hold the breathing where it is: removing it would snap the canvases back to full opacity on every key press.
+      for (const s of scenes) s.canvas.classList.add('held');
+      // Later input extends a hold; it never shortens one that a page turn asked for.
+      holdUntil = Math.max(holdUntil, performance.now() + Math.max(FREEZE, hold));
       clearTimeout(freezeTimer);
       freezeTimer = setTimeout(() => {
         frozen = false;
+        for (const s of scenes) s.canvas.classList.remove('held');
         if (pending != null) { progress = pending; pending = null; rebuild(); } else if (deferred) rebuild(); else schedule();
-      }, FREEZE);
+      }, holdUntil - performance.now());
     },
     /** The app's Garden setting: animated, still or off. */
     setMode(value) {
@@ -279,7 +283,7 @@ export function installGarden({canvas, spine, footer, percent, viewport, chrome,
     /** The book closed: forget its chapter and blank everything without planting a placeholder garden. */
     clear() {
       clearTimeout(layoutTimer); clearTimeout(freezeTimer); clearTimeout(footTimer);
-      chapter = null; progress = 0; pending = null; frozen = false; deferred = false;
+      chapter = null; progress = 0; pending = null; frozen = false; deferred = false; holdUntil = 0;
       root.classList.remove('garden-on');
       percent.textContent = '';
       wipe();

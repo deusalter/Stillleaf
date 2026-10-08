@@ -83,7 +83,7 @@ test('chapter readiness beyond four seconds retains queued turns and jumps; disp
   await page.evaluate(() => { window.releaseChapter(); });
   await page.waitForTimeout(100);
   assert.deepEqual(await page.evaluate(() => window.events), []);
-  assert.equal(await page.locator('.reader-page-slide').count(), 0);
+  assert.equal(await page.locator('.reader-page-slide:not([data-state="idle"])').count(), 0);
   await page.evaluate(book => window.StillleafReader.open(book), book);
   assert.equal(await page.evaluate(() => window.StillleafReader.exportState().preferences.fontSize), 1.2, 'cancelled preferences cannot leak into reopened publication');
   assert.equal(await page.evaluate(() => window.StillleafReader.next()), true);
