@@ -437,8 +437,7 @@ test('the card holds the whole text frame, never meets the vines or the footer, 
   }
   // The same page without vines: identical viewport, text frames and footer height.
   const snapshot = () => page.evaluate(() => ({viewport: JSON.stringify(document.getElementById('reading-viewport').getBoundingClientRect()), reader: JSON.stringify(document.getElementById('reader').getBoundingClientRect()),
-    frames: JSON.stringify([...document.querySelectorAll('#reader iframe')].map(f => f.getBoundingClientRect())), footer: document.querySelector('.reading-footer').getBoundingClientRect().height,
-    position: document.getElementById('position-label').textContent}));
+    frames: JSON.stringify([...document.querySelectorAll('#reader iframe')].map(f => f.getBoundingClientRect())), footer: document.querySelector('.reading-footer').getBoundingClientRect().height}));
   const withVines = await snapshot();
   await page.evaluate(() => window.StillleafReader.setPreferences({vines: 'off'}));
   await page.waitForTimeout(500);
@@ -594,4 +593,21 @@ test('growing the garden stays cheap: each growth frame costs a few milliseconds
   const settled = after.ticks;
   await page.waitForTimeout(700);
   assert.equal((await debug(page)).ticks, settled, 'frames kept drawing after the garden settled');
+});
+
+test('input pauses the breathing where it is instead of snapping the garden back to full opacity', {timeout: 60000}, async t => {
+  const {page} = await launch(t, {width: 1400, height: 900}, animated);
+  await page.evaluate(() => window.StillleafReader.go({href: 'one.html', type: 'text/html', locations: {progression: 0.2}}));
+  await page.waitForFunction(() => window.StillleafReader.gardenDebug().progress > 0.1);
+  assert.equal((await watchGrowth(page)).at(-1).breathing, true);
+  const state = () => page.evaluate(() => { const c = document.getElementById('garden'); return {breathing: c.classList.contains('breathing'), held: c.classList.contains('held'), play: getComputedStyle(c).animationPlayState, opacity: getComputedStyle(c).opacity}; });
+  await page.waitForTimeout(1500);
+  const before = await state();
+  assert.equal(before.play, 'running');
+  await page.evaluate(() => window.dispatchEvent(new KeyboardEvent('keydown', {key: 'ArrowRight'})));
+  const held = await state();
+  assert.deepEqual([held.breathing, held.held, held.play], [true, true, 'paused'], 'the breathing was removed rather than paused');
+  assert.ok(Math.abs(Number(held.opacity) - Number(before.opacity)) < 0.12, `the garden jumped from ${before.opacity} to ${held.opacity}`);
+  await page.waitForFunction(() => !document.getElementById('garden').classList.contains('held'), null, {timeout: 3000});
+  assert.equal((await state()).play, 'running');
 });

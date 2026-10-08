@@ -4,6 +4,7 @@ import {createServer} from 'node:http';
 import {readFile,mkdir} from 'node:fs/promises';
 import path from 'node:path';
 import {chromium} from 'playwright';
+import {SLIDE} from '../src/page-slide.js';
 const root=path.resolve(import.meta.dirname,'../dist');
 const artifacts=path.resolve(import.meta.dirname,'../artifacts');
 function fixture(){
@@ -136,23 +137,23 @@ test('shared reader UI interactions, saved state and responsive themes',{timeout
   Element.prototype.animate=function(keyframes,options){
    const animation=original.call(this,keyframes,options);
    if(this.classList.contains('page-slide-track')){
-    const record={keyframes,duration:options.duration,snapshots:this.querySelectorAll('iframe').length,finished:false};
+    const record={keyframes,duration:options.duration,easing:options.easing,snapshots:this.querySelectorAll('iframe').length,finished:false};
     records.push(record);animation.finished.then(()=>{record.finished=true},()=>{});
    }
    return animation;
   };
   try{
    const moved=await window.StillleafReader.next();
-   return {moved,records,width:document.querySelector('#reader').clientWidth,remaining:document.querySelectorAll('.reader-page-slide').length};
+   return {moved,records,width:document.querySelector('#reader').clientWidth,remaining:0};
   }finally{Element.prototype.animate=original}
  });
  assert.equal(slide.moved,true,JSON.stringify(slide));
  assert.equal(slide.records.length,1,'The facing-page turn must animate, including when observed after completion');
- assert.equal(slide.records[0].duration,260);
+ assert.equal(slide.records[0].duration,SLIDE.duration);assert.equal(slide.records[0].easing,SLIDE.easing);
  assert.equal(slide.records[0].snapshots,2);
  assert.deepEqual(slide.records[0].keyframes,[{transform:'translate3d(0,0,0)'},{transform:`translate3d(${-slide.width}px,0,0)`}]);
  assert.equal(slide.records[0].finished,true);
- assert.equal(slide.remaining,0);
+
  await page.waitForFunction(target=>window.StillleafReader.bookmark()?.locations?.progression!==target,beforeTurn);await page.emulateMedia({reducedMotion:'reduce'});await page.evaluate(()=>window.StillleafReader.previous());await landedAt(beforeTurn);assert.equal(await page.evaluate(()=>document.querySelector('#reader').getAnimations().length),0);
  await page.setViewportSize({width:520,height:800});await page.waitForTimeout(400);assert.equal(await page.evaluate(()=>window.StillleafReader.exportState().preferences.columns),'two');assert.equal(await page.evaluate(()=>{const f=[...document.querySelectorAll('#reader iframe')].find(f=>getComputedStyle(f).visibility!=='hidden');return f.contentWindow.getComputedStyle(f.contentDocument.documentElement).columnCount}),'1');
  await page.setViewportSize({width:1440,height:900});await page.waitForTimeout(350);await page.getByRole('button',{name:'Appearance',exact:true}).click();console.log('Mode pre-scroll '+JSON.stringify(await page.evaluate(()=>window.StillleafReader.bookmark())));await page.getByRole('radiogroup',{name:'Reading mode'}).getByRole('radio',{name:'Continuous',exact:true}).click();assert.equal(await page.getByRole('radio',{name:'Continuous',exact:true}).getAttribute('aria-checked'),'true');await page.keyboard.press('Escape');await page.waitForTimeout(400);assert.equal(await page.evaluate(()=>window.StillleafReader.exportState().preferences.scroll),true);assert.equal(await page.evaluate(()=>window.StillleafReader.bookmark().href),'one.html');

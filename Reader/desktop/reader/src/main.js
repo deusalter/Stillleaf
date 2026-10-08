@@ -21,7 +21,9 @@ import {backdropColor,cardColors} from './vines';
 import {THEMES,FONTS,MARGINS,resolveTheme,fontStack,fontAvailable,marginMetrics,averageCharacterWidth} from './appearance';
 
 const $=id=>document.getElementById(id);
-const pageSlide=new PageSlide($('reader'));
+// A turn holds the garden still while it moves and for a moment after, so vines never regrow mid-slide.
+const pageSlide=new PageSlide($('reader'),{motion:ms=>{garden.activity(ms+300);backgroundQuietUntil=Math.max(backgroundQuietUntil,performance.now()+ms+150)}});
+const warmSlide=()=>pageSlide.warm(()=>Boolean(state)&&!state.preferences.scroll&&!document.body.classList.contains('native-reduceMotion'));
 const navigationCompletion=new NavigationCompletion();
 const pageTurnGesture={distance:0,sign:0,latched:false,last:0};
 const clone=value=>JSON.parse(JSON.stringify(value));
@@ -397,7 +399,7 @@ function syncAppearance(){
  for(const [id,key]of [['letter-spacing','letterSpacing'],['word-spacing','wordSpacing']]){$(id).value=state.preferences[key];$(id+'-value').textContent=Math.round(state.preferences[key]*100)+'%';}
  for(const [id,key]of [['font-size','fontSize'],['line-height','lineHeight'],['measure','measure']])$(id).value=state.preferences[key];
  $('font-size-value').textContent=Math.round(state.preferences.fontSize*100)+'%';$('line-height-value').textContent=state.preferences.lineHeight.toFixed(2).replace(/0$/,'');$('measure-value').textContent='About '+Math.round(state.preferences.measure)+' characters';
- garden.update();
+ garden.update();warmSlide();
 }
 async function prepareFont(id,generation){
  const css=await fontCSS(id);if(generation!==lifecycle||!pool)return;
@@ -427,7 +429,7 @@ function destroyNavigator(current){
 }
 async function setPreferences(value,retained){
  const requestedLifecycle=lifecycle;
- pageSlide.cancel();
+ pageSlide.invalidate();
  await navigation;
  if(!state||requestedLifecycle!==lifecycle)return;
  screenIndex?.cancel();
@@ -792,7 +794,7 @@ async function installNavigator(location,settings=readiumPreferences()){
   const listeners={
    chapterInvalidated:index=>screenIndex?.invalidate(index),
    click:pageEdgeTap,tap:pageEdgeTap,
-   positionChanged:locator=>{if(generation!==lifecycle||!state)return;lastLocator=locator.serialize();garden.progress(lastLocator);retryDeferredAnnotations();if(opening&&state.position){refreshPosition();return;}state.position=clone(lastLocator);refreshPosition();changed(false);emit('relocated',{locator:lastLocator,cause:'unknown',eligibleForProgress:false})},
+   positionChanged:locator=>{if(generation!==lifecycle||!state)return;lastLocator=locator.serialize();garden.progress(lastLocator);warmSlide();retryDeferredAnnotations();if(opening&&state.position){refreshPosition();return;}state.position=clone(lastLocator);refreshPosition();changed(false);emit('relocated',{locator:lastLocator,cause:'unknown',eligibleForProgress:false})},
    frameUnloaded:wnd=>{pageLayoutObservers.get(wnd)?.();pageLayoutObservers.delete(wnd);frames.delete(wnd)},
    readerScrolled:(delta,height)=>{if(generation===lifecycle)trackContinuousScroll(delta,height)},
    readerAnchorChanged:locator=>{if(generation===lifecycle&&performance.now()>=quietUntil&&!reflowCount&&!resizing)stableAnchor=clone(locator)},
@@ -832,7 +834,7 @@ async function close(){
  if(!await prepareClose())return false;
  garden.clear();
  if(navigator?.kind==='continuous')navigator.report();
- nativeChrome.disconnect();clearTimeout(noteSaveTimer);annotationUI.reset();pageSlide.cancel();lifecycle++;searchGeneration++;cancelAnimationFrame(positionFrame);clearTimeout(resizeTimer);resizing=false;clearTimeout(searchTimer);clearTimeout(stateTimer);clearTimeout(noticeTimer);
+ nativeChrome.disconnect();clearTimeout(noteSaveTimer);annotationUI.reset();pageSlide.invalidate();lifecycle++;searchGeneration++;cancelAnimationFrame(positionFrame);clearTimeout(resizeTimer);resizing=false;clearTimeout(searchTimer);clearTimeout(stateTimer);clearTimeout(noticeTimer);
  const paginationClosed=screenIndex?.queue;screenIndex?.close();screenIndex=undefined;
  nativePosition=null;contentIndex=null;contentIndexFailed=false;preferenceRestore=false;
  if(state)emit('state',{state:snapshot()});
@@ -907,10 +909,10 @@ const nativeChrome=nativeChromeAdapter({edition:()=>input?.editionId,ready:()=>B
   if(command==='search')showDialog('search-panel','search-query');
   if(command==='bookmark')addBookmark();
   if(command==='focus')return setPreferences({immersive:!state.preferences.immersive});
-  if(command==='policy')for(const [key,value]of Object.entries(payload)){document.body.classList.toggle('native-'+key,value);if(key==='reduceMotion'&&value)pageSlide.cancel()}
+  if(command==='policy')for(const [key,value]of Object.entries(payload)){document.body.classList.toggle('native-'+key,value);if(key==='reduceMotion'&&value)pageSlide.invalidate()}
  }});
 const api={nativeControl:request=>nativeChrome.dispatch(request),setGardenMode:mode=>garden.setMode(mode),
- ...(window.__stillleafGardenDebug||new URLSearchParams(location.search).has('debug-garden')?{gardenDebug:()=>garden.debug()}:{}),open,close,prepareClose,hasPendingDraft,returnFromJump,next:()=>turn('next'),previous:()=>turn('previous'),go,setPreferences,bookmark:()=>lastLocator?clone(lastLocator):null,restore:go,exportState:()=>{if(hasPendingDraft())persistNote();if(navigator?.kind==='continuous')navigator.report();return snapshot()},addBookmark,annotate};
+ ...(window.__stillleafGardenDebug||new URLSearchParams(location.search).has('debug-garden')?{gardenDebug:()=>garden.debug(),slideDebug:()=>pageSlide.debug(),slideInvalidate:()=>pageSlide.invalidate()}:{}),open,close,prepareClose,hasPendingDraft,returnFromJump,next:()=>turn('next'),previous:()=>turn('previous'),go,setPreferences,bookmark:()=>lastLocator?clone(lastLocator):null,restore:go,exportState:()=>{if(hasPendingDraft())persistNote();if(navigator?.kind==='continuous')navigator.report();return snapshot()},addBookmark,annotate};
 window.StillleafReader=Object.freeze(api);
 $('return-jump').onclick=()=>void returnFromJump();
 $('back').onclick=async()=>{if(await prepareClose())emit('close-request')};$('next').onclick=api.next;$('previous').onclick=api.previous;$('save-bookmark').onclick=addBookmark;
@@ -932,7 +934,7 @@ $('font-weight').onchange=()=>void setPreferences({fontWeight:$('font-weight').v
 $('text-align').onchange=()=>void setPreferences({textAlign:$('text-align').value});
 $('hyphens').onchange=()=>void setPreferences({hyphens:$('hyphens').value==='publisher'?null:$('hyphens').value==='true'});
 for(const [id,key]of [['letter-spacing','letterSpacing'],['word-spacing','wordSpacing']])$(id).oninput=()=>void setPreferences({[key]:Number($(id).value)});
-window.addEventListener('resize',()=>{pageSlide.cancel();if(!state)return;garden.update();screenIndex?.cancel();resizing=true;relayout();const anchor=stableAnchor?clone(stableAnchor):lastLocator?clone(lastLocator):null;clearTimeout(resizeTimer);resizeTimer=setTimeout(()=>{void setPreferences({},anchor).finally(()=>{resizing=false;refreshPosition()})},100)});
+window.addEventListener('resize',()=>{pageSlide.invalidate();if(!state)return;garden.update();screenIndex?.cancel();resizing=true;relayout();const anchor=stableAnchor?clone(stableAnchor):lastLocator?clone(lastLocator):null;clearTimeout(resizeTimer);resizeTimer=setTimeout(()=>{void setPreferences({},anchor).finally(()=>{resizing=false;refreshPosition()})},100)});
 $('reset-appearance').onclick=()=>void setPreferences(DEFAULT_PREFERENCES);
 // Escape closes Search like every other panel; the browser would first clear a search field.
 $('search-query').addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();void closeDialog($('search-panel'))}});
