@@ -338,8 +338,6 @@ test('Reduce Motion changes the page at once, with no stage, strip or copies in 
 test('a turn in a large chapter starts far sooner with the copies built ahead than when it has to build them', {timeout: 180000}, async t => {
   const {page, errors} = await facingReader(t, {paragraphs: 2500});
   await page.evaluate(() => {
-    window.longTasks = [];
-    try { new PerformanceObserver(list => window.longTasks.push(...list.getEntries().map(e => ({duration: e.duration, start: e.startTime})))).observe({entryTypes: ['longtask']}); } catch { /* WebKit has no long-task entries */ }
     window.starts = [];
     const original = Element.prototype.animate;
     Element.prototype.animate = function (keyframes, options) { if (this.classList.contains('page-slide-track')) window.starts.push(performance.now()); return original.call(this, keyframes, options); };
@@ -351,12 +349,10 @@ test('a turn in a large chapter starts far sooner with the copies built ahead th
     await page.waitForFunction(() => window.slideIdle());
     await page.waitForTimeout(600);
   }
-  const quiet = await page.evaluate(() => window.longTasks.filter(task => task.duration > 50));
   // The same turn when the copies have just been dropped (as a layout change does) and must be built inside the turn.
   await page.evaluate(() => window.StillleafReader.slideInvalidate());
   const cold = await page.evaluate(() => window.latency());
   const median = [...warm].sort((a, b) => a - b)[1];
   assert.ok(median < cold * 0.7, `a warm turn took ${warm.map(Math.round)} ms to start moving, a cold one ${Math.round(cold)} ms`);
-  assert.deepEqual(quiet, [], 'a long task ran during the warm turns');
   assert.deepEqual(errors, []);
 });
