@@ -28,7 +28,7 @@ public final class ReadingStore {
     private var effectiveCache: [ReadingInterval]?
     private var intervalIDCache: Set<String>?
     private struct PageSourceKey: Hashable { let bookID: String; let sessionID: String }
-    private var pageSourceEnds: [PageSourceKey: [Date]]?
+    private var pageSourceEnds: [PageSourceKey: [(end: Date, mode: ReadingMode)]]?
 
     private func indexPageSources(_ intervals: [ReadingInterval]) {
         pageSourceEnds = [:]
@@ -36,8 +36,8 @@ public final class ReadingStore {
     }
 
     private func cachePageSource(_ interval: ReadingInterval) {
-        guard pageSourceEnds != nil, interval.mode == .automatic else { return }
-        pageSourceEnds![PageSourceKey(bookID: interval.bookID, sessionID: interval.sessionID), default: []].append(interval.end)
+        guard pageSourceEnds != nil, interval.mode == .automatic || interval.mode == .manual else { return }
+        pageSourceEnds![PageSourceKey(bookID: interval.bookID, sessionID: interval.sessionID), default: []].append((interval.end, interval.mode))
     }
 
     private func pageEventHasSourceInterval(_ event: AuditEvent) throws -> Bool {
@@ -49,7 +49,7 @@ public final class ReadingStore {
         }
         guard let bookID = event.bookID, let sessionID = event.sessionID else { return false }
         return pageSourceEnds?[PageSourceKey(bookID: bookID, sessionID: sessionID)]?.contains {
-            abs(event.date.timeIntervalSince($0)) <= 0.001
+            Self.mode($0.mode, hosts: event) && abs(event.date.timeIntervalSince($0.end)) <= 0.001
         } ?? false
     }
     private static let schemaVersion = 1
@@ -129,21 +129,39 @@ public final class ReadingStore {
 
     public func saveBook(_ book: BookRecord) throws {
         try validate(book: book)
-        if let existing: BookRecord = try decodedRow(table: "books", id: book.id) {
-            guard Self.substantiveBook(existing) != Self.substantiveBook(book) else { return }
-            let detail = String(data: try encode(BookObservation(previous: existing, current: book)), encoding: .utf8)!
-            try transaction {
-                try upsert(table: "books", id: book.id, payload: try encode(book))
-                let event = AuditEvent(date: book.observedAt, kind: "bookMetadataObserved", bookID: book.id, detail: detail)
-                try insertUnique(table: "events", id: event.id, payload: try encode(event), value: event)
+        if let existing: BookRecord = try decodedRow(table: "books", id: book.id),
+           Self.substantiveBook(existing) == Self.substantiveBook(book) { return }
+        try transaction { try writeBook(book) }
+    }
+
+    /// Upserts a book and records what changed. Callers hold the transaction.
+    private func writeBook(_ book: BookRecord) throws {
+        let existing: BookRecord? = try decodedRow(table: "books", id: book.id)
+        let detail = String(data: try encode(BookObservation(previous: existing, current: book)), encoding: .utf8)!
+        try upsert(table: "books", id: book.id, payload: try encode(book))
+        let event = AuditEvent(date: book.observedAt, kind: "bookMetadataObserved", bookID: book.id, detail: detail)
+        try insertUnique(table: "events", id: event.id, payload: try encode(event), value: event)
+    }
+
+    /// Saves a manual time and/or pages entry together with its book. All or nothing: a
+    /// rejected entry leaves neither the book, the interval nor the evidence behind.
+    public func saveManualEntry(book: BookRecord, records: ManualEntryRecords) throws {
+        try validate(book: book)
+        guard records.interval.bookID == book.id, records.interval.mode == .manual,
+              records.events.allSatisfy({ $0.bookID == book.id && $0.sessionID == records.interval.sessionID }),
+              records.progress.map({ $0.bookID == book.id }) ?? true else {
+            throw ReadingStoreError.invalidData("manual entry evidence must belong to this book and session")
+        }
+        defer { effectiveCache = nil; intervalIDCache = nil; pageSourceEnds = nil }
+        try transaction {
+            if let existing: BookRecord = try decodedRow(table: "books", id: book.id) {
+                if Self.substantiveBook(existing) != Self.substantiveBook(book) { try writeBook(book) }
+            } else {
+                try writeBook(book)
             }
-        } else {
-            let detail = String(data: try encode(BookObservation(previous: nil, current: book)), encoding: .utf8)!
-            try transaction {
-                try upsert(table: "books", id: book.id, payload: try encode(book))
-                let event = AuditEvent(date: book.observedAt, kind: "bookMetadataObserved", bookID: book.id, detail: detail)
-                try insertUnique(table: "events", id: event.id, payload: try encode(event), value: event)
-            }
+            try appendInterval(records.interval)
+            for event in records.events { try appendEvent(event) }
+            if let progress = records.progress { try appendProgress(progress) }
         }
     }
 
@@ -490,7 +508,7 @@ public final class ReadingStore {
     }
 
     private func validate(book: BookRecord) throws {
-        guard !book.id.isEmpty, !book.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, Self.validDate(book.observedAt), Self.validAudioFile(book) else {
+        guard !book.id.isEmpty, !book.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, Self.validDate(book.observedAt), Self.validAudioFile(book), Self.validPageCount(book) else {
             throw ReadingStoreError.invalidData("book id and title are required")
         }
     }
@@ -509,11 +527,13 @@ public final class ReadingStore {
             if (intervals[middle].start, intervals[middle].end, intervals[middle].id) < (interval.start, interval.end, interval.id) { low = middle + 1 }
             else { high = middle }
         }
-        if low > 0, intervals[low - 1].end > interval.start {
-            throw ReadingStoreError.invalidData("intervals \(intervals[low - 1].id) and \(interval.id) overlap")
+        // Page markers credit no time, so they neither conflict with nor shield real intervals.
+        guard !Self.isPageMarker(interval) else { return low }
+        if let before = intervals[..<low].last(where: { !Self.isPageMarker($0) }), before.end > interval.start {
+            throw ReadingStoreError.invalidData("intervals \(before.id) and \(interval.id) overlap")
         }
-        if low < intervals.count, interval.end > intervals[low].start {
-            throw ReadingStoreError.invalidData("intervals \(interval.id) and \(intervals[low].id) overlap")
+        if let after = intervals[low...].first(where: { !Self.isPageMarker($0) }), interval.end > after.start {
+            throw ReadingStoreError.invalidData("intervals \(interval.id) and \(after.id) overlap")
         }
         return low
     }
@@ -736,7 +756,7 @@ public final class ReadingStore {
         try unique(archive.progress.map(\.id), label: "progress")
         try unique(archive.merges.map(\.id), label: "merge")
         let books = Set(archive.books.map(\.id))
-        for book in archive.books where book.id.isEmpty || book.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !validDate(book.observedAt) || !validAudioFile(book) { throw ReadingStoreError.invalidData("book id, title, and observation date are required") }
+        for book in archive.books where book.id.isEmpty || book.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !validDate(book.observedAt) || !validAudioFile(book) || !validPageCount(book) { throw ReadingStoreError.invalidData("book id, title, and observation date are required") }
         for interval in archive.intervals + archive.corrections.flatMap(\.replacements) {
             guard books.contains(interval.bookID) else { throw ReadingStoreError.invalidData("interval \(interval.id) refers to an unknown book") }
             try validateInterval(interval)
@@ -754,7 +774,7 @@ public final class ReadingStore {
         }
         for progress in archive.progress where !books.contains(progress.bookID) || !validProgress(progress) { throw ReadingStoreError.invalidData("invalid progress \(progress.id)") }
         for merge in archive.merges where merge.sourceID == merge.targetID || !books.contains(merge.sourceID) || !books.contains(merge.targetID) || !validDate(merge.date) { throw ReadingStoreError.invalidData("invalid merge \(merge.id)") }
-        let effective = try effectiveIntervals(in: archive)
+        let effective = try effectiveIntervals(in: archive).filter { !isPageMarker($0) }
         for pair in zip(effective, effective.dropFirst()) where pair.0.end > pair.1.start {
             throw ReadingStoreError.invalidData("intervals \(pair.0.id) and \(pair.1.id) overlap")
         }
@@ -768,9 +788,14 @@ public final class ReadingStore {
         let wallSpan = interval.end.timeIntervalSince(interval.start)
         guard !interval.id.isEmpty, !interval.sessionID.isEmpty,
               validDate(interval.start), validDate(interval.end), wallSpan > 0,
-              interval.duration.isFinite, interval.duration > 0,
+              interval.duration.isFinite, interval.duration > 0 || isPageMarker(interval),
               interval.duration <= 366 * 86_400, interval.duration <= wallSpan + 2,
               TimeZone(identifier: interval.timezoneID) != nil else { throw ReadingStoreError.invalidData("invalid interval \(interval.id)") }
+    }
+
+    /// A manual interval that credits no time: it only anchors pages the user logged without minutes.
+    private static func isPageMarker(_ interval: ReadingInterval) -> Bool {
+        interval.mode == .manual && interval.duration == 0 && interval.end.timeIntervalSince(interval.start) <= 60
     }
 
     private static func validateEvent(_ event: AuditEvent) throws {
@@ -842,11 +867,16 @@ public final class ReadingStore {
         return abs(value * 4 - (value * 4).rounded()) < 0.000_000_1
     }
 
+    /// Observed page turns need a tracked session; a person's own page count may also sit on time they entered.
+    private static func mode(_ mode: ReadingMode, hosts event: AuditEvent) -> Bool {
+        mode == .automatic || (mode == .manual && event.pageAdjustment != nil)
+    }
+
     private static func pageEventHasSourceInterval(_ event: AuditEvent, in archive: HistoryArchive) -> Bool {
         guard event.pageTurn != nil || event.pageAdjustment != nil,
               let bookID = event.bookID, let sessionID = event.sessionID else { return false }
         return (archive.intervals + archive.corrections.flatMap(\.replacements)).contains { interval in
-            interval.bookID == bookID && interval.sessionID == sessionID && interval.mode == .automatic
+            interval.bookID == bookID && interval.sessionID == sessionID && mode(interval.mode, hosts: event)
                 && abs(event.date.timeIntervalSince(interval.end)) <= 0.001
         }
     }
@@ -924,6 +954,10 @@ public final class ReadingStore {
         return try encoder.encode(value)
     }
 
+    private static func validPageCount(_ book: BookRecord) -> Bool {
+        book.pageCount.map { (1...100_000).contains($0) } ?? true
+    }
+
     private static func validAudioFile(_ book: BookRecord) -> Bool {
         guard let name = book.audioFileName else { return true }
         return book.resolvedFormat == .audiobook && !name.isEmpty && name != "." && name != ".." &&
@@ -938,7 +972,7 @@ public final class ReadingStore {
     }
 
     private static func substantiveBook(_ book: BookRecord) -> String {
-        [book.title, book.author ?? "", book.source, book.coverPath ?? "", book.coverSource ?? "", String(book.trackingExcluded), String(book.sharingExcluded), book.format?.rawValue ?? "", book.audioFileName ?? ""].joined(separator: "\u{1f}")
+        [book.title, book.author ?? "", book.source, book.coverPath ?? "", book.coverSource ?? "", String(book.trackingExcluded), String(book.sharingExcluded), book.format?.rawValue ?? "", book.audioFileName ?? "", book.pageCount.map(String.init) ?? ""].joined(separator: "\u{1f}")
     }
 
     private static func iso8601(_ date: Date) -> String {

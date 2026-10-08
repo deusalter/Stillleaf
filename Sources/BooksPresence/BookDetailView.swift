@@ -400,7 +400,7 @@ private struct BookDetailSessionGroup: View {
             HStack(alignment: .center, spacing: 12) {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(ReadingFormat.date(group.start)).font(.callout.weight(.semibold)).foregroundStyle(ReadingPalette.ink)
-                    Text("Credited \(ReadingFormat.duration(group.creditedSeconds))")
+                    Text(group.creditedSeconds == 0 && pages > 0 ? "Pages added manually" : "Credited \(ReadingFormat.duration(group.creditedSeconds))")
                         .font(.caption).monospacedDigit().foregroundStyle(ReadingPalette.secondaryInk)
                 }
                 Spacer()
