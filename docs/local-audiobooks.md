@@ -7,7 +7,7 @@ Shipped in the native app. This note covers the user flow, supported media and h
 - Library → Audiobook → Import local audio creates a library entry from the filename.
 - Book details → Book format → Audiobook supports any existing library book. Import local audio attaches one file to that book.
 - Open audio player exposes play/pause, a seek slider, back 15 seconds, forward 30 seconds, volume, and 0.5–2× speed. The Library also exposes the loaded player after closing book details.
-- Log listening saves content position / total duration, with an optional actual listening session. The generic Add reading time sheet also links to this flow. Choose an existing library ID instead of creating a duplicate title.
+- Log listening saves content position / total duration, with an optional actual listening session. The Add reading time sheet has a Book | Audiobook switch; its Audiobook mode collects the same position, total and optional listening session. Choose an existing library ID instead of creating a duplicate title.
 - Current position accepts `2:15:00`, `2:15` (hours:minutes), or `135` (minutes). A total duration of `10:00:00` produces 22.5% progress for that position.
 - Position alone never adds elapsed time or pages. For interrupted manual sessions, enter separate sessions excluding breaks.
 - Playback position persists on seek, pause, finish, normal termination, and approximately every five seconds. The display updates every second. A crash can lose the last uncheckpointed seconds.

@@ -42,7 +42,7 @@ final class ManualPageAdjustmentStoreTests: XCTestCase {
         XCTAssertFalse(try store.archive().events.contains { $0.pageAdjustment != nil })
     }
 
-    func testAdjustmentRequiresValidEvidenceAndMatchingAutomaticInterval() throws {
+    func testAdjustmentRequiresValidEvidenceAndMatchingInterval() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = try ReadingStore(url: directory.appendingPathComponent("history.sqlite"))
@@ -92,9 +92,18 @@ final class ManualPageAdjustmentStoreTests: XCTestCase {
             start: start.addingTimeInterval(20), end: start.addingTimeInterval(30), duration: 10,
             timezoneID: "UTC", mode: .manual)
         try store.appendInterval(manual)
-        XCTAssertThrowsError(try store.appendEvent(event(date: manual.end, sessionID: manual.sessionID,
+        // A person's own page count may sit on time they entered by hand...
+        XCTAssertNoThrow(try store.appendEvent(event(id: "on-manual", date: manual.end, sessionID: manual.sessionID,
             evidence: ManualPageAdjustmentEvidence(pages: 1,
                 recordedAt: manual.end, reason: "Manual correction"))))
+        // ...but only at the interval's end, and observed page turns still need a tracked session.
+        XCTAssertThrowsError(try store.appendEvent(event(date: manual.end.addingTimeInterval(1), sessionID: manual.sessionID,
+            evidence: ManualPageAdjustmentEvidence(pages: 1,
+                recordedAt: manual.end.addingTimeInterval(2), reason: "Manual correction"))))
+        XCTAssertThrowsError(try store.appendEvent(AuditEvent(date: manual.end, kind: "pageTurn",
+            bookID: book.id, sessionID: manual.sessionID, detail: "Observed",
+            pageTurn: PageTurnEvidence(fromPage: 1, toPage: 2, pagesRead: 1,
+                                       visiblePages: 1, layoutSignature: "layout"))))
     }
 
     func testInvalidImportedAdjustmentIsRejectedAtomicallyAndLegacyEventDecodes() throws {
