@@ -27,8 +27,7 @@ final class EPUBReaderWindows {
     var hasCommandReader: Bool { commandReader != nil }
     func performControl(_ command: String) {
         guard let owner = commandReader else { return }
-        if command == "appearance" { owner.chrome.openAppearance() }
-        else { owner.chrome.command(command) }
+        owner.chrome.performControl(command)
     }
     var focusedPublicationID: String? { focusedReader?.publication.id }
     var focusedProgress: ProgressObservation? { focusedReader?.progress }
@@ -721,6 +720,7 @@ private extension EPUBReaderWindow {
             try await captureNativeWindow(window, to: directory.appendingPathComponent("native-reader-toolbar.png"))
             print("native-reader-capture-focus: appActive=\(NSApp.isActive) key=\(window.isKeyWindow)")
             try await chrome.testAppearancePopup()
+            try await chrome.testPanels(evaluate: { script in try await self.webView.evaluateJavaScript(script) }, captureDirectory: directory)
             try await chrome.testCaptureAppearance(to: directory.appendingPathComponent("native-reader-appearance.png"))
             try await chrome.benchmarkFeedback(output: directory.appendingPathComponent("native-feedback.json"))
             let originalFrame = window.frame, originalAppearance = window.appearance, originalPreferences = chrome.model.preferences
