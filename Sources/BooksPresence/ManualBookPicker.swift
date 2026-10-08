@@ -57,7 +57,7 @@ struct ManualBookPicker: View {
             }
             if kind == .book && trimmed.count >= 2 { outsideSection }
             if !trimmed.isEmpty {
-                ResultRow(action: { choice = .typed(trimmed) }, cover: { CoverPlaceholder(title: trimmed).frame(width: 38, height: 54).clipShape(RoundedRectangle(cornerRadius: 3, style: .continuous)) },
+                ResultRow(action: { choice = .typed(trimmed) }, cover: { ManualCoverPlaceholder() },
                           title: "Use “\(trimmed)” as a new \(kind == .book ? "book" : "audiobook")",
                           detail: "Add it by title and author", accessory: "plus")
             }
@@ -131,7 +131,7 @@ struct ManualBookPicker: View {
             switch choice {
             case let .library(book): BookCoverView(book: book, size: .mini)
             case let .outside(book): RemoteCover(book: book, service: service)
-            case .typed: CoverPlaceholder(title: "").frame(width: 38, height: 54).clipShape(RoundedRectangle(cornerRadius: 3, style: .continuous))
+            case .typed: ManualCoverPlaceholder()
             }
             VStack(alignment: .leading, spacing: 3) {
                 switch choice {
@@ -211,7 +211,7 @@ struct RemoteCover: View {
     var body: some View {
         Group {
             if let image { Image(nsImage: image).resizable().scaledToFill() }
-            else { CoverPlaceholder(title: book.title) }
+            else { ManualCoverPlaceholder() }
         }
         .frame(width: 38, height: 54)
         .clipShape(RoundedRectangle(cornerRadius: 3, style: .continuous))
@@ -227,17 +227,12 @@ struct RemoteCover: View {
     }
 }
 
-struct CoverPlaceholder: View {
-    let title: String
+/// The library's own cached placeholder, at the picker's thumbnail size.
+struct ManualCoverPlaceholder: View {
+    static let size = CGSize(width: 38, height: 54)
     var body: some View {
-        ZStack {
-            ReadingPalette.elevated
-            HStack(spacing: 0) {
-                Rectangle().fill(ReadingPalette.accent.opacity(0.3)).frame(width: 4)
-                Spacer()
-            }
-            Image(systemName: "book.closed").font(.system(size: 13, weight: .light))
-                .foregroundStyle(ReadingPalette.ink.opacity(0.6))
-        }
+        Image(nsImage: CoverPlaceholder.image(size: Self.size)).resizable()
+            .frame(width: Self.size.width, height: Self.size.height)
+            .clipShape(RoundedRectangle(cornerRadius: 3, style: .continuous))
     }
 }
