@@ -25,6 +25,7 @@ struct LibraryView: View {
     @State private var removingBook: BookRecord?
     @State private var removingEPUB: BookRecord?
     @State private var loggingAudio = false
+    @Environment(\.forcedScreenStates) private var forced
 
     var body: some View {
         let summary = model.librarySummary
@@ -71,7 +72,7 @@ struct LibraryView: View {
                 // The shelf is one surface: tools, status and books group by spacing, not by card.
                 VStack(alignment: .leading, spacing: 26) {
                     EPUBImportStatusView(controller: model.epubLibrary)
-                    if model.importingAudio { ProgressView("Importing local audio…") }
+                    if model.importingAudio || forced.importingAudio { ReadingStatusLabel(title: "Importing local audio…") }
                     AudiobookLibraryPlayer(model: model, player: model.audiobookPlayer)
                     ReadingGlassGroup {
                         ViewThatFits(in: .horizontal) {

@@ -205,6 +205,28 @@ private struct ReadingPanel: ViewModifier {
     }
 }
 
+/// A short "working on it" note. On its own it sits on glass, so it stays legible wherever it
+/// lands over the garden; inside a surface it is just the note.
+struct ReadingStatusLabel: View {
+    let title: String
+    @Environment(\.insideReadingSurface) private var inside
+
+    var body: some View {
+        let note = HStack(spacing: ReadingMetrics.Space.s) {
+            ProgressView().controlSize(.small)
+            Text(title).font(.callout)
+        }
+        if inside {
+            note.accessibilityElement(children: .combine)
+        } else {
+            note
+                .padding(.horizontal, ReadingMetrics.Space.l).padding(.vertical, ReadingMetrics.Space.s)
+                .glassSurface(cornerRadius: ReadingMetrics.Radius.card)
+                .accessibilityElement(children: .combine)
+        }
+    }
+}
+
 struct ReadingEmptyState: View {
     let title: String
     let symbol: String
