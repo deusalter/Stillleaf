@@ -225,6 +225,7 @@ struct AudiobookLogView: View {
         }
         .padding(26)
         .frame(width: 550, height: min(maximumHeight, max(320, (NSScreen.main?.visibleFrame.height ?? 800) - 100)))
+        .readingSheetSurface()
         .background(ReadingPalette.canvas).foregroundStyle(ReadingPalette.ink).tint(ReadingPalette.accent)
         .textFieldStyle(ReadingTextFieldStyle()).buttonStyle(ReadingButtonStyle())
         .onAppear { loadPosition() }

@@ -46,7 +46,8 @@ struct BookDetailView: View {
             toolbar
             Divider()
             ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
+                // The sheet is the surface; its sections are told apart by spacing and type.
+                VStack(alignment: .leading, spacing: 32) {
                     hero
                     AudiobookSection(model: model, book: currentBook, player: model.audiobookPlayer)
                     readingSummary
@@ -64,6 +65,7 @@ struct BookDetailView: View {
             }
         }
         .frame(width: 760, height: 720)
+        .readingSheetSurface()
         .background(ReadingPalette.canvas)
         .tint(ReadingPalette.accent)
         .foregroundStyle(ReadingPalette.ink)

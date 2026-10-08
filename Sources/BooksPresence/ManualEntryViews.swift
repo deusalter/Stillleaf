@@ -33,6 +33,7 @@ struct ManualStartView: View {
             }
         }
         .padding(26).frame(width: 470)
+        .readingSheetSurface()
         .background(ReadingPalette.canvas).foregroundStyle(ReadingPalette.ink)
         .tint(ReadingPalette.accent).textFieldStyle(ReadingTextFieldStyle())
         .buttonStyle(ReadingButtonStyle())
@@ -86,6 +87,7 @@ struct ManualAdditionView: View {
         }
         .sheet(isPresented: $loggingAudio) { AudiobookLogView(model: model) }
         .padding(26).frame(width: 500)
+        .readingSheetSurface()
         .background(ReadingPalette.canvas).foregroundStyle(ReadingPalette.ink)
         .tint(ReadingPalette.accent).textFieldStyle(ReadingTextFieldStyle())
         .buttonStyle(ReadingButtonStyle())

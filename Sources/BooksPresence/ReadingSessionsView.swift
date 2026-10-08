@@ -109,7 +109,7 @@ struct ReadingSessionEditor: View {
                     .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 24).padding(.bottom, 12)
             }
             ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 30) {
                     VStack(alignment: .leading, spacing: 12) {
                         ReadingMenuPicker(label: "Book", options: model.books.map(\.id), selection: $bookID) { id in
                             model.books.first { $0.id == id }?.title ?? "Choose a book"
@@ -150,6 +150,7 @@ struct ReadingSessionEditor: View {
             }
         }
         .frame(width: 560, height: 600)
+        .readingSheetSurface()
         .background(ReadingPalette.canvas).foregroundStyle(ReadingPalette.ink)
         .tint(ReadingPalette.accent).buttonStyle(ReadingButtonStyle())
         .alert("Delete this session?", isPresented: $deletionConfirmation) {

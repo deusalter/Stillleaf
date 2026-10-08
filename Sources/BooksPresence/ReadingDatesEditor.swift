@@ -54,6 +54,7 @@ struct ReadingDatesEditor: View {
             }
         }
         .padding(24).frame(width: 540)
+        .readingSheetSurface()
         .background(ReadingPalette.canvas).foregroundStyle(ReadingPalette.ink)
         .buttonStyle(ReadingButtonStyle())
         .readingMotionAccessibility()
