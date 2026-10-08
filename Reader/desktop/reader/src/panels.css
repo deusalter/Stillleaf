@@ -133,3 +133,18 @@ dialog::backdrop{background:transparent}
 .panel :focus-visible,.note-panel :focus-visible{outline:2px solid color-mix(in srgb,var(--accent) 65%,transparent);outline-offset:-2px;border-radius:var(--control-radius)}
 .panel .close-button:focus-visible{border-radius:50%}
 .panel-tabs button:focus-visible,.segmented button:focus-visible,.choice-options button:focus-visible{border-radius:8px}
+
+/* The note editor and its prompts are the one panel that stays on the web; they match the native family. */
+.note-panel legend{font-size:11px;font-weight:650;letter-spacing:.07em;text-transform:uppercase;color:var(--text-secondary);margin-bottom:10px}
+.note-panel blockquote{border-inline-start:3px solid var(--accent);border-radius:1.5px}
+.annotation-colors{display:inline-flex;gap:2px;padding:3px;border-radius:var(--control-radius);background:var(--row-hover)}
+.annotation-colors label{position:relative;gap:7px;padding:6px 12px;border-radius:8px;font-size:12px;color:var(--text-secondary);cursor:pointer}
+.annotation-colors label:hover{background:var(--row-hover);color:var(--ink)}
+.annotation-colors label:has(input:checked){background:color-mix(in srgb,var(--accent) 20%,var(--panel));color:var(--ink);font-weight:600;box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--accent) 45%,transparent)}
+.annotation-colors label:has(input:focus-visible){outline:2px solid color-mix(in srgb,var(--accent) 65%,transparent);outline-offset:-2px}
+.annotation-colors input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;cursor:pointer}
+.quiet-danger{font-size:12px;color:var(--text-secondary);padding:7px 10px;margin-left:-10px;border-radius:8px}
+.quiet-danger:hover{color:var(--ink);background:transparent;text-decoration:underline}
+.primary-button{padding:9px 18px;font-size:12px}
+.note-actions{margin-top:20px}
+#note-status,.note-panel .small-note{color:var(--text-secondary)}

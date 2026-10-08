@@ -269,3 +269,28 @@ test('contents folds nested chapters and shows an all-caps table of contents as 
   await page.getByRole('button', {name: 'Chapter Two', exact: true}).click();
   await page.waitForFunction(() => window.StillleafReader.bookmark()?.href === 'c3.html');
 });
+
+test('the note editor is the same family: shared glass, a segmented highlight colour, readable actions', {timeout: 60000}, async t => {
+  const withNote = {...book, editionId: 'note-family', state: {schemaVersion: 1, editionId: 'note-family', revision: 0, position: null, preferences: {theme: 'paper', fontFamily: 'publisher', fontSize: 1.2, lineHeight: 1.6, measure: 65},
+    bookmarks: [], annotations: [{id: 'n1', locator: {href: 'one.html', type: 'text/html', locations: {progression: .2}, text: {highlight: 'The light fell across the open book.'}}, quote: 'The light fell across the open book.', note: 'Remember the light.', color: 'sage', createdAt: '2026-10-01T10:00:00Z', updatedAt: '2026-10-01T10:00:00Z'}]}};
+  const page = await launch(t, {width: 1100, height: 860}, withNote);
+  await page.locator('#contents').click();
+  const library = await surface(page, 'library-panel');
+  await page.keyboard.press('Escape');
+  await page.locator('#saved-passages').click();
+  await page.getByRole('button', {name: 'Edit note'}).click();
+  const editor = await surface(page, 'note-panel');
+  for (const key of ['radius', 'shadow', 'border', 'background', 'headingSize', 'headingWeight']) assert.equal(editor[key], library[key], `the note editor shares ${key}`);
+  const choice = page.locator('.annotation-colors');
+  assert.equal(await choice.evaluate(node => getComputedStyle(node).borderTopLeftRadius), '10px', 'the colour choice is a segmented pill');
+  const checked = await page.locator('.annotation-colors label:has(input:checked)').evaluate(node => getComputedStyle(node).backgroundColor);
+  const other = await page.locator('.annotation-colors label:has(input:not(:checked))').first().evaluate(node => getComputedStyle(node).backgroundColor);
+  assert.notEqual(checked, other, 'the chosen colour is marked');
+  assert.equal(await page.getByRole('radio', {name: 'Sage'}).isChecked(), true);
+  await page.getByText('Rose', {exact: true}).click();
+  assert.equal(await page.getByRole('radio', {name: 'Rose'}).isChecked(), true, 'the colour is still a real radio, chosen by clicking its label');
+  await page.keyboard.press('Tab');
+  await page.screenshot({path: path.join(output, 'note-editor-paper.png')});
+  const size = await page.locator('#delete-note').evaluate(node => parseFloat(getComputedStyle(node).fontSize));
+  assert.ok(size >= 12, 'the remove action is as large as other secondary text');
+});
