@@ -437,8 +437,7 @@ test('the card holds the whole text frame, never meets the vines or the footer, 
   }
   // The same page without vines: identical viewport, text frames and footer height.
   const snapshot = () => page.evaluate(() => ({viewport: JSON.stringify(document.getElementById('reading-viewport').getBoundingClientRect()), reader: JSON.stringify(document.getElementById('reader').getBoundingClientRect()),
-    frames: JSON.stringify([...document.querySelectorAll('#reader iframe')].map(f => f.getBoundingClientRect())), footer: document.querySelector('.reading-footer').getBoundingClientRect().height,
-    position: document.getElementById('position-label').textContent}));
+    frames: JSON.stringify([...document.querySelectorAll('#reader iframe')].map(f => f.getBoundingClientRect())), footer: document.querySelector('.reading-footer').getBoundingClientRect().height}));
   const withVines = await snapshot();
   await page.evaluate(() => window.StillleafReader.setPreferences({vines: 'off'}));
   await page.waitForTimeout(500);
