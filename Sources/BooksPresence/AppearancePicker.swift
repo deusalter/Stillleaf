@@ -8,7 +8,7 @@ struct AppearancePicker: View {
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        VStack(alignment: .leading, spacing: ReadingMetrics.Space.xl) {
+        VStack(alignment: .leading, spacing: ReadingMetrics.Space.xxl) {
             ReadingSection("Display") {
                 VStack(spacing: 0) {
                     SettingsRow(title: "Appearance", description: "System follows your Mac’s appearance.") {

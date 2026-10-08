@@ -69,16 +69,18 @@ struct SettingsView: View {
         ScrollViewReader { scroller in
             ScrollView {
                 VStack(alignment: .leading, spacing: ReadingMetrics.Space.xl) {
-                    VStack(alignment: .leading, spacing: ReadingMetrics.Space.l) {
-                        PageHeader("Settings", subtitle: nil)
+                    PageHeader("Settings", subtitle: nil).id(Self.topAnchor)
+                    // One surface per category: the tabs lead it, and the groups below are
+                    // told apart by spacing and their headings, not by a card each.
+                    VStack(alignment: .leading, spacing: ReadingMetrics.Space.xxl) {
                         categoryTabs
+                        // Category controls keep focus across live theme changes.
+                        // Theme changes re-key inside the entrance so the category never replays its fade.
+                        categoryDetail
+                            .id(Self.categoryKey(for: category, revision: theme.revision))
+                            .modifier(SettingsCategoryEntrance(direction: slide)).id(category)
                     }
-                    .id(Self.topAnchor)
-                    // Category controls keep focus across live theme changes.
-                    // Theme changes re-key inside the entrance so the category never replays its fade.
-                    categoryDetail
-                        .id(Self.categoryKey(for: category, revision: theme.revision))
-                        .modifier(SettingsCategoryEntrance(direction: slide)).id(category)
+                    .readingPanel()
                     // The save bar floats over the page, so room for it is always reserved
                     // and the page never changes height when changes appear.
                     Color.clear.frame(height: Self.barClearance)
@@ -119,13 +121,13 @@ struct SettingsView: View {
 
     // MARK: Navigation
 
-    /// A glass tab strip rather than a second sidebar: the dashboard already has one,
-    /// and four categories fit comfortably in a row.
+    /// A tab strip rather than a second sidebar: the dashboard already has one, and four
+    /// categories fit comfortably in a row. It sits inside the page's surface as a well.
     private var categoryTabs: some View {
         GlassSegmentedControl(
             label: "Settings category", options: SettingsCategory.allCases, selection: categoryBinding,
             title: { $0.title }, systemImage: { $0.icon }, style: .navigation, equalWidth: false,
-            marker: { ($0 == .reading && readingDirty) || ($0 == .discord && discordDirty) }, onGlass: true)
+            marker: { ($0 == .reading && readingDirty) || ($0 == .discord && discordDirty) })
             .fixedSize()
             .accessibilityIdentifier("settings-category")
     }
@@ -151,7 +153,7 @@ struct SettingsView: View {
     // MARK: Reading
 
     private var readingSettings: some View {
-        VStack(alignment: .leading, spacing: ReadingMetrics.Space.xl) {
+        VStack(alignment: .leading, spacing: ReadingMetrics.Space.xxl) {
             ReadingSection("Daily goal") {
                 VStack(spacing: 0) {
                     SettingsRow(title: "Goal unit", description: "What your daily goal counts.") {
@@ -233,7 +235,7 @@ struct SettingsView: View {
     // MARK: Sharing
 
     private var discordSettings: some View {
-        VStack(alignment: .leading, spacing: ReadingMetrics.Space.xl) {
+        VStack(alignment: .leading, spacing: ReadingMetrics.Space.xxl) {
             ReadingSection("Discord") {
                 VStack(alignment: .leading, spacing: 0) {
                     SettingsRow(title: "Share reading on Discord", description: "Show your book while reading in Stillleaf or Apple Books.") {
@@ -288,7 +290,7 @@ struct SettingsView: View {
     // MARK: Data & privacy
 
     private var dataSettings: some View {
-        VStack(alignment: .leading, spacing: ReadingMetrics.Space.xl) {
+        VStack(alignment: .leading, spacing: ReadingMetrics.Space.xxl) {
             ReadingSection("Apple Books") {
                 VStack(spacing: 0) {
                     SettingsRow(title: "Sync finished books", description: "Bring completion dates from Apple Books into your library. No pages or reading time are added.") {
@@ -581,6 +583,7 @@ struct RestoreConfirmationView: View {
         }
         .padding(24)
         .frame(width: 460)
+        .readingSheetSurface()
         .background(ReadingPalette.canvas)
         .foregroundStyle(ReadingPalette.ink)
         .buttonStyle(ReadingButtonStyle())
