@@ -1,7 +1,18 @@
 // The host receives UI state, never locators/evidence or a second persisted model.
+// Native panels ask for rows and send back ids; the renderer owns locators, so a host never forges one.
+const exactly=(payload,keys)=>Boolean(payload)&&typeof payload==='object'&&!Array.isArray(payload)&&Object.keys(payload).length===keys.length&&keys.every(key=>Object.hasOwn(payload,key));
+const identifier=value=>typeof value==='string'&&value.length>0&&value.length<=200;
+const panelRequests={
+ panel:payload=>exactly(payload,['name'])&&['outline','bookmarks','notes'].includes(payload.name),
+ find:payload=>exactly(payload,['query'])&&typeof payload.query==='string'&&payload.query.length<=200,
+ go:payload=>exactly(payload,['kind','id'])&&['outline','bookmark','note','result'].includes(payload.kind)&&identifier(payload.id),
+ remove:payload=>exactly(payload,['kind','id'])&&['bookmark','note'].includes(payload.kind)&&identifier(payload.id),
+ editNote:payload=>exactly(payload,['id'])&&identifier(payload.id),
+};
+const returnsRows=new Set(['panel','find','remove']);
 export function nativeChromeAdapter({edition,ready,current,definitions,status=()=>({}),perform,visibility,activationTimeoutMs=10000}) {
  let active=false,lastRequest=0,lastSignature='',generation=0;
- const commands=new Set(['activate','deactivate','contents','notes','search','next','previous','bookmark','focus','preferences','reset','policy']);
+ const commands=new Set(['activate','deactivate','contents','notes','search','next','previous','bookmark','focus','preferences','reset','policy',...Object.keys(panelRequests)]);
  const ui=()=>({version:1,editionId:edition(),preferences:current(),definitions:definitions(),...status()});
  return Object.freeze({
   async dispatch(request){
@@ -11,6 +22,8 @@ export function nativeChromeAdapter({edition,ready,current,definitions,status=()
     const p=request.payload;if(!p||Array.isArray(p)||typeof p!=='object'||Object.keys(p).some(k=>!Object.hasOwn(current(),k))||Object.values(p).some(v=>v!==null&&!['string','number','boolean'].includes(typeof v))||Object.values(p).some(v=>typeof v==='number'&&!Number.isFinite(v)))throw Error('Invalid reading preferences.');
    }else if(request.command==='policy'){
     if(!request.payload||Object.keys(request.payload).some(k=>!['reduceMotion','reduceTransparency','increaseContrast'].includes(k))||Object.values(request.payload).some(v=>typeof v!=='boolean'))throw Error('Invalid display policy.');
+   }else if(Object.hasOwn(panelRequests,request.command)){
+    if(!panelRequests[request.command](request.payload))throw Error('Invalid panel request.');
    }else if(request.payload!==undefined)throw Error('Unexpected reader control payload.');
    lastRequest=request.id;
    if(request.command==='deactivate'){generation++;active=false;visibility(false,true)}
@@ -22,7 +35,10 @@ export function nativeChromeAdapter({edition,ready,current,definitions,status=()
     }catch(error){if(token===generation){generation++;active=false;visibility(false,true)}throw error}
     finally{clearTimeout(timer)}
    }
-   else await perform(request.command,request.payload);
+   else{
+    const result=await perform(request.command,request.payload);
+    return {requestId:request.id,...ui(),...(returnsRows.has(request.command)&&result?.panel?{panel:result.panel}:{})};
+   }
    return {requestId:request.id,...ui()};
   },
   changed(emit){if(!active||!ready())return;const value=ui(),signature=JSON.stringify([value.preferences,status()]);if(signature!==lastSignature){lastSignature=signature;emit(value)}},

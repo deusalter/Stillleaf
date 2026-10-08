@@ -25,6 +25,7 @@ func runUISmoke() throws {
     try runSettingsDraftSmoke(model: model)
     guard let atlasSource = model.historyAtlasSource else { throw BooksAccessErrorForUI.failed("History source was not published") }
     try runHistoryAtlasNavigationSmoke(source: atlasSource)
+    try runHistoryInteractionSmoke(model: model)
     guard model.manualPages(forBookID: "smoke-pages-a") == 7 else {
         throw BooksAccessErrorForUI.failed("Manual page corrections were not exposed to the journal")
     }
@@ -62,6 +63,7 @@ func runUISmoke() throws {
     guard model.visibleReadingSessions.contains(where: { $0.bookID == manualBook.id }) else {
         throw BooksAccessErrorForUI.failed("History visibility cache was not invalidated by manual addition")
     }
+    try checkManualEntry(model)
     let visibleIDs = model.visibleReadingSessions.map(\.id)
     let visibilityStarted = ProcessInfo.processInfo.systemUptime
     for _ in 0..<10_000 {
@@ -386,6 +388,9 @@ func runUISmoke() throws {
     gardenModel.configure(layout: GardenLayout(size: CGSize(width: 900, height: 620), clearingHeight: 114, seed: 3), mode: .off, now: 0)
     guard gardenModel.field.cells.isEmpty else { throw BooksAccessErrorForUI.failed("An Off garden kept cells") }
     try checkDottedProgressRow()
+    try checkLowPowerIsLive()
+    try checkErrorBannerClearing(model)
+    try checkBareTextOverGarden(populated: model, emptyRoot: root.appendingPathComponent("bare-text-empty"), defaults: defaults)
     var edged = GardenModel.plant(GardenLayout(size: CGSize(width: 350, height: 520), seed: 4, roots: 0, pollen: false,
                                                cornerRoots: [.bottomTrailing, .topTrailing], budget: 200, edgeBand: 2))
     edged.growToCompletion(limit: 2_000)
@@ -640,7 +645,7 @@ private func sameFixtureDate(_ lhs: Date?, _ rhs: Date, tolerance: TimeInterval 
     guard let lhs else { return false }
     return abs(lhs.timeIntervalSince(rhs)) <= tolerance
 }
-private enum BooksAccessErrorForUI: Error { case failed(String) }
+enum BooksAccessErrorForUI: Error { case failed(String) }
 
 /// A synthetic library near the reported history size; never opens the user's database.
 @MainActor

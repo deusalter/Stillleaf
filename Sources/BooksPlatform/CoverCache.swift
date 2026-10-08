@@ -24,6 +24,14 @@ public final class CoverCache {
         lastCheck.removeValue(forKey: bookID)
         return result
     }
+    /// Keeps cover bytes fetched from a public catalogue, after checking they are a real, modest image.
+    public func catalogueImage(_ data: Data, source: String) throws -> CachedCover {
+        lock.lock(); defer { lock.unlock() }
+        guard data.count <= 2 * 1024 * 1024, let image = NSImage(data: data), image.isValid else {
+            throw BooksAccessError.unavailable("The downloaded cover is not a supported image.")
+        }
+        return try cache(data, source: source)
+    }
     public func explicitEPUBImage(from url: URL) throws -> CachedCover {
         lock.lock(); defer { lock.unlock() }
         return try cache(boundedImage(url), source: "EPUB embedded cover")

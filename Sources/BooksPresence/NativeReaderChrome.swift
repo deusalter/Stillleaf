@@ -327,6 +327,12 @@ private struct ReaderSecondaryButtonStyle: ButtonStyle {
     let model = ReaderChromeModel()
     let toolbar = NSToolbar(identifier: "Stillleaf.reader")
     private let appearance = ReaderPopup()
+    private let library = ReaderPopup()
+    private let searchPopup = ReaderPopup()
+    let panels = ReaderPanelsModel()
+    private var findTask: Task<Void, Never>?
+    private var keepFocusOnClose = false
+    private var popups: [ReaderPopup] { [appearance, library, searchPopup] }
     private weak var window: NSWindow?
     private var active = false
     private var closing = false
@@ -361,7 +367,24 @@ private struct ReaderSecondaryButtonStyle: ButtonStyle {
         appearance.install(ReaderAppearanceView(model: model, close: { [weak self] in self?.appearance.close() }), size: NSSize(width: 380, height: 640))
         appearance.didShow = { [weak self] in self?.appearanceShows += 1 }
         appearance.didClose = { [weak self] in self?.appearanceCloses += 1; self?.returnFocus?() }
-        appearance.anchorHit = { [weak self] event in self?.hitsAppearanceButton(event) ?? false }
+        appearance.anchorHit = { [weak self] event in self?.hitsButton("appearance", event) ?? false }
+        appearance.setTitle("Appearance")
+        library.install(ReaderLibraryPanelView(chrome: model, panels: panels, close: { [weak self] in self?.library.close() }), size: NSSize(width: 380, height: 560))
+        library.setTitle("Contents and saved passages")
+        library.didClose = { [weak self] in self?.panelClosed() }
+        library.anchorHit = { [weak self] event in
+            guard let self else { return false }
+            return hitsButton(panels.tab == .notes ? "notes" : "contents", event)
+        }
+        searchPopup.install(ReaderSearchPanelView(chrome: model, panels: panels, close: { [weak self] in self?.searchPopup.close() }), size: NSSize(width: 380, height: 560))
+        searchPopup.setTitle("Search this book")
+        searchPopup.didClose = { [weak self] in self?.panelClosed() }
+        searchPopup.anchorHit = { [weak self] event in self?.hitsButton("search", event) ?? false }
+        panels.load = { [weak self] tab in self?.loadPanel(tab) }
+        panels.queryChanged = { [weak self] query in self?.scheduleFind(query) }
+        panels.open = { [weak self] row in self?.openRow(row) }
+        panels.remove = { [weak self] row in self?.removeRow(row) }
+        panels.edit = { [weak self] row in self?.editRow(row) }
         model.change = { [weak self] key, value in self?.updatePreference(key, value) }
         model.reset = { [weak self] in self?.resetAppearance() }
         displayObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in Task { @MainActor [weak self] in self?.sendPolicy() } }
@@ -390,7 +413,7 @@ private struct ReaderSecondaryButtonStyle: ButtonStyle {
     }
     func accept(_ value: [String: Any]) {
         model.accept(value); dialogOpen = value["dialogOpen"] as? Bool ?? false
-        appearance.setDark(model.panelPalette.dark)
+        popups.forEach { $0.setDark(model.panelPalette.dark) }
         bookmarked = value["bookmarked"] as? Bool ?? false
         for item in toolbar.items {
             if let button = item.view as? NSButton {
@@ -400,7 +423,7 @@ private struct ReaderSecondaryButtonStyle: ButtonStyle {
         }
         updateEnabled()
     }
-    func disconnect() { connectionGeneration += 1; active = false; resetTask?.cancel(); preferenceTask?.cancel(); pending.removeAll(); pendingCommands.removeAll(); appearance.close(); dismissCommandError(); updateEnabled() }
+    func disconnect() { connectionGeneration += 1; active = false; resetTask?.cancel(); preferenceTask?.cancel(); pending.removeAll(); pendingCommands.removeAll(); findTask?.cancel(); closePanels(); dismissCommandError(); updateEnabled() }
     func command(_ name: String) {
         guard canAcceptCommands, !pendingCommands.contains(name), send != nil else { return }
         // Native feedback is immediate; selection still requires the renderer's
@@ -471,23 +494,169 @@ private struct ReaderSecondaryButtonStyle: ButtonStyle {
         if let preferenceTask { await preferenceTask.value }
         if failedPreference { throw NSError(domain: "Stillleaf.ReaderControls", code: 1, userInfo: [NSLocalizedDescriptionKey: "The latest appearance change did not finish."]) }
     }
-    func owns(_ candidate: NSWindow?) -> Bool { appearance.isShown && candidate != nil && appearance.window === candidate }
+    func owns(_ candidate: NSWindow?) -> Bool { candidate != nil && popups.contains { $0.isShown && $0.window === candidate } }
     func openAppearance() {
         guard active, !closing, !dialogOpen, let window else { return }
         if appearance.isShown { appearance.close(); return }
         // The click that closed the panel by landing on its own button must not reopen it.
         if appearance.consumeReopenSuppression() { return }
+        closePanels(except: appearance)
         appearance.setDark(model.panelPalette.dark)
-        appearance.show(over: window)
+        appearance.show(over: window, below: anchorRect("appearance"))
     }
-    private func hitsAppearanceButton(_ event: NSEvent) -> Bool {
-        guard let button = toolbar.items.first(where: { $0.itemIdentifier.rawValue == "appearance" })?.view else { return false }
+
+    /// Contents and Notes share one panel; the toolbar button for each opens it on its own tab.
+    func openLibrary(_ tab: ReaderPanelsModel.Tab) {
+        guard canAcceptCommands, let window, send != nil else { return }
+        if library.isShown, panels.tab == tab { library.close(); return }
+        if library.consumeReopenSuppression() { return }
+        closePanels(except: library)
+        panels.error = nil
+        panels.tab = tab
+        library.setDark(model.panelPalette.dark)
+        if !library.isShown { library.show(over: window, below: anchorRect(tab == .notes ? "notes" : "contents")) }
+        loadPanel(tab)
+    }
+
+    func openSearch() {
+        guard canAcceptCommands, let window, send != nil else { return }
+        if searchPopup.isShown { searchPopup.close(); return }
+        if searchPopup.consumeReopenSuppression() { return }
+        closePanels(except: searchPopup)
+        panels.error = nil
+        panels.resetSearch()
+        searchPopup.setDark(model.panelPalette.dark)
+        searchPopup.show(over: window, below: anchorRect("search"))
+    }
+
+    /// Opens whichever panel a toolbar button or menu command names. Commands that are not panels close the open one first.
+    func performControl(_ name: String) { invoke(name) }
+
+    private func closePanels(except keep: ReaderPopup? = nil) {
+        for popup in popups where popup !== keep { popup.close() }
+    }
+
+    private func panelClosed() {
+        findTask?.cancel()
+        if keepFocusOnClose { keepFocusOnClose = false } else { returnFocus?() }
+    }
+
+    private func toolbarButton(_ name: String) -> NSView? {
+        toolbar.items.first(where: { $0.itemIdentifier.rawValue == name })?.view
+    }
+
+    /// The toolbar button's rectangle on screen, or nil when it is hidden in the toolbar's overflow menu.
+    private func anchorRect(_ name: String) -> NSRect? {
+        guard let view = toolbarButton(name), let host = view.window, !view.isHiddenOrHasHiddenAncestor else { return nil }
+        return host.convertToScreen(view.convert(view.bounds, to: nil))
+    }
+
+    private func hitsButton(_ name: String, _ event: NSEvent) -> Bool {
+        guard let button = toolbarButton(name) else { return false }
         return button.convert(button.bounds, to: nil).contains(event.locationInWindow)
+    }
+
+    // MARK: Panel data
+
+    private func loadPanel(_ tab: ReaderPanelsModel.Tab) {
+        guard let send else { return }
+        panels.markLoading(tab)
+        let generation = connectionGeneration
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let value = try await send("panel", ["name": tab.wireName])
+                guard active, generation == connectionGeneration else { return }
+                accept(value)
+                panels.apply(value["panel"] as? [String: Any])
+            } catch {
+                guard active, generation == connectionGeneration else { return }
+                panels.fail(tab)
+            }
+        }
+    }
+
+    /// Searches shortly after typing stops. A newer query supersedes an older one, here and in the renderer.
+    private func scheduleFind(_ query: String) {
+        findTask?.cancel()
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { panels.searchPrompt("Search within this book, entirely offline."); return }
+        if trimmed.count < 2 { panels.searchPrompt("Enter at least two characters."); return }
+        panels.searching()
+        let generation = connectionGeneration
+        findTask = Task { [weak self] in
+            guard let self else { return }
+            try? await Task.sleep(nanoseconds: 180_000_000)
+            guard !Task.isCancelled, active, generation == connectionGeneration, let send else { return }
+            do {
+                let value = try await send("find", ["query": query])
+                guard !Task.isCancelled, active, generation == connectionGeneration else { return }
+                accept(value)
+                panels.apply(value["panel"] as? [String: Any])
+            } catch {
+                guard !Task.isCancelled, active else { return }
+                panels.searchPrompt("Search could not finish. Try again.")
+            }
+        }
+    }
+
+    private func openRow(_ row: ReaderRow) {
+        guard let send, active else { return }
+        let generation = connectionGeneration
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let value = try await send("go", ["kind": row.wireKind, "id": row.id])
+                guard active, generation == connectionGeneration else { return }
+                accept(value)
+                closePanels()
+            } catch {
+                guard active, generation == connectionGeneration else { return }
+                panels.error = "That place could not be opened."
+            }
+        }
+    }
+
+    private func removeRow(_ row: ReaderRow) {
+        guard let send, active, row.kind == .bookmark || row.kind == .note else { return }
+        let generation = connectionGeneration
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let value = try await send("remove", ["kind": row.wireKind, "id": row.id])
+                guard active, generation == connectionGeneration else { return }
+                accept(value)
+                panels.apply(value["panel"] as? [String: Any])
+            } catch {
+                guard active, generation == connectionGeneration else { return }
+                panels.error = "That could not be removed. Try again."
+            }
+        }
+    }
+
+    /// The note editor stays the web dialog, so the panel hands over and does not take focus back.
+    private func editRow(_ row: ReaderRow) {
+        guard let send, active, row.kind == .note else { return }
+        let generation = connectionGeneration
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let value = try await send("editNote", ["id": row.id])
+                guard active, generation == connectionGeneration else { return }
+                keepFocusOnClose = true
+                accept(value)
+                closePanels()
+                keepFocusOnClose = false
+            } catch {
+                guard active, generation == connectionGeneration else { return }
+                panels.error = "That note could not be opened."
+            }
+        }
     }
     private func sendPolicy() {
         guard active, let send else { return }
         let workspace = NSWorkspace.shared
-        appearance.animates = !workspace.accessibilityDisplayShouldReduceMotion
+        popups.forEach { $0.animates = !workspace.accessibilityDisplayShouldReduceMotion }
         let policy = ["reduceMotion": workspace.accessibilityDisplayShouldReduceMotion, "reduceTransparency": workspace.accessibilityDisplayShouldReduceTransparency, "increaseContrast": workspace.accessibilityDisplayShouldIncreaseContrast]
         Task { _ = try? await send("policy", policy) }
     }
@@ -525,8 +694,13 @@ private struct ReaderSecondaryButtonStyle: ButtonStyle {
                 if item.itemIdentifier.rawValue == "focus" { button.state = model.preferences["immersive"] as? Bool == true ? .on : .off }
             }
         }
-        if name == "appearance" { openAppearance() }
-        else { appearance.close(); command(name) }
+        switch name {
+        case "appearance": openAppearance()
+        case "contents": openLibrary(.contents)
+        case "notes": openLibrary(.notes)
+        case "search": openSearch()
+        default: closePanels(); command(name)
+        }
     }
     func testPendingFeedback() async throws {
         guard let original = send,
@@ -612,6 +786,81 @@ private struct ReaderSecondaryButtonStyle: ButtonStyle {
         guard !appearance.isShown, appearanceShows == shows + 2, appearanceCloses == closes + 2 else { throw NSError(domain: "Stillleaf.ReaderControls", code: 22) }
         print("native-reader-appearance-panel: opens under the toolbar as a child window, Escape and the toolbar button both close it")
     }
+    /// The native Contents, Bookmarks, Notes and Search panels, against the real renderer: they open under their
+    /// toolbar buttons, show the book's own rows, open a place, remove a bookmark, search, and close on Escape.
+    func testPanels(evaluate: @escaping (String) async throws -> Any?, captureDirectory: URL?) async throws {
+        func failure(_ code: Int, _ detail: String) -> NSError { NSError(domain: "Stillleaf.ReaderControls", code: code, userInfo: [NSLocalizedDescriptionKey: detail]) }
+        func wait(_ what: String, _ condition: () -> Bool) async throws {
+            let deadline = Date().addingTimeInterval(8)
+            while !condition() && Date() < deadline { try await Task.sleep(nanoseconds: 20_000_000) }
+            guard condition() else { throw failure(30, "Native panel never reached: \(what)") }
+        }
+        func capture(_ popup: ReaderPopup, _ name: String) async throws {
+            guard let captureDirectory, let panel = popup.window, let root = popup.contentView else { return }
+            root.layoutSubtreeIfNeeded(); root.displayIfNeeded()
+            try await captureNativeWindow(panel, to: captureDirectory.appendingPathComponent(name), contextWindow: window)
+        }
+        func bookmarkCount() async throws -> Int { try await evaluate("window.StillleafReader.exportState().bookmarks.length") as? Int ?? -1 }
+        guard let owner = window else { throw failure(31, "No reader window") }
+
+        // Contents: anchored under its button, rows from the book, no empty titles, closes when its button is pressed again.
+        try testClick("contents")
+        try await wait("contents rows") { library.isShown && panels.tab == .contents && !panels.page(.contents).rows.isEmpty }
+        guard owner.childWindows?.contains(library.panel) == true, owns(library.window), !panels.page(.contents).rows.contains(where: { $0.title.isEmpty }) else { throw failure(32, "Contents panel is not a child window with titled rows") }
+        try await capture(library, "native-panel-contents.png")
+        try testClick("contents")
+        guard !library.isShown else { throw failure(33, "The Contents button did not close its panel") }
+
+        // The Notes button opens the same panel on its own tab; switching buttons keeps one panel open.
+        try testClick("contents")
+        try await wait("contents again") { library.isShown && !panels.page(.contents).rows.isEmpty }
+        try testClick("notes")
+        try await wait("notes tab") { library.isShown && panels.tab == .notes && !panels.page(.notes).loading }
+        try await capture(library, "native-panel-notes.png")
+        guard [appearance, searchPopup].allSatisfy({ !$0.isShown }) else { throw failure(34, "More than one panel is open") }
+
+        // Opening a row goes there and closes the panel.
+        panels.select(.contents)
+        try await wait("contents rows after switching") { !panels.page(.contents).rows.isEmpty }
+        guard let target = panels.page(.contents).rows.first else { throw failure(35, "No contents rows") }
+        panels.open?(target)
+        try await wait("panel to close after opening a row") { !library.isShown }
+        guard let href = try await evaluate("window.StillleafReader.bookmark()?.href ?? ''") as? String, !href.isEmpty else { throw failure(36, "Opening a row did not navigate") }
+
+        // Bookmarks: the bookmark button adds one, the panel lists it, and removing it removes it from the book.
+        let before = try await bookmarkCount()
+        try testClick("bookmark")
+        let added = Date().addingTimeInterval(5)
+        while try await bookmarkCount() == before && Date() < added { try await Task.sleep(nanoseconds: 25_000_000) }
+        guard try await bookmarkCount() == before + 1 else { throw failure(37, "The bookmark was not added") }
+        try testClick("contents")
+        try await wait("library") { library.isShown }
+        panels.select(.bookmarks)
+        try await wait("bookmark row") { panels.page(.bookmarks).rows.count == before + 1 && !panels.page(.bookmarks).loading }
+        try await capture(library, "native-panel-bookmarks.png")
+        if let row = panels.page(.bookmarks).rows.first { panels.remove?(row) }
+        try await wait("bookmark to be removed") { panels.page(.bookmarks).rows.count == before }
+        guard try await bookmarkCount() == before else { throw failure(38, "Removing the row did not remove the bookmark") }
+        library.close()
+
+        // Search: results arrive as rows, Escape closes, and a result opens its place.
+        try testClick("search")
+        try await wait("search panel") { searchPopup.isShown }
+        panels.query = "the"
+        try await wait("search results") { !panels.results.rows.isEmpty }
+        guard panels.results.status.contains("matching") else { throw failure(39, "Search status was \(panels.results.status)") }
+        try await capture(searchPopup, "native-panel-search.png")
+        searchPopup.panel.cancelOperation(nil)
+        guard !searchPopup.isShown else { throw failure(40, "Escape did not close Search") }
+        try testClick("search")
+        try await wait("search again") { searchPopup.isShown }
+        panels.query = "the"
+        try await wait("results again") { !panels.results.rows.isEmpty }
+        panels.openFirstResult()
+        try await wait("search to close after opening a result") { !searchPopup.isShown }
+        print("native-reader-panels: Contents, Bookmarks, Notes and Search open under their buttons, show the book's rows, open places, remove a bookmark and close on Escape")
+    }
+
     func testCaptureAppearance(to url: URL, includeBottom: Bool = false) async throws {
         openAppearance()
         let deadline = Date().addingTimeInterval(2)

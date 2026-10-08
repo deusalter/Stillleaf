@@ -23,16 +23,20 @@ struct AtlasDayView: View {
                     AtlasDayLanes(booksByID: presentation.booksByID, navigation: navigation, slicesByBook: presentation.displaySlicesByBook,
                         firstSliceStart: presentation.displayStart, bookIDs: bookIDs) { selectedBook = $0 }
                 }
-                HStack {
-                    Text(selectedBook.map { title($0) } ?? "Sessions").font(.system(size: 14, weight: .semibold)).accessibilityAddTraits(.isHeader)
-                    Spacer()
-                    if selectedBook != nil { Button("All books") { selectedBook = nil }.buttonStyle(AtlasButtonStyle()) }
-                }
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 24, alignment: .top)], alignment: .leading, spacing: 24) {
-                    ForEach(presentation.sessions.filter { selectedBook == nil || $0.session.bookID == selectedBook }) { session in
-                        AtlasSessionCard(booksByID: presentation.booksByID, timezoneID: navigation.timezoneID, presentation: session, period: period, editSession: editSession)
+                VStack(alignment: .leading, spacing: 22) {
+                    HStack {
+                        Text(selectedBook.map { title($0) } ?? "Sessions").font(.system(size: 14, weight: .semibold)).accessibilityAddTraits(.isHeader)
+                        Spacer()
+                        if selectedBook != nil { Button("All books") { selectedBook = nil }.buttonStyle(AtlasButtonStyle()) }
+                    }
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 24, alignment: .top)], alignment: .leading, spacing: 24) {
+                        ForEach(presentation.sessions.filter { selectedBook == nil || $0.session.bookID == selectedBook }) { session in
+                            AtlasSessionCard(booksByID: presentation.booksByID, timezoneID: navigation.timezoneID, presentation: session, period: period, editSession: editSession)
+                        }
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .readingPanel()
             }
             let excluded = evidence.filter { $0.interval.disposition == .excluded }
             if !excluded.isEmpty {
@@ -46,6 +50,7 @@ struct AtlasDayView: View {
                         }.padding(.vertical, 5)
                     }
                 }.font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
+                    .frame(maxWidth: .infinity, alignment: .leading).readingPanel()
             }
         }
         .onChange(of: presentation.key.revision) { _ in

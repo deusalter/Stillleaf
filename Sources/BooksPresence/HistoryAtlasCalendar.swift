@@ -15,7 +15,7 @@ struct AtlasWeekView: View {
         // rescanning the week's days from each GeometryReader/segment closure.
         let maximumMinutes = max(30, ceil((days.map(\.creditedSeconds).max() ?? 0) / 60 / 30) * 30)
         return ViewThatFits(in: .horizontal) {
-            HStack(alignment: .top, spacing: 24) { chart(maximumMinutes: maximumMinutes).frame(minWidth: 420); bookSummary.frame(width: 210) }
+            HStack(alignment: .top, spacing: 24) { chart(maximumMinutes: maximumMinutes).frame(minWidth: 420); bookSummary.frame(width: 258) }
             VStack(alignment: .leading, spacing: 24) { chart(maximumMinutes: maximumMinutes); bookSummary }
         }
     }
@@ -92,7 +92,7 @@ struct AtlasWeekView: View {
                 AtlasBookLabel(booksByID: presentation.booksByID, id: id,
                     detail: (pages > 0 ? "\(pages) pages\n" : "") + "\(ReadingFormat.duration(seconds)) recorded", small: true)
             }
-        }.frame(maxWidth: .infinity, alignment: .leading)
+        }.frame(maxWidth: .infinity, alignment: .leading).modifier(OptionalPanel(show: !bookIDs.isEmpty))
     }
 }
 
@@ -162,7 +162,7 @@ struct AtlasMonthView: View {
                                  cells: navigation.monthCells, weekdayNames: weekdayNames)
         let details = detail(selectedDate: selectedDate, selectedDay: selectedDay)
         return ViewThatFits(in: .horizontal) {
-            HStack(alignment: .top, spacing: 24) { grid.frame(minWidth: 440); details.frame(width: 220) }
+            HStack(alignment: .top, spacing: 24) { grid.frame(minWidth: 440); details.frame(width: 268) }
             VStack(alignment: .leading, spacing: 24) { grid; details }
         }
     }
@@ -204,8 +204,18 @@ struct AtlasMonthView: View {
                 .overlay(RoundedRectangle(cornerRadius: 12).stroke(isSelected ? ReadingPalette.accent : .clear, lineWidth: 1))
                 .contentShape(Rectangle()).opacity(future ? 0.3 : 1)
         }.buttonStyle(.plain).disabled(future)
+            // A click selects the day; the second click of a double-click opens it,
+            // the same destination as the detail pane's "Open day" button.
+            .simultaneousGesture(TapGesture(count: 2).onEnded { openDay(date, today: today) })
+            .modifier(AtlasReturnOpensDay(open: { openDay(date, today: today) }))
             .accessibilityLabel("\(DateText.string(date, zone: navigation.timezoneID, pattern: "EEEE, MMMM d")), \(ReadingFormat.duration(seconds)) recorded, \(pages) pages. \(names).")
+            .accessibilityActions { if !future { Button("Open day") { openDay(date, today: today) } } }
             .accessibilityAddTraits(isSelected ? .isSelected : []).help(names.isEmpty ? "No credited time" : names)
+    }
+    private func openDay(_ date: Date, today: Date) {
+        guard date <= today else { return }
+        selected = date
+        select(date)
     }
     private func detail(selectedDate: Date, selectedDay: AtlasDayPresentation?) -> some View {
         let selectedIDs = selectedDay?.bookIDs ?? []
@@ -228,6 +238,31 @@ struct AtlasMonthView: View {
                     }
                 }
             }
-        }.frame(maxWidth: .infinity, alignment: .leading)
+        }.frame(maxWidth: .infinity, alignment: .leading).readingPanel()
+    }
+}
+
+/// A glass panel around a block of text that would otherwise sit straight over the garden.
+private struct OptionalPanel: ViewModifier {
+    let show: Bool
+    @ViewBuilder func body(content: Content) -> some View {
+        if show { content.readingPanel() } else { content }
+    }
+}
+
+/// Return on a focused day opens it, as double-clicking does. `onKeyPress` needs
+/// macOS 14; earlier systems keep Space (select) and the "Open day" button.
+private struct AtlasReturnOpensDay: ViewModifier {
+    let open: () -> Void
+    func body(content: Content) -> some View {
+        #if compiler(>=5.9)
+        if #available(macOS 14.0, *) {
+            content.onKeyPress(.return) { open(); return .handled }
+        } else {
+            content
+        }
+        #else
+        content
+        #endif
     }
 }
