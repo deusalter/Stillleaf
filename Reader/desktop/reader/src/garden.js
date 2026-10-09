@@ -1,8 +1,14 @@
 /** The margin garden: ASCII vines in the empty window space around the page card, grown in step with
  * chapter progress, a spine vine in the column gap of facing pages, and a progress vine along the footer
  * pill. Decorative only: every canvas is aria-hidden, takes no input and never affects layout.
- * See docs/specs/glass-vines.md and design/glass-vines/garden-and-reader-themes.html (the approved mockup). */
+ * See docs/specs/glass-vines.md and design/glass-vines/garden-and-reader-themes.html (the approved mockup).
+ *
+ * An animated margin garden is also Living (design/dynamic-motion): once it has settled, a light loop (living.js,
+ * at most 15 frames a second) grows the occasional shoot, withers old growth, flutters leaves in the wind, drops petals
+ * and, in dark themes, lets fireflies out. Each of those frames repaints only the cells and particles that changed.
+ * It is off in Still, Off and Reduce Motion, and it stops while the page is hidden, scrolling or turning. */
 import {createField, vinePalette, gardenSeed, isDarkColor} from './vines.js';
+import {createLiving, windAt, swayOf, REST, FRAME_MS} from './living.js';
 
 const FONT = 13, LINE = 16, FOOT_FONT = 12, FOOT_LINE = 14, MIN_MARGIN_CELLS = 7, BUDGET = 1500, STAGGER = 7, FADE = 700, GHOST = 900, FREEZE = 300;
 // Every chapter starts as a young garden (about the mockup at 18%: START_CELLS vines, or START_SHARE of a small garden)
@@ -11,6 +17,9 @@ const START_CELLS = 270, START_SHARE = 0.4, CARD_EDGE = 16, CLEAR_PAGE = 2, CLEA
 const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 const overlaps = (a, b) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
 const MODES = ['animated', 'still', 'off'];
+// A glyph's ink can overhang its cell by a few pixels; a swaying one also moves by up to a third of a cell.
+const INK_PAD = 3, FLY_GLOW = 46, VSYNC_MS = 14;
+const poseKey = pose => pose.dx * 32 + pose.flip * 4;
 const hex = value => /^#[0-9a-f]{6}$/i.test(value) ? value : null;
 const monospace = size => `${size}px ui-monospace, "SF Mono", Menlo, monospace`;
 /** A rect grown to whole cells, plus `cells` more cells on every side. */
@@ -37,6 +46,12 @@ export function installGarden({canvas, spine, footer, percent, viewport, chrome,
   // setMode() then follows live changes.
   let mode = MODES.includes(window.__stillleafGardenMode) ? window.__stillleafGardenMode : 'animated', frozen = false, freezeTimer = 0, layoutTimer = 0, frame = 0;
   let holdUntil = 0, ticks = 0, drawMs = 0, slowestDraw = 0, progress = 0, chapter = null, pending = null, palette = null, deferred = false;
+  // The Living layer. `drawn` remembers what each moving margin cell looked like when it was last painted, so a frame
+  // repaints only the cells that differ now; `swayers` are the settled garden's leaves and blooms, which the wind moves.
+  const living = createLiving({pace: window.__stillleafGardenDebug ? Number(window.__stillleafGardenPace) || 1 : 1});
+  const stats = {frames: 0, drawMs: 0, slowestMs: 0, shortestGap: Infinity, idle: 0, dirtyTotal: 0, peakDirty: 0, swaying: 0};
+  const drawn = new Map(), glows = new Map();
+  let swayers = [], particleRects = [], ambientTimer = 0, ambientFrame = 0, ambientLast = 0, lastFrameAt = 0;
   const scene = (target, font, line, trackAlpha) => ({canvas: target, field: null, born: new Map(), ghosts: [], context: target.getContext('2d'), origin: {left: 0, top: 0}, font, line, cw: 7.8, ch: line, track: [], trackAlpha});
   const margins = scene(canvas, FONT, LINE, 0), column = scene(spine, FONT, LINE, 0.55), foot = scene(footer, FOOT_FONT, FOOT_LINE, 0.9);
   const scenes = [margins, column, foot];
@@ -44,6 +59,8 @@ export function installGarden({canvas, spine, footer, percent, viewport, chrome,
   root.dataset.garden = mode;
   const active = () => mode !== 'off' && enabled();
   const still = () => mode === 'still' || reduce.matches;
+  /** Wind, shoots, petals and fireflies: an animated garden only. */
+  const lively = () => active() && !still();
 
   function measure() {
     const style = getComputedStyle(root), color = name => hex(style.getPropertyValue(name).trim());
@@ -75,6 +92,10 @@ export function installGarden({canvas, spine, footer, percent, viewport, chrome,
       {x: Math.floor(left / 2), y: bottom, heading: -1.5, bias: -1.5}, {x: 1, y: top, heading: 0.7, bias: 1.25});
     if (rightOK) seeds.push({x: columns - 4, y: bottom, heading: -1.8, bias: -1.6}, {x: Math.min(columns - 2, right), y: bottom, heading: -1.4, bias: -1.55},
       {x: Math.floor((right + columns) / 2), y: bottom, heading: -1.6, bias: -1.6}, {x: columns - 2, y: top, heading: 2.45, bias: 1.9});
+    // The live layer keeps its shoots while the layout stays the same, and keeps wind, petals and fireflies clear of the page and bars.
+    const gap = 2 * cw + 4, zone = (left, right) => ({left, right, top: 70, bottom: innerHeight - 20});
+    margins.layout = {key: [columns, rows, cw, Math.round(page.left), Math.round(page.right), leftOK, rightOK].join('|'), avoid: keepClear,
+      zones: [...(leftOK ? [zone(14, page.left - gap)] : []), ...(rightOK ? [zone(page.right + gap, innerWidth - 14)] : [])]};
     const seed = gardenSeed('reader', `${edition()}|${chapter}`);
     const grow = budget => {
       const field = createField({columns, rows, cellWidth: cw, cellHeight: ch, seed, maxCells: BUDGET});
@@ -145,6 +166,7 @@ export function installGarden({canvas, spine, footer, percent, viewport, chrome,
   function wipe() {
     for (const s of scenes) { s.field = null; s.born = new Map(); s.ghosts = []; s.track = []; s.context.clearRect(0, 0, 1e5, 1e5); s.canvas.classList.remove('breathing', 'held'); }
     cancelAnimationFrame(frame); frame = 0;
+    stopAmbient(); living.reset(); drawn.clear(); swayers = []; particleRects = [];
     root.classList.remove('garden-card', 'garden-facing');
   }
 
@@ -167,24 +189,77 @@ export function installGarden({canvas, spine, footer, percent, viewport, chrome,
     size(foot, rect.width, rect.height);
     foot.origin = {left: rect.left, top: rect.top};
     regrow(margins, plantMargins(progress), now);
+    if (lively()) living.attach({field: margins.field, columns: margins.field.columns, rows: margins.field.rows, cw: margins.cw, ch: margins.ch, width: innerWidth, height: innerHeight, dark: palette.dark, ...margins.layout});
+    else { stopAmbient(); living.reset(); }
+    swayers = lively() ? [...margins.field.cells].filter(([, cell]) => cell.kind !== 'stem') : [];
     regrow(column, plantSpine(progress), now);
     regrow(foot, plantFoot(progress), now);
     schedule();
   }
 
-  function paint(s, cell, alpha) {
+  /** A cell at `alpha`, shifted and fluttered by the wind `pose` (a leaf cross-fades to its fluttered glyph). */
+  function paint(s, cell, alpha, pose = REST) {
     if (alpha <= 0.01) return;
     const colors = palette[cell.kind === 'stem' ? 'stems' : cell.kind === 'leaf' ? 'leaves' : 'blooms'];
     // Blooms stay subtle on dark pages; every cell carries a fixed shimmer so the garden is not one flat tone.
     const tone = (cell.kind === 'bloom' && palette.dark ? 0.75 : 1) * (0.86 + 0.14 * Math.sin(cell.phase));
-    s.context.globalAlpha = Math.min(1, alpha * depth(cell) * tone);
+    const level = Math.min(1, alpha * depth(cell) * tone), x = cell.x * s.cw + pose.dx, y = cell.y * s.ch, flutter = cell.alternate && pose.flip > 0 ? pose.flip : 0;
     s.context.fillStyle = colors[cell.slot % colors.length];
-    s.context.fillText(cell.glyph, cell.x * s.cw, cell.y * s.ch);
+    s.context.globalAlpha = level * (1 - flutter);
+    if (flutter < 1) s.context.fillText(cell.glyph, x, y);
+    if (flutter > 0) { s.context.globalAlpha = level * flutter; s.context.fillText(cell.alternate, x, y); }
+  }
+
+  /** The settled wind pose of a margin cell right now. */
+  function poseOf(cell) {
+    if (cell.kind === 'stem' || !lively()) return REST;
+    return swayOf(cell.kind, windAt((cell.x + 0.5) * margins.cw, (cell.y + 0.5) * margins.ch, living.time / 1000), margins.cw);
+  }
+  const restAlpha = cell => palette.baseAlpha * (cell.kind === 'stem' ? 0.9 : 1);
+  /** What a live-growth cell looks like now: its opacity, pose, and a signature that changes whenever either does. */
+  function liveLook(entry) {
+    const fade = living.alpha(entry), pose = poseOf(entry.cell);
+    return {alpha: fade * restAlpha(entry.cell), pose, sig: Math.round(fade * 24) * 1000 + poseKey(pose)};
+  }
+
+  function glow(color) {
+    let sprite = glows.get(color);
+    if (!sprite) {
+      sprite = document.createElement('canvas'); sprite.width = sprite.height = 64;
+      const g = sprite.getContext('2d'), ramp = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+      ramp.addColorStop(0, color + 'f2'); ramp.addColorStop(0.18, color + '73'); ramp.addColorStop(0.5, color + '1f'); ramp.addColorStop(1, color + '00');
+      g.fillStyle = ramp; g.fillRect(0, 0, 64, 64); glows.set(color, sprite);
+    }
+    return sprite;
+  }
+
+  /** The rectangles the visible spores, petals and fireflies cover now. */
+  function particleBounds() {
+    const {cw, ch} = margins, rects = [];
+    for (const p of living.particles) if (p.alpha > 0.01) rects.push({left: p.x - INK_PAD, top: p.y - INK_PAD, right: p.x + cw + INK_PAD, bottom: p.y + ch + INK_PAD});
+    for (const f of living.flies) if (f.alpha > 0.01) rects.push({left: f.x - FLY_GLOW / 2, top: f.y - FLY_GLOW / 2, right: f.x + FLY_GLOW / 2, bottom: f.y + FLY_GLOW / 2});
+    return rects;
+  }
+
+  function paintParticles() {
+    const {context} = margins;
+    for (const p of living.particles) {
+      if (p.alpha <= 0.01) continue;
+      context.globalAlpha = p.alpha; context.fillStyle = p.kind === 'spore' ? palette.leaves[1] : palette.blooms[p.slot % palette.blooms.length];
+      context.fillText(p.glyph, p.x, p.y);
+    }
+    for (const f of living.flies) {
+      if (f.alpha <= 0.01) continue;
+      context.globalAlpha = f.alpha * 0.8; context.drawImage(glow('#e6f59a'), f.x - FLY_GLOW / 2, f.y - FLY_GLOW / 2, FLY_GLOW, FLY_GLOW);
+      context.globalAlpha = f.alpha; context.fillStyle = '#fbffe0';
+      context.beginPath(); context.arc(f.x, f.y, 1.8, 0, Math.PI * 2); context.fill();
+    }
   }
 
   function draw(s, now) {
     const {context} = s;
     context.clearRect(0, 0, 1e5, 1e5);
+    if (s === margins) drawn.clear();
     context.font = monospace(s.font);
     context.textBaseline = 'top';
     if (s.track.length && s.field) {
@@ -196,7 +271,13 @@ export function installGarden({canvas, spine, footer, percent, viewport, chrome,
     for (const [key, cell] of s.field?.cells ?? []) {
       const age = now - s.born.get(key);
       if (age < FADE) busy = true;
-      paint(s, cell, smooth(0, FADE, age) * palette.baseAlpha * (cell.kind === 'stem' ? 0.9 : 1));
+      const pose = s === margins ? poseOf(cell) : REST;
+      if (pose !== REST) drawn.set(key, poseKey(pose));
+      paint(s, cell, smooth(0, FADE, age) * restAlpha(cell), pose);
+    }
+    if (s === margins) {
+      for (const [key, entry] of living.entries) { const look = liveLook(entry); drawn.set(key, look.sig); paint(s, entry.cell, look.alpha, look.pose); }
+      particleRects = particleBounds(); paintParticles();
     }
     s.ghosts = s.ghosts.filter(g => now - g.dying < GHOST);
     for (const ghost of s.ghosts) { busy = true; paint(s, ghost.cell, palette.baseAlpha * (1 - smooth(0, GHOST, now - ghost.dying))); }
@@ -206,6 +287,8 @@ export function installGarden({canvas, spine, footer, percent, viewport, chrome,
 
   function tick() {
     frame = 0;
+    // A full redraw supersedes the ambient loop, which starts again below once the garden has settled.
+    stopAmbient();
     if (!active() || !palette) return;
     ticks++;
     const now = performance.now();
@@ -215,6 +298,84 @@ export function installGarden({canvas, spine, footer, percent, viewport, chrome,
     // Draw only while something fades; a settled garden is a still image that breathes in CSS.
     if (busy && !frozen) frame = requestAnimationFrame(tick);
     for (const s of scenes) s.canvas.classList.toggle('breathing', !busy && !frozen && !still());
+    if (!busy) startAmbient();
+  }
+
+  const canAmbient = () => lively() && !frozen && !frame && !document.hidden && !!palette && !!margins.field;
+  const kick = () => { ambientTimer = 0; ambientFrame = requestAnimationFrame(ambientTick); };
+  function startAmbient() {
+    if (ambientTimer || ambientFrame || !canAmbient()) return;
+    ambientLast = performance.now(); lastFrameAt = 0;
+    ambientTimer = setTimeout(kick, FRAME_MS);
+  }
+  function stopAmbient() {
+    clearTimeout(ambientTimer); cancelAnimationFrame(ambientFrame);
+    ambientTimer = ambientFrame = 0;
+  }
+
+  /** One Living frame: move the model on, then repaint just the cells whose look changed and the particles' old and new places. */
+  function ambientTick() {
+    ambientFrame = 0;
+    if (!canAmbient()) return;
+    const began = performance.now(), {context, cw, ch} = margins, {columns} = margins.field;
+    // The timer wakes a little early to land on the right display frame; a frame that arrives too soon waits for the next one.
+    if (lastFrameAt && began - lastFrameAt < FRAME_MS - 2) { ambientFrame = requestAnimationFrame(ambientTick); return; }
+    if (lastFrameAt) stats.shortestGap = Math.min(stats.shortestGap, began - lastFrameAt);
+    lastFrameAt = began;
+    living.advance(began - ambientLast); ambientLast = began;
+    const changed = [], current = particleBounds(), remember = (key, sig) => { if (sig) drawn.set(key, sig); else drawn.delete(key); changed.push(key); };
+    let swaying = 0;
+    for (const [key, cell] of swayers) {
+      const sig = poseKey(poseOf(cell));
+      if (sig) swaying++;
+      if (sig !== (drawn.get(key) ?? 0)) remember(key, sig);
+    }
+    for (const [key, entry] of living.entries) {
+      const look = liveLook(entry);
+      if (look.pose !== REST) swaying++;
+      if (look.sig !== (drawn.get(key) ?? 0)) remember(key, look.sig);
+    }
+    // Live cells that finished withering since the last frame leave their last pixels behind unless they are cleared too.
+    for (const key of drawn.keys()) if (!margins.field.cells.has(key) && !living.entries.has(key)) remember(key, 0);
+    if (!changed.length && !current.length && !particleRects.length) { stats.idle++; return finishAmbient(began, 0, swaying); }
+    // The rectangles to repaint, snapped to whole pixels so a clip edge never half-covers a device pixel.
+    const reach = INK_PAD + Math.ceil(cw * 0.3), rects = [...particleRects, ...current];
+    for (const key of changed) { const x = key % columns, y = Math.floor(key / columns); rects.push({left: x * cw - reach, right: (x + 1) * cw + reach, top: y * ch - INK_PAD, bottom: (y + 1) * ch + INK_PAD}); }
+    let area = 0;
+    context.font = monospace(margins.font); context.textBaseline = 'top';
+    context.save();
+    context.beginPath();
+    for (const r of rects) {
+      const left = Math.max(0, Math.floor(r.left)), top = Math.max(0, Math.floor(r.top)), right = Math.min(innerWidth, Math.ceil(r.right)), bottom = Math.min(innerHeight, Math.ceil(r.bottom));
+      r.left = left; r.top = top; r.right = right; r.bottom = bottom;
+      context.rect(left, top, right - left, bottom - top); area += Math.max(0, right - left) * Math.max(0, bottom - top);
+    }
+    context.clip();
+    context.clearRect(0, 0, 1e5, 1e5);
+    // Every cell the cleared rectangles touch is painted again, once, so nothing is lost or doubled.
+    const touched = new Set(), now = performance.now();
+    for (const r of rects) {
+      for (let y = Math.max(0, Math.floor((r.top - INK_PAD) / ch)); y <= Math.floor((r.bottom + INK_PAD) / ch); y++) {
+        for (let x = Math.max(0, Math.floor((r.left - INK_PAD) / cw)); x <= Math.min(columns - 1, Math.floor((r.right + INK_PAD) / cw)); x++) touched.add(y * columns + x);
+      }
+    }
+    for (const key of touched) {
+      const cell = margins.field.cells.get(key);
+      if (cell) paint(margins, cell, smooth(0, FADE, now - margins.born.get(key)) * restAlpha(cell), poseOf(cell));
+      else { const entry = living.entries.get(key); if (entry) { const look = liveLook(entry); paint(margins, entry.cell, look.alpha, look.pose); } }
+    }
+    paintParticles();
+    particleRects = current;
+    context.restore();
+    context.globalAlpha = 1;
+    finishAmbient(began, area / (innerWidth * innerHeight), swaying);
+  }
+
+  function finishAmbient(began, share, swaying) {
+    const spent = performance.now() - began;
+    stats.frames++; stats.drawMs += spent; stats.slowestMs = Math.max(stats.slowestMs, spent);
+    stats.dirtyTotal += share; stats.peakDirty = Math.max(stats.peakDirty, share); stats.swaying = swaying;
+    if (canAmbient()) ambientTimer = setTimeout(kick, Math.max(0, FRAME_MS - spent - VSYNC_MS));
   }
 
   /** Paints the next frame. A Still garden has nothing to fade, so it paints at once instead of waiting for a frame. */
@@ -238,6 +399,10 @@ export function installGarden({canvas, spine, footer, percent, viewport, chrome,
     schedule();
   }
   if (typeof ResizeObserver === 'function') new ResizeObserver(() => { clearTimeout(footTimer); footTimer = setTimeout(fitFoot, 60); }).observe(footer);
+
+  // Nothing moves in a hidden window; it picks up where it left off when shown again.
+  document.addEventListener('visibilitychange', () => { if (document.hidden) stopAmbient(); else startAmbient(); });
+  reduce.addEventListener?.('change', () => rebuild());
 
   const showPercent = value => { percent.textContent = `${Math.round(value * 100)}%`; };
 
@@ -263,6 +428,7 @@ export function installGarden({canvas, spine, footer, percent, viewport, chrome,
       if (!active()) return;
       frozen = true;
       cancelAnimationFrame(frame); frame = 0;
+      stopAmbient();
       // Hold the breathing where it is: removing it would snap the canvases back to full opacity on every key press.
       for (const s of scenes) s.canvas.classList.add('held');
       // Later input extends a hold; it never shortens one that a page turn asked for.
@@ -288,7 +454,11 @@ export function installGarden({canvas, spine, footer, percent, viewport, chrome,
       percent.textContent = '';
       wipe();
     },
-    debug() {
+    debug(light = false) {
+      const ambient = {running: ambientTimer !== 0 || ambientFrame !== 0, frames: stats.frames, drawMs: stats.drawMs, slowestMs: stats.slowestMs, shortestGap: stats.shortestGap,
+        idleFrames: stats.idle, meanDirtyShare: stats.frames ? stats.dirtyTotal / stats.frames : 0, peakDirtyShare: stats.peakDirty, swaying: stats.swaying, time: living.time, living: living.counts()};
+      // Cheap enough to poll every few milliseconds, unlike the cell rectangles below.
+      if (light) return {frozen, mode, animating: frame !== 0, ticks, ambient};
       const rects = s => {
         if (!s.field) return [];
         return [...s.field.cells.values()].map(c => ({left: s.origin.left + c.x * s.cw, right: s.origin.left + (c.x + 1) * s.cw, top: s.origin.top + c.y * s.ch, bottom: s.origin.top + (c.y + 1) * s.ch, kind: c.kind}));
@@ -296,7 +466,7 @@ export function installGarden({canvas, spine, footer, percent, viewport, chrome,
       const track = s => s.track.map(p => ({left: s.origin.left + p.x * s.cw, right: s.origin.left + (p.x + 1) * s.cw, top: s.origin.top + p.y * s.ch, bottom: s.origin.top + (p.y + 1) * s.ch}));
       return {cells: rects(margins), spine: rects(column), foot: rects(foot), footTrack: track(foot), progress, frozen, mode,
         gutter: layout().gutter, animating: frame !== 0, ticks, drawMs, slowestDraw, ghosts: scenes.reduce((n, s) => n + s.ghosts.length, 0),
-        card: root.classList.contains('garden-card'), on: root.classList.contains('garden-on'), palette};
+        card: root.classList.contains('garden-card'), on: root.classList.contains('garden-on'), palette, ambient};
     }
   };
 }

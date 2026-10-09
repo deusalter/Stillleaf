@@ -913,7 +913,7 @@ const nativeChrome=nativeChromeAdapter({edition:()=>input?.editionId,ready:()=>B
   if(command==='policy')for(const [key,value]of Object.entries(payload)){document.body.classList.toggle('native-'+key,value);if(key==='reduceMotion'&&value)pageSlide.invalidate()}
  }});
 const api={nativeControl:request=>nativeChrome.dispatch(request),setGardenMode:mode=>garden.setMode(mode),
- ...(window.__stillleafGardenDebug||new URLSearchParams(location.search).has('debug-garden')?{gardenDebug:()=>garden.debug(),slideDebug:()=>pageSlide.debug(),slideInvalidate:()=>pageSlide.invalidate()}:{}),open,close,prepareClose,hasPendingDraft,returnFromJump,next:()=>turn('next'),previous:()=>turn('previous'),go,setPreferences,bookmark:()=>lastLocator?clone(lastLocator):null,restore:go,exportState:()=>{if(hasPendingDraft())persistNote();if(navigator?.kind==='continuous')navigator.report();return snapshot()},addBookmark,annotate};
+ ...(window.__stillleafGardenDebug||new URLSearchParams(location.search).has('debug-garden')?{gardenDebug:light=>garden.debug(light),slideDebug:()=>pageSlide.debug(),slideInvalidate:()=>pageSlide.invalidate()}:{}),open,close,prepareClose,hasPendingDraft,returnFromJump,next:()=>turn('next'),previous:()=>turn('previous'),go,setPreferences,bookmark:()=>lastLocator?clone(lastLocator):null,restore:go,exportState:()=>{if(hasPendingDraft())persistNote();if(navigator?.kind==='continuous')navigator.report();return snapshot()},addBookmark,annotate};
 window.StillleafReader=Object.freeze(api);
 $('return-jump').onclick=()=>void returnFromJump();
 $('back').onclick=async()=>{if(await prepareClose())emit('close-request')};$('next').onclick=api.next;$('previous').onclick=api.previous;$('save-bookmark').onclick=addBookmark;
