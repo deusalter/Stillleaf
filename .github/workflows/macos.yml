@@ -41,6 +41,19 @@ jobs:
       - name: Native model and view self-check
         if: ${{ !cancelled() && steps.reader-assets.outcome == 'success' }}
         run: .build/release/BooksPresence --self-test-ui
+      - name: Living garden frame budget (layers on a virtual clock, no window)
+        if: ${{ !cancelled() && steps.reader-assets.outcome == 'success' }}
+        run: .build/release/BooksPresence --garden-frame-budget "$RUNNER_TEMP/living-garden-budget.json"
+      - name: Living garden previews (synthetic, offscreen)
+        if: ${{ !cancelled() && steps.reader-assets.outcome == 'success' }}
+        run: .build/release/BooksPresence --render-ui "$RUNNER_TEMP/living-garden" --offscreen --living-time 420 --preview-filter today,popover
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: Stillleaf-living-garden
+          path: |
+            ${{ runner.temp }}/living-garden-budget.json
+            ${{ runner.temp }}/living-garden/*.png
       - name: Synthetic History computation benchmark
         if: ${{ !cancelled() && steps.reader-assets.outcome == 'success' }}
         run: scripts/run-history-atlas-benchmark.sh 100000

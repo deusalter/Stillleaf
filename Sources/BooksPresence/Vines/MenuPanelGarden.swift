@@ -26,11 +26,11 @@ struct MenuPanelGarden: View {
     static func trellis(day: String) -> GardenLayout {
         GardenLayout(seed: GardenSeed.daily("popover", day: day), roots: 8, pollen: false,
                      cornerRoots: [.topLeading, .topTrailing, .bottomLeading, .bottomTrailing],
-                     budget: 280, edgeBand: trellisBand, bandEdges: [.top, .bottom])
+                     budget: 280, edgeBand: trellisBand, bandEdges: [.top, .bottom], living: true, fireflies: 1, petalEvery: 18)
     }
 
     static func side(_ side: Side, day: String) -> GardenLayout {
-        GardenLayout(seed: GardenSeed.daily(side.rawValue, day: day), roots: 5, pollen: false, budget: 140)
+        GardenLayout(seed: GardenSeed.daily(side.rawValue, day: day), roots: 5, pollen: false, budget: 140, living: true, fireflies: 1, petalEvery: 40)
     }
 
     var body: some View {

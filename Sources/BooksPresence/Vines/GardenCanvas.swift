@@ -34,6 +34,13 @@ struct GardenLayout: Equatable {
     var vigor = 1.0
     /// Grows only this fraction of the full garden (0…1); raising it extends the same garden.
     var growth: Double? = nil
+    /// Keeps moving once grown: new shoots, withering, wind, petals and fireflies. Off for
+    /// gardens that are meant to stand still, such as the onboarding tour's.
+    var living = false
+    /// Fireflies by night, pollen motes by day, drifting through this garden's free space.
+    var fireflies = 0
+    /// Seconds between petals shed by this garden's blooms.
+    var petalEvery = 9.0
 
     /// Small size jitter during layout should not regrow the garden.
     func growsLike(_ other: GardenLayout) -> Bool {
@@ -66,6 +73,8 @@ final class GardenModel: ObservableObject {
     fileprivate var cachedFrostKey: RasterKey?
     private var lastTime: TimeInterval?
     private var accumulator = 0.0
+    /// The grown garden's ongoing life, once the garden has finished growing and its layout asks to live.
+    private(set) var living: LivingGarden?
 
     /// Growth steps per second while animating.
     static let stepsPerSecond = 14.0
@@ -92,6 +101,7 @@ final class GardenModel: ObservableObject {
             let grows = (layout.budget ?? 0) > (current.budget ?? 0) || (layout.growth ?? 0) > (current.growth ?? 0)
             if grows && current.growsLike(unchanged) {
                 self.layout = layout
+                living = nil
                 field.raiseBudget(to: Self.plant(layout).budget)
                 if mode == .still || GardenClock.frozenTime != nil {
                     field.growToCompletion(limit: 20_000)
@@ -104,6 +114,7 @@ final class GardenModel: ObservableObject {
         }
         self.layout = layout
         self.mode = mode
+        living = nil
         stepTimes = []
         lastTime = nil
         accumulator = 0
@@ -134,6 +145,25 @@ final class GardenModel: ObservableObject {
         }
         if !field.isGrowing { DispatchQueue.main.async { self.setGrowing(false) } }
     }
+
+    /// Starts the grown garden living, if its layout asks and it has finished growing. Keeps a garden already living.
+    func beginLiving() {
+        guard living == nil, let layout, layout.living, mode == .animated, field.maxCells > 0, !field.isGrowing else { return }
+        living = LivingGarden(field: field, roots: layout.roots, seed: layout.seed, petalEvery: layout.petalEvery)
+    }
+
+    /// Starts the living garden over from the grown garden, for renders at a fixed moment.
+    func restartLiving() {
+        living = nil
+        beginLiving()
+    }
+
+    @discardableResult
+    func advanceLiving(to time: TimeInterval) -> LivingGarden.Changes {
+        living?.advance(to: time) ?? LivingGarden.Changes()
+    }
+
+    var livingTime: TimeInterval { living?.time ?? 0 }
 
     func bornTime(_ step: Int) -> TimeInterval {
         step < stepTimes.count ? stepTimes[step] : .infinity
@@ -214,6 +244,8 @@ struct GardenCanvas: View {
     @State private var visible = true
     @State private var resizing = false
     @State private var pendingLayout: GardenLayout?
+    /// Bumped now and then while the garden lives, so the glass's blurred copy catches up with it.
+    @State private var frostEpoch = 0
     /// Pixels per point of the hosting window, so bitmaps are no larger than that display needs.
     @State private var scale = NSScreen.main?.backingScaleFactor ?? 2
     /// Observed so a theme or accent change recolours the garden.
@@ -271,10 +303,12 @@ struct GardenCanvas: View {
                         .resizable().interpolation(.high)
                         .frame(width: size.width, height: size.height, alignment: .topLeading)
                         .mask(FrostMask(regions: frost, offset: frostOffset, inverted: false))
+                        .id(frostEpoch)
                         .transition(.opacity)
                 }
             }
             .animation(.easeOut(duration: 0.6), value: model.growing)
+            .animation(.easeInOut(duration: 2), value: frostEpoch)
         } else {
             sharp(size: size)
         }
@@ -292,10 +326,22 @@ struct GardenCanvas: View {
                     GardenRenderer(model: model, palette: palette, time: time).draw(in: &graphics)
                 }
             }
+        } else if livesNow {
+            LivingGardenLayer(model: model, palette: palette, dark: colorScheme == .dark, scale: scale, active: visible,
+                              frost: frost, frostOffset: frostOffset, frozenAt: GardenClock.livingTime,
+                              onFrostStale: { frostEpoch += 1 })
+                .frame(width: size.width, height: size.height)
         } else if let image = model.raster(palette: palette, scale: scale) {
             GardenStill(image: image, breathing: mode == .animated && visible && GardenClock.frozenTime == nil)
                 .frame(width: size.width, height: size.height)
         }
+    }
+
+    /// A grown garden that keeps moving: Animated mode, a layout that asks to live, and no render
+    /// frozen at a fixed moment (unless that render asks for a living moment).
+    private var livesNow: Bool {
+        layout.living && mode == .animated && !model.growing && model.field.maxCells > 0
+            && (GardenClock.frozenTime == nil || GardenClock.livingTime != nil)
     }
 
     private static var now: TimeInterval { Date().timeIntervalSinceReferenceDate }
@@ -410,22 +456,7 @@ final class GardenStillView: NSView {
         guard breathing else { layer.mask = nil; return }
         let width = bounds.width, height = bounds.height
         bandWidth = width
-        let band = CAGradientLayer()
-        band.colors = [0.74, 1, 0.74].map { CGColor(gray: 1, alpha: $0) }
-        band.locations = [0, 0.5, 1]
-        band.startPoint = CGPoint(x: 0, y: 0.5)
-        band.endPoint = CGPoint(x: 1, y: 0.5)
-        band.bounds = CGRect(x: 0, y: 0, width: width * 3, height: height)
-        band.position = CGPoint(x: width / 2, y: height / 2)
-        let sweep = CABasicAnimation(keyPath: "position.x")
-        sweep.fromValue = NSNumber(value: Double(-width / 2))
-        sweep.toValue = NSNumber(value: Double(width * 1.5))
-        sweep.duration = Self.breathePeriod
-        sweep.autoreverses = true
-        sweep.repeatCount = .infinity
-        sweep.timingFunction = CAMediaTimingFunction(name: .linear)
-        band.add(sweep, forKey: Self.breatheKey)
-        layer.mask = band
+        layer.mask = BreathingBand.make(width: width, height: height)
     }
 }
 
@@ -466,11 +497,23 @@ private struct WindowScale: NSViewRepresentable {
 @MainActor
 enum GlyphAtlas {
     private static var images: [String: NSImage] = [:]
+    private struct BitmapKey: Hashable { let glyph: Character; let hex: UInt32; let scale: CGFloat }
+    private static var cgImages: [BitmapKey: CGImage] = [:]
+
+    /// The glyph's bitmap for drawing into a layer or a tile.
+    static func cgImage(_ glyph: Character, _ hex: UInt32, scale: CGFloat) -> CGImage? {
+        let key = BitmapKey(glyph: glyph, hex: hex, scale: scale)
+        if let cached = cgImages[key] { return cached }
+        if cgImages.count > 1200 { cgImages.removeAll(keepingCapacity: true) }
+        let image = image(glyph, hex, scale: scale).cgImage(forProposedRect: nil, context: nil, hints: nil)
+        cgImages[key] = image
+        return image
+    }
 
     static func image(_ glyph: Character, _ hex: UInt32, scale: CGFloat) -> NSImage {
         let key = "\(glyph)\(hex)@\(scale)"
         if let cached = images[key] { return cached }
-        if images.count > 600 { images.removeAll(keepingCapacity: true) }
+        if images.count > 1200 { images.removeAll(keepingCapacity: true) }
         let size = CGSize(width: GardenModel.cellWidth * 1.6, height: GardenModel.cellHeight)
         let image = GardenModel.bitmap(size: size, scale: scale) {
             NSAttributedString(string: String(glyph), attributes: [.font: GardenModel.font, .foregroundColor: ReadingPalette.nsColor(hex)])
@@ -485,10 +528,12 @@ extension GardenModel {
     /// The grown garden as one image: pollen, then every cell at rest.
     func raster(palette: VinePalette, scale: CGFloat) -> NSImage? {
         guard let layout, field.maxCells > 0, layout.size.width > 0 else { return nil }
+        // A living garden's current state, not the garden it grew from.
+        let field = living?.field ?? self.field
         let key = RasterKey(generation: generation, steps: field.stepCount, cells: field.cells.count, palette: palette, size: layout.size,
                             pollenScale: layout.pollenScale, clearing: layout.clearingHeight, scale: scale)
         if let cachedRaster, cachedRasterKey == key { return cachedRaster }
-        let field = field, w = field.cellWidth, h = field.cellHeight
+        let w = field.cellWidth, h = field.cellHeight
         let image = Self.bitmap(size: layout.size, scale: scale) {
             func draw(_ glyph: Character, _ hex: UInt32, _ alpha: Double, _ x: Double, _ y: Double) {
                 NSAttributedString(string: String(glyph), attributes: [.font: Self.font,
@@ -635,7 +680,7 @@ private struct GardenRenderer {
     }
 }
 
-private func smoothstep(_ a: Double, _ b: Double, _ x: Double) -> Double {
+func smoothstep(_ a: Double, _ b: Double, _ x: Double) -> Double {
     let t = min(1, max(0, (x - a) / (b - a)))
     return t * t * (3 - 2 * t)
 }
@@ -657,19 +702,39 @@ enum GardenSpores {
         return !layout.avoid.contains { $0.insetBy(dx: -CGFloat(w), dy: -CGFloat(h)).intersects(glyph) }
     }
 
+    /// One spore's flight from a cell: where it is and how visible, `age` seconds after the cell let go of it.
+    struct Flight {
+        let glyph: Character
+        let life: Double
+        private let x0: Double, y0: Double, vx: Double, vy: Double, seed: Double
+
+        init(cell: VineCell, spore: Int, cellWidth w: Double, cellHeight h: Double) {
+            seed = cell.phase * 10 + Double(spore)
+            vx = (Noise.unit(seed) - 0.5) * 6
+            vy = -(6 + Noise.unit(seed + 3) * 10)
+            life = 5 + Noise.unit(seed + 7) * 5
+            x0 = Double(cell.x) * w + w / 2
+            y0 = Double(cell.y) * h
+            glyph = VineGlyphs.sporeGlyph(Int(seed))
+        }
+
+        func point(age: Double) -> CGPoint { CGPoint(x: x0 + vx * age + sin(age * 1.3 + seed) * 6, y: y0 + vy * age) }
+        func alpha(age: Double) -> Double { 0.7 * smoothstep(0, 0.8, age) * (1 - smoothstep(life - 1.6, life, age)) }
+    }
+
+    static func flights(from cell: VineCell, cellWidth w: Double, cellHeight h: Double) -> [Flight] {
+        (0..<2).map { Flight(cell: cell, spore: $0, cellWidth: w, cellHeight: h) }
+    }
+
     /// Where `cell`'s spores are `age` seconds after it opened. Spores that would drift over
     /// the header or an avoided rectangle are dropped rather than drawn over bare text.
     static func drifting(from cell: VineCell, age: Double, layout: GardenLayout, cellWidth w: Double, cellHeight h: Double) -> [Spore] {
         guard age < 10 else { return [] }
         var spores: [Spore] = []
-        for spore in 0..<2 {
-            let seed = cell.phase * 10 + Double(spore)
-            let vx = (Noise.unit(seed) - 0.5) * 6, vy = -(6 + Noise.unit(seed + 3) * 10)
-            let life = 5 + Noise.unit(seed + 7) * 5
-            guard age < life else { continue }
-            let x = Double(cell.x) * w + w / 2 + vx * age + sin(age * 1.3 + seed) * 6, y = Double(cell.y) * h + vy * age
-            guard isClear(x: x, y: y, layout: layout, cellWidth: w, cellHeight: h) else { continue }
-            spores.append(Spore(glyph: VineGlyphs.sporeGlyph(Int(seed)), alpha: 0.7 * smoothstep(0, 0.8, age) * (1 - smoothstep(life - 1.6, life, age)), x: x, y: y))
+        for flight in flights(from: cell, cellWidth: w, cellHeight: h) where age < flight.life {
+            let point = flight.point(age: age)
+            guard isClear(x: point.x, y: point.y, layout: layout, cellWidth: w, cellHeight: h) else { continue }
+            spores.append(Spore(glyph: flight.glyph, alpha: flight.alpha(age: age), x: point.x, y: point.y))
         }
         return spores
     }

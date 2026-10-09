@@ -85,7 +85,8 @@ struct DashboardView: View {
                         let clearing = Self.gardenClearingHeight(safeTop: proxy.safeAreaInsets.top, section: section, bannerHeight: bannerHeight)
                         GardenCanvas(layout: GardenLayout(clearingHeight: clearing,
                                                           seed: GardenSeed.daily("dashboard", day: model.today.day),
-                                                          pollenScale: section == .history ? 0.5 : 1),
+                                                          pollenScale: section == .history ? 0.5 : 1,
+                                                          living: true, fireflies: 8),
                                      mode: gardenMode, frost: frost, frostOffset: proxy.safeAreaInsets.top)
                             .preference(key: GardenClearingKey.self, value: clearing)
                     }

@@ -274,7 +274,9 @@ struct BooksPresenceMain {
     static func main() {
         let application = NSApplication.shared
         // Screenshot fixtures can render native views without joining the window list or taking focus.
-        let offscreenPreview = CommandLine.arguments.contains("--render-ui") && CommandLine.arguments.contains("--offscreen")
+        // The living garden's checks build layers without a window, so they never need to become a visible app either.
+        let windowless = CommandLine.arguments.contains("--garden-frame-budget") || CommandLine.arguments.contains("--self-test-living-garden")
+        let offscreenPreview = (CommandLine.arguments.contains("--render-ui") && CommandLine.arguments.contains("--offscreen")) || windowless
         application.setActivationPolicy(offscreenPreview ? .prohibited : .accessory)
         BackgroundUI.enableIfRequested()
         if CommandLine.arguments.contains("--preview-library") {
@@ -316,6 +318,16 @@ struct BooksPresenceMain {
                 catch { fputs("settled-ui-benchmark failed: \(error)\n", stderr); exit(1) }
             }
             application.run(); return
+        }
+        if CommandLine.arguments.contains("--self-test-living-garden") {
+            do { try checkLivingGarden(); exit(0) }
+            catch { fputs("living-garden self-test failed: \(error)\n", stderr); exit(1) }
+        }
+        if let index = CommandLine.arguments.firstIndex(of: "--garden-frame-budget") {
+            let report = CommandLine.arguments.indices.contains(index + 1) && !CommandLine.arguments[index + 1].hasPrefix("--")
+                ? URL(fileURLWithPath: CommandLine.arguments[index + 1]) : nil
+            do { try runGardenFrameBudget(report: report); exit(0) }
+            catch { fputs("garden-budget failed: \(error)\n", stderr); exit(1) }
         }
         if CommandLine.arguments.contains("--benchmark-ui") {
             do { try runUIBenchmark(); exit(0) }

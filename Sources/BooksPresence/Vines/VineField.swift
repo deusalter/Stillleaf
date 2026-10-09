@@ -23,6 +23,10 @@ struct VineCell: Equatable {
     /// The growth step that placed it, so the renderer can fade it in on time.
     let step: Int
     let phase: Double
+    /// The branch that placed it; withering takes a branch back from its tip to its stem.
+    var branch = 0
+    /// Order of placement across the whole field, so a branch's newest cells wither first.
+    var seq = 0
 }
 
 enum VineGlyphs {
@@ -63,6 +67,10 @@ struct VineTipSpec {
     var wobbleFrequency = 0.33
     /// Branches of a path follower grow toward this heading.
     var outward: Double? = nil
+    /// The branch this one sprouted from; `nil` for a trunk.
+    var parent: Int? = nil
+    /// Planted after the garden was grown, so it may wither like any branch.
+    var living = false
 }
 
 /// Seeds that keep a garden stable for a day and change it the next.
@@ -94,7 +102,7 @@ struct VineField {
     let rows: Int
     let cellWidth: Double
     let cellHeight: Double
-    let maxCells: Int
+    var maxCells: Int
     var maxTips = 60
     /// Growth stops once this many cells exist; raising it resumes growth.
     var budget = Int.max
@@ -104,8 +112,24 @@ struct VineField {
     private(set) var stepCount = 0
     private var tips: [Tip] = []
     private var random: VineRandom
+    private var nextBranch = 1
+    private var nextSeq = 0
+    /// Records every cell placed, for a living garden that animates what just grew.
+    var logsPlacements = false
+    private var placementLog: [VineCell] = []
+
+    /// Where a branch came from; kept after the branch stops growing.
+    struct Branch: Equatable {
+        let parent: Int?
+        let generation: Int
+        let living: Bool
+        /// Set once the branch has withered, so it is never chosen again.
+        var gone = false
+    }
+    private(set) var branches: [Int: Branch] = [:]
 
     private struct Tip {
+        let id: Int
         var spec: VineTipSpec
         var px: Double
         var py: Double
@@ -134,9 +158,19 @@ struct VineField {
     /// Live tip positions in points, for the gliding heads.
     var heads: [VinePoint] { tips.map { VinePoint(x: $0.px, y: $0.py) } }
 
-    mutating func plant(_ spec: VineTipSpec) {
-        tips.append(Tip(spec: spec, px: (Double(spec.x) + 0.5) * cellWidth, py: (Double(spec.y) + 0.5) * cellHeight,
+    /// Live tips by branch, for the gliding heads.
+    var activeHeads: [(branch: Int, point: VinePoint)] { tips.map { ($0.id, VinePoint(x: $0.px, y: $0.py)) } }
+    var activeBranches: Set<Int> { Set(tips.map(\.id)) }
+    var tipCount: Int { tips.count }
+
+    @discardableResult
+    mutating func plant(_ spec: VineTipSpec) -> Int {
+        let id = nextBranch
+        nextBranch += 1
+        branches[id] = Branch(parent: spec.parent, generation: spec.generation, living: spec.living)
+        tips.append(Tip(id: id, spec: spec, px: (Double(spec.x) + 0.5) * cellWidth, py: (Double(spec.y) + 0.5) * cellHeight,
                         heading: spec.heading, life: spec.life, lastX: spec.x, lastY: spec.y, phase: random.next() * 2 * .pi))
+        return id
     }
 
     /// Advances every tip by one cell.
@@ -189,7 +223,7 @@ struct VineField {
             var glyph = VineGlyphs.stem(dx: dx, dy: dy)
             if tip.spec.generation >= 2 && abs(tip.drift) > 0.32 { glyph = tip.drift > 0 ? ")" : "(" }
             else if tip.spec.generation >= 2 && glyph == "─" { glyph = "~" }
-            put(cx, cy, glyph, .stem, slot: (tip.spec.generation + tip.spec.hue) % 4)
+            put(cx, cy, glyph, .stem, slot: (tip.spec.generation + tip.spec.hue) % 4, branch: tip.id)
             tips[index] = tip
             sprout(from: tip, x: cx, y: cy, dx: dx, dy: dy)
             tip.lastX = cx; tip.lastY = cy
@@ -213,7 +247,7 @@ struct VineField {
             tip.px = (fx + 0.5) * cellWidth; tip.py = (fy + 0.5) * cellHeight
             if cx == tip.lastX && cy == tip.lastY { continue }
             let dx = Double(cx - tip.lastX) * cellWidth, dy = Double(cy - tip.lastY) * cellHeight
-            put(cx, cy, VineGlyphs.stem(dx: dx, dy: dy), .stem, slot: tip.spec.hue % 4)
+            put(cx, cy, VineGlyphs.stem(dx: dx, dy: dy), .stem, slot: tip.spec.hue % 4, branch: tip.id)
             tips[index] = tip
             sprout(from: tip, x: cx, y: cy, dx: dx, dy: dy)
             tip.lastX = cx; tip.lastY = cy
@@ -229,7 +263,7 @@ struct VineField {
             let side = random.next() < 0.5 ? -1 : 1
             let pair = VineGlyphs.leaves[Int(random.next() * Double(VineGlyphs.leaves.count))]
             let glyph = vertical ? (side < 0 ? pair.0 : pair.1) : (random.next() < 0.5 ? pair.0 : pair.1)
-            put(vertical ? x + side : x, vertical ? y : y + side, glyph, .leaf, slot: Int(random.next() * 5))
+            put(vertical ? x + side : x, vertical ? y : y + side, glyph, .leaf, slot: Int(random.next() * 5), branch: tip.id)
         }
         if spec.generation < spec.maxGeneration && random.next() < spec.branchChance && tips.count < maxTips {
             var heading = atan2(dy, dx) + (random.next() < 0.5 ? -1 : 1) * (0.55 + random.next() * 0.65)
@@ -246,6 +280,8 @@ struct VineField {
             branch.bloomChance = spec.bloomChance
             branch.maxGeneration = spec.maxGeneration
             branch.branchLife = spec.branchLife
+            branch.parent = tip.id
+            branch.living = spec.living
             branch.curl = (random.next() - 0.5) * 0.08
             plant(branch)
         }
@@ -254,7 +290,24 @@ struct VineField {
     private mutating func finish(_ tip: Tip) {
         guard random.next() < tip.spec.bloomChance else { return }
         let glyph = VineGlyphs.blooms[Int(random.next() * Double(VineGlyphs.blooms.count))]
-        put(tip.lastX + Int(cos(tip.heading).rounded()), tip.lastY + Int(sin(tip.heading).rounded()), glyph, .bloom, slot: Int(random.next() * 4))
+        put(tip.lastX + Int(cos(tip.heading).rounded()), tip.lastY + Int(sin(tip.heading).rounded()), glyph, .bloom, slot: Int(random.next() * 4), branch: tip.id)
+    }
+
+    /// The cells placed since the last call that are still in the field, newest placement per cell.
+    mutating func takePlaced() -> [VineCell] {
+        defer { placementLog.removeAll(keepingCapacity: true) }
+        var latest: [Int: VineCell] = [:]
+        for cell in placementLog { latest[Self.key(cell.x, cell.y, columns: columns)] = cell }
+        return latest.values.sorted { $0.seq < $1.seq }
+    }
+
+    mutating func markGone(_ ids: [Int]) {
+        for id in ids { branches[id]?.gone = true }
+    }
+
+    /// Takes cells out of the field, as a withering branch lets go of them.
+    mutating func remove(_ keys: [Int]) {
+        for key in keys { cells[key] = nil }
     }
 
     private func permits(_ x: Int, _ y: Int) -> Bool {
@@ -262,12 +315,14 @@ struct VineField {
     }
 
     @discardableResult
-    private mutating func put(_ x: Int, _ y: Int, _ glyph: Character, _ kind: VineKind, slot: Int) -> Bool {
+    private mutating func put(_ x: Int, _ y: Int, _ glyph: Character, _ kind: VineKind, slot: Int, branch: Int) -> Bool {
         guard permits(x, y), cells.count < maxCells else { return false }
         let key = Self.key(x, y, columns: columns)
         if let existing = cells[key], existing.kind.rawValue >= kind.rawValue { return false }
         cells[key] = VineCell(x: x, y: y, glyph: glyph, alternate: kind == .leaf ? VineGlyphs.flutter[glyph] : nil,
-                              kind: kind, slot: slot, step: stepCount, phase: random.next() * 2 * .pi)
+                              kind: kind, slot: slot, step: stepCount, phase: random.next() * 2 * .pi, branch: branch, seq: nextSeq)
+        nextSeq += 1
+        if logsPlacements, let placed = cells[key] { placementLog.append(placed) }
         return true
     }
 
