@@ -13,6 +13,9 @@ private enum PanelMetrics {
     static let group: CGFloat = 18
     /// Height of everything outside the scrolling body: margins, header, actions and gaps.
     static let chrome: CGFloat = 150
+    /// The panel's height when its content is shorter: room for a setup notice, so the
+    /// panel keeps one calm size and spreads the sections out instead of shrinking.
+    static let naturalHeight: CGFloat = 488
 }
 
 @MainActor
@@ -32,7 +35,7 @@ struct PopoverView: View {
         VStack(alignment: .leading, spacing: PanelMetrics.group) {
             header
             ScrollView {
-                readingContent
+                readingContent(minHeight: min(limit, PanelMetrics.naturalHeight - PanelMetrics.chrome))
                     .background(GeometryReader { geometry in
                         Color.clear.preference(key: MenuBodyHeight.self, value: geometry.size.height)
                     })
@@ -109,8 +112,8 @@ struct PopoverView: View {
         }
     }
 
-    private var readingContent: some View {
-        VStack(alignment: .leading, spacing: PanelMetrics.group) {
+    private func readingContent(minHeight: CGFloat) -> some View {
+        SpreadStack(spacing: PanelMetrics.group, minHeight: minHeight) {
             bookRow
             MenuReadingGoal(model: model)
             statsRow
@@ -205,6 +208,35 @@ private struct PanelVeil: View {
         ReadingPalette.surface.opacity(opaque ? 1 : PanelGlass.veilTint(dark: colorScheme == .dark))
             .mask(RoundedRectangle(cornerRadius: ReadingMetrics.Radius.window - edge, style: .continuous)
                 .padding(edge).blur(radius: edge / 2))
+    }
+}
+
+/// A vertical stack at least `minHeight` tall. Room beyond its content is shared
+/// evenly between the sections and above and below them, so a panel with little
+/// to show spaces out calmly instead of leaving a gap at the bottom.
+private struct SpreadStack: Layout {
+    var spacing: CGFloat
+    var minHeight: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let sizes = subviews.map { $0.sizeThatFits(ProposedViewSize(width: proposal.width, height: nil)) }
+        let width = proposal.width ?? sizes.map(\.width).max() ?? 0
+        return CGSize(width: width, height: max(minHeight, natural(sizes)))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let sizes = subviews.map { $0.sizeThatFits(ProposedViewSize(width: bounds.width, height: nil)) }
+        let extra = max(0, bounds.height - natural(sizes)) / CGFloat(subviews.count + 1)
+        var y = bounds.minY + extra
+        for (subview, size) in zip(subviews, sizes) {
+            subview.place(at: CGPoint(x: bounds.minX, y: y), anchor: .topLeading,
+                          proposal: ProposedViewSize(width: bounds.width, height: size.height))
+            y += size.height + spacing + extra
+        }
+    }
+
+    private func natural(_ sizes: [CGSize]) -> CGFloat {
+        sizes.map(\.height).reduce(0, +) + spacing * CGFloat(max(0, sizes.count - 1))
     }
 }
 
