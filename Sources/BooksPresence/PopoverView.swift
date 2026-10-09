@@ -13,9 +13,9 @@ private enum PanelMetrics {
     static let group: CGFloat = 18
     /// Height of everything outside the scrolling body: margins, header, actions and gaps.
     static let chrome: CGFloat = 150
-    /// The panel's height when its content is shorter: room for a setup notice, so the
-    /// panel keeps one calm size and spreads the sections out instead of shrinking.
-    static let naturalHeight: CGFloat = 488
+    /// The panel's one height, whatever it shows: room for a setup notice with a little
+    /// to spare. Shorter content spreads out to fill it; longer content scrolls inside it.
+    static let height: CGFloat = 496
 }
 
 @MainActor
@@ -30,25 +30,29 @@ struct PopoverView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        let limit = max(160, maximumHeight - PanelMetrics.chrome)
+        // The same body height in every state, so a notice takes the spare room rather than growing the panel.
+        let fixed = max(160, min(maximumHeight, PanelMetrics.height) - PanelMetrics.chrome)
         // The text sits straight on the glass; the garden shows softly through it everywhere.
         VStack(alignment: .leading, spacing: PanelMetrics.group) {
             header
-            ScrollView {
-                readingContent(minHeight: min(limit, PanelMetrics.naturalHeight - PanelMetrics.chrome))
-                    .background(GeometryReader { geometry in
-                        Color.clear.preference(key: MenuBodyHeight.self, value: geometry.size.height)
-                    })
+            VStack(spacing: 8) {
+                ScrollView {
+                    readingContent(minHeight: fixed)
+                        .background(GeometryReader { geometry in
+                            Color.clear.preference(key: MenuBodyHeight.self, value: geometry.size.height)
+                        })
+                }
+                .frame(maxHeight: .infinity)
+                .onPreferenceChange(MenuBodyHeight.self) { height in
+                    if height > 0, abs(height - bodyHeight) > 0.5 { bodyHeight = height }
+                }
+                if bodyHeight > fixed + 0.5 {
+                    Label("Scroll for more", systemImage: "arrow.down")
+                        .font(.caption2).foregroundStyle(ReadingPalette.ink)
+                        .frame(maxWidth: .infinity)
+                }
             }
-            .frame(height: min(bodyHeight, limit))
-            .onPreferenceChange(MenuBodyHeight.self) { height in
-                if height > 0, abs(height - bodyHeight) > 0.5 { bodyHeight = height }
-            }
-            if bodyHeight > limit {
-                Label("Scroll for more", systemImage: "arrow.down")
-                    .font(.caption2).foregroundStyle(ReadingPalette.ink)
-                    .frame(maxWidth: .infinity)
-            }
+            .frame(height: fixed)
             actions
         }
         .id(theme.revision)
