@@ -26,11 +26,10 @@ node ../../../design/dynamic-motion/capture.mjs          # everything
 node ../../../design/dynamic-motion/capture.mjs weather  # only shots whose name contains "weather"
 ```
 
-- `<direction>-frame<N>.png`: controls plus all three windows, several frames apart.
-- `<direction>-dash-<N>.png`, `-panel.png`, `-reader.png`: single windows at 2×.
+- `<direction>-frame<N>.jpg`: the controls and all three windows, several seconds apart (1×, JPEG to keep the repo small).
+- `<direction>-dash.png`: the dashboard at 2×.
 - `<direction>-spec.png`: the direction's plan.
 - `quiet-ripple.png`: a click ripple spreading through the pollen, read straight from the garden canvas. A ripple lasts 1.6 s, shorter than an element screenshot takes.
-- `light-<direction>.png`: light appearance.
-- `tod-<dawn|day|dusk|night>.png`: Responsive garden's time-of-day colour.
-- `tier-<calm|still|hidden>.png`: Living garden under Low Power, Reduce Motion and a hidden window.
-- `page-full.png`: the whole page.
+- `light-<direction>.jpg`: light appearance.
+- `tod-<dawn|day|dusk|night>.jpg`: Responsive garden's time-of-day colour.
+- `tier-<calm|still|hidden>.jpg`: Living garden under Low Power, Reduce Motion and a hidden window.

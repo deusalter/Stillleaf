@@ -35,9 +35,9 @@ async function shotStage(name) {
   const top = await page.locator(".dirs").boundingBox();
   const bottom = await page.locator(".row2").boundingBox();
   top.y += scroll; bottom.y += scroll;
-  await page.screenshot({ path: path.join(out, name + ".png"), fullPage: true, clip: { x: 0, y: top.y - 16, width: 1384, height: bottom.y + bottom.height - top.y + 32 } });
+  await page.screenshot({ path: path.join(out, name + ".jpg"), type: "jpeg", quality: 88, scale: "css", fullPage: true, clip: { x: 0, y: top.y - 16, width: 1384, height: bottom.y + bottom.height - top.y + 32 } });
 }
-async function shotEl(sel, name) { await page.locator(sel).screenshot({ path: path.join(out, name + ".png") }); }
+async function shotEl(sel, name, jpeg) { await page.locator(sel).screenshot(jpeg ? { path: path.join(out, name + ".jpg"), type: "jpeg", quality: 88 } : { path: path.join(out, name + ".png") }); }
 const want = n => !only || n.includes(only);
 
 const plans = [
@@ -62,7 +62,7 @@ for (const p of plans) {
     i++;
     await shotStage(`${p.name}-frame${i}`);
     if (p.name === "quiet") { await page.evaluate(() => mock.ripple("dash", 980, 470)); await wait(320); }
-    await shotEl("#dash", `${p.name}-dash-${i}`);
+    if (i === 2) await shotEl("#dash", `${p.name}-dash`);
   }
   if (p.name === "quiet") {
     // Element screenshots take longer than a ripple lives, so read the garden canvas
@@ -79,8 +79,6 @@ for (const p of plans) {
     });
     fs.writeFileSync(path.join(out, "quiet-ripple.png"), Buffer.from(url.split(",")[1], "base64"));
   }
-  await shotEl("#desk", `${p.name}-panel`);
-  await shotEl("#reader", `${p.name}-reader`);
   await shotEl(`.spec[data-spec="${p.name}"]`, `${p.name}-spec`);
 }
 
@@ -95,7 +93,7 @@ if (want("tod")) {
   for (const tod of ["dawn", "day", "dusk", "night"]) {
     await open({ dir: "reactive", theme: "dark", tod });
     await wait(1500);
-    await shotEl("#dash", `tod-${tod}`);
+    await shotEl("#dash", `tod-${tod}`, true);
   }
 }
 if (want("tiers")) {
@@ -104,11 +102,6 @@ if (want("tiers")) {
     await wait(2500);
     await shotStage(`tier-${tier}`);
   }
-}
-if (want("page")) {
-  await open({ dir: "living", theme: "dark" });
-  await wait(2000);
-  await page.screenshot({ path: path.join(out, "page-full.png"), fullPage: true });
 }
 const meter = await page.locator("#meter").textContent().catch(() => "");
 console.log("meter:", meter);
