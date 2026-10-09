@@ -475,9 +475,10 @@ function selected(value){
   }
  }
  locator.text={...locator.text,highlight:value.text};
- try{selection={locator:annotationLocator(locator),quote:quotePreview(value.text)}}catch(error){notice(error.message);return}
- annotationUI.show(selection,selectedRange);
- emit('selection',{selection:{text:selection.quote,locator:selection.locator}});
+ let item;try{item={locator:annotationLocator(locator),quote:quotePreview(value.text)}}catch(error){notice(error.message);return}
+ // show() dismisses at once when no part of the selection is on screen, which clears it.
+ selection=item;annotationUI.show(item,selectedRange);
+ if(selection===item)emit('selection',{selection:{text:item.quote,locator:item.locator}});
 }
 function decorationLocator(item){
  const locator=clone(item.locator);
