@@ -95,9 +95,9 @@ private struct NativeMenuSurface: ViewModifier {
     }
 }
 
-/// The menu panel's shell: clear glass tinted from the theme, with a crisp rim
-/// and a soft highlight. Text never sits on it directly; the card does the work
-/// (see `PanelGlass`), so the shell can stay light.
+/// The menu panel's one sheet of glass: the theme canvas over the desktop as soil
+/// for the garden, a wash of the accent, a soft highlight and a crisp rim. The
+/// garden and the veil that carries the text are drawn inside it (see `PanelGlass`).
 private struct NativePopoverSurface: ViewModifier {
     @Environment(\.accessibilityReduceTransparency) private var opaque
     @Environment(\.colorSchemeContrast) private var contrast
@@ -126,13 +126,13 @@ private struct NativePopoverSurface: ViewModifier {
         #endif
     }
 
-    /// The theme canvas laid thinly over the desktop, with a wash of the accent from a corner.
+    /// The theme canvas over the desktop, with a wash of the accent from a corner.
     private func tint(_ shape: RoundedRectangle, dark: Bool) -> some View {
         ZStack {
             shape.fill(ReadingPalette.canvas.opacity(PanelGlass.shellTint(dark: dark)))
             shape.fill(LinearGradient(colors: [ReadingPalette.accent.opacity(dark ? 0.12 : 0.10), .clear],
                                       startPoint: .topTrailing, endPoint: UnitPoint(x: 0.4, y: 0.6)))
-            shape.fill(LinearGradient(colors: [.white.opacity(dark ? 0.05 : 0.22), .white.opacity(0)],
+            shape.fill(LinearGradient(colors: [.white.opacity(PanelGlass.highlight(dark: dark)), .white.opacity(0)],
                                       startPoint: .top, endPoint: UnitPoint(x: 0.5, y: 0.3)))
         }
     }

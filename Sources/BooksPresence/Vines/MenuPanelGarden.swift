@@ -1,9 +1,10 @@
 import SwiftUI
 
-/// The vines around the menu bar panel: a trellis along the top and bottom
-/// edges with a tall vine up each side, all drawn by the same `GardenCanvas`
-/// as the dashboard. They grow only in the gutters around the glass card, so
-/// they never sit behind text.
+/// The garden behind the menu bar panel: vines rise from the bottom, spill from
+/// all four corners and reach in from both sides at three heights, so they fill
+/// the panel evenly rather than banking up at one edge. Drawn by the same
+/// `GardenCanvas` as the dashboard. Wherever glass covers it the garden shows
+/// softly frosted; only what is left uncovered at the panel's edge stays crisp.
 ///
 /// The garden tracks the panel's visibility: while the panel is closed nothing
 /// grows, breathes or redraws.
@@ -12,38 +13,13 @@ struct MenuPanelGarden: View {
     let mode: GardenMode
     let frost: FrostRegions
 
-    /// Width of a side vine: four glyph columns, the gutter beside the card.
-    static let sideWidth: CGFloat = 26
-    /// Rows the top and bottom trellis may occupy.
-    static let trellisBand = 3
-
-    /// The vine up one side of the panel.
-    enum Side: String {
-        case leading = "popover-leading", trailing = "popover-trailing"
-    }
-
-    /// The top and bottom trellis with its four corner vines.
-    static func trellis(day: String) -> GardenLayout {
-        GardenLayout(seed: GardenSeed.daily("popover", day: day), roots: 8, pollen: false,
-                     cornerRoots: [.topLeading, .topTrailing, .bottomLeading, .bottomTrailing],
-                     budget: 280, edgeBand: trellisBand, bandEdges: [.top, .bottom])
-    }
-
-    static func side(_ side: Side, day: String) -> GardenLayout {
-        GardenLayout(seed: GardenSeed.daily(side.rawValue, day: day), roots: 5, pollen: false, budget: 140)
+    static func layout(day: String) -> GardenLayout {
+        GardenLayout(seed: GardenSeed.daily("popover", day: day), roots: 2, pollen: false,
+                     cornerRoots: [.topLeading, .topTrailing, .bottomLeading, .bottomTrailing], sideRoots: 3,
+                     budget: 600, vigor: 1.2)
     }
 
     var body: some View {
-        ZStack {
-            // Edges and corners; frosted where the card overlaps them.
-            GardenCanvas(layout: Self.trellis(day: day), mode: mode, frost: frost)
-            // A vine up each side, between the trellises. The card stops short of them.
-            HStack(spacing: 0) {
-                GardenCanvas(layout: Self.side(.leading, day: day), mode: mode).frame(width: Self.sideWidth)
-                Spacer(minLength: 0)
-                GardenCanvas(layout: Self.side(.trailing, day: day), mode: mode).frame(width: Self.sideWidth)
-            }
-            .padding(.vertical, CGFloat(Self.trellisBand) * GardenModel.cellHeight)
-        }
+        GardenCanvas(layout: Self.layout(day: day), mode: mode, frost: frost)
     }
 }
