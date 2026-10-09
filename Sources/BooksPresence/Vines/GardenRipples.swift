@@ -42,13 +42,15 @@ final class GardenRippleHub {
     /// A click on a control sends a stronger ripple than a hover does. Returns whether a ripple was sent.
     @discardableResult
     func clicked(in window: NSWindow, at point: NSPoint) -> Bool {
-        guard sources.allObjects.contains(where: { $0.window === window && $0.contains(windowPoint: point) }) else { return false }
+        guard let content = window.contentView,
+              sources.allObjects.contains(where: { $0.isDescendant(of: content) && $0.contains(windowPoint: point) }) else { return false }
         fire(in: window, at: point, strength: 1)
         return true
     }
 
     func fire(in window: NSWindow, at point: NSPoint, strength: CGFloat) {
-        for host in hosts.allObjects where host.window === window { host.ripple(atWindowPoint: point, strength: strength) }
+        guard let content = window.contentView else { return }
+        for host in hosts.allObjects where host.isDescendant(of: content) { host.ripple(atWindowPoint: point, strength: strength) }
     }
 }
 
@@ -75,8 +77,9 @@ final class RippleSourceView: NSView {
     }
 
     func contains(windowPoint point: NSPoint) -> Bool {
+        // `visibleRect` alone is not a safe test: without a display it can be unbounded.
         let local = convert(point, from: nil)
-        return !visibleRect.isEmpty && visibleRect.contains(local)
+        return bounds.contains(local) && visibleRect.contains(local)
     }
 }
 
