@@ -15,6 +15,16 @@ struct GardenClock {
         return ProcessInfo.processInfo.environment["STILLLEAF_VINE_TIME"].flatMap(TimeInterval.init)
     }()
 
+    /// Renders a living garden as it stands this many seconds into its life: wind, petals,
+    /// fireflies and any shoot or withering branch caught mid-way. Set from `--living-time <seconds>`
+    /// or `STILLLEAF_LIVING_TIME`. Without it, a frozen render shows the grown garden as ever.
+    static var livingTime: TimeInterval? = {
+        if let index = CommandLine.arguments.firstIndex(of: "--living-time"), CommandLine.arguments.indices.contains(index + 1) {
+            return TimeInterval(CommandLine.arguments[index + 1])
+        }
+        return ProcessInfo.processInfo.environment["STILLLEAF_LIVING_TIME"].flatMap(TimeInterval.init)
+    }()
+
     /// `nil` means no timeline at all: draw one frame and stop.
     func frameInterval(growing: Bool) -> TimeInterval? {
         guard mode == .animated, growing, Self.frozenTime == nil else { return nil }

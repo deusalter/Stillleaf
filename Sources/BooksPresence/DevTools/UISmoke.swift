@@ -432,6 +432,7 @@ func runUISmoke() throws {
     }
     try checkGardenFollowsThemeAndNavigation()
     try checkGardenRenderEfficiency()
+    try checkLivingGarden()
     print("ui-smoke: garden mode defaults to animated, persists, and stills for Reduce Motion and Low Power")
     store.select(theme: "stillleaf")
     print("ui-smoke: \(ReadingTheme.all.count) themes persisted, fell back, passed contrast and laid out popover, timeline and appearance")
