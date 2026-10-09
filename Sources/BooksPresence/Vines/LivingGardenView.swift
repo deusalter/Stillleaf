@@ -56,6 +56,7 @@ final class LivingGardenView: NSView {
     /// Media time at which the garden's own clock read zero.
     private var epoch: CFTimeInterval = 0
     private var lastFrost: Double = 0
+    private var stepIndex = 0
     var frostIsStale: (() -> Void)?
     /// Drives itself from a timer; the frame-budget check turns this off and calls `step` itself.
     var drivesItself = true
@@ -222,7 +223,9 @@ final class LivingGardenView: NSView {
         CATransaction.setDisableActions(true)
         let changes = model.advanceLiving(to: t)
         process(changes, at: t, animated: true)
-        settle(at: t)
+        // Settle every other step, so a tile is redrawn once for two steps' worth of new cells.
+        stepIndex += 1
+        if stepIndex % 2 == 0 || !changes.withered.isEmpty { settle(at: t) }
         flush(limit: 2)
         expireTransients(at: t)
         CATransaction.commit()

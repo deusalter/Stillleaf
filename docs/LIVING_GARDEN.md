@@ -17,7 +17,7 @@ Density stays steady because a withering branch is chosen only when the garden h
 
 ## How it stays cheap
 
-- Settled growth is drawn into 256 pt tiles (three images each: stems, leaves and blooms at rest, the same blown aside). A tile is redrawn only when a cell in it settles or withers, about once every 1–2 s while a shoot grows. Nothing redraws on a frame clock.
+- Settled growth is drawn into 256 pt tiles (three images each: stems, leaves and blooms at rest, the same blown aside). A tile is redrawn only when a cell in it settles or withers, about once every 3 s per growing shoot (new cells settle every other step), and at most two tiles per step. Nothing redraws on a frame clock.
 - The app wakes once per growth step (1.5 s, 0.4 s tolerance) to hand the render server the next few layers. Wind, breathing, fades, glides, petals, spores and fireflies are Core Animation animations.
 - Hidden, minimised or occluded: the timer stops and the moving layers and animations are removed. On return the garden catches up in one step; a gap longer than 20 minutes skips its oldest part.
 - The glass's blurred copy of the garden is refreshed every two minutes and cross-faded.
@@ -39,7 +39,7 @@ Without `--living-time`, frozen renders show the grown garden as before.
 
 ## Budget
 
-`GardenFrameBudget` (in `DevTools/LivingGardenSmoke.swift`) sets the limits: idle main-thread CPU of at most 1.5% per window, a growth step of at most 8 ms at the 95th percentile and 33 ms at worst, and one-off limits for the first build, the return from hidden and the glass refresh.
+`GardenFrameBudget` (in `DevTools/LivingGardenSmoke.swift`) sets the limits: idle main-thread CPU of at most 1.5% per window, a growth step of at most 8 ms at the 95th percentile and 33 ms at worst, and one-off limits for the first build, the return from hidden and the glass refresh. Each window is measured three times and judged on its best trial per metric: a shared runner only adds time, and a real regression raises every trial.
 
 - CI runs `BooksPresence --garden-frame-budget <report.json>` on the release build and uploads the report.
 - `scripts/measure-living-garden.sh` runs the same check locally, and with `--live` also samples real idle CPU in a window (run that only when the Mac is free).
