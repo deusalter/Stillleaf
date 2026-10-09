@@ -29,17 +29,22 @@ final class GardenRippleHub {
 
     func unregister(_ source: RippleSourceView) { sources.remove(source) }
 
-    func hovered(in window: NSWindow, at point: NSPoint, now: CFTimeInterval = CACurrentMediaTime()) {
+    /// Returns whether a ripple was sent.
+    @discardableResult
+    func hovered(in window: NSWindow, at point: NSPoint, now: CFTimeInterval = CACurrentMediaTime()) -> Bool {
         let id = ObjectIdentifier(window)
-        guard now - (lastHover[id] ?? -.infinity) >= Self.hoverSpacing else { return }
+        guard now - (lastHover[id] ?? -.infinity) >= Self.hoverSpacing else { return false }
         lastHover[id] = now
         fire(in: window, at: point, strength: 0.5)
+        return true
     }
 
-    /// A click on a control sends a stronger ripple than a hover does.
-    func clicked(in window: NSWindow, at point: NSPoint) {
-        guard sources.allObjects.contains(where: { $0.window === window && $0.contains(windowPoint: point) }) else { return }
+    /// A click on a control sends a stronger ripple than a hover does. Returns whether a ripple was sent.
+    @discardableResult
+    func clicked(in window: NSWindow, at point: NSPoint) -> Bool {
+        guard sources.allObjects.contains(where: { $0.window === window && $0.contains(windowPoint: point) }) else { return false }
         fire(in: window, at: point, strength: 1)
+        return true
     }
 
     func fire(in window: NSWindow, at point: NSPoint, strength: CGFloat) {

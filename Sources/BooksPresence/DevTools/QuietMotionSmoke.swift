@@ -262,19 +262,22 @@ private func spin(_ seconds: TimeInterval) { RunLoop.current.run(until: Date().a
     bystander.apply(image: image, motion: .full)
     bystander.setWindowVisible(true)
     let hub = GardenRippleHub.shared
-    hub.hovered(in: window, at: centre, now: 100)
-    hub.hovered(in: window, at: centre, now: 100 + GardenRippleHub.hoverSpacing / 2)
-    guard host.activeRipples == 1, bystander.activeRipples == 0 else { throw fail("Hover ripples are not spaced or not kept to their window") }
-    hub.hovered(in: window, at: centre, now: 100 + GardenRippleHub.hoverSpacing * 2)
-    guard host.activeRipples == 2 else { throw fail("A later hover did not ripple") }
+    host.clear()
+    // Spacing is judged against the clock the caller passes, far from any real hover time.
+    let start = CACurrentMediaTime() + 1_000
+    guard hub.hovered(in: window, at: centre, now: start) else { throw fail("A hover did not ripple") }
+    guard !hub.hovered(in: window, at: centre, now: start + GardenRippleHub.hoverSpacing / 2) else { throw fail("Hover ripples are not spaced out") }
+    guard hub.hovered(in: window, at: centre, now: start + GardenRippleHub.hoverSpacing * 2) else { throw fail("A later hover did not ripple") }
+    guard host.activeRipples >= 1, bystander.activeRipples == 0 else {
+        throw fail("Hover ripples are not kept to their window (\(host.activeRipples) here, \(bystander.activeRipples) elsewhere)")
+    }
     let button = RippleSourceView(frame: NSRect(x: 150, y: 120, width: 100, height: 60))
     window.contentView?.addSubview(button)
-    hub.clicked(in: window, at: host.convert(NSPoint(x: 10, y: 10), to: nil))
-    guard host.activeRipples == 2 else { throw fail("A click away from any control rippled") }
-    hub.clicked(in: window, at: centre)
-    guard host.activeRipples == 3 else { throw fail("A click on a control did not ripple") }
+    defer { button.removeFromSuperview() }
+    let away = host.convert(NSPoint(x: 10, y: 10), to: nil)
+    guard !hub.clicked(in: window, at: away) else { throw fail("A click away from any control rippled (at \(away), control at \(button.convert(button.bounds, to: nil)))") }
+    guard hub.clicked(in: window, at: centre) else { throw fail("A click on a control did not ripple (at \(centre), control at \(button.convert(button.bounds, to: nil)))") }
     host.clear()
-    button.removeFromSuperview()
 }
 
 // MARK: Parallax
