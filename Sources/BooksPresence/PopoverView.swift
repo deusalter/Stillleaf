@@ -1,18 +1,18 @@
 import SwiftUI
 import BooksCore
 
-/// The panel's grid. One glass surface; everything inside aligns to the same left
-/// and right margins, and the accent vines grow only in those margins.
+/// Gutters and gaps of the menu panel. The vines grow in the gutters; one glass card sits inside them.
 private enum PanelMetrics {
-    static let width: CGFloat = 350
-    /// Wide enough for a side vine (`MenuPanelGarden.stripWidth`) with air beside the text.
-    static let side = MenuPanelGarden.margin
-    static let top: CGFloat = 24
-    static let bottom: CGFloat = 24
-    /// Between the header, the body and the footer.
-    static let section: CGFloat = 18
-    /// Height of everything outside the scrolling body: margins, header, footer and gaps.
-    static let chrome: CGFloat = 170
+    /// Beside the card, wide enough for a side vine (`MenuPanelGarden.sideWidth`).
+    static let side: CGFloat = 22
+    static let top: CGFloat = 38
+    static let bottom: CGFloat = 42
+    /// Inside the card, around its content; the same inset the separate cards had.
+    static let cardPadding: CGFloat = 14
+    /// Between the card's groups: about the text-to-text distance the separate cards left, so the panel keeps its size.
+    static let group: CGFloat = 32
+    /// Height of everything outside the scrolling body: gutters, card padding, header, actions and gaps.
+    static let chrome: CGFloat = 232
 }
 
 @MainActor
@@ -22,11 +22,14 @@ struct PopoverView: View {
     @ObservedObject private var theme = ThemeStore.shared
     @State private var showingManualStart = false
     @State private var bodyHeight: CGFloat = 390
+    /// The card's frame for the garden to frost; a class so scrolling never re-renders the card.
+    @State private var frost = FrostRegions()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let limit = max(160, maximumHeight - PanelMetrics.chrome)
-        VStack(alignment: .leading, spacing: PanelMetrics.section) {
+        // One glass card holds everything; the garden shows around it and softly through it.
+        VStack(alignment: .leading, spacing: PanelMetrics.group) {
             header
             ScrollView {
                 readingContent
@@ -40,21 +43,27 @@ struct PopoverView: View {
             }
             if bodyHeight > limit {
                 Label("Scroll for more", systemImage: "arrow.down")
-                    .font(.caption2).foregroundStyle(ReadingPalette.secondaryInk)
+                    .font(.caption2).foregroundStyle(ReadingPalette.ink)
                     .frame(maxWidth: .infinity)
             }
-            Hairline()
-            footer
+            actions
         }
+        .padding(PanelMetrics.cardPadding)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassSurface(cornerRadius: ReadingMetrics.Radius.card)
         .id(theme.revision)
         .padding(.horizontal, PanelMetrics.side).padding(.top, PanelMetrics.top).padding(.bottom, PanelMetrics.bottom)
-        .frame(width: PanelMetrics.width)
+        .frame(width: 350)
         .foregroundStyle(ReadingPalette.ink)
+        .environment(\.gardenBackdrop, true)
+        .environment(\.glassOverDesktop, true)
         .background {
-            // Two light vines in the outer margins, clear of any text.
-            MenuPanelGarden(day: model.today.day, mode: theme.effectiveGardenMode(reduceMotion: reduceMotion))
+            // Vines in the gutters around the card, clear of any text.
+            MenuPanelGarden(day: model.today.day, mode: theme.effectiveGardenMode(reduceMotion: reduceMotion), frost: frost)
                 .clipShape(RoundedRectangle(cornerRadius: ReadingMetrics.Radius.window, style: .continuous))
         }
+        .coordinateSpace(name: GardenCanvas.space)
+        .onPreferenceChange(GlassRegionsKey.self) { frost.rects = $0 }
         .nativePopoverSurface()
         .tint(ReadingPalette.accent).buttonStyle(ReadingButtonStyle())
         .readingMotionAccessibility()
@@ -75,17 +84,15 @@ struct PopoverView: View {
         }
     }
 
-    /// Streak on the left, actions on the right.
-    private var footer: some View {
+    private var actions: some View {
         ReadingGlassGroup {
-            HStack(alignment: .center, spacing: 10) {
-                streak
-                Spacer(minLength: 0)
+            HStack {
                 Button(model.manualActive ? "Stop manual reading" : "Read manually") {
                     if model.manualActive { model.stopManual() } else { showingManualStart = true }
                 }
                 .buttonStyle(ReadingButtonStyle(emphasis: model.manualActive ? .primary : .secondary)).controlSize(.small)
                 .fixedSize()
+                Spacer()
                 Menu {
                     Button("Settings…") { model.showDashboard(section: .settings) }
                     Divider()
@@ -97,29 +104,11 @@ struct PopoverView: View {
         }
     }
 
-    private var streak: some View {
-        let days = model.dailyGoalStreak.current
-        return VStack(alignment: .leading, spacing: 2) {
-            Label("\(days) \(days == 1 ? "day" : "days")", systemImage: "flame")
-                .font(ReadingType.numeral(20)).monospacedDigit()
-                .foregroundStyle(ReadingPalette.accent)
-                .lineLimit(1).minimumScaleFactor(0.8)
-            // The long form when it fits; "Stop manual reading" leaves less room.
-            ViewThatFits(in: .horizontal) {
-                Text(model.dailyGoalStreak.todayPending ? "Streak · today open" : "Goal streak")
-                Text(model.dailyGoalStreak.todayPending ? "Streak · open" : "Streak")
-            }
-            .font(.caption2).foregroundStyle(ReadingPalette.secondaryInk).lineLimit(1)
-        }
-        .accessibilityElement(children: .combine)
-        .help("Consecutive days that met your daily goal.")
-    }
-
     private var readingContent: some View {
-        VStack(alignment: .leading, spacing: PanelMetrics.section) {
-            bookLine
+        VStack(alignment: .leading, spacing: PanelMetrics.group) {
+            bookRow
             MenuReadingGoal(model: model)
-            if model.manualActive || model.snapshot.book != nil || model.sessionPages > 0 { sessionLine }
+            statsRow
             if model.appleBooksTrackingNeedsAccess {
                 PopoverSetupNotice(icon: "accessibility", title: "Apple Books tracking needs access",
                     description: "Accessibility is required only for Apple Books. Stillleaf’s own reader records progress and time without it.") {
@@ -136,7 +125,7 @@ struct PopoverView: View {
         }.frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    @ViewBuilder private var bookLine: some View {
+    @ViewBuilder private var bookRow: some View {
         if let book = model.snapshot.book {
             HStack(alignment: .top, spacing: 12) {
                 BookCoverView(book: book, size: .compact)
@@ -159,7 +148,7 @@ struct PopoverView: View {
                 Image(systemName: "book.closed").font(.system(size: 24, weight: .light))
                     .foregroundStyle(ReadingPalette.accent).frame(width: 30, height: 36)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Open a book to begin").font(ReadingType.bookTitle(19))
+                    Text("Open a book to begin").font(ReadingType.bookTitle(17))
                     ActivityStateLabel(snapshot: model.snapshot, compact: true, onTranslucentSurface: true)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -168,16 +157,26 @@ struct PopoverView: View {
         }
     }
 
-    /// This session's pages and time, and the pace once there is one, as quiet type.
-    private var sessionLine: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text("This session").font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
-                Spacer(minLength: 0)
-                Text("\(model.sessionPages) \(model.sessionPages == 1 ? "page" : "pages")")
-                    .font(ReadingType.numeral(17)).monospacedDigit()
-                Text(ReadingFormat.duration(model.snapshot.sessionSeconds) + (model.manualActive ? " manual" : " recorded"))
-                    .font(.caption2).foregroundStyle(ReadingPalette.secondaryInk)
+    private var statsRow: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 20) {
+                if model.manualActive || model.snapshot.book != nil || model.sessionPages > 0 {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("This session").font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
+                        Text("\(model.sessionPages) \(model.sessionPages == 1 ? "page" : "pages")")
+                            .font(ReadingType.numeral(20)).monospacedDigit()
+                        Text("\(ReadingFormat.duration(model.snapshot.sessionSeconds)) \(model.manualActive ? "manual" : "recorded")")
+                            .font(.caption2).foregroundStyle(ReadingPalette.secondaryInk)
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    Label("\(model.dailyGoalStreak.current) \(model.dailyGoalStreak.current == 1 ? "day" : "days")", systemImage: "flame")
+                        .font(ReadingType.numeral(20)).monospacedDigit()
+                        .foregroundStyle(ReadingPalette.accent)
+                    Text(model.dailyGoalStreak.todayPending ? "Goal streak · today still open" : "Goal streak")
+                        .font(.caption2).foregroundStyle(ReadingPalette.secondaryInk)
+                }.frame(maxWidth: .infinity, alignment: .leading)
+                .help("Consecutive days that met your daily goal.")
             }
             if let pace = ReadingFormat.pagesPerMinute(model.sessionPagesPerMinute) {
                 Label(pace, systemImage: "gauge.with.dots.needle.50percent")
@@ -212,5 +211,9 @@ private struct PopoverSetupNotice<Accessory: View>: View {
             }
             Spacer(minLength: 0)
         }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .overlay(RoundedRectangle(cornerRadius: ReadingMetrics.Radius.control, style: .continuous)
+            .stroke(ReadingPalette.warning.opacity(0.55), lineWidth: 1).allowsHitTesting(false))
     }
 }

@@ -11,6 +11,17 @@ extension EnvironmentValues {
     }
 }
 
+private struct GlassOverDesktopKey: EnvironmentKey { static let defaultValue = false }
+
+extension EnvironmentValues {
+    /// True for glass that floats over the desktop (the menu bar panel) rather than
+    /// over the app's own canvas: its card is denser so text holds on any wallpaper.
+    var glassOverDesktop: Bool {
+        get { self[GlassOverDesktopKey.self] }
+        set { self[GlassOverDesktopKey.self] = newValue }
+    }
+}
+
 /// One glass panel as the garden needs it: its frame in the garden's coordinate
 /// space and the corner radius of its (continuous) rounded rectangle.
 struct GlassRegion: Equatable {
@@ -36,6 +47,7 @@ private struct GlassSurface: ViewModifier {
     @Environment(\.colorSchemeContrast) private var contrast
     @Environment(\.nativePreviewOpaque) private var previewOpaque
     @Environment(\.gardenBackdrop) private var gardenBackdrop
+    @Environment(\.glassOverDesktop) private var overDesktop
     @Environment(\.colorScheme) private var colorScheme
 
     func body(content: Content) -> some View {
@@ -65,11 +77,14 @@ private struct GlassSurface: ViewModifier {
         return content
             .background {
                 ZStack {
-                    shape.fill(ReadingPalette.surface.opacity(GlassTint.cardFill(dark: dark)))
+                    // Over the desktop, text sits on a blurred copy of it, so wallpaper and windows never read through.
+                    if overDesktop { DesktopBlur().clipShape(shape) }
+                    shape.fill(ReadingPalette.surface.opacity(overDesktop ? PanelGlass.cardTint(dark: dark) : GlassTint.cardFill(dark: dark)))
                     shape.fill(LinearGradient(colors: [.white.opacity(dark ? 0.08 : 0.34), .white.opacity(0)],
                                               startPoint: .topLeading, endPoint: UnitPoint(x: 0.55, y: 0.45)))
                 }
-                .shadow(color: .black.opacity(dark ? 0.38 : 0.12), radius: 18, x: 0, y: 10)
+                .shadow(color: .black.opacity(dark ? (overDesktop ? 0.24 : 0.38) : (overDesktop ? 0.08 : 0.12)),
+                        radius: overDesktop ? 10 : 18, x: 0, y: overDesktop ? 4 : 10)
             }
             .overlay {
                 shape.strokeBorder(LinearGradient(colors: [.white.opacity(dark ? 0.22 : 0.9), .white.opacity(dark ? 0.04 : 0.3)],
