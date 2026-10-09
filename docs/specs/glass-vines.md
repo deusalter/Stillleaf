@@ -114,6 +114,18 @@ The garden lives in the window space outside the page. The page’s own inset (`
 - **Footer progress.** The footer is a pill the width of the card, holding "Page X of Y", a thin vine growing along a dotted track to the chapter progress, the pages left, and the percentage. The pill and its vine exist while the garden does and follow Focus reading: the footer, and so the vine, is hidden and regrown when it returns. The spine vine in facing pages carries the same progress, with its own dotted track.
 - **Adjustable margins.** The existing controls (Margins presets, Side margins, Page width) define where the garden can grow. Changing any of them re-runs the garden for the new geometry: vines in lost space fade out, new space fills in. The Vines setting (**Off / Margins**, default Margins) sits next to those sliders in the Appearance panel.
 
+### Living garden (reader margins)
+
+An Animated margin garden keeps moving once it has grown in, as in the "Living garden" direction of `design/dynamic-motion`. Still, Off and Reduce Motion show none of it.
+
+- **Shoots.** A new shoot grows off an existing stem every 30 to 60 s (the first after about 3 s), one cell every 1.5 s, up to three at once. They sit beside the reading-driven garden and never replace it: margins still fill with reading progress, and live shoots are only an extra layer of about 120 cells.
+- **Recycling.** Past that budget the oldest settled shoot withers from its tip back to its stem over about 20 s and lets go of a few spores, so the density stays the same all day. A live cell yields at once if the settled garden grows over it, and a shoot whose stem is gone withers.
+- **Wind.** Slow bands cross the margins about every 10 s. Leaves lean and flutter to their alternate glyph, blooms nudge, stems stay put.
+- **Petals and fireflies.** A bloom sheds a petal about every 18 s (at most three in the air). In dark themes four fireflies, two in each margin, blink on 3 to 6 s cycles. Particles fade out in the two cells around the page card and the bars, so nothing moves beside the text.
+- **Cost.** The model (`src/living.js`) is pure state. The loop in `garden.js` runs at most 15 frames a second and only after the garden has settled. A frame repaints only the cells whose wind pose or opacity changed and the places particles were and are now, through a clip of whole-pixel rectangles; it never redraws the whole canvas. Measured in headless Chromium and WebKit: about 1 ms per frame, under 1% of the canvas repainted per frame.
+- **Pausing.** The loop stops while scrolling or turning a page (the same hold that freezes the garden), while `document.hidden`, and in Still, Off and Reduce Motion. Its clock ignores gaps over 100 ms, so a hidden window never catches up in a burst. Switching to Still or Off clears shoots and particles.
+- **Testing.** `test/living.test.mjs` runs the model headless (growth, recycling, wind, petals, fireflies, long gaps). `test/garden-living.test.mjs` runs the garden in Chromium and WebKit: frame cap, frame cost, dirty area, pausing and each mode. Set `window.__stillleafGardenPace` (with `__stillleafGardenDebug`) to compress every interval, like the mockup's Fast preview.
+
 ### Scrolling and input
 
 The garden must never interfere with reading.
