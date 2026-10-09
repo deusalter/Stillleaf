@@ -96,7 +96,7 @@ private struct NativeMenuSurface: ViewModifier {
 }
 
 /// The menu panel's shell: clear glass tinted from the theme, with a crisp rim
-/// and a soft highlight. Text never sits on it directly; the cards do the work
+/// and a soft highlight. Text never sits on it directly; the card does the work
 /// (see `PanelGlass`), so the shell can stay light.
 private struct NativePopoverSurface: ViewModifier {
     @Environment(\.accessibilityReduceTransparency) private var opaque

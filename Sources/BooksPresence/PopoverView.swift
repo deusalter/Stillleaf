@@ -1,17 +1,18 @@
 import SwiftUI
 import BooksCore
 
-/// Gutters and gaps of the menu panel. The vines grow in the gutters; the glass cards sit inside them.
+/// Gutters and gaps of the menu panel. The vines grow in the gutters; one glass card sits inside them.
 private enum PanelMetrics {
-    /// Beside the cards, wide enough for a side vine (`MenuPanelGarden.sideWidth`).
+    /// Beside the card, wide enough for a side vine (`MenuPanelGarden.sideWidth`).
     static let side: CGFloat = 22
     static let top: CGFloat = 38
     static let bottom: CGFloat = 42
-    static let gap: CGFloat = 10
-    /// Room a scrolling card needs for its shadow before the scroll view clips it.
-    static let shadowBleed: CGFloat = 10
-    /// Height of everything outside the scrolling body: gutters, header, actions and gaps.
-    static let chrome: CGFloat = 200
+    /// Inside the card, around its content; the same inset the separate cards had.
+    static let cardPadding: CGFloat = 14
+    /// Between the card's groups: about the text-to-text distance the separate cards left, so the panel keeps its size.
+    static let group: CGFloat = 32
+    /// Height of everything outside the scrolling body: gutters, card padding, header, actions and gaps.
+    static let chrome: CGFloat = 232
 }
 
 @MainActor
@@ -21,52 +22,35 @@ struct PopoverView: View {
     @ObservedObject private var theme = ThemeStore.shared
     @State private var showingManualStart = false
     @State private var bodyHeight: CGFloat = 390
-    /// Card frames for the garden to frost; a class so scrolling never re-renders the cards.
+    /// The card's frame for the garden to frost; a class so scrolling never re-renders the card.
     @State private var frost = FrostRegions()
-    /// The scroll view's frame in the garden's space; cards scrolled partly out of it frost only what shows.
-    @State private var scrollFrame = CGRect.null
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let limit = max(160, maximumHeight - PanelMetrics.chrome)
-        VStack(alignment: .leading, spacing: PanelMetrics.gap) {
+        // One glass card holds everything; the garden shows around it and softly through it.
+        VStack(alignment: .leading, spacing: PanelMetrics.group) {
             header
             ScrollView {
                 readingContent
-                    .padding(.horizontal, PanelMetrics.side).padding(.vertical, PanelMetrics.shadowBleed)
                     .background(GeometryReader { geometry in
                         Color.clear.preference(key: MenuBodyHeight.self, value: geometry.size.height)
                     })
             }
-            .frame(height: min(bodyHeight, limit + 2 * PanelMetrics.shadowBleed))
-            // The scroll view spans the panel so card shadows are not clipped at the gutters.
-            .padding(.horizontal, -PanelMetrics.side).padding(.vertical, -PanelMetrics.shadowBleed)
-            // An overlay, not a background: a background's frame is never delivered for a scroll view.
-            .overlay(GeometryReader { proxy in
-                Color.clear.preference(key: MenuScrollFrame.self, value: proxy.frame(in: .named(GardenCanvas.space)))
-            }.allowsHitTesting(false))
-            .onPreferenceChange(MenuScrollFrame.self) { scrollFrame = $0 }
-            .transformPreference(GlassRegionsKey.self) { regions in
-                guard !scrollFrame.isNull else { return }
-                // Negative padding shrinks the measured frame; the scroll view shows the bleed too.
-                let visible = scrollFrame.insetBy(dx: -PanelMetrics.side, dy: -PanelMetrics.shadowBleed)
-                regions = regions.compactMap { region in
-                    let frame = region.frame.intersection(visible)
-                    return frame.isNull || frame.isEmpty ? nil : GlassRegion(frame: frame, cornerRadius: region.cornerRadius)
-                }
-            }
+            .frame(height: min(bodyHeight, limit))
             .onPreferenceChange(MenuBodyHeight.self) { height in
                 if height > 0, abs(height - bodyHeight) > 0.5 { bodyHeight = height }
             }
-            if bodyHeight > limit + 2 * PanelMetrics.shadowBleed {
+            if bodyHeight > limit {
                 Label("Scroll for more", systemImage: "arrow.down")
                     .font(.caption2).foregroundStyle(ReadingPalette.ink)
-                    .padding(.horizontal, 10).padding(.vertical, 3)
-                    .glassSurface(cornerRadius: ReadingMetrics.Radius.control)
                     .frame(maxWidth: .infinity)
             }
             actions
         }
+        .padding(PanelMetrics.cardPadding)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassSurface(cornerRadius: ReadingMetrics.Radius.card)
         .id(theme.revision)
         .padding(.horizontal, PanelMetrics.side).padding(.top, PanelMetrics.top).padding(.bottom, PanelMetrics.bottom)
         .frame(width: 350)
@@ -74,7 +58,7 @@ struct PopoverView: View {
         .environment(\.gardenBackdrop, true)
         .environment(\.glassOverDesktop, true)
         .background {
-            // Vines in the gutters around the cards, clear of any text.
+            // Vines in the gutters around the card, clear of any text.
             MenuPanelGarden(day: model.today.day, mode: theme.effectiveGardenMode(reduceMotion: reduceMotion), frost: frost)
                 .clipShape(RoundedRectangle(cornerRadius: ReadingMetrics.Radius.window, style: .continuous))
         }
@@ -98,8 +82,6 @@ struct PopoverView: View {
             .buttonStyle(ReadingButtonStyle(iconOnly: true)).controlSize(.small)
             .accessibilityLabel("Open dashboard").help("Open dashboard")
         }
-        .padding(.horizontal, 14).padding(.vertical, 8)
-        .glassSurface(cornerRadius: ReadingMetrics.Radius.card)
     }
 
     private var actions: some View {
@@ -109,6 +91,7 @@ struct PopoverView: View {
                     if model.manualActive { model.stopManual() } else { showingManualStart = true }
                 }
                 .buttonStyle(ReadingButtonStyle(emphasis: model.manualActive ? .primary : .secondary)).controlSize(.small)
+                .fixedSize()
                 Spacer()
                 Menu {
                     Button("Settings…") { model.showDashboard(section: .settings) }
@@ -119,14 +102,13 @@ struct PopoverView: View {
                 .accessibilityLabel("More actions")
             }
         }
-        .menuCard(padding: 10)
     }
 
     private var readingContent: some View {
-        VStack(alignment: .leading, spacing: PanelMetrics.gap) {
-            bookCard
-            MenuReadingGoal(model: model).menuCard()
-            statsCard
+        VStack(alignment: .leading, spacing: PanelMetrics.group) {
+            bookRow
+            MenuReadingGoal(model: model)
+            statsRow
             if model.appleBooksTrackingNeedsAccess {
                 PopoverSetupNotice(icon: "accessibility", title: "Apple Books tracking needs access",
                     description: "Accessibility is required only for Apple Books. Stillleaf’s own reader records progress and time without it.") {
@@ -143,7 +125,7 @@ struct PopoverView: View {
         }.frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    @ViewBuilder private var bookCard: some View {
+    @ViewBuilder private var bookRow: some View {
         if let book = model.snapshot.book {
             HStack(alignment: .top, spacing: 12) {
                 BookCoverView(book: book, size: .compact)
@@ -161,7 +143,6 @@ struct PopoverView: View {
                 }
                 Spacer(minLength: 0)
             }
-            .menuCard()
         } else {
             HStack(spacing: 12) {
                 Image(systemName: "book.closed").font(.system(size: 24, weight: .light))
@@ -173,11 +154,10 @@ struct PopoverView: View {
                 }
                 Spacer(minLength: 0)
             }
-            .menuCard()
         }
     }
 
-    private var statsCard: some View {
+    private var statsRow: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top, spacing: 20) {
                 if model.manualActive || model.snapshot.book != nil || model.sessionPages > 0 {
@@ -203,22 +183,7 @@ struct PopoverView: View {
                     .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
             }
         }
-        .menuCard()
     }
-}
-
-private extension View {
-    /// A glass card for one block of the panel's text.
-    func menuCard(padding: CGFloat = 14) -> some View {
-        self.padding(padding)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .glassSurface(cornerRadius: ReadingMetrics.Radius.card)
-    }
-}
-
-private struct MenuScrollFrame: PreferenceKey {
-    static var defaultValue = CGRect.null
-    static func reduce(value: inout CGRect, nextValue: () -> CGRect) { value = nextValue() }
 }
 
 private struct MenuBodyHeight: PreferenceKey {
@@ -246,8 +211,9 @@ private struct PopoverSetupNotice<Accessory: View>: View {
             }
             Spacer(minLength: 0)
         }
-        .menuCard()
-        .overlay(RoundedRectangle(cornerRadius: ReadingMetrics.Radius.card, style: .continuous)
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .overlay(RoundedRectangle(cornerRadius: ReadingMetrics.Radius.control, style: .continuous)
             .stroke(ReadingPalette.warning.opacity(0.55), lineWidth: 1).allowsHitTesting(false))
     }
 }

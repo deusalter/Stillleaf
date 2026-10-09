@@ -3,7 +3,7 @@ import Foundation
 /// How see-through the menu bar panel is. The panel floats over whatever is on
 /// the desktop, so unlike the dashboard its glass cannot rely on a known canvas
 /// behind it. Two layers share the job: a light shell tinted with the theme
-/// canvas, and cards (surface colour) that carry all of the text.
+/// canvas, and one card (surface colour) that carries all of the text.
 ///
 /// Kept free of SwiftUI so `scripts/theme-contrast-smoke.swift` can prove every
 /// theme keeps text at WCAG AA over the worst desktops, in milliseconds.

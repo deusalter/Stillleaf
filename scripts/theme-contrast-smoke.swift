@@ -48,7 +48,7 @@ struct ThemeContrastSmoke {
                 }
             }
         }
-        // The menu panel floats over any desktop: its cards must keep text at AA on the worst ones.
+        // The menu panel floats over any desktop: its card must keep text at AA on the worst ones.
         var panelChecks = 0, panelFailures: [String] = []
         for theme in ReadingTheme.all {
             for dark in [false, true] {

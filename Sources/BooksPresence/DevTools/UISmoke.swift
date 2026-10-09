@@ -923,7 +923,7 @@ private func checkGardenFollowsThemeAndNavigation() throws {
     }
 
     // The menu panel's garden: a trellis confined to the top and bottom bands, plus a vine up each side,
-    // on every day's seed. Cards fill the middle, so nothing may grow there, and the garden must be real.
+    // on every day’s seed. The card fills the middle, so nothing may grow there, and the garden must be real.
     var blooms = 0
     for dayIndex in 0..<60 {
         let day = String(format: "2026-%02d-%02d", 1 + dayIndex / 28, 1 + dayIndex % 28)

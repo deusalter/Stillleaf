@@ -15,7 +15,7 @@ private struct GlassOverDesktopKey: EnvironmentKey { static let defaultValue = f
 
 extension EnvironmentValues {
     /// True for glass that floats over the desktop (the menu bar panel) rather than
-    /// over the app's own canvas: its cards are denser so text holds on any wallpaper.
+    /// over the app's own canvas: its card is denser so text holds on any wallpaper.
     var glassOverDesktop: Bool {
         get { self[GlassOverDesktopKey.self] }
         set { self[GlassOverDesktopKey.self] = newValue }
