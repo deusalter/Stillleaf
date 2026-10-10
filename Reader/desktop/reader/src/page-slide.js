@@ -94,10 +94,15 @@ export class PageSlide {
   /** @param {HTMLElement} reader @param {{motion?: (ms: number) => void}} options `motion` hears when a turn starts moving. */
   constructor(reader, {motion = () => {}} = {}) {
     this.reader = reader; this.motion = motion;
-    this.reduced = matchMedia('(prefers-reduced-motion: reduce)');
-    this.reduced.addEventListener('change', () => { if (this.reduced.matches) this.invalidate(); });
+    // WebKit updates a long-lived MediaQueryList's `matches` lazily, a turn after the setting changed, so the
+    // current setting is always read from a fresh query; the long-lived one only supplies the change event.
+    this.query = matchMedia('(prefers-reduced-motion: reduce)');
+    this.query.addEventListener('change', () => { if (this.reduced) this.invalidate(); });
     this.revision = 0; this.generation = 0; this.cache = null; this.building = null; this.shown = null; this.animations = [];
   }
+
+  /** Whether Reduce Motion is on right now. */
+  get reduced() { return matchMedia('(prefers-reduced-motion: reduce)').matches; }
 
   /** The persistent stage, hidden except while a turn is on screen. Created on first use. */
   ensureStage() {
@@ -155,7 +160,7 @@ export class PageSlide {
   warm(enabled = () => true) {
     clearTimeout(this.warmTimer);
     this.warmTimer = setTimeout(async () => {
-      if (!enabled() || this.reduced.matches || this.running) return;
+      if (!enabled() || this.reduced || this.running) return;
       const source = liveFrame(this.reader);
       if (!source?.contentDocument?.body) return;
       try {
@@ -171,11 +176,13 @@ export class PageSlide {
    */
   async prime(entry, source) {
     const stage = this.stage;
-    if (!stage || stage.dataset.state !== 'idle' || this.running || this.cache !== entry) return;
+    if (!stage || stage.dataset.state !== 'idle' || this.running || this.cache !== entry || this.reduced) return;
     entry.primed = true;
     const revision = this.revision, x = source.contentWindow.scrollX, y = source.contentWindow.scrollY;
     // Each copy takes the page's place in turn, so both have painted once before either is used.
     for (const frame of entry.frames) {
+      // Reduce Motion can switch on between steps, before its change event has reached `invalidate`: the stage must stay down.
+      if (this.reduced) return;
       for (const other of entry.frames) if (other !== frame) other.style.left = '-100000px';
       place(frame, source, 0, x, y);
       stage.dataset.state = 'arming';
@@ -223,7 +230,7 @@ export class PageSlide {
   }
 
   async run(direction, {enabled, rtl, hurried = () => false}, navigate) {
-    if (!enabled || this.reduced.matches) return navigate();
+    if (!enabled || this.reduced) return navigate();
     clearTimeout(this.residentTimer); clearTimeout(this.warmTimer);
     this.revision++; this.stopMotion();
     const revision = this.revision;
@@ -274,7 +281,7 @@ export class PageSlide {
         this.cache = {doc: live.contentDocument, print: fingerprint(live), frames: [incoming]};
         this.pendingDrop = outgoing;
       }
-      if (revision !== this.revision || this.reduced.matches) return moved;
+      if (revision !== this.revision || this.reduced) return moved;
       this.animate(sign, width, hurried() ? SLIDE.hurried : SLIDE.duration);
       await this.animation.finished.catch(() => {});
       if (revision === this.revision) { this.settle(incoming, hurried()); resident = true; }
