@@ -275,7 +275,8 @@ struct BooksPresenceMain {
         let application = NSApplication.shared
         // Screenshot fixtures can render native views without joining the window list or taking focus.
         let offscreenPreview = CommandLine.arguments.contains("--render-ui") && CommandLine.arguments.contains("--offscreen")
-        application.setActivationPolicy(offscreenPreview ? .prohibited : .accessory)
+        let quietCheck = CommandLine.arguments.contains("--self-test-quiet-motion")
+        application.setActivationPolicy(offscreenPreview || quietCheck ? .prohibited : .accessory)
         BackgroundUI.enableIfRequested()
         if CommandLine.arguments.contains("--preview-library") {
             do { try runInteractiveLibraryPreview(); exit(0) }
@@ -324,6 +325,11 @@ struct BooksPresenceMain {
         if let index = CommandLine.arguments.firstIndex(of: "--measure-seedling"), index + 1 < CommandLine.arguments.count {
             measureSeedlingCPU(seconds: Double(CommandLine.arguments[index + 1]) ?? 21)
             exit(0)
+        }
+        // Only the Quiet UI motion checks; they build layers and never show a window.
+        if quietCheck {
+            do { try checkQuietMotion(); exit(0) }
+            catch { fputs("quiet-motion-smoke failed: \(error)\n", stderr); exit(1) }
         }
         if CommandLine.arguments.contains("--self-test-ui") {
             do { try runUISmoke(); exit(0) }

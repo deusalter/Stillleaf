@@ -12,27 +12,18 @@ struct DottedReadingArc: View, Animatable {
 
     var body: some View {
         Canvas { context, size in
-            let center = CGPoint(x: size.width / 2, y: size.height * 0.53)
-            let radius = min(size.width * 0.45, size.height * 0.48)
+            let geometry = RingGeometry(size: size)
             let fraction = min(1, max(0, progress))
-            let scale = Double(min(1, size.width / 254))
-            for row in 0..<2 {
-                let count = row == 0 ? 37 : 31
-                let distance = radius - Double(row) * 16 * scale
-                for index in 0..<count {
-                    let position = Double(index) / Double(count - 1)
-                    let angle = (140 + position * 260) * .pi / 180
-                    let diameter: Double = (row == 0 ? 8 : 6) * scale
-                    let x = center.x + cos(angle) * distance
-                    let y = center.y + sin(angle) * distance
-                    let dot = Path(ellipseIn: CGRect(x: x - diameter / 2, y: y - diameter / 2,
-                                                    width: diameter, height: diameter))
-                    context.fill(dot, with: .color(ReadingPalette.track.opacity(row == 0 ? 1 : 0.65)))
+            for (row, spec) in RingGeometry.rows.enumerated() {
+                for index in 0..<spec.count {
+                    let placed = geometry.dot(row: row, index: index)
+                    let dot = Path(ellipseIn: CGRect(x: placed.center.x - placed.diameter / 2, y: placed.center.y - placed.diameter / 2,
+                                                    width: placed.diameter, height: placed.diameter))
+                    context.fill(dot, with: .color(ReadingPalette.track.opacity(spec.trackOpacity)))
                     // A smooth leading edge follows the interpolated fraction.
-                    let coverage = min(1, max(0, fraction * Double(count) - Double(index)))
+                    let coverage = min(1, max(0, fraction * Double(spec.count) - Double(index)))
                     if coverage > 0 {
-                        context.fill(dot, with: .color(ReadingPalette.accent
-                            .opacity(coverage * (row == 0 ? 1 : 0.7))))
+                        context.fill(dot, with: .color(ReadingPalette.accent.opacity(coverage * spec.fillOpacity)))
                     }
                 }
             }
@@ -79,13 +70,13 @@ struct DailyReadingOverview: View {
     var body: some View {
         HStack(spacing: 28) {
             ZStack {
-                DottedReadingArc(progress: progress)
-                    .animation(reduceMotion ? nil : .easeOut(duration: 0.24), value: progress)
-                    // Only real progress changes animate. Returning to Today
-                    // must not replay earned progress from an empty ring.
-                    .id("\(model.today.day)-\(daily.unit.rawValue)-\(goal ?? -1)")
+                // The ring fills once when Today first appears, then only real progress changes
+                // animate: returning to Today must not replay earned progress from an empty ring.
+                GoalArc(progress: progress, key: "today.arc.\(ringIdentity)", reading: model.snapshot.phase == .reading,
+                        change: .easeOut(duration: 0.24))
+                    .id(ringIdentity)
                 VStack(spacing: 1) {
-                    Text(daily.displayValue)
+                    CountingText(daily.displayValue, key: "today.value.\(daily.unit.rawValue)")
                         .font(ReadingType.numeral(72))
                         .tracking(-1.5).monospacedDigit().minimumScaleFactor(0.55).lineLimit(1)
                     Text(daily.todayLabel)
@@ -94,6 +85,7 @@ struct DailyReadingOverview: View {
                 .frame(width: 176).offset(y: 2)
             }
             .frame(width: 254, height: 250)
+            .gardenRipple()
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Today's reading")
             .accessibilityValue(daily.summary)
@@ -115,13 +107,14 @@ struct DailyReadingOverview: View {
         .readingPanel()
     }
 
+    private var ringIdentity: String { "\(model.today.day)-\(daily.unit.rawValue)-\(goal ?? -1)" }
     private var goalTitle: String { daily.goalTitle }
     private var goalDetail: String { daily.goalDetail }
     private func overviewStat(value: String, title: String, symbol: String, color: Color) -> some View {
         VStack(alignment: .leading, spacing: 7) {
             Label(title, systemImage: symbol).font(.system(size: 11, weight: .medium)).foregroundStyle(ReadingPalette.secondaryInk)
                 .labelStyle(.titleAndIcon)
-            Text(value).font(ReadingType.numeral(28)).monospacedDigit()
+            CountingText(value, key: "today.stat.\(title)").font(ReadingType.numeral(28)).monospacedDigit()
                 .foregroundStyle(color).lineLimit(1).minimumScaleFactor(0.75)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -182,10 +175,10 @@ struct MenuReadingGoal: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 16) {
                 ZStack {
-                    DottedReadingArc(progress: daily.fraction)
-                        .animation(reduceMotion ? nil : ReadingMotion.selection, value: daily.fraction)
+                    GoalArc(progress: daily.fraction, key: "menu.arc.\(daily.unit.rawValue)", reading: model.snapshot.phase == .reading,
+                            change: ReadingMotion.selection)
                     VStack(spacing: 2) {
-                        Text(daily.displayValue)
+                        CountingText(daily.displayValue, key: "menu.value.\(daily.unit.rawValue)")
                             .font(ReadingType.numeral(42))
                             .minimumScaleFactor(0.5).lineLimit(1)
                         Text(daily.todayLabel)
@@ -195,6 +188,7 @@ struct MenuReadingGoal: View {
                     .frame(width: 90).offset(y: 3)
                 }
                 .frame(width: 132, height: 116)
+                .gardenRipple()
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("Today's reading")
                 .accessibilityValue(daily.summary)

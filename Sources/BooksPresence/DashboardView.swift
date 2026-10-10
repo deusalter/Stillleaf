@@ -86,7 +86,7 @@ struct DashboardView: View {
                         GardenCanvas(layout: GardenLayout(clearingHeight: clearing,
                                                           seed: GardenSeed.daily("dashboard", day: model.today.day),
                                                           pollenScale: section == .history ? 0.5 : 1),
-                                     mode: gardenMode, frost: frost, frostOffset: proxy.safeAreaInsets.top)
+                                     mode: gardenMode, frost: frost, frostOffset: proxy.safeAreaInsets.top, parallax: true)
                             .preference(key: GardenClearingKey.self, value: clearing)
                     }
                 }
@@ -284,6 +284,7 @@ private struct DashboardSidebar: View {
                                 .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                         }
                         .buttonStyle(.plain)
+                        .gardenRipple()
                         .focused($focusedDestination, equals: item)
                         .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
                             .stroke(focusedDestination == item ? ReadingPalette.accent : .clear, lineWidth: 2))
