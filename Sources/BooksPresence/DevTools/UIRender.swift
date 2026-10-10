@@ -81,6 +81,10 @@ func renderUIPreviews(to destination: URL) throws {
         try renderHistoryAtlasPreviews(to: destination)
         return
     }
+    if CommandLine.arguments.contains("--quiet-ui") {
+        try renderQuietMotionPreviews(to: destination)
+        return
+    }
     let support = FileManager.default.temporaryDirectory.appendingPathComponent("BooksPresence-preview-\(UUID().uuidString)")
     let suite = "BooksPresence.Preview.\(UUID().uuidString)"
     let defaults = UserDefaults(suiteName: suite)!

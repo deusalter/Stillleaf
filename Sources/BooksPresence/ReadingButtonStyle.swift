@@ -52,7 +52,11 @@ struct ReadingButtonStyle: PrimitiveButtonStyle {
         self.glass = glass
     }
 
-    @ViewBuilder func makeBody(configuration: Configuration) -> some View {
+    func makeBody(configuration: Configuration) -> some View {
+        styled(configuration).gardenRipple()
+    }
+
+    @ViewBuilder private func styled(_ configuration: Configuration) -> some View {
         #if compiler(>=6.2)
         if #available(macOS 26.0, *), !(previewOpaque ?? reduceTransparency), contrast != .increased {
             if emphasis == .primary {

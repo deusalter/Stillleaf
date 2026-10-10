@@ -80,9 +80,9 @@ struct TodayView: View {
                         if model.snapshot.book != nil {
                             ActivityStateLabel(snapshot: model.snapshot).padding(.top, 4)
                             HStack(spacing: 28) {
-                                LabeledValue(label: "Session pages", value: "\(model.sessionPages)")
-                                LabeledValue(label: "Reading time", value: ReadingFormat.duration(model.snapshot.sessionSeconds))
-                                if let page = model.currentPageText { LabeledValue(label: "In this book", value: page) }
+                                LabeledValue(label: "Session pages", value: "\(model.sessionPages)", countKey: "today.session.pages")
+                                LabeledValue(label: "Reading time", value: ReadingFormat.duration(model.snapshot.sessionSeconds), countKey: "today.session.time")
+                                if let page = model.currentPageText { LabeledValue(label: "In this book", value: page, countKey: "today.session.page") }
                             }.padding(.top, 6)
                         } else {
                             HStack(spacing: 6) {
@@ -210,10 +210,16 @@ private func activityPauseSummary(_ reason: PauseReason?) -> String {
 struct LabeledValue: View {
     let label: String
     let value: String
+    /// Names the number so it counts up when it first appears; `nil` for plain text.
+    var countKey: String? = nil
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(label).font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
-            Text(value).font(.callout).monospacedDigit()
+            if let countKey {
+                CountingText(value, key: countKey).font(.callout).monospacedDigit()
+            } else {
+                Text(value).font(.callout).monospacedDigit()
+            }
         }
     }
 }

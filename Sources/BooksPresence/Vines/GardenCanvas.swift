@@ -210,6 +210,8 @@ struct GardenCanvas: View {
     /// Glass panel frames to frost, and how far the garden's origin sits above that space.
     let frost: FrostRegions?
     let frostOffset: CGFloat
+    /// Lets the garden drift a few points against the glass as the pointer moves (Quiet UI).
+    let parallax: Bool
     @StateObject private var model = GardenModel()
     @State private var visible = true
     @State private var resizing = false
@@ -219,13 +221,20 @@ struct GardenCanvas: View {
     /// Observed so a theme or accent change recolours the garden.
     @ObservedObject private var theme = ThemeStore.shared
     @Environment(\.colorScheme) private var colorScheme
+    @QuietMotionLevel private var quiet
+    /// How far the garden has drifted from rest, in points.
+    @State private var drift = CGSize.zero
 
-    init(layout: GardenLayout, mode: GardenMode, frost: FrostRegions? = nil, frostOffset: CGFloat = 0) {
+    init(layout: GardenLayout, mode: GardenMode, frost: FrostRegions? = nil, frostOffset: CGFloat = 0, parallax: Bool = false) {
         self.layout = layout
         self.mode = mode
         self.frost = frost
         self.frostOffset = frostOffset
+        self.parallax = parallax
     }
+
+    /// Ripples and parallax run only while the garden itself animates and Quiet UI motion is at full.
+    private var ambient: QuietMotion { mode == .animated && visible ? quiet : (quiet == .still ? .still : .calm) }
 
     var body: some View {
         GeometryReader { proxy in
@@ -245,6 +254,8 @@ struct GardenCanvas: View {
         }
         .background(WindowVisibility(isVisible: $visible, isResizing: $resizing))
         .background(WindowScale(scale: $scale))
+        .background { if parallax { GardenPointer(motion: ambient) { drift = $0 } } }
+        .onChange(of: ambient) { if !$0.ambient { drift = .zero } }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
     }
@@ -264,20 +275,29 @@ struct GardenCanvas: View {
     @ViewBuilder private func surface(size: CGSize) -> some View {
         if let frost, mode != .off {
             // Sharp vines stop at the glass; inside it the garden shows through softly blurred.
+            // The masks stay where the glass is; the garden drifts underneath them.
             ZStack(alignment: .topLeading) {
-                sharp(size: size).mask(FrostMask(regions: frost, offset: frostOffset, inverted: true))
+                drifting(sharp(size: size), size: size).mask(FrostMask(regions: frost, offset: frostOffset, inverted: true))
                 if !model.growing, let image = model.frostedRaster(palette: palette, scale: scale) {
-                    Image(nsImage: image)
+                    drifting(Image(nsImage: image)
                         .resizable().interpolation(.high)
                         .frame(width: size.width, height: size.height, alignment: .topLeading)
+                        .overlay(RippleHost(image: image, motion: ambient, tint: palette.head)), size: size)
                         .mask(FrostMask(regions: frost, offset: frostOffset, inverted: false))
                         .transition(.opacity)
                 }
             }
             .animation(.easeOut(duration: 0.6), value: model.growing)
         } else {
-            sharp(size: size)
+            drifting(sharp(size: size), size: size)
         }
+    }
+
+    /// The garden offset by the parallax drift, in a frame of its own size so layout never changes.
+    private func drifting<V: View>(_ content: V, size: CGSize) -> some View {
+        ZStack(alignment: .topLeading) { content.offset(x: drift.width, y: drift.height) }
+            .frame(width: size.width, height: size.height, alignment: .topLeading)
+            .animation(ambient.ambient ? GardenParallax.animation : nil, value: drift)
     }
 
     @ViewBuilder private func sharp(size: CGSize) -> some View {
@@ -295,6 +315,7 @@ struct GardenCanvas: View {
         } else if let image = model.raster(palette: palette, scale: scale) {
             GardenStill(image: image, breathing: mode == .animated && visible && GardenClock.frozenTime == nil)
                 .frame(width: size.width, height: size.height)
+                .overlay(RippleHost(image: image, motion: ambient, tint: palette.head))
         }
     }
 
