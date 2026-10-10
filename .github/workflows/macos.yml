@@ -52,6 +52,18 @@ jobs:
         with:
           name: Stillleaf-History-previews
           path: ${{ runner.temp }}/history-atlas/*.png
+      - name: Native Quiet UI motion checks (Core Animation layers, no window)
+        if: ${{ !cancelled() && steps.reader-assets.outcome == 'success' }}
+        run: .build/release/BooksPresence --self-test-quiet-motion
+      - name: Native Quiet UI previews (synthetic, offscreen)
+        if: ${{ !cancelled() && steps.reader-assets.outcome == 'success' }}
+        run: .build/release/BooksPresence --render-ui "$RUNNER_TEMP/quiet-ui" --quiet-ui --offscreen
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: Stillleaf-Quiet-UI-previews
+          path: ${{ runner.temp }}/quiet-ui/*.png
+          if-no-files-found: ignore
       - name: Native EPUB reader smoke (offscreen WKWebView, synthetic book)
         id: epub-smoke
         timeout-minutes: 7

@@ -80,6 +80,9 @@ final class ThemeStore: ObservableObject {
         if gardenMode == .animated { revision += 1 }
     }
 
+    /// Whether Low Power Mode is on, as of the last change the store was told about.
+    var lowPowerIsOn: Bool { lowPowerEnabled }
+
     var theme: ReadingTheme { ReadingTheme.named(themeID) }
     var accent: AccentPreset? { AccentPreset.named(accentID) }
 
