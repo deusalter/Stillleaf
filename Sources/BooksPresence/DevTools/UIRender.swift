@@ -102,6 +102,9 @@ func renderUIPreviews(to destination: URL) throws {
     defer { model.shutdown() }
     let emptyModel = try AppModel(support: support.appendingPathComponent("empty"), defaults: defaults, startTracking: false)
     defer { emptyModel.shutdown() }
+    // Empty like `emptyModel`, but with nothing left to set up, so the menu panel shows no notice.
+    let quietModel = try AppModel(support: support.appendingPathComponent("quiet"), defaults: defaults, startTracking: false)
+    defer { quietModel.shutdown() }
     let exceededSupport = support.appendingPathComponent("exceeded")
     try seedPreviewHistory(at: exceededSupport)
     let exceededStore = try ReadingStore(url: exceededSupport.appendingPathComponent("history.sqlite"))
@@ -174,6 +177,9 @@ func renderUIPreviews(to destination: URL) throws {
         previews.append(("popover-desktop", AnyView(PopoverDesktopFixture { PopoverView(model: exceededModel) })))
         previews.append(("popover-desktop-empty", AnyView(PopoverDesktopFixture { PopoverView(model: emptyModel, maximumHeight: 500) })))
         previews.append(("popover-setup", AnyView(PopoverView(model: emptyModel, maximumHeight: 500))))
+        previews.append(("popover-empty", AnyView(PopoverView(model: quietModel))))
+        // A short screen: the notice no longer fits, so the body scrolls inside the panel's height.
+        previews.append(("popover-overflow", AnyView(PopoverView(model: emptyModel, maximumHeight: 440))))
         previews.append(("today-empty", AnyView(DashboardView(model: emptyModel))))
         for step in OnboardingStep.allCases {
             previews.append(("onboarding-\(step.rawValue + 1)", AnyView(OnboardingView(model: emptyModel,
@@ -229,7 +235,7 @@ func renderUIPreviews(to destination: URL) throws {
                 "rating-quarter": NSSize(width: 320, height: 200), "rating-zero": NSSize(width: 320, height: 200), "rating-empty": NSSize(width: 320, height: 200),
                 "written-review": NSSize(width: 590, height: 540), "popover-minutes": NSSize(width: 350, height: 580),
                 "popover": NSSize(width: 350, height: 580), "popover-manual": NSSize(width: 350, height: 580),
-                "popover-setup": NSSize(width: 350, height: 500),
+                "popover-setup": NSSize(width: 350, height: 500), "popover-empty": NSSize(width: 350, height: 580), "popover-overflow": NSSize(width: 350, height: 440),
                 "settings-reading-tall": NSSize(width: 960, height: 1500), "settings-reading-yearly": NSSize(width: 960, height: 1500),
                 "settings-reading-unsaved": NSSize(width: 960, height: 760), "settings-reading-invalid": NSSize(width: 960, height: 760),
                 "settings-data-tall": NSSize(width: 960, height: 1500), "settings-discord-setup": NSSize(width: 960, height: 1000),

@@ -48,19 +48,23 @@ struct ThemeContrastSmoke {
                 }
             }
         }
-        // The menu panel floats over any desktop: its card must keep text at AA on the worst ones.
+        // The menu panel floats over any desktop: text on its veil must hold at AA on the worst ones, over the strongest frosted vine.
         var panelChecks = 0, panelFailures: [String] = []
         for theme in ReadingTheme.all {
             for dark in [false, true] {
                 for accent in [nil] + AccentPreset.all.map(Optional.some) {
                     let colors = theme.colors(dark: dark, accent: accent)
+                    let palette = VinePalette.make(colors, dark: dark)
                     for desktop in PanelGlass.probeDesktops {
-                        let card = PanelGlass.cardColor(colors, dark: dark, desktop: desktop)
-                        for (name, hex, floor) in [("ink", colors.ink, 4.5), ("secondary ink", colors.secondaryInk, 4.5), ("accent", colors.accent, 3)] {
-                            panelChecks += 1
-                            let ratio = ThemeContrast.ratio(hex, card)
-                            if ratio < floor {
-                                panelFailures.append("\(theme.id)/\(dark ? "dark" : "light")/\(accent?.id ?? "default") \(name) is \(String(format: "%.2f", ratio)):1 on a menu card over desktop \(String(desktop, radix: 16))")
+                        for vine in palette.stems + palette.leaves + palette.blooms {
+                            for veil in PanelGlass.veilColors(colors, dark: dark, desktop: desktop, vine: vine) {
+                                for (name, hex, floor) in [("ink", colors.ink, 4.5), ("secondary ink", colors.secondaryInk, 4.5), ("accent", colors.accent, 3)] {
+                                    panelChecks += 1
+                                    let ratio = ThemeContrast.ratio(hex, veil)
+                                    if ratio < floor {
+                                        panelFailures.append("\(theme.id)/\(dark ? "dark" : "light")/\(accent?.id ?? "default") \(name) is \(String(format: "%.2f", ratio)):1 on the menu panel veil over desktop \(String(desktop, radix: 16)) and vine \(String(vine, radix: 16))")
+                                    }
+                                }
                             }
                         }
                     }
@@ -88,10 +92,10 @@ struct ThemeContrastSmoke {
         cardFailures.prefix(8).forEach { print("theme-contrast-smoke: FAIL \($0)") }
         guard cardFailures.isEmpty else { print("theme-contrast-smoke: \(cardFailures.count) of \(cardChecks) glass card checks fail"); exit(1) }
         print("theme-contrast-smoke: \(cardChecks) glass card text checks pass over the strongest vine colours")
-        guard PanelGlass.shellTint(dark: false) <= 0.4, PanelGlass.shellTint(dark: true) <= 0.4, PanelGlass.blurMix <= 0.5 else {
-            print("theme-contrast-smoke: the menu panel shell is frostier than clear glass"); exit(1)
+        guard PanelGlass.veilTint(dark: false) <= 0.75, PanelGlass.veilTint(dark: true) <= 0.75 else {
+            print("theme-contrast-smoke: the menu panel veil is too dense for the garden to show through"); exit(1)
         }
-        print("theme-contrast-smoke: \(panelChecks) menu panel text checks pass over \(PanelGlass.probeDesktops.count) desktops")
+        print("theme-contrast-smoke: \(panelChecks) menu panel text checks pass over \(PanelGlass.probeDesktops.count) desktops and every frosted vine colour")
         print("theme-contrast-smoke: \(ReadingTheme.all.count) themes × 2 appearances × \(AccentPreset.all.count + 1) accents pass WCAG AA; \(vineChecks) vine colours pass 3:1")
     }
 }

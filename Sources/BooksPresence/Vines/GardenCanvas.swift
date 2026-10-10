@@ -24,6 +24,9 @@ struct GardenLayout: Equatable {
     /// Rectangles holding bare text; vines stay one cell away.
     var avoid: [CGRect] = []
     var cornerRoots: [GardenCorner] = []
+    /// Vines starting from each side edge at this many evenly spaced heights, so a
+    /// garden that must fill a panel evenly does not bank up at the bottom.
+    var sideRoots = 0
     var budget: Int? = nil
     /// Keeps vines within this many cells of the edges, for panels whose
     /// text fills the middle.
@@ -39,7 +42,7 @@ struct GardenLayout: Equatable {
     func growsLike(_ other: GardenLayout) -> Bool {
         abs(size.width - other.size.width) < 8 && abs(size.height - other.size.height) < 8
             && clearingHeight == other.clearingHeight && seed == other.seed && roots == other.roots
-            && avoid == other.avoid && cornerRoots == other.cornerRoots && budget == other.budget && edgeBand == other.edgeBand && bandEdges == other.bandEdges && vigor == other.vigor && growth == other.growth
+            && avoid == other.avoid && cornerRoots == other.cornerRoots && sideRoots == other.sideRoots && budget == other.budget && edgeBand == other.edgeBand && bandEdges == other.bandEdges && vigor == other.vigor && growth == other.growth
     }
 }
 
@@ -184,6 +187,12 @@ final class GardenModel: ObservableObject {
             case .bottomLeading: (x, y, heading, bias) = (0, bottom, -0.8, -1.1)
             }
             field.plant(VineTipSpec(x: x, y: y, heading: heading, life: 46, bias: bias, biasStrength: 0.04, branchChance: 0.1))
+        }
+        for i in 0..<layout.sideRoots {
+            let y = clearingRows + (rows - clearingRows) * (i + 1) / (layout.sideRoots + 1)
+            field.plant(VineTipSpec(x: 0, y: y, heading: -0.35, life: 40, bias: -0.2, biasStrength: 0.04, hue: i + 3, branchChance: 0.09))
+            field.plant(VineTipSpec(x: columns - 1, y: min(bottom, y + 2), heading: .pi + 0.35, life: 40, bias: .pi + 0.2,
+                                    biasStrength: 0.04, hue: i + 4, branchChance: 0.09))
         }
         if let growth = layout.growth {
             // Measure the full garden, then stop at a fraction of it. Growth is deterministic,

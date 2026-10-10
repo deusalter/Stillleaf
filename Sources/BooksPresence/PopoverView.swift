@@ -1,18 +1,21 @@
 import SwiftUI
 import BooksCore
 
-/// Gutters and gaps of the menu panel. The vines grow in the gutters; one glass card sits inside them.
+/// Margins and gaps of the menu panel: one sheet of glass over the garden, edge to edge.
 private enum PanelMetrics {
-    /// Beside the card, wide enough for a side vine (`MenuPanelGarden.sideWidth`).
-    static let side: CGFloat = 22
-    static let top: CGFloat = 38
-    static let bottom: CGFloat = 42
-    /// Inside the card, around its content; the same inset the separate cards had.
-    static let cardPadding: CGFloat = 14
-    /// Between the card's groups: about the text-to-text distance the separate cards left, so the panel keeps its size.
-    static let group: CGFloat = 32
-    /// Height of everything outside the scrolling body: gutters, card padding, header, actions and gaps.
-    static let chrome: CGFloat = 232
+    /// From the panel's edge to the text, clear of the crisp vines at the edge.
+    static let side: CGFloat = 30
+    static let top: CGFloat = 26
+    static let bottom: CGFloat = 24
+    /// The band along the panel's edge where the garden is left crisp, unfrosted and unveiled.
+    static let crispEdge: CGFloat = 12
+    /// Between the header, the book, the goal, the streak and the actions.
+    static let group: CGFloat = 18
+    /// Height of everything outside the scrolling body: margins, header, actions and gaps.
+    static let chrome: CGFloat = 150
+    /// The panel's one height, whatever it shows: room for a setup notice with a little
+    /// to spare. Shorter content spreads out to fill it; longer content scrolls inside it.
+    static let height: CGFloat = 496
 }
 
 @MainActor
@@ -22,46 +25,55 @@ struct PopoverView: View {
     @ObservedObject private var theme = ThemeStore.shared
     @State private var showingManualStart = false
     @State private var bodyHeight: CGFloat = 390
-    /// The card's frame for the garden to frost; a class so scrolling never re-renders the card.
+    /// The glass's frame for the garden to frost; a class so scrolling never re-renders the panel.
     @State private var frost = FrostRegions()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        let limit = max(160, maximumHeight - PanelMetrics.chrome)
-        // One glass card holds everything; the garden shows around it and softly through it.
+        // The same body height in every state, so a notice takes the spare room rather than growing the panel.
+        let fixed = max(160, min(maximumHeight, PanelMetrics.height) - PanelMetrics.chrome)
+        // The text sits straight on the glass; the garden shows softly through it everywhere.
         VStack(alignment: .leading, spacing: PanelMetrics.group) {
             header
-            ScrollView {
-                readingContent
-                    .background(GeometryReader { geometry in
-                        Color.clear.preference(key: MenuBodyHeight.self, value: geometry.size.height)
-                    })
+            VStack(spacing: 8) {
+                ScrollView {
+                    readingContent(minHeight: fixed)
+                        .background(GeometryReader { geometry in
+                            Color.clear.preference(key: MenuBodyHeight.self, value: geometry.size.height)
+                        })
+                }
+                .frame(maxHeight: .infinity)
+                .onPreferenceChange(MenuBodyHeight.self) { height in
+                    if height > 0, abs(height - bodyHeight) > 0.5 { bodyHeight = height }
+                }
+                if bodyHeight > fixed + 0.5 {
+                    Label("Scroll for more", systemImage: "arrow.down")
+                        .font(.caption2).foregroundStyle(ReadingPalette.ink)
+                        .frame(maxWidth: .infinity)
+                }
             }
-            .frame(height: min(bodyHeight, limit))
-            .onPreferenceChange(MenuBodyHeight.self) { height in
-                if height > 0, abs(height - bodyHeight) > 0.5 { bodyHeight = height }
-            }
-            if bodyHeight > limit {
-                Label("Scroll for more", systemImage: "arrow.down")
-                    .font(.caption2).foregroundStyle(ReadingPalette.ink)
-                    .frame(maxWidth: .infinity)
-            }
+            .frame(height: fixed)
             actions
         }
-        .padding(PanelMetrics.cardPadding)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .glassSurface(cornerRadius: ReadingMetrics.Radius.card)
         .id(theme.revision)
         .padding(.horizontal, PanelMetrics.side).padding(.top, PanelMetrics.top).padding(.bottom, PanelMetrics.bottom)
         .frame(width: 350)
         .foregroundStyle(ReadingPalette.ink)
         .environment(\.gardenBackdrop, true)
-        .environment(\.glassOverDesktop, true)
         .background {
-            // Vines in the gutters around the card, clear of any text.
-            MenuPanelGarden(day: model.today.day, mode: theme.effectiveGardenMode(reduceMotion: reduceMotion), frost: frost)
-                .clipShape(RoundedRectangle(cornerRadius: ReadingMetrics.Radius.window, style: .continuous))
+            // The garden fills the panel, frosted under the glass and crisp only at the very edge.
+            ZStack {
+                MenuPanelGarden(day: model.today.day, mode: theme.effectiveGardenMode(reduceMotion: reduceMotion), frost: frost)
+                PanelVeil()
+            }
+            .clipShape(RoundedRectangle(cornerRadius: ReadingMetrics.Radius.window, style: .continuous))
         }
+        .background(GeometryReader { proxy in
+            let inset = PanelMetrics.crispEdge
+            Color.clear.preference(key: GlassRegionsKey.self, value: [GlassRegion(
+                frame: proxy.frame(in: .named(GardenCanvas.space)).insetBy(dx: inset, dy: inset),
+                cornerRadius: ReadingMetrics.Radius.window - inset)])
+        })
         .coordinateSpace(name: GardenCanvas.space)
         .onPreferenceChange(GlassRegionsKey.self) { frost.rects = $0 }
         .nativePopoverSurface()
@@ -104,8 +116,8 @@ struct PopoverView: View {
         }
     }
 
-    private var readingContent: some View {
-        VStack(alignment: .leading, spacing: PanelMetrics.group) {
+    private func readingContent(minHeight: CGFloat) -> some View {
+        SpreadStack(spacing: PanelMetrics.group, minHeight: minHeight) {
             bookRow
             MenuReadingGoal(model: model)
             statsRow
@@ -183,6 +195,52 @@ struct PopoverView: View {
                     .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
             }
         }
+    }
+}
+
+/// The glass the text sits on: the theme surface over the frosted garden, fading
+/// out toward the panel's edge so the outermost vines stay crisp (see `PanelGlass`).
+private struct PanelVeil: View {
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.nativePreviewOpaque) private var previewOpaque
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        let opaque = (previewOpaque ?? reduceTransparency) || contrast == .increased
+        let edge = PanelMetrics.crispEdge
+        ReadingPalette.surface.opacity(opaque ? 1 : PanelGlass.veilTint(dark: colorScheme == .dark))
+            .mask(RoundedRectangle(cornerRadius: ReadingMetrics.Radius.window - edge, style: .continuous)
+                .padding(edge).blur(radius: edge / 2))
+    }
+}
+
+/// A vertical stack at least `minHeight` tall. Room beyond its content is shared
+/// evenly between the sections and above and below them, so a panel with little
+/// to show spaces out calmly instead of leaving a gap at the bottom.
+private struct SpreadStack: Layout {
+    var spacing: CGFloat
+    var minHeight: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let sizes = subviews.map { $0.sizeThatFits(ProposedViewSize(width: proposal.width, height: nil)) }
+        let width = proposal.width ?? sizes.map(\.width).max() ?? 0
+        return CGSize(width: width, height: max(minHeight, natural(sizes)))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let sizes = subviews.map { $0.sizeThatFits(ProposedViewSize(width: bounds.width, height: nil)) }
+        let extra = max(0, bounds.height - natural(sizes)) / CGFloat(subviews.count + 1)
+        var y = bounds.minY + extra
+        for (subview, size) in zip(subviews, sizes) {
+            subview.place(at: CGPoint(x: bounds.minX, y: y), anchor: .topLeading,
+                          proposal: ProposedViewSize(width: bounds.width, height: size.height))
+            y += size.height + spacing + extra
+        }
+    }
+
+    private func natural(_ sizes: [CGSize]) -> CGFloat {
+        sizes.map(\.height).reduce(0, +) + spacing * CGFloat(max(0, sizes.count - 1))
     }
 }
 
