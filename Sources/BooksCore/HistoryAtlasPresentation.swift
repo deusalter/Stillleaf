@@ -28,7 +28,7 @@ public struct HistoryAtlasSource {
         sessions = ReadingSessionGrouping.groups(intervals: intervals, merges: merges,
             breakBeforeIntervalIDs: breakBeforeIntervalIDs)
         var displayed: [ReadingInterval] = []
-        for interval in intervals.sorted(by: { $0.start < $1.start }) {
+        for interval in intervals.orderedByKey(\.start) {
             if var previous = displayed.last, previous.sessionID == interval.sessionID,
                previous.bookID == interval.bookID, previous.mode == interval.mode,
                previous.disposition == interval.disposition,
@@ -40,7 +40,7 @@ public struct HistoryAtlasSource {
                 displayed.append(previous)
             } else { displayed.append(interval) }
         }
-        displayIntervals = displayed.sorted { $0.start > $1.start }
+        displayIntervals = displayed.orderedByKey(\.start, descending: true)
     }
 }
 
