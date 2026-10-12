@@ -22,8 +22,12 @@ final class HistoryAtlasController: ObservableObject {
     private let prepare: (HistoryAtlasSource, CalendarNavigation) async throws -> HistoryAtlasPeriod
     private var gate = HistoryAtlasRequestGate()
 
+    /// One cache for every visit to History: its entries belong to a journal revision, so leaving and
+    /// coming back finds the same periods ready instead of scanning the journal again.
+    private static let sharedCache = HistoryAtlasCache()
+
     init(prepare: ((HistoryAtlasSource, CalendarNavigation) async throws -> HistoryAtlasPeriod)? = nil) {
-        let cache = HistoryAtlasCache()
+        let cache = Self.sharedCache
         self.prepare = prepare ?? { source, navigation in
             try await cache.presentation(source: source, navigation: navigation)
         }

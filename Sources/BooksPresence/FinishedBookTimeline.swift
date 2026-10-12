@@ -3,13 +3,22 @@ import BooksCore
 
 @MainActor
 struct FinishedBookTimeline: View {
-    /// Not observed: the timeline depends only on the journal (`historyRevision`) and the timezone,
-    /// so its owner re-creates it when those change instead of on every tracking tick.
+    /// Not observed directly: the timeline depends only on the journal and the timezone, so it
+    /// follows a slice of the model instead of re-rendering on every tracking tick.
     let model: AppModel
+    @StateObject private var slice: ModelSlice<JournalSliceKey>
     var search = ""
     var showsHeading = true
     /// Opens book details, where rating and reading dates are edited.
     var present: (DashboardSheet) -> Void = { _ in }
+
+    init(model: AppModel, search: String = "", showsHeading: Bool = true, present: @escaping (DashboardSheet) -> Void = { _ in }) {
+        self.model = model
+        self.search = search
+        self.showsHeading = showsHeading
+        self.present = present
+        _slice = StateObject(wrappedValue: ModelSlice(model: model) { JournalSliceKey($0) })
+    }
 
     /// What the timeline shows for one history, search and timezone. Computing it sorts and groups
     /// every finished book, so a redraw that changes none of those reuses it.
@@ -99,25 +108,18 @@ struct FinishedBookTimeline: View {
 
 @MainActor
 struct ReadingTimelineView: View, Equatable {
-    /// Not observed. The timeline shows only what the journal and timezone say, so the dashboard
-    /// builds it with `revision` and `timezoneID` and, via `.equatable()`, a tracking tick that
-    /// changes neither skips the whole screen instead of re-laying-out every row.
+    /// Not observed directly; see `FinishedBookTimeline`. Built with `.equatable()`, so the dashboard's
+    /// once-a-second redraw skips the whole screen.
     let model: AppModel
-    let revision: Int
-    let timezoneID: String
     var present: (DashboardSheet) -> Void = { _ in }
     @State private var search = ""
 
     init(model: AppModel, present: @escaping (DashboardSheet) -> Void = { _ in }) {
         self.model = model
-        revision = model.historyRevision
-        timezoneID = model.timezoneID
         self.present = present
     }
 
-    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.model === rhs.model && lhs.revision == rhs.revision && lhs.timezoneID == rhs.timezoneID
-    }
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool { lhs.model === rhs.model }
 
     var body: some View {
         ScrollView {
