@@ -353,8 +353,8 @@ test('switching a live garden to Off stops its frames and blanks both canvases',
   const {page} = await launch(t, {width: 1400, height: 900}, animated);
   await page.evaluate(() => window.StillleafReader.go({href: 'one.html', type: 'text/html', locations: {progression: 0.3}}));
   await page.waitForFunction(() => window.StillleafReader.gardenDebug().progress > 0.2);
-  await page.waitForTimeout(500);
-  assert.ok((await debug(page)).animating, 'the garden was not mid-growth when switched off');
+  // Catch the garden while it grows, rather than after a fixed wait a slow runner can overshoot or undershoot.
+  await page.waitForFunction(() => window.StillleafReader.gardenDebug(true).animating, null, {timeout: 10000, polling: 'raf'});
   await page.evaluate(() => window.StillleafReader.setGardenMode('off'));
   const ticks = (await debug(page)).ticks;
   await page.waitForTimeout(600);
