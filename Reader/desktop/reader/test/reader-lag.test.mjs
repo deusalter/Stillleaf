@@ -131,7 +131,8 @@ test('a regrow leaves the vine canvases alone unless their size changed, and a c
   const second = await page.evaluate(() => window.__resets);
   t.diagnostic(`canvas resets ${first} then ${second}; ${grown} vine cells, settled ${seconds.toFixed(1)} s after the jump`);
   assert.equal(second, first, 'a regrow in an unchanged window reallocated the canvas');
-  assert.ok(seconds < 4, `a grown chapter's vines took ${seconds.toFixed(1)} s to finish fading in`);
+  // The fade-in is bounded at about two and a half seconds however many vines arrive; allow for a slow machine.
+  assert.ok(seconds < 5, `a grown chapter's vines took ${seconds.toFixed(1)} s to finish fading in`);
   // A real size change still resizes it.
   await page.setViewportSize({width: 1180, height: 760});
   await page.waitForFunction(first => window.__resets > first, first, {timeout: 10000});

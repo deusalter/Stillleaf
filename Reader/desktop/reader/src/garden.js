@@ -10,7 +10,7 @@
 import {createField, vinePalette, gardenSeed, isDarkColor} from './vines.js';
 import {createLiving, windAt, swayOf, REST, FRAME_MS} from './living.js';
 
-const FONT = 13, LINE = 16, FOOT_FONT = 12, FOOT_LINE = 14, MIN_MARGIN_CELLS = 7, BUDGET = 1500, STAGGER = 7, STAGGER_SPAN = 150, FADE = 450, GHOST = 600, FREEZE = 300, SLEEP_AFTER = 2000;
+const FONT = 13, LINE = 16, FOOT_FONT = 12, FOOT_LINE = 14, MIN_MARGIN_CELLS = 7, BUDGET = 1500, STAGGER = 7, STAGGER_SPAN = 1800, FADE = 700, GHOST = 900, FREEZE = 300, SLEEP_AFTER = 2000;
 // Every chapter starts as a young garden (about the mockup at 18%: START_CELLS vines, or START_SHARE of a small garden)
 // and fills out to its full size by the chapter's end.
 const START_CELLS = 270, START_SHARE = 0.4, CARD_EDGE = 16, CLEAR_PAGE = 2, CLEAR_BARS = 1;
@@ -157,8 +157,9 @@ export function installGarden({canvas, spine, footer, percent, viewport, chrome,
    *  Still and Reduce Motion show the new garden at once: no fade in, no fading ghosts. */
   function regrow(s, field, now) {
     const previous = s.field?.cells ?? new Map(), born = new Map();
-    // New cells appear one after another, but the whole fade-in (stagger plus each cell's own fade) stays short
-    // however many cells arrive: a chapter's worth of vines must not keep the canvases repainting for seconds.
+    // New cells appear one after another, but the whole fade-in (stagger plus each cell's own fade) stays within about
+    // two and a half seconds however many cells arrive: at 7 ms a cell, a chapter's worth of vines kept the canvases
+    // repainting for over ten.
     let arriving = 0;
     for (const [key] of field?.cells ?? []) if (!(previous.get(key) && s.born.has(key))) arriving++;
     const stagger = Math.min(STAGGER, STAGGER_SPAN / Math.max(1, arriving));
