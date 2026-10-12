@@ -30,11 +30,17 @@ public enum ReadingSessionGrouping {
                               breakBeforeIntervalIDs: Set<String> = []) -> [ReadingSessionGroup] {
         let resolver = MergeResolver(merges: merges)
         let limit = maximumBreak.isFinite ? max(0, maximumBreak) : 1_200
-        let ordered = intervals.sorted { lhs, rhs in
+        // Order keys and positions, not whole intervals: moving thousands of intervals through the
+        // sort cost more than the grouping itself.
+        var keys: [(start: Date, end: Date, id: String, index: Int)] = []
+        keys.reserveCapacity(intervals.count)
+        for (index, interval) in intervals.enumerated() { keys.append((interval.start, interval.end, interval.id, index)) }
+        keys.sort { (lhs: (start: Date, end: Date, id: String, index: Int), rhs: (start: Date, end: Date, id: String, index: Int)) -> Bool in
             if lhs.start != rhs.start { return lhs.start < rhs.start }
             if lhs.end != rhs.end { return lhs.end < rhs.end }
             return lhs.id < rhs.id
         }
+        let ordered = keys.map { intervals[$0.index] }
         var result: [ReadingSessionGroup] = []
         var current: ReadingSessionGroup?
 

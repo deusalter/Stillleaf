@@ -125,7 +125,7 @@ final class AppModel: ObservableObject {
     var displayIntervals: [ReadingInterval] {
         if let cached = displayedIntervalsCache { return cached }
         var result: [ReadingInterval] = []
-        for interval in intervals.sorted(by: { $0.start < $1.start }) {
+        for interval in intervals.orderedByKey(\.start) {
             if var previous = result.last, previous.sessionID == interval.sessionID, previous.bookID == interval.bookID,
                previous.mode == interval.mode, previous.disposition == interval.disposition,
                abs(previous.end.timeIntervalSince(interval.start)) < 0.001 {
@@ -1166,7 +1166,7 @@ final class AppModel: ObservableObject {
             let previousSync = defaults.object(forKey: "lastAppleHistorySync") as? Date
             let archive = try store.archive()
             var latestImported: [String: BookCompletionEvidence] = [:]
-            for event in archive.events.sorted(by: { $0.date < $1.date }) {
+            for event in archive.events.orderedByKey(\.date) {
                 if let id = event.bookID, let completion = event.completion, completion.imported {
                     latestImported[id] = completion
                 }
