@@ -28,7 +28,8 @@ async function launch(t, viewport, {reducedMotion = 'reduce', gardenMode} = {}) 
   t.after(() => browser.close());
   const page = await browser.newPage({viewport, reducedMotion});
   const errors = [];
-  page.on('pageerror', error => errors.push(String(error)));
+  // WebKit reports the spec's benign ResizeObserver loop notice as a page error; it is not a reader failure.
+  page.on('pageerror', error => { if (!/ResizeObserver loop/.test(String(error))) errors.push(String(error)); });
   await page.addInitScript(() => { window.__stillleafGardenDebug = true; });
   // The app injects its Garden setting at document start, before any reader script runs.
   if (gardenMode) await page.addInitScript(mode => { window.__stillleafGardenMode = mode; }, gardenMode);
