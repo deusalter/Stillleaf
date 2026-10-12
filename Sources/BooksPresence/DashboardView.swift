@@ -62,7 +62,7 @@ struct DashboardView: View {
                     case .history: HistoryView(model: model, initialScale: initialCalendarScale)
                     case .library: LibraryView(model: model, present: { sheet = $0 }, browsing: libraryBrowsing)
                     case .review: PersonalReviewsView(model: model)
-                    case .timeline: ReadingTimelineView(model: model, present: { sheet = $0 })
+                    case .timeline: ReadingTimelineView(model: model, present: { sheet = $0 }).equatable()
                     case .health: HealthView(model: model)
                     case .settings: SettingsView(model: model, present: { sheet = $0 }, deleteAll: { deleteAllConfirmation = true }, uninstall: { uninstallConfirmation = true }, initialCategory: model.settingsCategoryRequest ?? initialSettingsCategory, drafts: settingsDrafts)
                         .id(model.settingsCategoryRequest)
