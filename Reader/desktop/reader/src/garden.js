@@ -458,10 +458,14 @@ export function installGarden({canvas, spine, footer, percent, viewport, chrome,
       // Later input extends a hold; it never shortens one that a page turn asked for.
       holdUntil = Math.max(holdUntil, performance.now() + Math.max(FREEZE, hold));
       clearTimeout(freezeTimer);
+      // A long task (a relayout after a setting change) can hold this timer past input already queued behind it.
+      // Release one turn later, so that input runs first and extends the hold instead of seeing the garden regrow.
       freezeTimer = setTimeout(() => {
-        frozen = false;
-        for (const s of scenes) s.canvas.classList.remove('held');
-        if (pending != null) { progress = pending; pending = null; rebuild(); } else if (deferred) rebuild(); else schedule();
+        freezeTimer = setTimeout(() => {
+          frozen = false;
+          for (const s of scenes) s.canvas.classList.remove('held');
+          if (pending != null) { progress = pending; pending = null; rebuild(); } else if (deferred) rebuild(); else schedule();
+        }, 0);
       }, holdUntil - performance.now());
     },
     /** The app's Garden setting: animated, still or off. */
