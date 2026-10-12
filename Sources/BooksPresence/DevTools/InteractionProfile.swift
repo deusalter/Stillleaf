@@ -118,7 +118,21 @@ func runInteractionProfile(to destination: URL) throws {
                          median(steps), steps.max() ?? 0, steps.count))
         }
     }
-    let data = try JSONSerialization.data(withJSONObject: ["rows": rows, "books": model.books.count, "intervals": model.intervals.count],
+    // Saving an edit, as the book sheet does when a rating is chosen: the write, the history
+    // reload that follows it and the dashboard's update, on whichever screen was shown last.
+    var edits: [Double] = []
+    if let book = model.finishedBooks.first {
+        for _ in 0..<6 {
+            let start = cpu()
+            model.saveRating(model.rating(for: book.id), for: book.id)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.001))
+            settle()
+            edits.append(ms(start))
+        }
+        print(String(format: "interaction-profile: save a rating %7.1f (max %7.1f)", median(edits), edits.max() ?? 0))
+    }
+    let data = try JSONSerialization.data(withJSONObject: ["rows": rows, "books": model.books.count, "intervals": model.intervals.count,
+                                                           "saveRatingMedianMs": median(edits)],
                                           options: [.prettyPrinted, .sortedKeys])
     try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
     try data.write(to: destination.appendingPathComponent("interactions.json"))
