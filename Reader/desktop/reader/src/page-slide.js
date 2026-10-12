@@ -16,6 +16,7 @@ export const SLIDE = Object.freeze({
   finishWithin: 90,                    // a held key fast-forwards the running turn to finish in about this long
   resident: 160,                       // how long the stage stays up after a turn for a follow-up turn to reuse it
   edge: 44,                            // width of the soft shadow along the incoming page's leading edge
+  crossing: 250,                       // how long a turn into another chapter waits for that chapter's copy before it skips the slide
 });
 
 const paint = () => new Promise(resolve => requestAnimationFrame(resolve));
@@ -30,8 +31,33 @@ function corresponding(node, source, target) {
   return node === source ? path.reverse().reduce((root, index) => root?.childNodes[index], target) : null;
 }
 
+// What was last copied into each copy: highlights rarely change between turns, and copying them walks the document
+// once per range endpoint, so an unchanged set (same ranges, same endpoints) is left as it is.
+const copied = new WeakMap();
+const sameHighlights = (source, target) => {
+  const last = copied.get(target), registry = source.defaultView.CSS.highlights;
+  if (!last || last.source !== source || last.size !== registry.size) return false;
+  for (const [name, highlight] of registry) {
+    const ranges = last.names.get(name);
+    if (!ranges || ranges.length !== highlight.size) return false;
+    let index = 0;
+    for (const range of highlight) {
+      const seen = ranges[index++];
+      if (seen.range !== range || seen.startContainer !== range.startContainer || seen.startOffset !== range.startOffset
+        || seen.endContainer !== range.endContainer || seen.endOffset !== range.endOffset) return false;
+    }
+  }
+  return true;
+};
+
 function copyHighlights(source, target) {
   if (!source.defaultView.CSS?.highlights || !target.defaultView.CSS?.highlights) return;
+  if (sameHighlights(source, target)) return;
+  const names = new Map();
+  for (const [name, highlight] of source.defaultView.CSS.highlights) {
+    names.set(name, [...highlight].map(range => ({range, startContainer: range.startContainer, startOffset: range.startOffset, endContainer: range.endContainer, endOffset: range.endOffset})));
+  }
+  copied.set(target, {source, size: source.defaultView.CSS.highlights.size, names});
   for (const [name, highlight] of source.defaultView.CSS.highlights) {
     const ranges = [];
     for (const range of highlight) {
@@ -271,7 +297,11 @@ export class PageSlide {
         else copyHighlights(live.contentDocument, incoming.contentDocument);
       } else {
         // A chapter crossing: the incoming page is a copy of the new chapter.
-        const fresh = await within(buildFrame(live, this.track), 600);
+        // The copy of a new chapter is a full clone. A turn waits only a moment for it: past that the slide is skipped,
+        // the new page simply shows, and the copy is dropped when it arrives (the next turn builds one in the background).
+        const building = buildFrame(live, this.track);
+        const fresh = await within(building, SLIDE.crossing);
+        if (!fresh) building.then(late => late?.remove(), () => {});
         if (!fresh || revision !== this.revision) { fresh?.remove(); return moved; }
         incoming.remove();
         incoming = fresh;
