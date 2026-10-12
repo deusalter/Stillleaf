@@ -137,3 +137,21 @@ test('a regrow leaves the vine canvases alone unless their size changed, and a c
   await page.waitForFunction(first => window.__resets > first, first, {timeout: 10000});
   assert.deepEqual(errors, []);
 });
+
+test('a turn into the next chapter finds its page copy ready instead of cloning the chapter', {timeout: 120000}, async t => {
+  const {page, errors} = await launch(t);
+  await page.evaluate(b => window.StillleafReader.open(b), book());
+  await page.evaluate(() => window.StillleafReader.setPreferences({columns: 'two', fontFamily: 'literata', fontSize: 1.1}));
+  await page.evaluate(() => window.StillleafReader.go({href: 'c1.html', type: 'text/html', locations: {progression: 0.93}}));
+  await page.waitForFunction(() => { const d = window.StillleafReader.slideDebug?.(); return d && d.frames === 2 && d.fresh; }, null, {timeout: 60000});
+  await page.waitForTimeout(2500);
+  for (let i = 0; i < 12 && (await page.evaluate(() => window.StillleafReader.bookmark().href)) !== 'c2.html'; i++) {
+    await page.evaluate(() => window.StillleafReader.next());
+    await page.waitForTimeout(700);
+  }
+  assert.equal(await page.evaluate(() => window.StillleafReader.bookmark().href), 'c2.html', 'the reader reached the next chapter');
+  const stats = await page.evaluate(() => window.StillleafReader.slideDebug().crossings);
+  t.diagnostic('page copies of the next chapter: ' + JSON.stringify(stats));
+  assert.deepEqual(stats, {prepared: 1, built: 0}, 'the turn into the next chapter cloned the chapter while the old page waited');
+  assert.deepEqual(errors, []);
+});

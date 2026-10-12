@@ -80,6 +80,13 @@ function fingerprint(source) {
     doc.styleSheets.length, doc.head.childElementCount, doc.body.childElementCount].join('|');
 }
 
+/** The frame Readium keeps loaded (hidden) for the chapter after the live one, once it has finished loading. */
+function followingFrame(reader) {
+  const frames = [...reader.querySelectorAll('iframe')], index = frames.findIndex(frame => getComputedStyle(frame).visibility !== 'hidden');
+  const next = index >= 0 ? frames[index + 1] : null;
+  return next?.contentDocument?.body && next.contentDocument.readyState === 'complete' && getComputedStyle(next).visibility === 'hidden' ? next : null;
+}
+
 /** An inert copy of the live chapter, laid out at the live frame's size. Its column is set per use by `place`. */
 async function buildFrame(source, track) {
   const frame = document.createElement('iframe');
@@ -124,6 +131,7 @@ export class PageSlide {
     // current setting is always read from a fresh query; the long-lived one only supplies the change event.
     this.query = matchMedia('(prefers-reduced-motion: reduce)');
     this.query.addEventListener('change', () => { if (this.reduced) this.invalidate(); });
+    this.crossings = {prepared: 0, built: 0};
     this.revision = 0; this.generation = 0; this.cache = null; this.building = null; this.shown = null; this.animations = [];
   }
 
@@ -159,7 +167,7 @@ export class PageSlide {
     this.cancel();
     clearTimeout(this.warmTimer);
     this.generation++;
-    this.cache = null; this.building = null;
+    this.cache = null; this.building = null; this.following = null; this.followingBuild = null;
     this.track?.querySelectorAll('iframe').forEach(frame => frame.remove());
   }
 
@@ -192,6 +200,7 @@ export class PageSlide {
       try {
         const entry = await this.ensure(source);
         if (entry && !entry.primed) await this.prime(entry, source);
+        await this.prepareFollowing(source);
       } catch { /* the next turn builds them itself */ }
     }, 350);
   }
@@ -217,6 +226,35 @@ export class PageSlide {
     }
     for (const frame of entry.frames) frame.style.left = '-100000px';
     this.hide();
+  }
+
+  /**
+   * Near the end of a chapter, builds the copy of the next one from the frame Readium already holds for it, so a turn across
+   * the boundary finds it ready instead of cloning a whole chapter while the old page waits. Built once per chapter.
+   */
+  async prepareFollowing(source) {
+    const root = source.contentDocument.scrollingElement, wnd = source.contentWindow;
+    if (!root || Math.abs(wnd.scrollX) + wnd.innerWidth < root.scrollWidth * 0.5) return;
+    const hidden = followingFrame(this.reader);
+    if (!hidden || this.running || this.followingBuild) return;
+    const doc = hidden.contentDocument, print = fingerprint(hidden);
+    if (this.following?.doc === doc && this.following.print === print && this.following.frame.isConnected) return;
+    this.dropFollowing();
+    const generation = this.generation, stage = this.ensureStage();
+    const build = (async () => {
+      const frame = await buildFrame(hidden, this.track);
+      if (!frame || generation !== this.generation || stage !== this.stage) { frame?.remove(); return; }
+      frame.style.left = '-100000px';
+      this.following = {doc, print, frame};
+    })().finally(() => { if (this.followingBuild === build) this.followingBuild = null; });
+    this.followingBuild = build;
+    await build;
+  }
+
+  /** Forgets the prepared copy of the next chapter. */
+  dropFollowing() {
+    this.following?.frame.remove();
+    this.following = null;
   }
 
   /** The two copies of the live chapter (outgoing and incoming), built or completed as needed, one task each. */
@@ -246,13 +284,14 @@ export class PageSlide {
   debug() {
     const source = liveFrame(this.reader);
     return {frames: this.cache?.frames.length ?? 0, fresh: Boolean(source?.contentDocument && this.cache && this.cache.doc === source.contentDocument && this.cache.print === fingerprint(source)),
-      cached: this.cache?.print ?? null, live: source?.contentDocument ? fingerprint(source) : null, state: this.stage?.dataset.state ?? null};
+      cached: this.cache?.print ?? null, live: source?.contentDocument ? fingerprint(source) : null, state: this.stage?.dataset.state ?? null,
+      crossings: {...this.crossings}, following: this.following?.print ?? null, followingNow: (() => { const next = followingFrame(this.reader); return next ? fingerprint(next) : null; })()};
   }
 
   drop() {
     this.generation++;
     this.track?.querySelectorAll('iframe').forEach(frame => frame.remove());
-    this.cache = null; this.building = null; this.shown = null;
+    this.cache = null; this.building = null; this.shown = null; this.following = null; this.followingBuild = null;
   }
 
   async run(direction, {enabled, rtl, hurried = () => false}, navigate) {
@@ -299,7 +338,12 @@ export class PageSlide {
         // A chapter crossing: the incoming page is a copy of the new chapter.
         // The copy of a new chapter is a full clone. A turn waits only a moment for it: past that the slide is skipped,
         // the new page simply shows, and the copy is dropped when it arrives (the next turn builds one in the background).
-        const building = buildFrame(live, this.track);
+        // Usually it is ready: it was built from the frame Readium held for this chapter while the reader was nearing the end.
+        const ready = this.following, prepared = ready && ready.doc === live.contentDocument && ready.print === fingerprint(live) && ready.frame.isConnected;
+        if (ready && !prepared) this.dropFollowing();
+        const building = prepared ? Promise.resolve(ready.frame) : buildFrame(live, this.track);
+        this.crossings[prepared ? 'prepared' : 'built']++;
+        if (prepared) this.following = null;
         const fresh = await within(building, SLIDE.crossing);
         if (!fresh) building.then(late => late?.remove(), () => {});
         if (!fresh || revision !== this.revision) { fresh?.remove(); return moved; }
