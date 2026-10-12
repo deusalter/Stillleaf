@@ -8,9 +8,13 @@ struct DashboardView: View {
     @State private var section: DashboardSection
     private let initialCalendarScale: CalendarScale
     private let initialSettingsCategory: SettingsCategory
+    /// Told the screen each time it changes, so a reopened dashboard can return to it.
+    private let sectionChanged: (DashboardSection) -> Void
 
-    init(model: AppModel, initialSection: DashboardSection = .today, initialCalendarScale: CalendarScale = .month, initialSettingsCategory: SettingsCategory = .reading) {
+    init(model: AppModel, initialSection: DashboardSection = .today, initialCalendarScale: CalendarScale = .month, initialSettingsCategory: SettingsCategory = .reading,
+         sectionChanged: @escaping (DashboardSection) -> Void = { _ in }) {
         self.model = model
+        self.sectionChanged = sectionChanged
         _section = State(initialValue: initialSection)
         self.initialCalendarScale = initialCalendarScale
         self.initialSettingsCategory = initialSettingsCategory
@@ -105,6 +109,7 @@ struct DashboardView: View {
         .readingMotionAccessibility()
         .onAppear { acceptNavigationRequest() }
         .onChange(of: model.dashboardSectionRequest) { _ in acceptNavigationRequest() }
+        .onChange(of: section) { sectionChanged($0) }
         .frame(minWidth: 920, minHeight: 660)
         .toggleStyle(.switch)
         .tint(ReadingPalette.accent)
