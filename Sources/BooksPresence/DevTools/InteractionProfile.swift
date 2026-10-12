@@ -72,11 +72,21 @@ func runInteractionProfile(to destination: URL) throws {
         return found
     }
 
+    // Optional focus for sampling: `STILLLEAF_PROFILE_SECTIONS=timeline,health` limits the screens,
+    // and `STILLLEAF_PROFILE_LOOP=update|switch|scroll:<seconds>` repeats one measurement for that
+    // long (print the pid first), so `sample <pid>` can attribute where the time goes.
+    let environment = ProcessInfo.processInfo.environment
+    let onlySections = environment["STILLLEAF_PROFILE_SECTIONS"].map { Set($0.split(separator: ",").map(String.init)) }
+    let loop = environment["STILLLEAF_PROFILE_LOOP"].flatMap { spec -> (String, TimeInterval)? in
+        let parts = spec.split(separator: ":")
+        return parts.count == 2 ? (String(parts[0]), TimeInterval(parts[1]) ?? 20) : nil
+    }
+    print("interaction-profile: pid \(getpid())")
     print("interaction-profile: \(model.books.count) books, \(model.intervals.count) intervals, \(model.events.count) events, garden \(ThemeStore.shared.gardenMode.rawValue)")
     _ = drain(1.5)
     var rows: [[String: Any]] = []
     for pass in 0..<2 {
-        for section in DashboardSection.allCases {
+        for section in DashboardSection.allCases where onlySections?.contains(section.rawValue) ?? true {
             // Screen switch: the synchronous update, then the following second of frames.
             let switchStart = cpu()
             model.dashboardSectionRequest = section
@@ -84,14 +94,59 @@ func runInteractionProfile(to destination: URL) throws {
             settle()
             let switchMs = ms(switchStart)
             let followMs = drain(1.0)
+            if environment["STILLLEAF_PROFILE_LAYERS"] != nil {
+                // Large layers are repainted whole on the CPU: list them (class, size in points, tiling).
+                func dump(_ layer: CALayer, _ depth: Int) {
+                    let area = layer.bounds.width * layer.bounds.height
+                    if area > 300_000 {
+                        print("layers: \(section.rawValue) \(String(repeating: " ", count: depth))\(type(of: layer)) \(Int(layer.bounds.width))x\(Int(layer.bounds.height)) contents=\(layer.contents.map { String(describing: type(of: $0)) } ?? "-") mask=\(layer.mask != nil) delegate=\(layer.delegate.map { String(describing: type(of: $0)) } ?? "-")")
+                    }
+                    for child in layer.sublayers ?? [] { dump(child, depth + 1) }
+                }
+                if let layer = host.layer { dump(layer, 0) }
+            }
+            if let (kind, seconds) = loop {
+                // Sampling mode: repeat the chosen interaction for `seconds`, then move on.
+                let end = Date().addingTimeInterval(seconds)
+                let other: DashboardSection = section == .review ? .health : .review
+                while Date() < end {
+                    switch kind {
+                    case "switch":
+                        model.dashboardSectionRequest = other
+                        RunLoop.current.run(until: Date().addingTimeInterval(0.001)); settle()
+                        model.dashboardSectionRequest = section
+                        RunLoop.current.run(until: Date().addingTimeInterval(0.001)); settle()
+                    case "scroll":
+                        if let scroll = scrollViews(host).max(by: { $0.documentView!.frame.height < $1.documentView!.frame.height }) {
+                            let clip = scroll.contentView
+                            let limit = (scroll.documentView?.frame.height ?? 0) - clip.bounds.height
+                            var y: CGFloat = 0
+                            while y + 40 <= limit && Date() < end {
+                                y += 40
+                                clip.scroll(to: NSPoint(x: clip.bounds.minX, y: y)); scroll.reflectScrolledClipView(clip)
+                                RunLoop.current.run(until: Date().addingTimeInterval(0.001)); settle()
+                            }
+                            clip.scroll(to: .zero); scroll.reflectScrolledClipView(clip); settle()
+                        }
+                    default:
+                        model.objectWillChange.send()
+                        RunLoop.current.run(until: Date().addingTimeInterval(0.001)); settle()
+                    }
+                }
+                return
+            }
             // A model update, as sent once a second by tracking while a book is open.
             var updates: [Double] = []
+            let heightsBefore = scrollViews(host).map { Int($0.documentView!.frame.height * 100) }
             for _ in 0..<8 {
                 let start = cpu()
                 model.objectWillChange.send()
                 RunLoop.current.run(until: Date().addingTimeInterval(0.001))
                 settle()
                 updates.append(ms(start))
+            }
+            if environment["STILLLEAF_PROFILE_LAYERS"] != nil {
+                print("layers: \(section.rawValue) document heights (x100) before updates \(heightsBefore), after \(scrollViews(host).map { Int($0.documentView!.frame.height * 100) })")
             }
             // Scrolling the screen's main scroll view in 40 pt steps.
             var steps: [Double] = []
