@@ -81,7 +81,7 @@ struct TodayView: View {
                             ActivityStateLabel(snapshot: model.snapshot).padding(.top, 4)
                             HStack(spacing: 28) {
                                 LabeledValue(label: "Session pages", value: "\(model.sessionPages)", countKey: "today.session.pages")
-                                LabeledValue(label: "Reading time", value: ReadingFormat.duration(model.snapshot.sessionSeconds), countKey: "today.session.time")
+                                LiveSessionTime(live: model.live) { LabeledValue(label: "Reading time", value: $0, countKey: "today.session.time") }
                                 if let page = model.currentPageText { LabeledValue(label: "In this book", value: page, countKey: "today.session.page") }
                             }.padding(.top, 6)
                         } else {

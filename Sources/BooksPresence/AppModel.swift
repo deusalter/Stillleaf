@@ -12,7 +12,14 @@ final class AppModel: ObservableObject {
     let epubLibrary: EPUBLibraryController
     private var transferringReaderState = Set<String>()
     private let epubReaders: EPUBReaderWindows
-    @Published private(set) var snapshot = TrackerSnapshot()
+    /// The tracker's state. Tracking assigns it every second while a book is open, but only the
+    /// running session time changes then, and two labels show it. So views are told about any
+    /// other change, while that time goes to `live`, which only those labels observe.
+    private(set) var snapshot = TrackerSnapshot() {
+        willSet { if !Self.sameExceptSessionTime(snapshot, newValue) { objectWillChange.send() } }
+        didSet { if live.sessionSeconds != snapshot.sessionSeconds { live.sessionSeconds = snapshot.sessionSeconds } }
+    }
+    let live = LiveSession()
     @Published private(set) var books: [BookRecord] = []
     @Published private(set) var intervals: [ReadingInterval] = []
     @Published private(set) var events: [AuditEvent] = []
@@ -28,7 +35,10 @@ final class AppModel: ObservableObject {
     @Published private(set) var days: [DailyTotal] = []
     @Published private(set) var today = DailyTotal(day: "", creditedSeconds: 0, manualSeconds: 0, goalMinutes: 20)
     @Published private(set) var streak = StreakSummary(current: 0, longest: 0, todayPending: true)
-    @Published private(set) var currentPagePosition: ReaderPagePosition?
+    /// Tracking sets this every second; views hear about it only when the page actually changes.
+    private(set) var currentPagePosition: ReaderPagePosition? {
+        willSet { if newValue != currentPagePosition { objectWillChange.send() } }
+    }
     var currentPage: Int? { currentPagePosition?.page }
     var currentTotalPages: Int? { currentPagePosition?.totalPages }
     var currentPageText: String? {
@@ -46,7 +56,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var appleHistoryStatus = "Reading Apple Books history…"
     @Published private var publicCoverURLs: [String: String] = [:]
     @Published private(set) var health = "Starting the local tracker…"
-    @Published private(set) var lastCapture: Date?
+    /// Not published: only diagnostics read it, and Books tracking sets it every second.
+    private(set) var lastCapture: Date?
     @Published var errorMessage: String?
     @Published private(set) var trackingRecoveryRequired = false
     @Published private(set) var trackingRecoveryMessage: String?
@@ -1647,5 +1658,12 @@ final class AppModel: ObservableObject {
             try FileManager.default.trashItem(at: Bundle.main.bundleURL, resultingItemURL: &result)
             quit()
         }
+    }
+}
+
+extension AppModel {
+    nonisolated static func sameExceptSessionTime(_ lhs: TrackerSnapshot, _ rhs: TrackerSnapshot) -> Bool {
+        lhs.phase == rhs.phase && lhs.book == rhs.book && lhs.mode == rhs.mode
+            && lhs.sessionID == rhs.sessionID && lhs.pauseReason == rhs.pauseReason
     }
 }
