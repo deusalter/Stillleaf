@@ -66,8 +66,8 @@ struct HistoryPresentation {
         calendar.timeZone = TimeZone(identifier: timezoneID) ?? .current
         let goalYear = calendar.component(.year, from: now)
         let books = archive.books.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
-        let intervals = effectiveIntervals.sorted { $0.start > $1.start }
-        let events = archive.events.sorted { $0.date > $1.date }
+        let intervals = effectiveIntervals.orderedByKey(\.start, descending: true)
+        let events = archive.events.orderedByKey(\.date, descending: true)
         let bookRatings = BookHistory.ratings(events: events)
         var latestReviews: [String: AuditEvent] = [:]
         let bookIDs = Set(books.map(\.id))
@@ -77,7 +77,7 @@ struct HistoryPresentation {
         }
         let bookReviewCache = latestReviews.compactMapValues { $0.review?.text }
         let bookReviewDates = latestReviews.mapValues(\.date)
-        let progress = archive.progress.sorted { $0.observedAt > $1.observedAt }
+        let progress = archive.progress.orderedByKey(\.observedAt, descending: true)
         let merges = archive.merges
         let libraryPositions = LibraryProgressLabel.latestPositions(books: books, observations: progress, merges: merges)
         let correctedIntervalIDs = Set(archive.corrections.flatMap { $0.replacements.map(\.id) })

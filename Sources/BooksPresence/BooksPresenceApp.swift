@@ -14,6 +14,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private var localClickMonitor: Any?
     private var escapeKeyMonitor: Any?
     private var dashboard: NSWindow?
+    private var dashboardContent: NSHostingController<AnyView>?
+    /// The screen the dashboard showed when it closed, so reopening it returns there.
+    private var dashboardSection = DashboardSection.today
+    private var dashboardReleased = false
     private var onboarding: NSWindow?
     private var shutdownSignal: DispatchSourceSignal?
     private var diagnosticTimer: Timer?
@@ -96,12 +100,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             window.title = "Stillleaf"; window.titlebarAppearsTransparent = false
             // Menu-bar (accessory) apps get no full-screen behavior unless a window opts in.
             window.collectionBehavior.insert(.fullScreenPrimary)
-            window.contentViewController = NSHostingController(rootView: DashboardView(model: model))
+            let content = NSHostingController(rootView: dashboardView(model: model))
+            window.contentViewController = content
             window.isReleasedWhenClosed = false; window.delegate = self; window.center()
-            dashboard = window
+            dashboard = window; dashboardContent = content
+        } else if dashboardReleased, let window = dashboard, let content = dashboardContent {
+            // A closed dashboard holds no views (see `windowWillClose`). Build them again at the
+            // size the window was left at.
+            let frame = window.frame
+            content.rootView = dashboardView(model: model)
+            window.setFrame(frame, display: false)
         }
+        dashboardReleased = false
         AppPresence.willPresentWindow()
         dashboard?.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
+    }
+    private func dashboardView(model: AppModel) -> AnyView {
+        AnyView(DashboardView(model: model, initialSection: dashboardSection,
+                              sectionChanged: { [weak self] in self?.dashboardSection = $0 }))
     }
     @objc func readerControl(_ sender: NSMenuItem) { if let command = sender.representedObject as? String { model?.performReaderControl(command) } }
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
@@ -146,6 +162,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         }
     }
     func windowWillClose(_ notification: Notification) {
+        if let window = notification.object as? NSWindow, window === dashboard {
+            // A hidden SwiftUI hierarchy still re-renders whenever the model changes, which while
+            // reading is every second. Release the dashboard's views once the close finishes.
+            Task { @MainActor [weak self] in
+                guard let self, let window = self.dashboard, !window.isVisible, !window.isMiniaturized else { return }
+                self.dashboardContent?.rootView = AnyView(EmptyView())
+                self.dashboardReleased = true
+            }
+            return
+        }
         guard let window = notification.object as? NSWindow, window === onboarding else { return }
         model?.markOnboardingComplete()
         // Release after the close finishes; a replay starts a fresh tour.

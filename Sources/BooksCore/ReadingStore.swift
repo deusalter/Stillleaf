@@ -25,6 +25,7 @@ public final class ReadingStore {
     private let url: URL
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
+    private let rowCache = DecodedRowCache()
     private var effectiveCache: [ReadingInterval]?
     private var intervalIDCache: Set<String>?
     private struct PageSourceKey: Hashable { let bookID: String; let sessionID: String }
@@ -109,12 +110,12 @@ public final class ReadingStore {
         defer { sqlite3_exec(db, "ROLLBACK", nil, nil, nil) }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .millisecondsSince1970
-        let archive = try readArchive(from: db, decoder: decoder)
+        let archive = try readArchive(from: db, decoder: decoder, cache: .shared(for: url))
         return (archive, try effectiveIntervals(in: archive))
     }
 
     public func archive() throws -> HistoryArchive {
-        try Self.readArchive(from: requireDatabase(), decoder: decoder)
+        try Self.readArchive(from: requireDatabase(), decoder: decoder, cache: rowCache)
     }
 
     public func effectiveIntervals() throws -> [ReadingInterval] {
@@ -695,7 +696,11 @@ public final class ReadingStore {
         }
     }
 
-    private static func readArchive(from db: OpaquePointer, decoder: JSONDecoder) throws -> HistoryArchive {
+    private static func readArchive(from db: OpaquePointer, decoder: JSONDecoder, cache: DecodedRowCache? = nil) throws -> HistoryArchive {
+        func readRows<T: Decodable>(_ db: OpaquePointer, table: String, decoder: JSONDecoder) throws -> [T] {
+            if let cache { return try cache.rows(db, table: table, decoder: decoder) }
+            return try Self.readRows(db, table: table, decoder: decoder)
+        }
         var result = HistoryArchive()
         result.books = try readRows(db, table: "books", decoder: decoder)
         result.intervals = try readRows(db, table: "intervals", decoder: decoder)

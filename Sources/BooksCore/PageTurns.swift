@@ -332,9 +332,18 @@ public enum PageStatistics {
         let intervals = PageIntervalIndex(intervals: effectiveIntervals, resolve: resolver.resolve)
         let selected = selectedIntervals.map { PageIntervalIndex(intervals: $0, resolve: resolver.resolve) }
         var coverage = ReadingCoverage()
-        return events.enumerated().sorted {
-            $0.element.date == $1.element.date ? $0.offset < $1.offset : $0.element.date < $1.element.date
-        }.compactMap { _, event in
+        // Sort positions rather than the events themselves: moving thousands of whole events through
+        // a stable sort took most of a history refresh. Only page events can qualify, so only they
+        // are ordered; ties keep their recorded order, as before.
+        var order: [(date: Date, index: Int)] = []
+        for (index, event) in events.enumerated() where event.kind == "pageTurn" || event.kind == "manualPageAdjustment" {
+            order.append((event.date, index))
+        }
+        order.sort { (lhs: (date: Date, index: Int), rhs: (date: Date, index: Int)) -> Bool in
+            lhs.date == rhs.date ? lhs.index < rhs.index : lhs.date < rhs.date
+        }
+        return order.compactMap { (item: (date: Date, index: Int)) -> QualifiedPageTurn? in
+            let event = events[item.index]
             guard event.completion == nil, event.rating == nil else { return nil }
             let count: Int
             if event.kind == "pageTurn", let evidence = event.pageTurn, PageTurnTracker.valid(evidence), event.pageAdjustment == nil {
