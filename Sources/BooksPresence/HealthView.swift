@@ -6,12 +6,7 @@ struct HealthView: View {
     @ObservedObject var model: AppModel
     var showsHeading = true
     @State private var visibleOutages = 30
-    private var outages: [AuditEvent] {
-        model.events.filter {
-            let value = $0.kind.lowercased()
-            return value.contains("outage") || value.contains("gap") || value.contains("capture") || value.contains("permission") || value.contains("recovery") || value.contains("clock")
-        }.sorted { $0.date > $1.date }
-    }
+    private var outages: [AuditEvent] { model.outageEvents }
     var body: some View {
         let events = outages
         ScrollView {

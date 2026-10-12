@@ -114,6 +114,14 @@ final class AppModel: ObservableObject {
     private var bookRatings: [String: Double] = [:]
     private var libraryPositions: [String: ProgressObservation] = [:]
     private(set) var librarySummary = LibraryHistorySummary()
+    // Lookups that views repeat for every card on every redraw, built once per history refresh.
+    /// Counts history refreshes, so views can reuse what they derived from an unchanged history.
+    private(set) var historyRevision = 0
+    private var mergeResolver = BookMergeResolver(merges: [])
+    private var importedEPUBCanonicalIDs = Set<String>()
+    private var appleBooksAssetIDByCanonicalID: [String: String] = [:]
+    private var outageEventsCache: [AuditEvent]?
+    private var finishedBooksByRecencyCache: [FinishedBookEntry]?
     private var pageEvidenceCache: PageStatistics.Snapshot?
     private var pageEvidence: PageStatistics.Snapshot {
         if let cached = pageEvidenceCache { return cached }
@@ -346,8 +354,7 @@ final class AppModel: ObservableObject {
 
     /// The Apple Books asset behind this journal book, directly or through a link.
     func appleBooksAssetID(for book: BookRecord) -> String? {
-        let canonical = resolverID(book.id), prefix = "apple-books:"
-        return books.first { $0.id.hasPrefix(prefix) && resolverID($0.id) == canonical }.map { String($0.id.dropFirst(prefix.count)) }
+        appleBooksAssetIDByCanonicalID[resolverID(book.id)]
     }
     /// Whether this book's Apple Books copy can be opened here. Store purchases can't, so they
     /// get no read button; a book not yet checked is offered and explains itself if refused.
@@ -422,14 +429,15 @@ final class AppModel: ObservableObject {
     }
     private static let declinedLinkOffersKey = "declinedEPUBLinkOffers"
     func epubEditions(for book: BookRecord) -> [EPUBPublication] {
-        let resolver = BookMergeResolver(merges: merges), canonicalID = resolverID(book.id)
+        let resolver = mergeResolver, canonicalID = resolverID(book.id)
         return epubLibrary.publications.values.filter { resolver.resolvedID(for: "epub:" + $0.id) == canonicalID }.sorted { $0.id < $1.id }
     }
-    private func resolverID(_ id: String) -> String { BookMergeResolver(merges: merges).resolvedID(for: id) }
+    private func resolverID(_ id: String) -> String { mergeResolver.resolvedID(for: id) }
+    /// The book a linked edition's history counts under, from the resolver built at the last refresh.
+    func resolvedBookID(_ id: String) -> String { mergeResolver.resolvedID(for: id) }
     func hasEPUB(_ book: BookRecord) -> Bool { !epubEditions(for: book).isEmpty }
     func hasImportedEPUB(_ book: BookRecord) -> Bool {
-        let canonical = resolverID(book.id)
-        return books.contains { $0.source == "stillleaf-epub" && resolverID($0.id) == canonical }
+        importedEPUBCanonicalIDs.contains(resolverID(book.id))
     }
     private func chooseEPUB(_ book: BookRecord) -> EPUBPublication? {
         guard !epubReaders.isTerminating else { return nil }
@@ -922,6 +930,7 @@ final class AppModel: ObservableObject {
         bookReviewDates = prepared.bookReviewDates
         progress = prepared.progress
         merges = prepared.merges
+        rebuildBookLookups()
         libraryPositions = prepared.libraryPositions
         correctedIntervalIDs = prepared.correctedIntervalIDs
         sessionBreakIDs = prepared.sessionBreakIDs
@@ -939,10 +948,52 @@ final class AppModel: ObservableObject {
         annualBookGoal = prepared.annualBookGoal
         annualBooksFinished = prepared.annualBooksFinished
         finishedBooks = prepared.finishedBooks
+        outageEventsCache = nil; finishedBooksByRecencyCache = nil
         historyAtlasSource = prepared.atlasSource
         sessionPages = snapshot.sessionID.map { pages(forSessionID: $0) } ?? 0
         if let pending = pendingCompletion { pendingCompletion = finishedBooks.first { $0.id == pending.id } }
         lastRefresh = Date()
+    }
+    /// Rebuilds the merge resolver and the per-book lookups built on it; `books` and `merges` change only here.
+    private func rebuildBookLookups() {
+        historyRevision += 1
+        let resolver = BookMergeResolver(merges: merges), prefix = "apple-books:"
+        mergeResolver = resolver
+        importedEPUBCanonicalIDs = []; appleBooksAssetIDByCanonicalID = [:]
+        for book in books {
+            let canonical = resolver.resolvedID(for: book.id)
+            if book.source == "stillleaf-epub" { importedEPUBCanonicalIDs.insert(canonical) }
+            // The first Apple Books edition in library order wins, as a linear search would.
+            if book.id.hasPrefix(prefix), appleBooksAssetIDByCanonicalID[canonical] == nil {
+                appleBooksAssetIDByCanonicalID[canonical] = String(book.id.dropFirst(prefix.count))
+            }
+        }
+    }
+    /// Tracking gaps, permission problems and recoveries, newest first, for Data health.
+    var outageEvents: [AuditEvent] {
+        if let cached = outageEventsCache { return cached }
+        let found = events.filter {
+            let value = $0.kind.lowercased()
+            return value.contains("outage") || value.contains("gap") || value.contains("capture") || value.contains("permission") || value.contains("recovery") || value.contains("clock")
+        }.sorted { $0.date > $1.date }
+        outageEventsCache = found
+        return found
+    }
+    /// Finished books newest first (undated last, then by title), for the timeline.
+    var finishedBooksByRecency: [FinishedBookEntry] {
+        if let cached = finishedBooksByRecencyCache { return cached }
+        let sorted = finishedBooks.sorted { lhs, rhs in
+            switch (lhs.finishedAt, rhs.finishedAt) {
+            case let (left?, right?) where left != right: return left > right
+            case (_?, nil): return true
+            case (nil, _?): return false
+            default:
+                let order = lhs.title.localizedStandardCompare(rhs.title)
+                return order == .orderedSame ? lhs.id < rhs.id : order == .orderedAscending
+            }
+        }
+        finishedBooksByRecencyCache = sorted
+        return sorted
     }
     private func syncGoalFromHistory() {
         guard let archive = try? store.archive() else { return }

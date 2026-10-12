@@ -26,6 +26,13 @@ struct LibraryView: View {
     @State private var removingEPUB: BookRecord?
     @State private var loggingAudio = false
     @Environment(\.forcedScreenStates) private var forced
+    private struct VisibleKey: Equatable {
+        var revision: Int
+        var shelf: LibraryShelf
+        var search: String
+        var sort: LibrarySort
+    }
+    @State private var visibleMemo = ViewMemo<VisibleKey, [BookRecord]>()
 
     var body: some View {
         let summary = model.librarySummary
@@ -34,22 +41,26 @@ struct LibraryView: View {
         let recent = summary.recent
         let finishes = summary.finishes
         let positions = model.libraryProgressObservations
-        let visible = books.filter { book in
-            (browsing.shelf == .all || (browsing.shelf == .finished ? finishedIDs.contains(book.id) : !finishedIDs.contains(book.id)))
-                && (browsing.search.isEmpty || book.title.localizedCaseInsensitiveContains(browsing.search) || (book.author ?? "").localizedCaseInsensitiveContains(browsing.search))
-        }.sorted { lhs, rhs in
-            switch browsing.sort {
-            case .recent:
-                let left = browsing.shelf == .finished ? finishes[lhs.id] : recent[lhs.id]
-                let right = browsing.shelf == .finished ? finishes[rhs.id] : recent[rhs.id]
-                if left != right { return (left ?? .distantPast) > (right ?? .distantPast) }
-            case .author:
-                let order = (lhs.author ?? "").localizedStandardCompare(rhs.author ?? "")
-                if order != .orderedSame { return order == .orderedAscending }
-            case .title: break
+        // Filtering and sorting 68+ books with localized comparison is the costliest part of this
+        // body; reuse it until the history, shelf, search or sort changes.
+        let visible = visibleMemo.value(for: VisibleKey(revision: model.historyRevision, shelf: browsing.shelf, search: browsing.search, sort: browsing.sort)) {
+            books.filter { book in
+                (browsing.shelf == .all || (browsing.shelf == .finished ? finishedIDs.contains(book.id) : !finishedIDs.contains(book.id)))
+                    && (browsing.search.isEmpty || book.title.localizedCaseInsensitiveContains(browsing.search) || (book.author ?? "").localizedCaseInsensitiveContains(browsing.search))
+            }.sorted { lhs, rhs in
+                switch browsing.sort {
+                case .recent:
+                    let left = browsing.shelf == .finished ? finishes[lhs.id] : recent[lhs.id]
+                    let right = browsing.shelf == .finished ? finishes[rhs.id] : recent[rhs.id]
+                    if left != right { return (left ?? .distantPast) > (right ?? .distantPast) }
+                case .author:
+                    let order = (lhs.author ?? "").localizedStandardCompare(rhs.author ?? "")
+                    if order != .orderedSame { return order == .orderedAscending }
+                case .title: break
+                }
+                let order = lhs.title.localizedStandardCompare(rhs.title)
+                return order == .orderedSame ? lhs.id < rhs.id : order == .orderedAscending
             }
-            let order = lhs.title.localizedStandardCompare(rhs.title)
-            return order == .orderedSame ? lhs.id < rhs.id : order == .orderedAscending
         }
         return ScrollView {
             VStack(alignment: .leading, spacing: 26) {
