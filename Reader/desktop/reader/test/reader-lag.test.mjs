@@ -29,7 +29,8 @@ async function launch(t, {viewport = {width: 1300, height: 820}, reducedMotion =
   t.after(async () => { try { await browser.close(); } finally { server.closeAllConnections(); server.close(); } });
   const page = await browser.newPage({viewport, reducedMotion});
   const errors = [];
-  page.on('pageerror', error => errors.push(String(error)));
+  // WebKit reports its benign ResizeObserver loop notice as an error.
+  page.on('pageerror', error => { if (!/ResizeObserver loop/.test(String(error))) errors.push(String(error)); });
   await page.addInitScript(() => { window.__stillleafGardenDebug = true; });
   if (init) await page.addInitScript(init);
   await page.goto(`http://127.0.0.1:${server.address().port}/index.html`);
