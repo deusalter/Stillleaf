@@ -121,6 +121,7 @@ input[type=range]::-moz-range-thumb{width:12px;height:12px;border:2px solid var(
 #garden-footer{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
 #garden.breathing,#garden-spine.breathing,#garden-footer.breathing{animation:garden-breathe 9s ease-in-out infinite}
 #garden.held,#garden-spine.held,#garden-footer.held{animation-play-state:paused}
+.garden-asleep #garden,.garden-asleep #garden-spine,.garden-asleep #garden-footer{animation-play-state:paused}
 
 /* Footer: a pill holding the page, a thin vine along a dotted track to the chapter progress, and the percentage. */
 .footer-pill{display:contents}.footer-vine,#footer-percent{display:none}
