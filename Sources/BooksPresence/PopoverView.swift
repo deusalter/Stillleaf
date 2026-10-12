@@ -177,8 +177,10 @@ struct PopoverView: View {
                         Text("This session").font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
                         Text("\(model.sessionPages) \(model.sessionPages == 1 ? "page" : "pages")")
                             .font(ReadingType.numeral(20)).monospacedDigit()
-                        Text("\(ReadingFormat.duration(model.snapshot.sessionSeconds)) \(model.manualActive ? "manual" : "recorded")")
-                            .font(.caption2).foregroundStyle(ReadingPalette.secondaryInk)
+                        LiveSessionTime(live: model.live) { time in
+                            Text("\(time) \(model.manualActive ? "manual" : "recorded")")
+                                .font(.caption2).foregroundStyle(ReadingPalette.secondaryInk)
+                        }
                     }.frame(maxWidth: .infinity, alignment: .leading)
                 }
                 VStack(alignment: .leading, spacing: 4) {
