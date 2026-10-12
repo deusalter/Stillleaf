@@ -46,7 +46,7 @@ struct TodayView: View {
                         .controlSize(.small)
                     }
                     DailyReadingOverview(model: model)
-                    AnnualReadingGoalView(model: model, openBook: { present(.book($0)) })
+                    AnnualReadingGoalView(model: model, openBook: { present(.book($0)) }).equatable()
                 }
                 .readingPanel()
             }
@@ -55,8 +55,12 @@ struct TodayView: View {
         .buttonStyle(ReadingButtonStyle())
     }
 
+    @State private var subtitleMemo = ViewMemo<String, String>()
     private var todaySubtitle: String {
-        DayParser.date(model.today.day)?.formatted(.dateTime.weekday(.wide).month(.wide).day()) ?? ReadingFormat.day(model.today.day)
+        let locale = Locale.current.identifier
+        return subtitleMemo.value(for: model.today.day + "|" + locale) {
+            DayParser.date(model.today.day)?.formatted(.dateTime.weekday(.wide).month(.wide).day()) ?? ReadingFormat.day(model.today.day)
+        }
     }
 
     private func featuredReading(_ featured: BookRecord?) -> some View {

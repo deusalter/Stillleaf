@@ -20,25 +20,48 @@ extension DailyGoalProgress {
     }
 }
 
-struct AnnualReadingGoalView: View {
-    @ObservedObject var model: AppModel
+struct AnnualReadingGoalView: View, Equatable {
+    /// Not observed directly: the yearly goal changes with the journal, the goal and the year, so it
+    /// follows a slice of the model and, built with `.equatable()`, skips tracking ticks.
+    let model: AppModel
     let openBook: (BookRecord) -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private struct SliceKey: Equatable {
+        var journal: JournalSliceKey
+        var goal: Int?
+        var finished: Int
+        var year: Int
+    }
+    @StateObject private var slice: ModelSlice<SliceKey>
+
+    init(model: AppModel, openBook: @escaping (BookRecord) -> Void) {
+        self.model = model
+        self.openBook = openBook
+        _slice = StateObject(wrappedValue: ModelSlice(model: model) {
+            SliceKey(journal: JournalSliceKey($0), goal: $0.annualBookGoal, finished: $0.annualBooksFinished, year: $0.goalYear)
+        })
+    }
+
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool { lhs.model === rhs.model }
 
     private var progress: Double {
         guard let target = model.annualBookGoal, target > 0 else { return 0 }
         return min(1, Double(model.annualBooksFinished) / Double(target))
     }
-    @State private var calendarMemo = ViewMemo<String, Calendar>()
+    private struct YearKey: Equatable { var revision: Int; var timezoneID: String; var year: Int }
+    @State private var yearMemo = ViewMemo<YearKey, [FinishedBookEntry]>()
     private var recentBooks: [BookRecord] {
-        let calendar = calendarMemo.value(for: model.timezoneID) {
+        // Grouping every finished book by calendar year is the costly part and changes only with the
+        // journal, timezone or year; "finished by now" is checked on the few that remain.
+        let inYear = yearMemo.value(for: YearKey(revision: model.historyRevision, timezoneID: model.timezoneID, year: model.goalYear)) {
             var calendar = Calendar(identifier: .gregorian)
             calendar.timeZone = TimeZone(identifier: model.timezoneID) ?? .current
-            return calendar
+            return model.finishedBooks.filter { entry in
+                entry.finishedAt.map { calendar.component(.year, from: $0) == model.goalYear } ?? false
+            }.sorted { ($0.finishedAt ?? .distantPast) > ($1.finishedAt ?? .distantPast) }
         }
-        return model.finishedBooks.filter { entry in
-            entry.finishedAt.map { $0 <= Date() && calendar.component(.year, from: $0) == model.goalYear } ?? false
-        }.sorted { ($0.finishedAt ?? .distantPast) > ($1.finishedAt ?? .distantPast) }
+        let now = Date()
+        return inYear.filter { ($0.finishedAt ?? .distantFuture) <= now }
             .prefix(5).compactMap { entry in model.books.first { $0.id == entry.id } }
     }
     private var detail: String {
