@@ -229,9 +229,22 @@ async function watchGrowth(page, deadline = 12000) {
       return {pixels, animating, ticks, frozen, cells: cells.length, breathing: canvas.classList.contains('breathing')};
     });
     samples.push({pixels, animating, ticks, breathing});
-    if ((!animating && !frozen && cells > 0) || Date.now() > end) return samples;
+    if ((!animating && !frozen && cells > 0) || Date.now() > end) break;
     await page.waitForTimeout(200);
   }
+  await settleAfterPagination(page);
+  return samples;
+}
+
+/**
+ * Whole-book page counting starts after the reader has been still for a moment, and the footer's "Page x of y"
+ * then lengthens, which regrows the footer vine. Wait that out, so a test that samples a settled garden is not
+ * handed the footer's fade-in.
+ */
+async function settleAfterPagination(page) {
+  await page.waitForFunction(() => !/Calculating/.test(document.getElementById('position-label').textContent), null, {timeout: 20000}).catch(() => {});
+  await page.waitForTimeout(300);
+  await page.waitForFunction(() => { const g = window.StillleafReader.gardenDebug(true); return !g.animating && !g.frozen; }, null, {timeout: 10000}).catch(() => {});
 }
 
 test('an animated garden fades its vines in one after another, not all at once', {timeout: 60000}, async t => {
