@@ -3,65 +3,77 @@ import BooksCore
 
 @MainActor
 struct FinishedBookTimeline: View {
-    @ObservedObject var model: AppModel
+    /// Not observed directly: the timeline depends only on the journal and the timezone, so it
+    /// follows a slice of the model instead of re-rendering on every tracking tick.
+    let model: AppModel
+    @StateObject private var slice: ModelSlice<JournalSliceKey>
     var search = ""
     var showsHeading = true
     /// Opens book details, where rating and reading dates are edited.
     var present: (DashboardSheet) -> Void = { _ in }
 
-    private var calendar: Calendar {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.locale = .current
-        calendar.timeZone = TimeZone(identifier: model.timezoneID) ?? TimeZone(secondsFromGMT: 0)!
-        return calendar
+    init(model: AppModel, search: String = "", showsHeading: Bool = true, present: @escaping (DashboardSheet) -> Void = { _ in }) {
+        self.model = model
+        self.search = search
+        self.showsHeading = showsHeading
+        self.present = present
+        _slice = StateObject(wrappedValue: ModelSlice(model: model) { JournalSliceKey($0) })
     }
 
-    private var entries: [FinishedBookEntry] {
-        model.finishedBooks
-            .filter { search.isEmpty || $0.title.localizedCaseInsensitiveContains(search) || ($0.author ?? "").localizedCaseInsensitiveContains(search) }
-            .sorted { lhs, rhs in
-                switch (lhs.finishedAt, rhs.finishedAt) {
-                case let (left?, right?) where left != right: return left > right
-                case (_?, nil): return true
-                case (nil, _?): return false
-                default:
-                    let order = lhs.title.localizedStandardCompare(rhs.title)
-                    return order == .orderedSame ? lhs.id < rhs.id : order == .orderedAscending
-                }
+    /// What the timeline shows for one history, search and timezone. Computing it sorts and groups
+    /// every finished book, so a redraw that changes none of those reuses it.
+    private struct Arrangement {
+        var calendar: Calendar
+        var entries: [FinishedBookEntry]
+        var years: [FinishedTimelineYear]
+        var undated: [FinishedBookEntry]
+        var booksByID: [String: BookRecord]
+    }
+    private struct ArrangementKey: Equatable {
+        var revision: Int
+        var search: String
+        var timezoneID: String
+    }
+    @State private var memo = ViewMemo<ArrangementKey, Arrangement>()
+
+    private func arrangement() -> Arrangement {
+        memo.value(for: ArrangementKey(revision: model.historyRevision, search: search, timezoneID: model.timezoneID)) {
+            var calendar = Calendar(identifier: .gregorian)
+            calendar.locale = .current
+            calendar.timeZone = TimeZone(identifier: model.timezoneID) ?? TimeZone(secondsFromGMT: 0)!
+            // Already ordered newest first, undated last; filtering keeps that order.
+            let entries = model.finishedBooksByRecency
+                .filter { search.isEmpty || $0.title.localizedCaseInsensitiveContains(search) || ($0.author ?? "").localizedCaseInsensitiveContains(search) }
+            let years = Dictionary(grouping: entries.compactMap { entry -> (Int, FinishedBookEntry)? in
+                guard let date = entry.finishedAt else { return nil }
+                return (calendar.component(.year, from: date), entry)
+            }, by: \.0)
+            .map { year, values in
+                FinishedTimelineYear(year: year, entries: values.map(\.1))
             }
-    }
-
-    private var years: [FinishedTimelineYear] {
-        Dictionary(grouping: entries.compactMap { entry -> (Int, FinishedBookEntry)? in
-            guard let date = entry.finishedAt else { return nil }
-            return (calendar.component(.year, from: date), entry)
-        }, by: \.0)
-        .map { year, values in
-            FinishedTimelineYear(year: year, entries: values.map(\.1))
+            .sorted { $0.year > $1.year }
+            return Arrangement(calendar: calendar, entries: entries, years: years, undated: entries.filter { $0.finishedAt == nil },
+                               booksByID: Dictionary(model.books.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first }))
         }
-        .sorted { $0.year > $1.year }
-    }
-
-    private var undatedEntries: [FinishedBookEntry] {
-        entries.filter { $0.finishedAt == nil }
     }
 
     var body: some View {
-        LazyVStack(alignment: .leading, spacing: 40) {
+        let layout = arrangement()
+        return LazyVStack(alignment: .leading, spacing: 40) {
             if showsHeading {
                 PageHeader("Finished", subtitle: nil)
             }
-            if entries.isEmpty {
+            if layout.entries.isEmpty {
                 ReadingEmptyState(title: search.isEmpty ? "No finished books yet" : "No matching books", symbol: "checkmark.circle",
                                   message: search.isEmpty ? "Books you mark finished, here or in Apple Books, appear here with their dates." : "Try another title or author.")
             }
-            ForEach(years) { year in
-                yearGroup(title: String(year.year), note: "\(year.entries.count) \(year.entries.count == 1 ? "book" : "books")", entries: year.entries)
+            ForEach(layout.years) { year in
+                yearGroup(title: String(year.year), note: "\(year.entries.count) \(year.entries.count == 1 ? "book" : "books")", entries: year.entries, layout: layout)
             }
-            if !undatedEntries.isEmpty {
+            if !layout.undated.isEmpty {
                 yearGroup(title: "Date unavailable",
                           note: "These completion records have no saved finish date, so they appear after the dated timeline.",
-                          entries: undatedEntries)
+                          entries: layout.undated, layout: layout)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -75,7 +87,7 @@ struct FinishedBookTimeline: View {
         .book(books.first { $0.id == entry.id } ?? BookRecord(id: entry.id, title: entry.title, author: entry.author))
     }
 
-    private func yearGroup(title: String, note: String, entries: [FinishedBookEntry]) -> some View {
+    private func yearGroup(title: String, note: String, entries: [FinishedBookEntry], layout: Arrangement) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline) {
                 Text(title).font(ReadingType.numeral(30)).foregroundStyle(ReadingPalette.ink)
@@ -86,17 +98,28 @@ struct FinishedBookTimeline: View {
             }
             .padding(.bottom, 6)
             ForEach(entries) { entry in
-                FinishedBookTimelineRow(model: model, entry: entry, calendar: calendar, present: present)
+                // Plain values, not the model: a tracking tick that changes nothing here skips the row.
+                FinishedBookTimelineRow(entry: entry, book: layout.booksByID[entry.id], rating: model.rating(for: entry.id), zone: layout.calendar.timeZone.identifier, present: present)
+                    .equatable()
             }
         }
     }
 }
 
 @MainActor
-struct ReadingTimelineView: View {
-    @ObservedObject var model: AppModel
+struct ReadingTimelineView: View, Equatable {
+    /// Not observed directly; see `FinishedBookTimeline`. Built with `.equatable()`, so the dashboard's
+    /// once-a-second redraw skips the whole screen.
+    let model: AppModel
     var present: (DashboardSheet) -> Void = { _ in }
     @State private var search = ""
+
+    init(model: AppModel, present: @escaping (DashboardSheet) -> Void = { _ in }) {
+        self.model = model
+        self.present = present
+    }
+
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool { lhs.model === rhs.model }
 
     var body: some View {
         ScrollView {
@@ -124,21 +147,26 @@ private struct FinishedTimelineYear: Identifiable {
 }
 
 /// One finished book. The whole row opens book details, where rating and dates are edited.
+/// It holds plain values and compares them, so redraws of the timeline that change nothing about
+/// this book leave it alone; `present` is a fixed action and is not part of the comparison.
 @MainActor
-private struct FinishedBookTimelineRow: View {
-    @ObservedObject var model: AppModel
+private struct FinishedBookTimelineRow: View, Equatable {
     let entry: FinishedBookEntry
-    let calendar: Calendar
+    let book: BookRecord?
+    let rating: Double?
+    let zone: String
     let present: (DashboardSheet) -> Void
     @State private var hovering = false
     @FocusState private var focused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private var book: BookRecord? { model.books.first { $0.id == entry.id } }
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.entry == rhs.entry && lhs.book == rhs.book && lhs.rating == rhs.rating && lhs.zone == rhs.zone
+    }
 
     var body: some View {
         Button {
-            present(FinishedBookTimeline.sheet(for: entry, books: model.books))
+            present(.book(book ?? BookRecord(id: entry.id, title: entry.title, author: entry.author)))
         } label: {
             HStack(alignment: .center, spacing: 20) {
                 dateColumn.frame(width: 56, alignment: .leading)
@@ -152,7 +180,7 @@ private struct FinishedBookTimelineRow: View {
                         Text(author).font(.callout).foregroundStyle(ReadingPalette.secondaryInk).lineLimit(1)
                     }
                     HStack(spacing: 10) {
-                        RatingStars(rating: model.rating(for: entry.id))
+                        RatingStars(rating: rating)
                         Text(entry.imported ? "Imported history" : entry.source)
                             .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
                     }
@@ -182,10 +210,10 @@ private struct FinishedBookTimelineRow: View {
     private var dateColumn: some View {
         VStack(alignment: .leading, spacing: 1) {
             if let date = entry.finishedAt {
-                Text(DateText.string(date, zone: calendar.timeZone.identifier, pattern: "MMM d"))
+                Text(DateText.string(date, zone: zone, pattern: "MMM d"))
                     .font(.system(size: 13, weight: .semibold)).monospacedDigit()
                     .foregroundStyle(ReadingPalette.ink)
-                Text(DateText.string(date, zone: calendar.timeZone.identifier, pattern: "EEE"))
+                Text(DateText.string(date, zone: zone, pattern: "EEE"))
                     .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
             } else {
                 Image(systemName: "calendar.badge.exclamationmark")
@@ -197,12 +225,12 @@ private struct FinishedBookTimelineRow: View {
 
     private var accessibilityText: String {
         let finished = entry.finishedAt.map { "finished \(formattedDate($0))" } ?? "finish date unavailable"
-        let rating = model.rating(for: entry.id).map { ", rated \($0.formatted(.number.precision(.fractionLength(0...2)))) of 5" } ?? ", not rated"
+        let ratedText = rating.map { ", rated \($0.formatted(.number.precision(.fractionLength(0...2)))) of 5" } ?? ", not rated"
         let author = entry.author.flatMap { $0.isEmpty ? nil : " by \($0)" } ?? ""
-        return "\(entry.title)\(author), \(finished)\(rating)"
+        return "\(entry.title)\(author), \(finished)\(ratedText)"
     }
 
     private func formattedDate(_ date: Date) -> String {
-        DateText.string(date, zone: calendar.timeZone.identifier, pattern: "MMMM d, yyyy")
+        DateText.string(date, zone: zone, pattern: "MMMM d, yyyy")
     }
 }

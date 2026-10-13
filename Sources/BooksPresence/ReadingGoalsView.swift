@@ -20,21 +20,48 @@ extension DailyGoalProgress {
     }
 }
 
-struct AnnualReadingGoalView: View {
-    @ObservedObject var model: AppModel
+struct AnnualReadingGoalView: View, Equatable {
+    /// Not observed directly: the yearly goal changes with the journal, the goal and the year, so it
+    /// follows a slice of the model and, built with `.equatable()`, skips tracking ticks.
+    let model: AppModel
     let openBook: (BookRecord) -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private struct SliceKey: Equatable {
+        var journal: JournalSliceKey
+        var goal: Int?
+        var finished: Int
+        var year: Int
+    }
+    @StateObject private var slice: ModelSlice<SliceKey>
+
+    init(model: AppModel, openBook: @escaping (BookRecord) -> Void) {
+        self.model = model
+        self.openBook = openBook
+        _slice = StateObject(wrappedValue: ModelSlice(model: model) {
+            SliceKey(journal: JournalSliceKey($0), goal: $0.annualBookGoal, finished: $0.annualBooksFinished, year: $0.goalYear)
+        })
+    }
+
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool { lhs.model === rhs.model }
 
     private var progress: Double {
         guard let target = model.annualBookGoal, target > 0 else { return 0 }
         return min(1, Double(model.annualBooksFinished) / Double(target))
     }
+    private struct YearKey: Equatable { var revision: Int; var timezoneID: String; var year: Int }
+    @State private var yearMemo = ViewMemo<YearKey, [FinishedBookEntry]>()
     private var recentBooks: [BookRecord] {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(identifier: model.timezoneID) ?? .current
-        return model.finishedBooks.filter { entry in
-            entry.finishedAt.map { $0 <= Date() && calendar.component(.year, from: $0) == model.goalYear } ?? false
-        }.sorted { ($0.finishedAt ?? .distantPast) > ($1.finishedAt ?? .distantPast) }
+        // Grouping every finished book by calendar year is the costly part and changes only with the
+        // journal, timezone or year; "finished by now" is checked on the few that remain.
+        let inYear = yearMemo.value(for: YearKey(revision: model.historyRevision, timezoneID: model.timezoneID, year: model.goalYear)) {
+            var calendar = Calendar(identifier: .gregorian)
+            calendar.timeZone = TimeZone(identifier: model.timezoneID) ?? .current
+            return model.finishedBooks.filter { entry in
+                entry.finishedAt.map { calendar.component(.year, from: $0) == model.goalYear } ?? false
+            }.sorted { ($0.finishedAt ?? .distantPast) > ($1.finishedAt ?? .distantPast) }
+        }
+        let now = Date()
+        return inYear.filter { ($0.finishedAt ?? .distantFuture) <= now }
             .prefix(5).compactMap { entry in model.books.first { $0.id == entry.id } }
     }
     private var detail: String {
@@ -43,7 +70,8 @@ struct AnnualReadingGoalView: View {
         return remaining == 0 ? "Your yearly goal is complete." : "\(remaining) more \(remaining == 1 ? "book" : "books") to your goal."
     }
     var body: some View {
-        VStack(alignment: .leading, spacing: 22) {
+        let shelf = recentBooks
+        return VStack(alignment: .leading, spacing: 22) {
             HStack(alignment: .top, spacing: 16) {
                 VStack(alignment: .leading, spacing: 5) {
                     Text("Your \(String(model.goalYear)) in books").font(ReadingType.bookTitle(25))
@@ -62,7 +90,7 @@ struct AnnualReadingGoalView: View {
                 .accessibilityLabel("Your \(String(model.goalYear)) reading year")
                 .accessibilityValue(model.annualBookGoal.map { "\(model.annualBooksFinished) of \($0) books finished. \(detail)" } ?? "\(model.annualBooksFinished) books finished, no yearly goal")
             }
-            if recentBooks.isEmpty {
+            if shelf.isEmpty {
                 HStack(spacing: 16) {
                     Image(systemName: "books.vertical").font(.system(size: 36, weight: .light)).foregroundStyle(ReadingPalette.accent)
                     Text("Mark a book finished to add it to your reading year.")
@@ -70,7 +98,7 @@ struct AnnualReadingGoalView: View {
                 }.frame(maxWidth: .infinity, minHeight: 100, alignment: .leading)
             } else {
                 HStack(alignment: .top, spacing: 14) {
-                    ForEach(recentBooks) { book in
+                    ForEach(shelf) { book in
                         Button { openBook(book) } label: {
                             VStack(alignment: .leading, spacing: 9) {
                                 BookCoverView(book: book, size: .annual)

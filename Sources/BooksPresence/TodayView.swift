@@ -9,7 +9,7 @@ struct TodayView: View {
     private var featuredBook: BookRecord? {
         if let book = model.snapshot.book { return book }
         guard let last = model.intervals.first(where: { $0.disposition != .excluded }) else { return nil }
-        let id = BookMergeResolver(merges: model.merges).resolvedID(for: last.bookID)
+        let id = model.resolvedBookID(last.bookID)
         return model.books.first { $0.id == id }
     }
 
@@ -28,7 +28,7 @@ struct TodayView: View {
                 // The next reading action stays above the tall goal summaries, including at
                 // the dashboard's minimum window height.
                 VStack(alignment: .leading, spacing: 40) {
-                    featuredReading
+                    featuredReading(featuredBook)
                     if let entry = model.pendingCompletion, model.snapshot.phase != .reading, !model.manualActive {
                         FinishedBookPrompt(model: model, entry: entry)
                     }
@@ -46,7 +46,7 @@ struct TodayView: View {
                         .controlSize(.small)
                     }
                     DailyReadingOverview(model: model)
-                    AnnualReadingGoalView(model: model, openBook: { present(.book($0)) })
+                    AnnualReadingGoalView(model: model, openBook: { present(.book($0)) }).equatable()
                 }
                 .readingPanel()
             }
@@ -55,18 +55,22 @@ struct TodayView: View {
         .buttonStyle(ReadingButtonStyle())
     }
 
+    @State private var subtitleMemo = ViewMemo<String, String>()
     private var todaySubtitle: String {
-        DayParser.date(model.today.day)?.formatted(.dateTime.weekday(.wide).month(.wide).day()) ?? ReadingFormat.day(model.today.day)
+        let locale = Locale.current.identifier
+        return subtitleMemo.value(for: model.today.day + "|" + locale) {
+            DayParser.date(model.today.day)?.formatted(.dateTime.weekday(.wide).month(.wide).day()) ?? ReadingFormat.day(model.today.day)
+        }
     }
 
-    private var featuredReading: some View {
-        ReadingSection(featuredBook == nil ? "Your next read" : (model.snapshot.book == nil ? "Last read" : "Your current read"), accessory: {
-            if let book = featuredBook {
+    private func featuredReading(_ featured: BookRecord?) -> some View {
+        ReadingSection(featured == nil ? "Your next read" : (model.snapshot.book == nil ? "Last read" : "Your current read"), accessory: {
+            if let book = featured {
                 Button("Book details") { present(.book(book)) }.buttonStyle(ReadingButtonStyle(glass: false)).controlSize(.small)
             }
         }) {
             HStack(alignment: .center, spacing: 28) {
-                if let book = featuredBook {
+                if let book = featured {
                     BookCoverView(book: book, size: .hero)
                     VStack(alignment: .leading, spacing: 8) {
                         Text(book.title).font(ReadingType.bookTitle(30)).lineLimit(2)

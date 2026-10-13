@@ -63,10 +63,11 @@ final class GardenModel: ObservableObject {
     private(set) var generation = 0
     private var mode: GardenMode = .off
     private var stepTimes: [TimeInterval] = []
-    fileprivate var cachedRaster: NSImage?
-    fileprivate var cachedRasterKey: RasterKey?
-    fileprivate var cachedFrost: NSImage?
-    fileprivate var cachedFrostKey: RasterKey?
+    /// The few most recent grown-garden bitmaps, each with its frosted copy once made. A screen with
+    /// another header clearing or pollen level (History) asks for a different one, so going there and
+    /// back reuses what was drawn instead of drawing thousands of glyphs again.
+    fileprivate var rasters: [CachedRaster] = []
+    fileprivate static let rasterCapacity = 3
     private var lastTime: TimeInterval?
     private var accumulator = 0.0
 
@@ -82,8 +83,8 @@ final class GardenModel: ObservableObject {
             var unchanged = layout
             unchanged.clearingHeight = current.clearingHeight
             if current.growsLike(unchanged) {
+                // The garden is unchanged, and a bitmap carries its clearing in its key.
                 self.layout = layout
-                cachedRaster = nil
                 return
             }
         }
@@ -100,7 +101,7 @@ final class GardenModel: ObservableObject {
                     field.growToCompletion(limit: 20_000)
                     stepTimes += Array(repeating: now - 100, count: max(0, field.stepCount - stepTimes.count))
                 }
-                cachedRaster = nil
+                rasters.removeAll()
                 setGrowing(field.isGrowing)
                 return
             }
@@ -117,6 +118,7 @@ final class GardenModel: ObservableObject {
         }
         field = Self.plant(layout)
         generation += 1
+        rasters.removeAll()
         if mode == .still || GardenClock.frozenTime != nil {
             field.growToCompletion(limit: 20_000)
             // Grown long ago: every cell is fully faded in.
@@ -231,8 +233,11 @@ struct GardenCanvas: View {
     @ObservedObject private var theme = ThemeStore.shared
     @Environment(\.colorScheme) private var colorScheme
     @QuietMotionLevel private var quiet
-    /// How far the garden has drifted from rest, in points.
-    @State private var drift = CGSize.zero
+    /// How far the garden has drifted from rest, in points. A reference this view does not observe:
+    /// a pointer move re-renders only `GardenDriftLayer`, not this body and its palette and layout.
+    @State private var drift = GardenDrift()
+    @State private var paletteMemo = ViewMemo<PaletteKey, VinePalette>()
+    private struct PaletteKey: Equatable { var revision: Int; var dark: Bool }
 
     init(layout: GardenLayout, mode: GardenMode, frost: FrostRegions? = nil, frostOffset: CGFloat = 0, parallax: Bool = false) {
         self.layout = layout
@@ -263,8 +268,8 @@ struct GardenCanvas: View {
         }
         .background(WindowVisibility(isVisible: $visible, isResizing: $resizing))
         .background(WindowScale(scale: $scale))
-        .background { if parallax { GardenPointer(motion: ambient) { drift = $0 } } }
-        .onChange(of: ambient) { if !$0.ambient { drift = .zero } }
+        .background { if parallax { GardenPointer(motion: ambient) { [drift] in drift.offset = $0 } } }
+        .onChange(of: ambient) { if !$0.ambient { drift.offset = .zero } }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
     }
@@ -278,7 +283,9 @@ struct GardenCanvas: View {
     private var palette: VinePalette {
         let dark = colorScheme == .dark
         let snapshot = ThemeSnapshot.current()
-        return VinePalette.make(dark ? snapshot.dark : snapshot.light, dark: dark)
+        return paletteMemo.value(for: PaletteKey(revision: snapshot.revision, dark: dark)) {
+            VinePalette.make(dark ? snapshot.dark : snapshot.light, dark: dark)
+        }
     }
 
     @ViewBuilder private func surface(size: CGSize) -> some View {
@@ -304,9 +311,7 @@ struct GardenCanvas: View {
 
     /// The garden offset by the parallax drift, in a frame of its own size so layout never changes.
     private func drifting<V: View>(_ content: V, size: CGSize) -> some View {
-        ZStack(alignment: .topLeading) { content.offset(x: drift.width, y: drift.height) }
-            .frame(width: size.width, height: size.height, alignment: .topLeading)
-            .animation(ambient.ambient ? GardenParallax.animation : nil, value: drift)
+        GardenDriftLayer(drift: drift, animated: ambient.ambient, size: size, content: content)
     }
 
     @ViewBuilder private func sharp(size: CGSize) -> some View {
@@ -329,6 +334,27 @@ struct GardenCanvas: View {
     }
 
     private static var now: TimeInterval { Date().timeIntervalSinceReferenceDate }
+}
+
+/// The parallax drift as an observable value of its own.
+@MainActor
+final class GardenDrift: ObservableObject {
+    @Published var offset = CGSize.zero
+}
+
+/// Applies the drift to the garden. It alone observes the drift, so each step of it re-renders this
+/// small wrapper and moves the layer, rather than rebuilding the whole garden view.
+private struct GardenDriftLayer<Content: View>: View {
+    @ObservedObject var drift: GardenDrift
+    let animated: Bool
+    let size: CGSize
+    let content: Content
+
+    var body: some View {
+        ZStack(alignment: .topLeading) { content.offset(x: drift.offset.width, y: drift.offset.height) }
+            .frame(width: size.width, height: size.height, alignment: .topLeading)
+            .animation(animated ? GardenParallax.animation : nil, value: drift.offset)
+    }
 }
 
 /// Glass panels, observed only by the garden so scrolling never
@@ -369,16 +395,21 @@ struct FrostMask: View {
     }
 
     var body: some View {
-        Canvas { context, size in
-            let panels = Self.path(for: regions.regions, offset: offset)
-            if inverted {
-                var everything = Path(CGRect(origin: .zero, size: size))
-                everything.addPath(panels)
-                context.fill(everything, with: .color(.white), style: FillStyle(eoFill: true))
-            } else {
-                context.fill(panels, with: .color(.white))
-            }
-        }
+        // A vector shape, not a window-sized Canvas: moving a panel re-renders no bitmap.
+        FrostShape(panels: Self.path(for: regions.regions, offset: offset), inverted: inverted)
+            .fill(Color.white, style: FillStyle(eoFill: inverted))
+    }
+}
+
+private struct FrostShape: Shape {
+    let panels: Path
+    let inverted: Bool
+
+    func path(in rect: CGRect) -> Path {
+        guard inverted else { return panels }
+        var everything = Path(rect)
+        everything.addPath(panels)
+        return everything
     }
 }
 
@@ -517,7 +548,11 @@ extension GardenModel {
         guard let layout, field.maxCells > 0, layout.size.width > 0 else { return nil }
         let key = RasterKey(generation: generation, steps: field.stepCount, cells: field.cells.count, palette: palette, size: layout.size,
                             pollenScale: layout.pollenScale, clearing: layout.clearingHeight, scale: scale)
-        if let cachedRaster, cachedRasterKey == key { return cachedRaster }
+        if let index = rasters.firstIndex(where: { $0.key == key }) {
+            // Most recent last.
+            rasters.append(rasters.remove(at: index))
+            return rasters[rasters.count - 1].image
+        }
         let field = field, w = field.cellWidth, h = field.cellHeight
         let image = Self.bitmap(size: layout.size, scale: scale) {
             func draw(_ glyph: Character, _ hex: UInt32, _ alpha: Double, _ x: Double, _ y: Double) {
@@ -534,15 +569,15 @@ extension GardenModel {
                 draw(cell.glyph, palette.color(cell.kind, slot: cell.slot), alpha, Double(cell.x) * w, Double(cell.y) * h)
             }
         }
-        cachedRaster = image
-        cachedRasterKey = key
+        rasters.append(CachedRaster(key: key, image: image))
+        if rasters.count > Self.rasterCapacity { rasters.removeFirst() }
         return image
     }
 
     /// The grown garden softly blurred and a little more saturated: what shows through glass.
     func frostedRaster(palette: VinePalette, scale: CGFloat) -> NSImage? {
-        guard let sharp = raster(palette: palette, scale: scale), let key = cachedRasterKey else { return nil }
-        if let cachedFrost, cachedFrostKey == key { return cachedFrost }
+        guard let sharp = raster(palette: palette, scale: scale), let slot = rasters.indices.last else { return nil }
+        if let frosted = rasters[slot].frosted { return frosted }
         guard let cg = sharp.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
         // The blur hides detail, so build it at a fraction of the raster's resolution: it needs
         // a quarter of the memory, and the image is stretched back over the same points.
@@ -554,8 +589,7 @@ extension GardenModel {
             .cropped(to: input.extent)
         guard let blurred = Self.imageContext.createCGImage(output, from: input.extent) else { return nil }
         let image = NSImage(cgImage: blurred, size: sharp.size)
-        cachedFrost = image
-        cachedFrostKey = key
+        rasters[slot].frosted = image
         return image
     }
 
@@ -582,6 +616,13 @@ extension GardenModel {
         image.addRepresentation(rep)
         return image
     }
+}
+
+/// A grown-garden bitmap with the key it was drawn for and its blurred copy.
+struct CachedRaster {
+    let key: RasterKey
+    let image: NSImage
+    var frosted: NSImage?
 }
 
 /// What a cached raster was drawn from. `generation` counts replants, so a different garden

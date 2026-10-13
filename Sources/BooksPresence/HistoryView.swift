@@ -2,8 +2,11 @@ import SwiftUI
 import BooksCore
 
 @MainActor
-struct HistoryView: View {
-    @ObservedObject var model: AppModel
+struct HistoryView: View, Equatable {
+    /// Not observed directly: History shows only the journal, goals and timezone, so it follows a
+    /// slice of the model and, built with `.equatable()`, skips the dashboard's once-a-second redraw.
+    let model: AppModel
+    @StateObject private var slice: ModelSlice<JournalSliceKey>
     @State private var navigation: CalendarNavigation
     private let benchmarkReady: ((HistoryAtlasKey) -> Void)?
     @State private var editingInterval: ReadingInterval?
@@ -15,8 +18,10 @@ struct HistoryView: View {
     init(model: AppModel, initialScale: CalendarScale = .month, anchor: Date = Date(), benchmarkReady: ((HistoryAtlasKey) -> Void)? = nil) {
         self.model = model
         self.benchmarkReady = benchmarkReady
+        _slice = StateObject(wrappedValue: ModelSlice(model: model) { JournalSliceKey($0, tracksDay: true) })
         _navigation = State(initialValue: CalendarNavigation(timezoneID: model.timezoneID, anchor: anchor, scale: initialScale))
     }
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool { lhs.model === rhs.model }
     private var dark: Bool { scheme == .dark }
     private var requestedNavigation: CalendarNavigation {
         var requested = navigation
@@ -84,7 +89,10 @@ struct HistoryView: View {
             }
             .opacity(canReveal ? 1 : 0).accessibilityHidden(!canReveal)
             ZStack(alignment: .topLeading) {
-                chart(displayed)
+                // The chart is a function of the committed period alone; a tracking tick that leaves
+                // it unchanged skips the whole calendar instead of rebuilding every day cell.
+                EquatableContent(key: HistoryChartKey(navigation: displayed.navigation, period: prepared.key)) { chart(displayed) }
+                    .equatable()
                     .id(periodID)
                     .transition(reduceMotion ? .identity : .opacity)
                     .onAppear { reportReady(prepared.key) }
@@ -176,4 +184,19 @@ struct HistoryView: View {
         guard date <= navigation.calendar.startOfDay(for: Date()) else { return }
         navigation.select(date, scale: .day)
     }
+}
+
+/// What the chart shows: the committed navigation and the period prepared for it.
+private struct HistoryChartKey: Equatable {
+    let navigation: CalendarNavigation
+    let period: HistoryAtlasKey
+}
+
+/// Content that is rebuilt only when `key` changes. Its closure is not compared: it must produce
+/// the same view for an equal key.
+private struct EquatableContent<Key: Equatable, Content: View>: View, Equatable {
+    let key: Key
+    let content: () -> Content
+    static func == (lhs: Self, rhs: Self) -> Bool { lhs.key == rhs.key }
+    var body: some View { content() }
 }

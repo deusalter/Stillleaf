@@ -32,9 +32,26 @@ enum ReadingFormat {
         return date.formatted(date: .abbreviated, time: .shortened)
     }
 
+    private static let dayLock = NSLock()
+    private static var dayLabels: [String: String] = [:]
+    private static var dayLabelsLocale = ""
+
+    /// "Oct 11" for a day key. FormatStyle is slow and a screen asks for the same few days on every
+    /// redraw, so labels are kept until the locale changes.
     static func day(_ string: String) -> String {
+        let locale = Locale.current.identifier
+        dayLock.lock()
+        if dayLabelsLocale != locale { dayLabels.removeAll(); dayLabelsLocale = locale }
+        let cached = dayLabels[string]
+        dayLock.unlock()
+        if let cached { return cached }
         guard let date = DayParser.date(string) else { return string }
-        return date.formatted(.dateTime.month(.abbreviated).day())
+        let label = date.formatted(.dateTime.month(.abbreviated).day())
+        dayLock.lock()
+        if dayLabels.count > 800 { dayLabels.removeAll() }
+        dayLabels[string] = label
+        dayLock.unlock()
+        return label
     }
 }
 

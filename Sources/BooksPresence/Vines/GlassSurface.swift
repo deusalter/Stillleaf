@@ -72,8 +72,12 @@ private struct GlassSurface: ViewModifier {
                 .shadow(color: .black.opacity(dark ? 0.38 : 0.12), radius: 18, x: 0, y: 10)
             }
             .overlay {
-                shape.strokeBorder(LinearGradient(colors: [.white.opacity(dark ? 0.22 : 0.9), .white.opacity(dark ? 0.04 : 0.3)],
-                                                  startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1)
+                // The gradient is a layer the render server draws and the stroke only cuts its shape.
+                // Stroking with the gradient makes the app paint the shading over the panel's whole
+                // area on the CPU whenever its size changes, which a tall panel makes very costly.
+                LinearGradient(colors: [.white.opacity(dark ? 0.22 : 0.9), .white.opacity(dark ? 0.04 : 0.3)],
+                               startPoint: .topLeading, endPoint: .bottomTrailing)
+                    .mask { shape.strokeBorder(Color.white, lineWidth: 1) }
                     .allowsHitTesting(false)
             }
     }
