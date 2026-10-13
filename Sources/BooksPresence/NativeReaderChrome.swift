@@ -77,12 +77,19 @@ struct ReaderControlDefinition: Decodable, Identifiable {
     @Published var resetting = false
     var change: ((String, Any) -> Void)?
     var reset: (() -> Void)?
+    /// The raw definitions last decoded: they describe the controls, not the book, and almost never change.
+    private var decodedDefinitions: NSArray?
+    /// Each assignment to a published property redraws every view that watches it, so an unchanged value is left alone.
+    private static func same(_ a: [String: Any], _ b: [String: Any]) -> Bool { NSDictionary(dictionary: a).isEqual(to: b) }
     func accept(_ value: [String: Any]) {
-        if let p = value["preferences"] as? [String: Any] { preferences = p }
-        if let appearance = value["effectiveAppearance"] as? [String: Any] { effectiveAppearance = appearance }
-        if let appearance = value["panelAppearance"] as? [String: Any] { panelAppearance = appearance }
-        if let d = value["definitions"], let data = try? JSONSerialization.data(withJSONObject: d),
-           let decoded = try? JSONDecoder().decode([ReaderControlDefinition].self, from: data) { definitions = decoded }
+        if let p = value["preferences"] as? [String: Any], !Self.same(p, preferences) { preferences = p }
+        if let appearance = value["effectiveAppearance"] as? [String: Any], !Self.same(appearance, effectiveAppearance) { effectiveAppearance = appearance }
+        if let appearance = value["panelAppearance"] as? [String: Any], !Self.same(appearance, panelAppearance) { panelAppearance = appearance }
+        if let d = value["definitions"] {
+            if let raw = d as? NSArray, let last = decodedDefinitions, raw.isEqual(last) { return }
+            if let data = try? JSONSerialization.data(withJSONObject: d),
+               let decoded = try? JSONDecoder().decode([ReaderControlDefinition].self, from: data) { definitions = decoded; decodedDefinitions = d as? NSArray }
+        }
     }
     var panelPalette: ReaderPanelPalette { ReaderPanelPalette(appearance: effectiveAppearance.merging(panelAppearance) { $1 }) }
     func selectChoice(_ key: String, _ value: Any) {
@@ -348,6 +355,8 @@ private struct ReaderSecondaryButtonStyle: ButtonStyle {
     var isConnected: Bool { active }
     var canAcceptCommands: Bool { active && !closing && !dialogOpen && !model.resetting && commandErrorAlert == nil }
     private var pendingCommands: Set<String> = []
+    /// Commands that are meant to be sent again before the last one is acknowledged.
+    private static let repeatableCommands: Set<String> = ["next", "previous"]
     private var pending: [String: Any] = [:]
     private var preferenceTask: Task<Void, Never>?
     private var displayObserver: NSObjectProtocol?
@@ -425,14 +434,16 @@ private struct ReaderSecondaryButtonStyle: ButtonStyle {
     }
     func disconnect() { connectionGeneration += 1; active = false; resetTask?.cancel(); preferenceTask?.cancel(); pending.removeAll(); pendingCommands.removeAll(); findTask?.cancel(); closePanels(); dismissCommandError(); updateEnabled() }
     func command(_ name: String) {
-        guard canAcceptCommands, !pendingCommands.contains(name), send != nil else { return }
+        let repeatable = Self.repeatableCommands.contains(name)
+        guard canAcceptCommands, repeatable || !pendingCommands.contains(name), send != nil else { return }
         // Native feedback is immediate; selection still requires the renderer's
         // acknowledgement. Disable this command to prevent a duplicate toggle.
-        pendingCommands.insert(name); updateEnabled()
+        // Page turns are the exception: every click is a turn, and the renderer queues them.
+        if !repeatable { pendingCommands.insert(name); updateEnabled() }
         let generation = connectionGeneration
         Task { [weak self] in
             guard let self, let send else { return }
-            defer { if generation == connectionGeneration { pendingCommands.remove(name); updateEnabled() } }
+            defer { if !repeatable, generation == connectionGeneration { pendingCommands.remove(name); updateEnabled() } }
             guard active, generation == connectionGeneration else { return }
             do { let value = try await send(name, nil); guard active, !closing, generation == connectionGeneration else { return }; model.error = nil; accept(value) }
             catch { if active, !closing, generation == connectionGeneration { showCommandError(name) } }

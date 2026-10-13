@@ -41,7 +41,8 @@ export function nativeChromeAdapter({edition,ready,current,definitions,status=()
    }
    return {requestId:request.id,...ui()};
   },
-  changed(emit){if(!active||!ready())return;const value=ui(),signature=JSON.stringify([value.preferences,status()]);if(signature!==lastSignature){lastSignature=signature;emit(value)}},
+  // Called on every relocation. The signature is checked first, and the full message (which clones the preferences) is built only when it changed.
+  changed(emit){if(!active||!ready())return;const preferences=current(),now=status(),signature=JSON.stringify([preferences,now]);if(signature!==lastSignature){lastSignature=signature;emit({version:1,editionId:edition(),preferences,definitions:definitions(),...now})}},
   disconnect(){generation++;active=false;lastSignature='';visibility(false,true)},
  });
 }

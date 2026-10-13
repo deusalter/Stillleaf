@@ -28,7 +28,8 @@ async function launch(t, viewport, {reducedMotion = 'reduce', gardenMode} = {}) 
   t.after(() => browser.close());
   const page = await browser.newPage({viewport, reducedMotion});
   const errors = [];
-  page.on('pageerror', error => errors.push(String(error)));
+  // WebKit reports the spec's benign ResizeObserver loop notice as a page error; it is not a reader failure.
+  page.on('pageerror', error => { if (!/ResizeObserver loop/.test(String(error))) errors.push(String(error)); });
   await page.addInitScript(() => { window.__stillleafGardenDebug = true; });
   // The app injects its Garden setting at document start, before any reader script runs.
   if (gardenMode) await page.addInitScript(mode => { window.__stillleafGardenMode = mode; }, gardenMode);
@@ -229,9 +230,22 @@ async function watchGrowth(page, deadline = 12000) {
       return {pixels, animating, ticks, frozen, cells: cells.length, breathing: canvas.classList.contains('breathing')};
     });
     samples.push({pixels, animating, ticks, breathing});
-    if ((!animating && !frozen && cells > 0) || Date.now() > end) return samples;
+    if ((!animating && !frozen && cells > 0) || Date.now() > end) break;
     await page.waitForTimeout(200);
   }
+  await settleAfterPagination(page);
+  return samples;
+}
+
+/**
+ * Whole-book page counting starts after the reader has been still for a moment, and the footer's "Page x of y"
+ * then lengthens, which regrows the footer vine. Wait that out, so a test that samples a settled garden is not
+ * handed the footer's fade-in.
+ */
+async function settleAfterPagination(page) {
+  await page.waitForFunction(() => !/Calculating/.test(document.getElementById('position-label').textContent), null, {timeout: 20000}).catch(() => {});
+  await page.waitForTimeout(300);
+  await page.waitForFunction(() => { const g = window.StillleafReader.gardenDebug(true); return !g.animating && !g.frozen; }, null, {timeout: 10000}).catch(() => {});
 }
 
 test('an animated garden fades its vines in one after another, not all at once', {timeout: 60000}, async t => {
@@ -339,8 +353,8 @@ test('switching a live garden to Off stops its frames and blanks both canvases',
   const {page} = await launch(t, {width: 1400, height: 900}, animated);
   await page.evaluate(() => window.StillleafReader.go({href: 'one.html', type: 'text/html', locations: {progression: 0.3}}));
   await page.waitForFunction(() => window.StillleafReader.gardenDebug().progress > 0.2);
-  await page.waitForTimeout(500);
-  assert.ok((await debug(page)).animating, 'the garden was not mid-growth when switched off');
+  // Catch the garden while it grows, rather than after a fixed wait a slow runner can overshoot or undershoot.
+  await page.waitForFunction(() => window.StillleafReader.gardenDebug(true).animating, null, {timeout: 10000, polling: 'raf'});
   await page.evaluate(() => window.StillleafReader.setGardenMode('off'));
   const ticks = (await debug(page)).ticks;
   await page.waitForTimeout(600);
