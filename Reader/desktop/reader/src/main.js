@@ -8,11 +8,12 @@ import {AnnotationUI} from './annotation-ui';
 import {annotationLocator,quotePreview,longSelectionRange,MAX_LOCATOR_TEXT} from './annotation-anchor';
 import {PageSlide} from './page-slide';
 import {visibleTextBounds,firstFullyVisibleOffset} from './visible-text';
-import {installPageTurnWheel} from './page-turn-input';
+import {installPageTurnWheel,toggledListener} from './page-turn-input';
 import {NavigationCompletion} from './navigation-completion';
 import {screenPages,pageLabel,chapterPagesLeft} from './page-progress';
 import {ScreenPaginationIndex} from './screen-pagination-index';
 import {continuousTextCandidates} from './content-geometry';
+import {pageTextCandidates,touchTextIndex} from './page-text-index';
 import {syncTypographyChoices} from './appearance-choices';
 import {fontCSS,installFont,contrast} from './bundled-fonts';
 import {DEFAULT_PREFERENCES,preferences,restoreState,selectorFor,rangePoint} from './state';
@@ -38,7 +39,10 @@ const pageLayoutObservers=new WeakMap();
 let screenIndex,backgroundQuietUntil=0;
 const deferredAnnotationHrefs=new Set();
 let deferredAnnotationDocuments=new WeakSet();
-const backgroundActivity=()=>{backgroundQuietUntil=performance.now()+350;garden.activity()};
+// Whole-book page counting lays out a hidden copy of every chapter. It starts only after the reader has been still for
+// a while, so a burst of turns or scrolling never competes with it.
+const PAGINATION_QUIET=2000;
+const backgroundActivity=()=>{backgroundQuietUntil=performance.now()+PAGINATION_QUIET;garden.activity()};
 // Vines in the empty margins and the facing-page gap; they freeze while the reader scrolls.
 const garden=installGarden({canvas:$('garden'),spine:$('garden-spine'),footer:$('garden-footer'),percent:$('footer-percent'),viewport:$('reading-viewport'),
  chrome:()=>[...document.querySelectorAll('.reader-bar,.footer-navigation,.footer-pill')],
@@ -46,14 +50,25 @@ const garden=installGarden({canvas:$('garden'),spine:$('garden-spine'),footer:$(
  enabled:()=>Boolean(state)&&state.preferences.vines!=='off',edition:()=>input?.editionId??''});
 for(const type of ['wheel','scroll','pointerdown','keydown','input'])window.addEventListener(type,backgroundActivity,{capture:true,passive:true});
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+const idleSlot=()=>new Promise(resolve=>typeof requestIdleCallback==='function'?requestIdleCallback(()=>resolve(),{timeout:1500}):setTimeout(resolve,50));
 async function paginationIdle(signal){
- // Yield between chapters and pause while the reader scrolls or changes layout.
+ // Yield between chapters, wait for an idle slot, and pause while the reader scrolls or changes layout.
  await new Promise(requestAnimationFrame);
- while(!signal.aborted&&(opening||reflowCount||resizing||performance.now()<backgroundQuietUntil))await delay(80);
+ do{
+  while(!signal.aborted&&(opening||reflowCount||resizing||performance.now()<backgroundQuietUntil))await delay(80);
+  if(!signal.aborted)await idleSlot();
+ }while(!signal.aborted&&performance.now()<backgroundQuietUntil);
 }
+// Every position update asks for this key (a scrolling book asks every 80 ms). Building it measures text and serialises
+// all the layout preferences, so it is remembered until a preference object, a window size or the system theme changes.
+let paginationLayoutCache=null;
 function paginationLayout(){
- return JSON.stringify({edition:input.editionId,width:$('reading-viewport').clientWidth,height:$('reader').clientHeight,
+ const width=$('reading-viewport').clientWidth,height=$('reader').clientHeight,c=paginationLayoutCache;
+ if(c&&c.input===input&&c.preferences===state.preferences&&c.width===width&&c.height===height&&c.inner===innerWidth&&c.dark===media.matches&&c.wide===widePage.matches&&c.fonts===document.fonts.status+document.fonts.size)return c.key;
+ const key=JSON.stringify({edition:input.editionId,width,height,
   continuous:Boolean(input.experimentalContinuous&&state.preferences.scroll),settings:readiumPreferences(),renderer:'screen-v1'});
+ paginationLayoutCache={input,preferences:state.preferences,width,height,inner:innerWidth,dark:media.matches,wide:widePage.matches,fonts:document.fonts.status+document.fonts.size,key};
+ return key;
 }
 function assetsSettled(doc){return doc?.body&&doc.fonts.status!=='loading'&&[...doc.images].every(image=>image.complete)}
 async function measureChapterScreens(book,owner,chapter,signal,key){
@@ -117,17 +132,18 @@ function observeChapterPages(wnd,generation){
   const root=doc.scrollingElement;if(!root)return;
   if(!assetsSettled(doc)){invalidate();return;}
   const count=screenPages(state.preferences.scroll?{extent:root.scrollHeight,viewport:wnd.innerHeight}:{extent:root.scrollWidth,viewport:wnd.innerWidth})?.total;
-  if(previous!==undefined&&count!==previous){quietUntil=performance.now()+800;screenIndex?.record(chapter,count);refreshPosition()}
-  previous=count;previousExtent=extent();invalidated=false;refreshPosition();
+  if(previous!==undefined&&count!==previous){quietUntil=performance.now()+800;screenIndex?.record(chapter,count)}
+  previous=count;previousExtent=extent();invalidated=false;schedulePosition();
  };
  const schedule=()=>{if(!pending)pending=requestAnimationFrame(measure)};
- const loading=()=>{invalidate();schedule()};
+ const loading=()=>{touchTextIndex(doc);invalidate();schedule()};
+ const loadingDone=()=>{touchTextIndex(doc);schedule()};
  const resource=event=>{if(['IMG','LINK'].includes(event.target?.tagName))loading()};
  // Readium decoration changes can touch the body; compare the constant-cost
  // screen extent before updating counts, rather than rescanning its text.
- const observer=new MutationObserver(()=>{if(!live())return;if(!assetsSettled(doc)||previousExtent!==extent())invalidate();schedule()});observer.observe(doc.body,{subtree:true,childList:true,attributes:true,characterData:true});
- doc.fonts.addEventListener('loading',loading);doc.fonts.addEventListener('loadingdone',schedule);doc.fonts.addEventListener('loadingerror',schedule);doc.addEventListener('load',resource,true);doc.addEventListener('error',resource,true);schedule();
- pageLayoutObservers.set(wnd,()=>{observer.disconnect();cancelAnimationFrame(pending);doc.fonts.removeEventListener('loading',loading);doc.fonts.removeEventListener('loadingdone',schedule);doc.fonts.removeEventListener('loadingerror',schedule);doc.removeEventListener('load',resource,true);doc.removeEventListener('error',resource,true)});
+ const observer=new MutationObserver(()=>{if(!live())return;touchTextIndex(doc);if(!assetsSettled(doc)||previousExtent!==extent())invalidate();schedule()});observer.observe(doc.body,{subtree:true,childList:true,attributes:true,characterData:true});
+ doc.fonts.addEventListener('loading',loading);doc.fonts.addEventListener('loadingdone',loadingDone);doc.fonts.addEventListener('loadingerror',loadingDone);doc.addEventListener('load',resource,true);doc.addEventListener('error',resource,true);schedule();
+ pageLayoutObservers.set(wnd,()=>{observer.disconnect();cancelAnimationFrame(pending);doc.fonts.removeEventListener('loading',loading);doc.fonts.removeEventListener('loadingdone',loadingDone);doc.fonts.removeEventListener('loadingerror',loadingDone);doc.removeEventListener('load',resource,true);doc.removeEventListener('error',resource,true)});
 }
 const annotationUI=new AnnotationUI({popup:$('selection-tools'),layer:$('annotation-margins'),viewport:$('reader'),
  frames:()=>{
@@ -210,8 +226,12 @@ function headingFor(href){
  },()=>{});
  return fallback;
 }
-function updatePosition(){
+const visibleFrame=()=>[...$('reader').querySelectorAll('iframe')].find(f=>getComputedStyle(f).visibility!=='hidden');
+/** `light` refreshes the footer and the bookmark state only; the text coordinates (the costly part) wait for `settlePosition`. */
+function updatePosition(light=false){
  if(!lastLocator)return;
+ // One visibility scan for the whole update; each query is a style read per frame.
+ const liveFrame=navigator?.kind==='continuous'?null:visibleFrame();
  const heading=headingFor(lastLocator.href);
  let pages,metrics;
  if(navigator?.kind==='continuous'){
@@ -220,8 +240,7 @@ function updatePosition(){
  }else{
   // Readium's positions are spine entries, not pages. Measure the visible frame;
   // its start/end progressions use different denominators in paginated mode.
-  const frame=[...$('reader').querySelectorAll('iframe')].find(f=>getComputedStyle(f).visibility!=='hidden');
-  const wnd=frame?.contentWindow,doc=wnd?.document.scrollingElement;
+  const wnd=liveFrame?.contentWindow,doc=wnd?.document.scrollingElement;
   if(doc){metrics=state.preferences.scroll
    ?{extent:doc.scrollHeight,viewport:wnd.innerHeight,offset:wnd.scrollY}
    :{extent:doc.scrollWidth,viewport:wnd.innerWidth,offset:Math.abs(wnd.scrollX),columns:effectiveColumns()};pages=screenPages(metrics);}
@@ -235,15 +254,14 @@ function updatePosition(){
     screenIndex.record(entry.index,screenPages({extent:entry.height,viewport:$('reader').clientHeight})?.total);
    }
   }else if(!reflowCount&&!resizing){
-   const frame=[...$('reader').querySelectorAll('iframe')].find(f=>getComputedStyle(f).visibility!=='hidden');
-   if(pages&&assetsSettled(frame?.contentDocument))screenIndex.record(chapter,pages.total);
+   if(pages&&assetsSettled(liveFrame?.contentDocument))screenIndex.record(chapter,pages.total);
   }
  }
- if(pages&&!opening){
-  nativePosition=contentPosition(pages,left===0);
+ if(pages&&!opening&&!light){
+  nativePosition=contentPosition(pages,left===0,liveFrame);
   emit('position',{position:nativePosition});
  }
- const displayFrame=navigator?.kind==='continuous'?navigator.entries.find(entry=>entry.index===chapter)?.frame:[...$('reader').querySelectorAll('iframe')].find(frame=>getComputedStyle(frame).visibility!=='hidden');
+ const displayFrame=navigator?.kind==='continuous'?navigator.entries.find(entry=>entry.index===chapter)?.frame:liveFrame;
  const bookScreens=!reflowCount&&!resizing&&assetsSettled(displayFrame?.contentDocument)?screenIndex?.pages(chapter,pages):null;
  const label=bookScreens?pageLabel(bookScreens):pages?`${pageLabel(pages)} · Chapter ${chapter+1} · Calculating book pages…`:'Calculating book pages…';
  if($('position-label').textContent!==label)$('position-label').textContent=label;
@@ -278,21 +296,20 @@ async function indexContent(owner,generation,edition,order){
  }catch{if(owner===pool&&generation===lifecycle){contentIndexFailed=true;refreshPosition()}}
 }
 
-function contentPosition(pages,atEnd=false){
+function contentPosition(pages,atEnd=false,pagedFrame=null){
  const result={href:lastLocator.href,page:pages.first,totalPages:pages.total,visiblePages:1,pageUnit:'screen'};
  const entry=navigator?.kind==='continuous'?navigator.entries.find(e=>e.link.href===lastLocator.href):null;
- const frame=entry?.frame??[...$('reader').querySelectorAll('iframe')].find(f=>getComputedStyle(f).visibility!=='hidden');
+ const frame=entry?.frame??pagedFrame??visibleFrame();
  const doc=frame?.contentDocument;if(!doc?.body)return result;
  const bounds=frame.getBoundingClientRect(),viewport=$('reader').getBoundingClientRect();
  const left=Math.max(0,viewport.left-bounds.left),right=Math.min(frame.clientWidth,viewport.right-bounds.left);
  const top=Math.max(0,viewport.top-bounds.top),bottom=Math.min(frame.clientHeight,viewport.bottom-bounds.top);
  const visible=r=>r.width>0&&r.height>0&&r.right>left&&r.left<right&&r.bottom>top&&r.top<bottom;
  let lower=null,upper=null;
- const candidates=entry?continuousTextCandidates(doc,entry.geometryRevision,top,bottom):(()=>{
-  const items=[],walk=doc.createTreeWalker(doc.body,NodeFilter.SHOW_TEXT);let node,offset=0;
-  while((node=walk.nextNode())){if(node.parentElement?.closest('script,style'))continue;items.push({node,offset});offset+=node.length;}
-  return items;
- })();
+ // Paged and Readium-scrolled chapters look the nodes up in a per-layout index of text rectangles
+ // instead of measuring every text node of the chapter on every turn.
+ const candidates=entry?continuousTextCandidates(doc,entry.geometryRevision,top,bottom):state.preferences.scroll
+  ?pageTextCandidates(frame.contentWindow,'y',top,bottom):pageTextCandidates(frame.contentWindow,'x',left,right);
  for(const {node,offset}of candidates){
   const bounds=node.textContent.trim()?visibleTextBounds(node,visible):null;
   if(bounds&&bounds.last>bounds.first){lower??=offset+bounds.first;upper=offset+bounds.last;}
@@ -311,12 +328,37 @@ function contentPosition(pages,atEnd=false){
  }
  return result;
 }
-let positionFrame=0;
+let positionFrame=0,positionTimer=0,positionDirty=true,anchorPending=false;
+function cancelPosition(){cancelAnimationFrame(positionFrame);clearTimeout(positionTimer);positionFrame=positionTimer=0}
+/** Reads the settled geometry now, and anything that was waiting for it. */
+function settlePosition(){
+ cancelPosition();positionDirty=false;updatePosition();
+ if(anchorPending){anchorPending=false;if(!reflowCount&&!resizing&&lastLocator)stableAnchor=visibleAnchor()}
+}
+/**
+ * Page turns, relocations and layout notices all land here. Readium can announce a jump before it commits its
+ * scroll offset, so the geometry is read once on a later frame, after the new page has had its first paint,
+ * and any number of notices in between share that one read.
+ */
+function schedulePosition(){
+ positionDirty=true;
+ if(positionFrame||positionTimer)return;
+ positionFrame=requestAnimationFrame(()=>{positionFrame=0;positionTimer=setTimeout(()=>{positionTimer=0;if(positionDirty)settlePosition()},0)});
+}
+// The footer follows a move at once; the text coordinates are read once, after the new page has painted.
+function positionMoved(){if(navigator?.kind==='continuous')refreshPosition();else{updatePosition(true);schedulePosition()}}
 function refreshPosition(){
  updatePosition();
  // Readium can announce a jump before committing its scroll offset to the frame.
  // Read the settled geometry on the next paint, coalescing rapid notifications.
- if(navigator?.kind!=='continuous'){cancelAnimationFrame(positionFrame);positionFrame=requestAnimationFrame(updatePosition);}
+ if(navigator?.kind!=='continuous'){cancelPosition();positionDirty=true;positionFrame=requestAnimationFrame(()=>{positionFrame=0;settlePosition()});}
+}
+/** An anchor owed by a settled turn is read before layout work that would move the page it describes. */
+function flushAnchor(){if(anchorPending&&!reflowCount&&!resizing&&lastLocator){anchorPending=false;stableAnchor=visibleAnchor()}}
+/** The position the reader is at, measured only if something moved it since the last measurement. */
+function currentPosition(){
+ if(navigator?.kind==='continuous'||positionDirty||!nativePosition||nativePosition.href!==lastLocator?.href)refreshPosition();
+ return nativePosition;
 }
 function samePlace(a,b){return a.href===b.href&&Math.abs((a.locations?.progression??0)-(b.locations?.progression??0))<.002}
 function currentTheme(){
@@ -399,7 +441,7 @@ function syncAppearance(){
  for(const [id,key]of [['letter-spacing','letterSpacing'],['word-spacing','wordSpacing']]){$(id).value=state.preferences[key];$(id+'-value').textContent=Math.round(state.preferences[key]*100)+'%';}
  for(const [id,key]of [['font-size','fontSize'],['line-height','lineHeight'],['measure','measure']])$(id).value=state.preferences[key];
  $('font-size-value').textContent=Math.round(state.preferences.fontSize*100)+'%';$('line-height-value').textContent=state.preferences.lineHeight.toFixed(2).replace(/0$/,'');$('measure-value').textContent='About '+Math.round(state.preferences.measure)+' characters';
- garden.update();warmSlide();
+ garden.update();warmSlide();syncWheel();
 }
 async function prepareFont(id,generation){
  const css=await fontCSS(id);if(generation!==lifecycle||!pool)return;
@@ -409,10 +451,11 @@ async function prepareFont(id,generation){
 function visibleAnchor(){
  if(navigator?.kind==='continuous')return navigator.captureLocator();
  if(!lastLocator)return null;
- const frame=[...document.querySelectorAll('#reader iframe')].find(f=>getComputedStyle(f).visibility!=='hidden');
+ const frame=visibleFrame();
  if(!frame?.contentDocument)return clone(lastLocator);
- const doc=frame.contentDocument,wnd=frame.contentWindow,walk=doc.createTreeWalker(doc.body,NodeFilter.SHOW_TEXT);let node;
- while((node=walk.nextNode())){
+ const doc=frame.contentDocument,wnd=frame.contentWindow,scrolled=Boolean(state?.preferences.scroll);
+ // Only nodes whose box meets the window can hold the first visible text; the index finds them without a chapter walk.
+ for(const {node}of pageTextCandidates(wnd,scrolled?'y':'x',0,scrolled?wnd.innerHeight:wnd.innerWidth)){
   if(!node.textContent.trim()||['STYLE','SCRIPT'].includes(node.parentElement?.tagName))continue;
   const range=doc.createRange();range.selectNodeContents(node);if(![...range.getClientRects()].some(r=>r.right>0&&r.left<wnd.innerWidth&&r.bottom>0&&r.top<wnd.innerHeight))continue;
   const i=firstFullyVisibleOffset(node,{width:wnd.innerWidth,height:wnd.innerHeight});
@@ -433,6 +476,7 @@ async function setPreferences(value,retained){
  await navigation;
  if(!state||requestedLifecycle!==lifecycle)return;
  screenIndex?.cancel();
+ flushAnchor();
  const location=retained??stableAnchor??visibleAnchor();if(location)stableAnchor=clone(location);reflowCount++;
  const restore=Object.keys(value).some(key=>!['theme'].includes(key))||Object.keys(value).length===0;
  state.preferences=preferences({...state.preferences,...value});syncAppearance();changed(false);
@@ -657,7 +701,7 @@ let layoutGeneration=0,announcedLayout=null,quietUntil=0,scrollState=new WeakMap
 const pagesPerTurn=()=>1;
 const layoutKey=()=>(state?.preferences.scroll?'s':'p')+effectiveColumns()+'-'+layoutGeneration;
 function announceLayout(){if(!state||opening)return;const layout=layoutKey();if(layout===announcedLayout)return;announcedLayout=layout;emit('pageLayout',{layout,pages:pagesPerTurn()})}
-function relayout(){layoutGeneration++;quietUntil=performance.now()+800;scrollState=new WeakMap();continuousNet=0;continuousPosition=null;announceLayout()}
+function relayout(){positionDirty=true;layoutGeneration++;quietUntil=performance.now()+800;scrollState=new WeakMap();continuousNet=0;continuousPosition=null;announceLayout()}
 function pageTurned(direction,departure=nativePosition){if(!state)return;announceLayout();emit('pageTurn',{direction,pages:pagesPerTurn(),layout:layoutKey(),departure})}
 /** Scroll mode: one page-equivalent per full screen of net movement by the reader. */
 function trackScroll(wnd){
@@ -691,14 +735,16 @@ function turn(direction){
  return queueNavigation(async()=>{
   if(!navigator||reflowCount||resizing)return false;
   dismissSelection();
-  refreshPosition();const departure=nativePosition;
+  // The page on screen was measured when it settled; measure again only if something moved it since.
+  const departure=currentPosition();
   const current=navigator,generation=lifecycle;
   return pageSlide.run(direction,{enabled:!state.preferences.scroll&&!document.body.classList.contains('native-reduceMotion'),rtl:input?.readingProgression==='rtl'||current.readingProgression==='rtl',hurried:()=>queuedTurns>1},()=>{
    if(generation!==lifecycle||current!==navigator||reflowCount||resizing)return false;
    return navigationCompletion.wait(current,done=>(direction==='next'?current.goForward.bind(current):current.goBackward.bind(current))(false,done),moved=>{
     if(generation!==lifecycle||current!==navigator)return;
     if(moved===true&&!state?.preferences.scroll)pageTurned(direction==='next'?'forward':'backward',departure);
-    stableAnchor=visibleAnchor();
+    // The anchor is read with the settled position, after the new page's first paint.
+    anchorPending=true;schedulePosition();
    }).catch(()=>false);
   });
  }).finally(()=>{queuedTurns--});
@@ -737,10 +783,19 @@ function keyboard(event){
 window.addEventListener('keydown',keyboard);
 // WebKit can target the iframe's host surface for a trackpad event; Chromium
 // usually targets its inner document. Accept both, confined to the book viewport.
-installPageTurnWheel(window,{gesture:pageTurnGesture,enabled:event=>{
+const windowWheel=installPageTurnWheel(window,{gesture:pageTurnGesture,enabled:event=>{
  const r=$('reader').getBoundingClientRect();
  return Boolean(state&&!state.preferences.scroll&&!document.querySelector('dialog[open]')&&event.clientX>=r.left&&event.clientX<=r.right&&event.clientY>=r.top&&event.clientY<=r.bottom);
 },rtl:()=>input?.readingProgression==='rtl'||navigator?.readingProgression==='rtl',turn});
+// A wheel listener that can call preventDefault() makes the engine wait for script before it scrolls. The page-turn
+// listeners therefore exist only in paged mode, and the chapter-edge one only where Readium itself scrolls a chapter
+// (a continuous book scrolls on the compositor with no wheel script at all).
+const frameWheel=new Map();
+function syncWheel(){
+ const scroll=Boolean(state?.preferences.scroll),readiumScroll=scroll&&navigator?.kind!=='continuous';
+ windowWheel.set(!scroll);
+ for(const {page,boundary}of frameWheel.values()){page.set(!scroll);boundary.set(readiumScroll)}
+}
 // Walks the book for passages containing `query`, handing each to `emit` as it is found. Returns the
 // number found, or null if a newer search superseded this one.
 async function searchPassages(query,generation,emit){
@@ -795,12 +850,12 @@ async function installNavigator(location,settings=readiumPreferences()){
   const listeners={
    chapterInvalidated:index=>screenIndex?.invalidate(index),
    click:pageEdgeTap,tap:pageEdgeTap,
-   positionChanged:locator=>{if(generation!==lifecycle||!state)return;lastLocator=locator.serialize();garden.progress(lastLocator);warmSlide();retryDeferredAnnotations();if(opening&&state.position){refreshPosition();return;}state.position=clone(lastLocator);refreshPosition();changed(false);emit('relocated',{locator:lastLocator,cause:'unknown',eligibleForProgress:false})},
-   frameUnloaded:wnd=>{pageLayoutObservers.get(wnd)?.();pageLayoutObservers.delete(wnd);frames.delete(wnd)},
+   positionChanged:locator=>{if(generation!==lifecycle||!state)return;lastLocator=locator.serialize();garden.progress(lastLocator);warmSlide();retryDeferredAnnotations();if(opening&&state.position){positionMoved();return;}state.position=clone(lastLocator);positionMoved();changed(false);emit('relocated',{locator:lastLocator,cause:'unknown',eligibleForProgress:false})},
+   frameUnloaded:wnd=>{pageLayoutObservers.get(wnd)?.();pageLayoutObservers.delete(wnd);frames.delete(wnd);frameWheel.delete(wnd)},
    readerScrolled:(delta,height)=>{if(generation===lifecycle)trackContinuousScroll(delta,height)},
    readerAnchorChanged:locator=>{if(generation===lifecycle&&performance.now()>=quietUntil&&!reflowCount&&!resizing)stableAnchor=clone(locator)},
    textSelected:value=>{if(generation===lifecycle)selected(value)},
-   frameLoaded:wnd=>{if(!wnd.CSS?.highlights&&navigator)navigator.decorationsAvailable=false;if(!frames.has(wnd)){frames.add(wnd);observeChapterPages(wnd,generation);for(const type of ["wheel","scroll","keydown","pointerdown"])wnd.addEventListener(type,backgroundActivity,{capture:true,passive:true});installPageTurnWheel(wnd,{gesture:pageTurnGesture,enabled:()=>Boolean(state&&!state.preferences.scroll&&!document.querySelector('dialog[open]')),rtl:()=>input?.readingProgression==='rtl'||navigator?.readingProgression==='rtl',turn});wnd.document.addEventListener('keydown',keyboard);if(navigator?.kind!=='continuous'){let anchorTimer;wnd.addEventListener('wheel',event=>{void crossScrollBoundary(wnd,event.deltaY,event);clearTimeout(anchorTimer);if(!boundaryBusy)anchorTimer=setTimeout(()=>{if(!reflowCount&&!resizing)stableAnchor=visibleAnchor()},100)},{passive:false});}wnd.document.addEventListener('keydown',event=>{if(navigator?.kind!=='continuous'&&['ArrowDown','PageDown','ArrowUp','PageUp'].includes(event.key)&&!['INPUT','TEXTAREA','SELECT'].includes(event.target?.tagName)){void crossScrollBoundary(wnd,['ArrowDown','PageDown'].includes(event.key)?1:-1,event);setTimeout(()=>{if(!boundaryBusy&&!reflowCount&&!resizing)stableAnchor=visibleAnchor()},100)}});wnd.document.addEventListener('pointerup',followPublicationLink,true);wnd.addEventListener('scroll',()=>trackScroll(wnd),{passive:true});wnd.document.addEventListener('click',followPublicationLink,true);wnd.document.addEventListener('auxclick',followPublicationLink,true);wnd.document.addEventListener('keyup',()=>{const text=wnd.getSelection()?.toString();if(text&&lastLocator&&navigator?.kind!=='continuous')selected({text,locator:Locator.deserialize({...lastLocator,text:{highlight:text}})});});}},
+   frameLoaded:wnd=>{if(!wnd.CSS?.highlights&&navigator)navigator.decorationsAvailable=false;if(!frames.has(wnd)){frames.add(wnd);observeChapterPages(wnd,generation);for(const type of ["wheel","scroll","keydown","pointerdown"])wnd.addEventListener(type,backgroundActivity,{capture:true,passive:true});const page=installPageTurnWheel(wnd,{gesture:pageTurnGesture,enabled:()=>Boolean(state&&!state.preferences.scroll&&!document.querySelector('dialog[open]')),rtl:()=>input?.readingProgression==='rtl'||navigator?.readingProgression==='rtl',turn});wnd.document.addEventListener('keydown',keyboard);let anchorTimer;const boundary=toggledListener(wnd,'wheel',event=>{void crossScrollBoundary(wnd,event.deltaY,event);clearTimeout(anchorTimer);if(!boundaryBusy)anchorTimer=setTimeout(()=>{if(!reflowCount&&!resizing)stableAnchor=visibleAnchor()},100)},{passive:false});frameWheel.set(wnd,{page,boundary});syncWheel();wnd.document.addEventListener('keydown',event=>{if(navigator?.kind!=='continuous'&&['ArrowDown','PageDown','ArrowUp','PageUp'].includes(event.key)&&!['INPUT','TEXTAREA','SELECT'].includes(event.target?.tagName)){void crossScrollBoundary(wnd,['ArrowDown','PageDown'].includes(event.key)?1:-1,event);setTimeout(()=>{if(!boundaryBusy&&!reflowCount&&!resizing)stableAnchor=visibleAnchor()},100)}});wnd.document.addEventListener('pointerup',followPublicationLink,true);wnd.addEventListener('scroll',()=>trackScroll(wnd),{passive:true});wnd.document.addEventListener('click',followPublicationLink,true);wnd.document.addEventListener('auxclick',followPublicationLink,true);wnd.document.addEventListener('keyup',()=>{const text=wnd.getSelection()?.toString();if(text&&lastLocator&&navigator?.kind!=='continuous')selected({text,locator:Locator.deserialize({...lastLocator,text:{highlight:text}})});});}},
    error:error=>{notice(error.message);emit('error',{message:error.message})}
   };
   navigator=input.experimentalContinuous&&settings.scroll?new ContinuousNavigator($('reader'),input,pool,listeners,location,settings):new EpubNavigator($('reader'),publication,listeners,positions,location?engineLocator(location):undefined,{preferences:settings,defaults:{}});
@@ -811,7 +866,7 @@ async function installNavigator(location,settings=readiumPreferences()){
    await installed.destroy();state.preferences=preferences({...state.preferences,scroll:false});syncAppearance();
    await installNavigator(location,readiumPreferences());changed();notice(error.message+' Reading in pages instead.');return;
   }
-  if(generation===lifecycle&&navigator===installed)applyAnnotations();
+  if(generation===lifecycle&&navigator===installed){applyAnnotations();syncWheel()}
 }
 async function open(value){
  if(!await close())throw Error('The current note is still being edited.');headingCache=new Map();stableAnchor=null;jumpHistory=[];updateHistory();input=value;opening=true;$('error').hidden=true;
@@ -825,7 +880,7 @@ async function open(value){
   syncAppearance();await prepareFont(state.preferences.fontFamily,lifecycle);
   const owner=pool,book=input;
   screenIndex=new ScreenPaginationIndex({measure:(chapter,signal,key)=>measureChapterScreens(book,owner,chapter,signal,key),idle:paginationIdle,
-   changed:()=>{if(owner===pool&&!opening){cancelAnimationFrame(positionFrame);positionFrame=requestAnimationFrame(()=>{if(owner===pool)refreshPosition()})}}});
+   changed:()=>{if(owner===pool&&!opening){cancelPosition();positionFrame=requestAnimationFrame(()=>{positionFrame=0;if(owner===pool)refreshPosition()})}}});
   await installNavigator(state.position);opening=false;refreshPosition();emit('ready',{warnings:[...pool.warnings]});announcedLayout=null;relayout();changed();
   void indexContent(pool,lifecycle,input.editionId,input.readingOrder);
   if(pool.warnings.size&&$('notice').hidden)notice('Some original styling or illustrations could not be displayed.');
@@ -835,7 +890,7 @@ async function close(){
  if(!await prepareClose())return false;
  garden.clear();
  if(navigator?.kind==='continuous')navigator.report();
- nativeChrome.disconnect();clearTimeout(noteSaveTimer);annotationUI.reset();pageSlide.invalidate();lifecycle++;searchGeneration++;cancelAnimationFrame(positionFrame);clearTimeout(resizeTimer);resizing=false;clearTimeout(searchTimer);clearTimeout(stateTimer);clearTimeout(noticeTimer);
+ nativeChrome.disconnect();clearTimeout(noteSaveTimer);annotationUI.reset();pageSlide.invalidate();lifecycle++;searchGeneration++;cancelPosition();anchorPending=false;positionDirty=true;clearTimeout(resizeTimer);resizing=false;clearTimeout(searchTimer);clearTimeout(stateTimer);clearTimeout(noticeTimer);
  const paginationClosed=screenIndex?.queue;screenIndex?.close();screenIndex=undefined;
  nativePosition=null;contentIndex=null;contentIndexFailed=false;preferenceRestore=false;
  if(state)emit('state',{state:snapshot()});
@@ -935,7 +990,7 @@ $('font-weight').onchange=()=>void setPreferences({fontWeight:$('font-weight').v
 $('text-align').onchange=()=>void setPreferences({textAlign:$('text-align').value});
 $('hyphens').onchange=()=>void setPreferences({hyphens:$('hyphens').value==='publisher'?null:$('hyphens').value==='true'});
 for(const [id,key]of [['letter-spacing','letterSpacing'],['word-spacing','wordSpacing']])$(id).oninput=()=>void setPreferences({[key]:Number($(id).value)});
-window.addEventListener('resize',()=>{pageSlide.invalidate();if(!state)return;garden.update();screenIndex?.cancel();resizing=true;relayout();const anchor=stableAnchor?clone(stableAnchor):lastLocator?clone(lastLocator):null;clearTimeout(resizeTimer);resizeTimer=setTimeout(()=>{void setPreferences({},anchor).finally(()=>{resizing=false;refreshPosition()})},100)});
+window.addEventListener('resize',()=>{pageSlide.invalidate();if(!state)return;garden.update();screenIndex?.cancel();flushAnchor();resizing=true;relayout();const anchor=stableAnchor?clone(stableAnchor):lastLocator?clone(lastLocator):null;clearTimeout(resizeTimer);resizeTimer=setTimeout(()=>{void setPreferences({},anchor).finally(()=>{resizing=false;refreshPosition()})},100)});
 $('reset-appearance').onclick=()=>void setPreferences(DEFAULT_PREFERENCES);
 // Escape closes Search like every other panel; the browser would first clear a search field.
 $('search-query').addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();void closeDialog($('search-panel'))}});

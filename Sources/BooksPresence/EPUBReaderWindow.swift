@@ -282,8 +282,10 @@ private final class EPUBReaderWindow: NSObject, NSWindowDelegate, WKNavigationDe
         stateWorker.async { [weak self] in
             let outcome = Result { try store.save(encoded, publication: publication) }
             Task { @MainActor [weak self] in
-                if case .failure = outcome { self?.window?.subtitle = "Reading changes could not be saved" }
-                else { self?.window?.subtitle = "" }
+                // Assigning a title-bar string relays out the title bar even when it is unchanged.
+                let subtitle: String
+                if case .failure = outcome { subtitle = "Reading changes could not be saved" } else { subtitle = "" }
+                if let window = self?.window, window.subtitle != subtitle { window.subtitle = subtitle }
             }
         }
     }

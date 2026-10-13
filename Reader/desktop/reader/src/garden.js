@@ -10,7 +10,7 @@
 import {createField, vinePalette, gardenSeed, isDarkColor} from './vines.js';
 import {createLiving, windAt, swayOf, REST, FRAME_MS} from './living.js';
 
-const FONT = 13, LINE = 16, FOOT_FONT = 12, FOOT_LINE = 14, MIN_MARGIN_CELLS = 7, BUDGET = 1500, STAGGER = 7, FADE = 700, GHOST = 900, FREEZE = 300;
+const FONT = 13, LINE = 16, FOOT_FONT = 12, FOOT_LINE = 14, MIN_MARGIN_CELLS = 7, BUDGET = 1500, STAGGER = 7, STAGGER_SPAN = 1800, FADE = 700, GHOST = 900, FREEZE = 300, SLEEP_AFTER = 2000;
 // Every chapter starts as a young garden (about the mockup at 18%: START_CELLS vines, or START_SHARE of a small garden)
 // and fills out to its full size by the chapter's end.
 const START_CELLS = 270, START_SHARE = 0.4, CARD_EDGE = 16, CLEAR_PAGE = 2, CLEAR_BARS = 1;
@@ -51,8 +51,9 @@ export function installGarden({canvas, spine, footer, percent, viewport, chrome,
   const living = createLiving({pace: window.__stillleafGardenDebug ? Number(window.__stillleafGardenPace) || 1 : 1});
   const stats = {frames: 0, drawMs: 0, slowestMs: 0, shortestGap: Infinity, idle: 0, dirtyTotal: 0, peakDirty: 0, swaying: 0};
   const drawn = new Map(), glows = new Map();
+  let asleep = false, sleepTimer = 0;
   let swayers = [], particleRects = [], ambientTimer = 0, ambientFrame = 0, ambientLast = 0, lastFrameAt = 0;
-  const scene = (target, font, line, trackAlpha) => ({canvas: target, field: null, born: new Map(), ghosts: [], context: target.getContext('2d'), origin: {left: 0, top: 0}, font, line, cw: 7.8, ch: line, track: [], trackAlpha});
+  const scene = (target, font, line, trackAlpha) => ({dirty: true, busy: false, canvas: target, field: null, born: new Map(), ghosts: [], context: target.getContext('2d'), origin: {left: 0, top: 0}, font, line, cw: 7.8, ch: line, track: [], trackAlpha});
   const margins = scene(canvas, FONT, LINE, 0), column = scene(spine, FONT, LINE, 0.55), foot = scene(footer, FOOT_FONT, FOOT_LINE, 0.9);
   const scenes = [margins, column, foot];
 
@@ -70,10 +71,14 @@ export function installGarden({canvas, spine, footer, percent, viewport, chrome,
     palette.dark = isDarkColor(paper);
   }
 
+  /** Sets the backing store. Assigning a canvas's width or height reallocates and clears its whole bitmap, even to the same
+   *  value, so an unchanged size is left alone: a regrow then repaints over the old pixels instead of starting from scratch. */
   function size(s, width, height) {
-    const dpr = Math.min(2, devicePixelRatio || 1);
-    s.canvas.width = Math.max(1, Math.round(width * dpr)); s.canvas.height = Math.max(1, Math.round(height * dpr));
+    const dpr = Math.min(2, devicePixelRatio || 1), w = Math.max(1, Math.round(width * dpr)), h = Math.max(1, Math.round(height * dpr));
+    if (s.canvas.width === w && s.canvas.height === h && s.dpr === dpr) return;
+    s.canvas.width = w; s.canvas.height = h; s.dpr = dpr;
     s.context.setTransform(dpr, 0, 0, dpr, 0, 0);
+    s.dirty = true;
   }
 
   /** Vines around the page card, in margins at least seven cells wide, grown to this share of the chapter. */
@@ -152,19 +157,25 @@ export function installGarden({canvas, spine, footer, percent, viewport, chrome,
    *  Still and Reduce Motion show the new garden at once: no fade in, no fading ghosts. */
   function regrow(s, field, now) {
     const previous = s.field?.cells ?? new Map(), born = new Map();
+    // New cells appear one after another, but the whole fade-in (stagger plus each cell's own fade) stays within about
+    // two and a half seconds however many cells arrive: at 7 ms a cell, a chapter's worth of vines kept the canvases
+    // repainting for over ten.
+    let arriving = 0;
+    for (const [key] of field?.cells ?? []) if (!(previous.get(key) && s.born.has(key))) arriving++;
+    const stagger = Math.min(STAGGER, STAGGER_SPAN / Math.max(1, arriving));
     let order = 0;
     for (const [key] of field?.cells ?? []) {
       const kept = previous.get(key);
-      born.set(key, kept && s.born.has(key) ? s.born.get(key) : still() ? now - FADE : now + (order++) * STAGGER);
+      born.set(key, kept && s.born.has(key) ? s.born.get(key) : still() ? now - FADE : now + (order++) * stagger);
     }
     if (still()) s.ghosts = [];
     else for (const [key, cell] of previous) if (!field?.cells.has(key)) s.ghosts.push({cell, dying: now});
-    s.field = field; s.born = born;
+    s.field = field; s.born = born; s.dirty = true;
   }
 
   /** Drops every garden, fades and ghosts included, blanks every canvas and stops drawing. */
   function wipe() {
-    for (const s of scenes) { s.field = null; s.born = new Map(); s.ghosts = []; s.track = []; s.context.clearRect(0, 0, 1e5, 1e5); s.canvas.classList.remove('breathing', 'held'); }
+    for (const s of scenes) { s.field = null; s.born = new Map(); s.ghosts = []; s.track = []; s.dirty = s.busy = false; s.context.clearRect(0, 0, 1e5, 1e5); s.canvas.classList.remove('breathing', 'held'); }
     cancelAnimationFrame(frame); frame = 0;
     stopAmbient(); living.reset(); drawn.clear(); swayers = []; particleRects = [];
     root.classList.remove('garden-card', 'garden-facing');
@@ -292,7 +303,9 @@ export function installGarden({canvas, spine, footer, percent, viewport, chrome,
     if (!active() || !palette) return;
     ticks++;
     const now = performance.now();
-    const busy = scenes.map(s => draw(s, now)).some(Boolean);
+    // A scene whose vines have all finished fading and that nothing has changed since keeps its last frame:
+    // repainting it (and re-uploading its bitmap) every frame while another scene fades would be wasted work.
+    const busy = scenes.map(s => { if (!s.dirty && !s.busy) return false; s.dirty = false; return s.busy = draw(s, now); }).some(Boolean);
     const spent = performance.now() - now;
     drawMs += spent; slowestDraw = Math.max(slowestDraw, spent);
     // Draw only while something fades; a settled garden is a still image that breathes in CSS.
@@ -301,7 +314,7 @@ export function installGarden({canvas, spine, footer, percent, viewport, chrome,
     if (!busy) startAmbient();
   }
 
-  const canAmbient = () => lively() && !frozen && !frame && !document.hidden && !!palette && !!margins.field;
+  const canAmbient = () => lively() && !frozen && !frame && !document.hidden && !asleep && !!palette && !!margins.field;
   const kick = () => { ambientTimer = 0; ambientFrame = requestAnimationFrame(ambientTick); };
   function startAmbient() {
     if (ambientTimer || ambientFrame || !canAmbient()) return;
@@ -402,6 +415,17 @@ export function installGarden({canvas, spine, footer, percent, viewport, chrome,
 
   // Nothing moves in a hidden window; it picks up where it left off when shown again.
   document.addEventListener('visibilitychange', () => { if (document.hidden) stopAmbient(); else startAmbient(); });
+  // A window that has lost focus for a moment stops its wind and its breathing too (a reader left open behind another
+  // app has no reason to keep a loop going), and carries on the moment it is focused again.
+  window.addEventListener('blur', () => {
+    clearTimeout(sleepTimer);
+    sleepTimer = setTimeout(() => { if (document.hasFocus()) return; asleep = true; root.classList.add('garden-asleep'); stopAmbient(); }, SLEEP_AFTER);
+  });
+  window.addEventListener('focus', () => {
+    clearTimeout(sleepTimer);
+    if (!asleep) return;
+    asleep = false; root.classList.remove('garden-asleep'); startAmbient();
+  });
   reduce.addEventListener?.('change', () => rebuild());
 
   const showPercent = value => { percent.textContent = `${Math.round(value * 100)}%`; };
@@ -434,10 +458,14 @@ export function installGarden({canvas, spine, footer, percent, viewport, chrome,
       // Later input extends a hold; it never shortens one that a page turn asked for.
       holdUntil = Math.max(holdUntil, performance.now() + Math.max(FREEZE, hold));
       clearTimeout(freezeTimer);
+      // A long task (a relayout after a setting change) can hold this timer past input already queued behind it.
+      // Release one turn later, so that input runs first and extends the hold instead of seeing the garden regrow.
       freezeTimer = setTimeout(() => {
-        frozen = false;
-        for (const s of scenes) s.canvas.classList.remove('held');
-        if (pending != null) { progress = pending; pending = null; rebuild(); } else if (deferred) rebuild(); else schedule();
+        freezeTimer = setTimeout(() => {
+          frozen = false;
+          for (const s of scenes) s.canvas.classList.remove('held');
+          if (pending != null) { progress = pending; pending = null; rebuild(); } else if (deferred) rebuild(); else schedule();
+        }, 0);
       }, holdUntil - performance.now());
     },
     /** The app's Garden setting: animated, still or off. */

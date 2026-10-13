@@ -95,8 +95,12 @@ export class AnnotationUI {
     this.popup.style.left=p.left+'px';this.popup.style.top=p.top+'px';
    }
   }
+  // Margin cards exist only beside a continuous book that has notes. Without any, a scroll frame has nothing to place,
+  // and must not touch the layer or the compact button (writing to them invalidates layout even when nothing changed).
+  const noted=this.continuous()&&this.annotations().some(item=>item.note);
+  if(!noted&&!this.cards.size&&this.compact.hidden)return;
   const visible=[];
-  if(this.continuous())for(const {frame,href}of this.frames()){
+  if(noted)for(const {frame,href}of this.frames()){
    const f=frame.getBoundingClientRect();if(f.bottom<=viewport.top||f.top>=viewport.bottom||!frame.contentDocument?.body)continue;
    for(const item of this.annotations())if(item.note&&item.locator.href===href){
     const range=this.resolve(frame,item),rect=range&&rectInHost(frame,range,viewport);if(rect)visible.push({item,rect});
@@ -105,19 +109,30 @@ export class AnnotationUI {
   visible.sort((a,b)=>a.rect.top-b.rect.top);
   const ids=new Set(visible.map(x=>x.item.id));for(const [id,card]of this.cards)if(!ids.has(id)){card.remove();this.cards.delete(id)}
   const room=Math.min(viewport.left,innerWidth-viewport.right)-16,width=Math.min(200,room),wide=width>=150;
-  const items=[];
+  // Every write first, then every read: measuring a card between writes would force a layout per card.
+  const placed=[];
   for(const {item,rect}of visible){
    let card=this.cards.get(item.id);if(!card){card=document.createElement('button');card.className='margin-note';card.onclick=()=>this.onEdit(item.id);this.cards.set(item.id,card);this.layer.append(card)}
-   card.textContent=item.note;card.setAttribute('aria-label','Edit note for '+item.quote.slice(0,100));card.style.setProperty('--note-color',item.color==='sage'?'#a7cbb0':item.color==='rose'?'#d7a9b4':'#e4c778');card.style.width=width+'px';card.hidden=!wide;
-   if(wide)items.push({card,top:rect.top,height:card.offsetHeight});
+   const color=item.color==='sage'?'#a7cbb0':item.color==='rose'?'#d7a9b4':'#e4c778',label='Edit note for '+item.quote.slice(0,100);
+   if(card.textContent!==item.note)card.textContent=item.note;
+   if(card.getAttribute('aria-label')!==label)card.setAttribute('aria-label',label);
+   if(card.style.getPropertyValue('--note-color')!==color)card.style.setProperty('--note-color',color);
+   if(card.style.width!==width+'px')card.style.width=width+'px';
+   if(card.hidden!==!wide)card.hidden=!wide;
+   if(wide)placed.push({card,top:rect.top});
   }
+  const items=placed.map(({card,top})=>({card,top,height:card.offsetHeight}));
   let overflow=wide?0:visible.length;
   for(const slot of marginSlots(items,viewport.top,viewport.bottom)){
    slot.card.hidden=!!slot.compact;if(slot.compact){overflow++;continue}
    slot.card.style.top=slot.top+'px';slot.card.style.left=(slot.side===0?viewport.left-width-12:viewport.right+12)+'px';
   }
-  this.compact.hidden=!overflow;this.compact.textContent=overflow+' '+(overflow===1?'note':'notes');this.compact.setAttribute('aria-label',overflow+' notes beside visible passages. Open highlights and notes');
-  this.compact.style.top=Math.max(2,viewport.top-26)+'px';this.compact.style.right=Math.max(8,innerWidth-viewport.right)+'px';
+  const text=overflow+' '+(overflow===1?'note':'notes'),label=overflow+' notes beside visible passages. Open highlights and notes',top=Math.max(2,viewport.top-26)+'px',right=Math.max(8,innerWidth-viewport.right)+'px';
+  if(this.compact.hidden!==!overflow)this.compact.hidden=!overflow;
+  if(this.compact.textContent!==text)this.compact.textContent=text;
+  if(this.compact.getAttribute('aria-label')!==label)this.compact.setAttribute('aria-label',label);
+  if(this.compact.style.top!==top)this.compact.style.top=top;
+  if(this.compact.style.right!==right)this.compact.style.right=right;
  }
  reset(){this.dismiss();this.rangeCache.clear();for(const card of this.cards.values())card.remove();this.cards.clear();this.compact.hidden=true;this.schedule()}
 }
