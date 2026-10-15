@@ -3,8 +3,8 @@
    rules replace the older per-panel styling; the page, garden and footer stay in reader.css. */
 
 :root{
- /* Light, clear glass tinted by the page theme: a little blur, never milky. */
- --glass-fill:color-mix(in srgb,var(--panel) 82%,transparent);
+ /* Solid, in the page theme's panel colour: the page's text never shows through the controls. */
+ --glass-fill:var(--panel);
  --glass-blur:blur(10px) saturate(1.2);
  --glass-rim:color-mix(in srgb,var(--ink) 18%,transparent);
  --glass-highlight:color-mix(in srgb,#fff 60%,transparent);

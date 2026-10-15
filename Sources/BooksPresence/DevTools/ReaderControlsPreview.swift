@@ -19,14 +19,14 @@ func renderReaderControlPreviews(to destination: URL) throws {
         ["key": key, "label": label, "kind": "number", "min": min, "max": max, "step": step, "nullable": nullable]
     }
     let themes: [(id: String, label: String, background: String, text: String)] = [
-        ("original", "Original", "#FFFFFF", "#1D1D1F"), ("paper", "Stillleaf", "#F0F7F3", "#183D33"), ("sepia", "Warm", "#F6F1E3", "#403B2C"),
-        ("calm", "Calm", "#EEE2CC", "#3B3024"), ("focus", "Focus", "#FFFBEF", "#1C1A16"), ("quiet", "Quiet", "#4A4A4E", "#D6D6D9"),
-        ("dark", "Dark", "#1C302D", "#E7F3EA"), ("night", "Night", "#0D0D0E", "#ABABAF"), ("white", "White", "#FFFFFF", "#242729"),
-        ("stone", "Stone", "#E9E8E4", "#343534"), ("mist", "Mist", "#EAF1F7", "#263C50"), ("forest", "Forest", "#E4EFE6", "#234A35"),
-        ("dusk", "Dusk", "#302C3A", "#EDE4F1"), ("midnight", "Midnight", "#0D121A", "#D4DAE5"), ("custom", "Custom", "#F0F7F3", "#183D33"),
+        ("original", "Original", "#FFFFFF", "#111113"), ("paper", "Stillleaf", "#F0F7F3", "#0E2C24"), ("sepia", "Warm", "#F6F1E3", "#28241A"),
+        ("calm", "Calm", "#EEE2CC", "#261E15"), ("focus", "Focus", "#FFFBEF", "#100F0C"), ("quiet", "Quiet", "#3A3A3E", "#F2F2F4"),
+        ("dark", "Dark", "#14231F", "#F3FAF5"), ("night", "Night", "#000000", "#ECECEE"), ("white", "White", "#FFFFFF", "#121416"),
+        ("stone", "Stone", "#E9E8E4", "#1C1D1C"), ("mist", "Mist", "#EAF1F7", "#14273A"), ("forest", "Forest", "#E4EFE6", "#123322"),
+        ("dusk", "Dusk", "#25212E", "#F7F1FA"), ("midnight", "Midnight", "#0A0E15", "#EAEFF7"), ("custom", "Custom", "#F0F7F3", "#0E2C24"),
     ]
     let definitions: [[String: Any]] = [
-        choice("theme", "Page theme", [option("system", "System", "#F0F7F3", "#087D65", "#1C302D")] + themes.map { option($0.id, $0.label, $0.background, $0.text) }),
+        choice("theme", "Page theme", [option("system", "System", "#F0F7F3", "#087D65", "#000000")] + themes.map { option($0.id, $0.label, $0.background, $0.text) }),
         choice("fontFamily", "Typeface", [option("publisher", "Original"), option("newyork", "New York"), option("sans", "San Francisco"), option("literata", "Literata")]),
         choice("margins", "Margins", [option("narrow", "Narrow"), option("normal", "Normal"), option("wide", "Wide")]),
         choice("vines", "Vines", [option("margins", "Margins"), option("off", "Off")]),
@@ -42,7 +42,7 @@ func renderReaderControlPreviews(to destination: URL) throws {
     ]
     try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
     // The tall renders show the whole panel; the short ones show it at its real size.
-    for (id, panel, open, height) in [("paper", "#F6FAF7", false, 1500.0), ("dark", "#223833", true, 2300.0), ("night", "#18181A", false, 640.0), ("sepia", "#FBF7EC", false, 640.0)] {
+    for (id, panel, open, height) in [("paper", "#F6FAF7", false, 1500.0), ("dark", "#1A2C28", true, 2300.0), ("night", "#111113", false, 640.0), ("sepia", "#FBF7EC", false, 640.0)] {
         guard let theme = themes.first(where: { $0.id == id }) else { continue }
         let model = ReaderChromeModel()
         model.accept([
@@ -106,7 +106,7 @@ func renderReaderPanelPreviews(to destination: URL) throws {
         ["id": "r3", "before": "…the lamp gave little ", "match": "light", "after": " but enough to read by, and she read until the last of the…", "chapter": "Book Two"],
     ]]
     let themes: [(id: String, background: String, text: String, panel: String, accent: String)] = [
-        ("paper", "#F0F7F3", "#183D33", "#F6FAF7", "#087D65"), ("midnight", "#0D121A", "#D4DAE5", "#0D121A", "#9CBFF2"), ("sepia", "#F6F1E3", "#403B2C", "#FBF7EC", "#7A5A22"),
+        ("paper", "#F0F7F3", "#0E2C24", "#F6FAF7", "#066B56"), ("midnight", "#0A0E15", "#EAEFF7", "#0A0E15", "#A8C9F6"), ("sepia", "#F6F1E3", "#28241A", "#FBF7EC", "#6A4C18"),
     ]
     for theme in themes {
         let chrome = ReaderChromeModel()

@@ -15,7 +15,7 @@ const chapter=`<!doctype html><html lang="en"><head><title>Harbour</title></head
 const book={editionId:'appearance-fixture',title:'Harbour Lights',creators:['M. Tide'],language:'en',
  readingOrder:[{href:'one.html',type:'text/html'}],
  resources:[{href:'one.html',type:'text/html',dataBase64:Buffer.from(chapter).toString('base64')},{href:'plate.png',type:'image/png',dataBase64:pixel}]};
-const themes={original:'rgb(255, 255, 255)',paper:'rgb(240, 247, 243)',sepia:'rgb(246, 241, 227)',calm:'rgb(238, 226, 204)',focus:'rgb(255, 251, 239)',quiet:'rgb(74, 74, 78)',dark:'rgb(28, 48, 45)',night:'rgb(13, 13, 14)'};
+const themes={original:'rgb(255, 255, 255)',paper:'rgb(240, 247, 243)',sepia:'rgb(246, 241, 227)',calm:'rgb(238, 226, 204)',focus:'rgb(255, 251, 239)',quiet:'rgb(58, 58, 62)',dark:'rgb(20, 35, 31)',night:'rgb(0, 0, 0)'};
 const labels={original:'Original',paper:'Stillleaf',sepia:'Warm',calm:'Calm',focus:'Focus',quiet:'Quiet',dark:'Dark',night:'Night'};
 
 test('themes, typefaces and margins apply to the page and persist',{timeout:120000},async t=>{
@@ -40,7 +40,7 @@ test('themes, typefaces and margins apply to the page and persist',{timeout:1200
  assert.equal((await frame()).theme,'paper');
  // Wait for the switch itself: a fixed pause lost the race on a slow runner.
  const themed=theme=>page.waitForFunction(theme=>document.documentElement.dataset.theme===theme,theme,{timeout:5000});
- await page.emulateMedia({colorScheme:'dark'});await themed('dark');assert.equal((await frame()).theme,'dark');
+ await page.emulateMedia({colorScheme:'dark'});await themed('night');assert.equal((await frame()).theme,'night');
  await page.emulateMedia({colorScheme:'light'});await themed('paper');
 
  await page.getByRole('button',{name:'Appearance',exact:true}).click();
@@ -96,7 +96,7 @@ test('themes, typefaces and margins apply to the page and persist',{timeout:1200
  // Unknown values from a future version fall back instead of breaking the book.
  await page.evaluate(input=>window.StillleafReader.open(input),{...book,state:{...saved,preferences:{...saved.preferences,theme:'aurora',fontFamily:'comic',margins:'huge'}}});
  const fallback=await page.evaluate(()=>window.StillleafReader.exportState().preferences);
- assert.deepEqual({theme:fallback.theme,fontFamily:fallback.fontFamily,margins:fallback.margins},{theme:'system',fontFamily:'publisher',margins:'normal'});
+ assert.deepEqual({theme:fallback.theme,fontFamily:fallback.fontFamily,margins:fallback.margins},{theme:'system',fontFamily:'newyork',margins:'normal'});
  // Bundled font bytes must render inside the publication, survive navigation/reopen,
  // and coexist with the older saved theme/margin IDs.
  await page.evaluate(()=>window.StillleafReader.setPreferences({fontFamily:'literata',theme:'custom',backgroundColor:'#162530',textColor:'#F2E6CB',contentWidth:80,sideMargin:18}));
