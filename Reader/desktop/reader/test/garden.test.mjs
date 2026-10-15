@@ -10,7 +10,9 @@ const chapter = (n) => `<html><body><h1>Chapter ${n}</h1>` + '<p>The light fell 
 const book = {editionId: 'margin-garden', title: 'Margins', contentProgress: true,
   readingOrder: [{href: 'one.html', type: 'text/html'}, {href: 'two.html', type: 'text/html'}],
   resources: [{href: 'one.html', type: 'text/html', dataBase64: Buffer.from(chapter(1)).toString('base64')},
-    {href: 'two.html', type: 'text/html', dataBase64: Buffer.from(chapter(2)).toString('base64')}]};
+    {href: 'two.html', type: 'text/html', dataBase64: Buffer.from(chapter(2)).toString('base64')}],
+  // The publisher's font, which these timings and margins were measured with; the default typeface is not under test here.
+  state: {schemaVersion: 1, editionId: 'margin-garden', revision: 0, position: null, preferences: {fontFamily: 'publisher'}, bookmarks: [], annotations: []}};
 
 async function launch(t, viewport, {reducedMotion = 'reduce', gardenMode} = {}) {
   const server = createServer(async (req, res) => {
