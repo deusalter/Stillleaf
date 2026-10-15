@@ -4,27 +4,27 @@
 
 /** Page colours. `chrome` tones the reader bar and panels around the page. */
 export const THEMES=Object.freeze([
- {id:'original',label:'Original',scheme:'light',background:'#FFFFFF',text:'#1D1D1F',link:'#0B63C4',selection:'#B4D5FE',chrome:'#F2F2F4',muted:'#6E6E73',panel:'#FAFAFB'},
- {id:'paper',label:'Stillleaf',scheme:'light',background:'#F0F7F3',text:'#183D33',link:'#087D65',selection:'#B9DCCE',chrome:'#DFECE7',muted:'#5E786E',panel:'#F6FAF7'},
- {id:'sepia',label:'Warm',scheme:'light',background:'#F6F1E3',text:'#403B2C',link:'#7A5A22',selection:'#E3D5A8',chrome:'#E7E5D8',muted:'#7A725D',panel:'#FBF7EC'},
- {id:'calm',label:'Calm',scheme:'light',background:'#EEE2CC',text:'#3B3024',link:'#80522A',selection:'#D8C39D',chrome:'#E2D4BA',muted:'#7B6A55',panel:'#F4EBDA'},
- {id:'focus',label:'Focus',scheme:'light',background:'#FFFBEF',text:'#1C1A16',link:'#6A4E12',selection:'#F1E2B6',chrome:'#F3EDDC',muted:'#6F6A5E',panel:'#FFFDF6'},
- {id:'quiet',label:'Quiet',scheme:'dark',background:'#4A4A4E',text:'#D6D6D9',link:'#B7CDEB',selection:'#6B6B72',chrome:'#3E3E42',muted:'#A7A7AD',panel:'#535358'},
- {id:'dark',label:'Dark',scheme:'dark',background:'#1C302D',text:'#E7F3EA',link:'#70DAB2',selection:'#466858',chrome:'#132422',muted:'#A1BDB2',panel:'#223833'},
- // Night keeps contrast low and dims illustrations for reading in a dark room.
- {id:'night',label:'Night',scheme:'dark',background:'#0D0D0E',text:'#ABABAF',link:'#8FB0D6',selection:'#34343A',chrome:'#050505',muted:'#7C7C82',panel:'#18181A',dimImages:true},
- {id:'white',label:'White',scheme:'light',background:'#FFFFFF',text:'#242729',link:'#225EAD',selection:'#B9DCCE',chrome:'#FFFFFF',muted:'#242729',panel:'#FFFFFF'},
- {id:'stone',label:'Stone',scheme:'light',background:'#E9E8E4',text:'#343534',link:'#4B615A',selection:'#B9DCCE',chrome:'#E9E8E4',muted:'#343534',panel:'#E9E8E4'},
- {id:'mist',label:'Mist',scheme:'light',background:'#EAF1F7',text:'#263C50',link:'#386B92',selection:'#B9DCCE',chrome:'#EAF1F7',muted:'#263C50',panel:'#EAF1F7'},
- {id:'forest',label:'Forest',scheme:'light',background:'#E4EFE6',text:'#234A35',link:'#286343',selection:'#B9DCCE',chrome:'#E4EFE6',muted:'#234A35',panel:'#E4EFE6'},
- {id:'dusk',label:'Dusk',scheme:'dark',background:'#302C3A',text:'#EDE4F1',link:'#D6B6EB',selection:'#466858',chrome:'#302C3A',muted:'#EDE4F1',panel:'#302C3A'},
- {id:'midnight',label:'Midnight',scheme:'dark',background:'#0D121A',text:'#D4DAE5',link:'#9CBFF2',selection:'#466858',chrome:'#0D121A',muted:'#D4DAE5',panel:'#0D121A'},
+ {id:'original',label:'Original',scheme:'light',background:'#FFFFFF',text:'#111113',link:'#0A57AD',selection:'#B4D5FE',chrome:'#F2F2F4',muted:'#505055',panel:'#FAFAFB'},
+ {id:'paper',label:'Stillleaf',scheme:'light',background:'#F0F7F3',text:'#0E2C24',link:'#066B56',selection:'#B9DCCE',chrome:'#DFECE7',muted:'#43605A',panel:'#F6FAF7'},
+ {id:'sepia',label:'Warm',scheme:'light',background:'#F6F1E3',text:'#28241A',link:'#6A4C18',selection:'#E3D5A8',chrome:'#E7E5D8',muted:'#5C5543',panel:'#FBF7EC'},
+ {id:'calm',label:'Calm',scheme:'light',background:'#EEE2CC',text:'#261E15',link:'#6E4420',selection:'#D8C39D',chrome:'#E2D4BA',muted:'#5B4C3B',panel:'#F4EBDA'},
+ {id:'focus',label:'Focus',scheme:'light',background:'#FFFBEF',text:'#100F0C',link:'#5C430E',selection:'#F1E2B6',chrome:'#F3EDDC',muted:'#524E45',panel:'#FFFDF6'},
+ {id:'quiet',label:'Quiet',scheme:'dark',background:'#3A3A3E',text:'#F2F2F4',link:'#C6DAF4',selection:'#5E5E66',chrome:'#2F2F33',muted:'#C4C4CA',panel:'#424247'},
+ {id:'dark',label:'Dark',scheme:'dark',background:'#14231F',text:'#F3FAF5',link:'#7FE3BD',selection:'#3F5E50',chrome:'#0D1916',muted:'#B9D2C7',panel:'#1A2C28'},
+ // Night is true black for dark rooms and OLED screens: bright, slightly warm text, and dimmed illustrations.
+ {id:'night',label:'Night',scheme:'dark',background:'#000000',text:'#ECECEE',link:'#A3C4F0',selection:'#2E2E34',chrome:'#000000',muted:'#A2A2A8',panel:'#111113',dimImages:true},
+ {id:'white',label:'White',scheme:'light',background:'#FFFFFF',text:'#121416',link:'#225EAD',selection:'#B9DCCE',chrome:'#FFFFFF',muted:'#121416',panel:'#FFFFFF'},
+ {id:'stone',label:'Stone',scheme:'light',background:'#E9E8E4',text:'#1C1D1C',link:'#3D514B',selection:'#B9DCCE',chrome:'#E9E8E4',muted:'#1C1D1C',panel:'#E9E8E4'},
+ {id:'mist',label:'Mist',scheme:'light',background:'#EAF1F7',text:'#14273A',link:'#2C5D82',selection:'#B9DCCE',chrome:'#EAF1F7',muted:'#14273A',panel:'#EAF1F7'},
+ {id:'forest',label:'Forest',scheme:'light',background:'#E4EFE6',text:'#123322',link:'#1F5639',selection:'#B9DCCE',chrome:'#E4EFE6',muted:'#123322',panel:'#E4EFE6'},
+ {id:'dusk',label:'Dusk',scheme:'dark',background:'#25212E',text:'#F7F1FA',link:'#E0C4F2',selection:'#466858',chrome:'#25212E',muted:'#F7F1FA',panel:'#25212E'},
+ {id:'midnight',label:'Midnight',scheme:'dark',background:'#0A0E15',text:'#EAEFF7',link:'#A8C9F6',selection:'#466858',chrome:'#0A0E15',muted:'#EAEFF7',panel:'#0A0E15'},
  {id:'custom',label:'Custom',scheme:'light',background:'#F0F7F3',text:'#183D33',link:'#087D65',selection:'#B9DCCE',chrome:'#F0F7F3',muted:'#183D33',panel:'#F0F7F3'}
 ]);
 export const THEME_IDS=Object.freeze(['system',...THEMES.map(t=>t.id)]);
-/** `system` follows the Mac: Stillleaf by day, Dark at night. */
+/** `system` follows the Mac: Stillleaf by day, true-black Night in dark mode. */
 export function resolveTheme(id,prefersDark){
- const chosen=id==='system'?(prefersDark?'dark':'paper'):id;
+ const chosen=id==='system'?(prefersDark?'night':'paper'):id;
  return THEMES.find(t=>t.id===chosen)??THEMES.find(t=>t.id==='paper');
 }
 
