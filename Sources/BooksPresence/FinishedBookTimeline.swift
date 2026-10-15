@@ -88,7 +88,9 @@ struct FinishedBookTimeline: View {
     }
 
     private func yearGroup(title: String, note: String, entries: [FinishedBookEntry], layout: Arrangement) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        // Lazy, like the timeline around it: a year's rows are built as they scroll into view,
+        // not all at once when the screen opens.
+        LazyVStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline) {
                 Text(title).font(ReadingType.numeral(30)).foregroundStyle(ReadingPalette.ink)
                     .accessibilityAddTraits(.isHeader)
