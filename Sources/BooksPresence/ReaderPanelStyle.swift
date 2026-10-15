@@ -61,19 +61,15 @@ extension EnvironmentValues {
     }
 }
 
-/// The glass behind every reader panel: a light tint over a clear blur, a crisp rim, and a top highlight.
-/// Reduce Transparency and Increased Contrast make it the opaque theme colour.
+/// The surface behind every reader panel: the theme's solid panel colour, a crisp rim, and a top highlight.
+/// It is opaque so the page's text never shows through the controls, in any theme.
 private struct ReaderGlass: ViewModifier {
     @Environment(\.readerPalette) private var palette
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-    @Environment(\.colorSchemeContrast) private var contrast
-    @Environment(\.nativePreviewOpaque) private var previewOpaque
 
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: ReadingMetrics.Radius.card, style: .continuous)
-        let opaque = (previewOpaque ?? reduceTransparency) || contrast == .increased
         content
-            .background(shape.fill(palette.panel.opacity(opaque ? 1 : 0.9)))
+            .background(shape.fill(palette.panel))
             .overlay {
                 shape.strokeBorder(LinearGradient(colors: [palette.dark ? .white.opacity(0.22) : .white.opacity(0.9), palette.rim],
                                                   startPoint: .top, endPoint: .bottom), lineWidth: 1)
@@ -377,6 +373,9 @@ struct ReaderDisclosure<Content: View>: View {
         panel.isReleasedWhenClosed = false
         panel.isOpaque = false; panel.backgroundColor = .clear; panel.hasShadow = true
         panel.hidesOnDeactivate = false; panel.level = .normal
+        // Over a full-screen reader the panel must belong to that space: without this, macOS drops it
+        // when the full-screen toolbar slides away, so it vanished as soon as the pointer left it.
+        panel.collectionBehavior = [.fullScreenAuxiliary, .moveToActiveSpace]
         panel.dismiss = { [weak self] in self?.close() }
         panel.setAccessibilityLabel("Appearance")
         container.wantsLayer = true

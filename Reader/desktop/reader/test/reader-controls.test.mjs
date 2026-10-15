@@ -103,7 +103,7 @@ test('appearance panel is grouped, with advanced typography behind a disclosure'
   await page.screenshot({path: path.join(output, 'appearance-advanced.png')});
 });
 
-test('every panel shares one light glass surface and header', {timeout: 90000}, async t => {
+test('every panel shares one solid surface and header', {timeout: 90000}, async t => {
   const page = await launch(t);
   const browser = page.context().browser();
   // WebKit cannot emulate this preference, so on a host that has Reduce Transparency on (CI runners do),
@@ -131,7 +131,7 @@ test('every panel shares one light glass surface and header', {timeout: 90000}, 
     const blur = Number(s.filter.match(/blur\(([\d.]+)px\)/)?.[1]);
     assert.ok(blur >= 4 && blur <= 14, `${s.name} blur is light (${s.filter})`);
     const fill = parseColor(s.background);
-    assert.ok(fill.alpha >= .6 && fill.alpha <= .92, `${s.name} fill is translucent but legible (${s.background})`);
+    assert.equal(fill.alpha, 1, `${s.name} fill is solid, so the page never shows through (${s.background})`);
     for (const key of ['filter', 'background', 'radius', 'shadow', 'border', 'headingSize', 'headingWeight', 'headingPad']) assert.equal(s[key], seen[0][key], `${s.name} shares ${key}`);
     assert.match(s.shadow, /inset/, `${s.name} has a crisp inner rim`);
   }
