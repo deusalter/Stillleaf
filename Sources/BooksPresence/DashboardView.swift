@@ -5,7 +5,11 @@ import BooksCore
 @MainActor
 struct DashboardView: View {
     @ObservedObject var model: AppModel
+    /// The screen on display.
     @State private var section: DashboardSection
+    /// The sidebar's highlight. A click moves it at once and the screen follows on the next turn,
+    /// so the click is answered before the new screen is built.
+    @State private var selection: DashboardSection
     private let initialCalendarScale: CalendarScale
     private let initialSettingsCategory: SettingsCategory
     /// Told the screen each time it changes, so a reopened dashboard can return to it.
@@ -16,6 +20,7 @@ struct DashboardView: View {
         self.model = model
         self.sectionChanged = sectionChanged
         _section = State(initialValue: initialSection)
+        _selection = State(initialValue: initialSection)
         self.initialCalendarScale = initialCalendarScale
         self.initialSettingsCategory = initialSettingsCategory
     }
@@ -38,7 +43,7 @@ struct DashboardView: View {
         // sidebar floats on it as a glass panel, as in the approved mockup.
         HStack(spacing: 0) {
             if sidebarVisible {
-                DashboardSidebar(selection: $section, model: model, troubleshoot: { sheet = .trackingHelp })
+                DashboardSidebar(selection: $selection, model: model, troubleshoot: { sheet = .trackingHelp })
                     .id(theme.revision)
                     .padding(.top, 34)
                     .frame(width: Self.sidebarWidth)
@@ -56,24 +61,13 @@ struct DashboardView: View {
                             Color.clear.preference(key: ErrorBannerHeightKey.self, value: proxy.size.height)
                         })
                 }
-                Group {
-                    switch section {
-                    case .today: TodayView(model: model, present: { sheet = $0 })
-                    case .history: HistoryView(model: model, initialScale: initialCalendarScale).equatable()
-                    case .library: LibraryView(model: model, present: { sheet = $0 }, browsing: libraryBrowsing)
-                    case .review: PersonalReviewsView(model: model)
-                    case .timeline: ReadingTimelineView(model: model, present: { sheet = $0 }).equatable()
-                    case .health: HealthView(model: model)
-                    case .settings: SettingsView(model: model, present: { sheet = $0 }, deleteAll: { deleteAllConfirmation = true }, uninstall: { uninstallConfirmation = true }, initialCategory: model.settingsCategoryRequest ?? initialSettingsCategory, drafts: settingsDrafts)
-                        .id(model.settingsCategoryRequest)
-                    }
-                }
-                // A theme change re-keys only the rendered content, inside the entrance, so it
-                // swaps instantly instead of replaying the fade. Settings re-keys its
-                // rendered content while the dashboard retains its unsaved drafts.
-                .id(Self.contentKey(for: section, revision: theme.revision))
-                .readingEntrance()
-                .id(section)
+                screen(section)
+                    // A theme change re-keys only the rendered content, inside the entrance, so it
+                    // swaps instantly instead of replaying the fade. Settings re-keys its
+                    // rendered content while the dashboard retains its unsaved drafts.
+                    .id(Self.contentKey(for: section, revision: theme.revision))
+                    .readingEntrance()
+                    .id(section)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .foregroundStyle(ReadingPalette.ink)
@@ -109,7 +103,14 @@ struct DashboardView: View {
         .readingMotionAccessibility()
         .onAppear { acceptNavigationRequest() }
         .onChange(of: model.dashboardSectionRequest) { _ in acceptNavigationRequest() }
-        .onChange(of: section) { sectionChanged($0) }
+        .onChange(of: selection) { chosen in
+            // Let the highlight draw first; a later click supersedes this one.
+            DispatchQueue.main.async { if selection == chosen { section = chosen } }
+        }
+        .onChange(of: section) { shown in
+            if selection != shown { selection = shown }
+            sectionChanged(shown)
+        }
         .frame(minWidth: 920, minHeight: 660)
         .toggleStyle(.switch)
         .tint(ReadingPalette.accent)
@@ -157,8 +158,22 @@ struct DashboardView: View {
 
     private func acceptNavigationRequest() {
         guard let requested = model.dashboardSectionRequest else { return }
-        section = requested
+        section = requested; selection = requested
         model.dashboardSectionRequest = nil
+    }
+
+    @ViewBuilder
+    private func screen(_ item: DashboardSection) -> some View {
+        switch item {
+        case .today: TodayView(model: model, present: { sheet = $0 })
+        case .history: HistoryView(model: model, initialScale: initialCalendarScale).equatable()
+        case .library: LibraryView(model: model, present: { sheet = $0 }, browsing: libraryBrowsing)
+        case .review: PersonalReviewsView(model: model)
+        case .timeline: ReadingTimelineView(model: model, present: { sheet = $0 }).equatable()
+        case .health: HealthView(model: model)
+        case .settings: SettingsView(model: model, present: { sheet = $0 }, deleteAll: { deleteAllConfirmation = true }, uninstall: { uninstallConfirmation = true }, initialCategory: model.settingsCategoryRequest ?? initialSettingsCategory, drafts: settingsDrafts)
+            .id(model.settingsCategoryRequest)
+        }
     }
 
     @ViewBuilder
