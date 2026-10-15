@@ -115,7 +115,7 @@ function emptyState(id) {
     position: null,
     preferences: {
       theme: "system",
-      fontFamily: "publisher",
+      fontFamily: "newyork",
       fontSize: 1.2,
       lineHeight: 1.6,
       measure: 65,
