@@ -32,9 +32,15 @@ fi
 
 name=${target:t}
 result="$log_dir/notary-$name.json"
-xcrun notarytool submit "$upload" $auth --wait --timeout 1h --output-format json > "$result"
+# A rejected submission may exit non-zero; keep going so its log is still fetched below.
+xcrun notarytool submit "$upload" $auth --wait --timeout 1h --output-format json > "$result" || true
 [[ "$upload" != "$target" ]] && rm -f "$upload"
-read -r submission state <<<"$(python3 -c 'import json,sys; r=json.load(open(sys.argv[1])); print(r.get("id",""), r.get("status",""))' "$result")"
+read -r submission state <<<"$(python3 -c '
+import json, sys
+try: r = json.load(open(sys.argv[1]))
+except ValueError: r = {}
+print(r.get("id", "-"), r.get("status", "no-result"))' "$result")"
+[[ "$submission" == - ]] && submission=""
 # The log lists every issue, including warnings on accepted submissions; keep it either way.
 [[ -n "$submission" ]] && xcrun notarytool log "$submission" $auth "$log_dir/notary-$name-log.json" >/dev/null || true
 if [[ "$state" != Accepted ]]; then

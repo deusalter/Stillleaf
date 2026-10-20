@@ -64,7 +64,7 @@ def main():
         check(entitlements(path) == reviewed, f'{relative}: entitlements match assets/Stillleaf.entitlements')
         if level == 'adhoc':
             continue
-        flags = re.search(r'flags=0x([0-9a-f]+)', details)
+        flags = re.search(r'^CodeDirectory .*?\bflags=0x([0-9a-f]+)', details, re.M)
         check(bool(flags) and int(flags.group(1), 16) & 0x10000 != 0, f'{relative}: hardened runtime')
         check('Authority=Developer ID Application:' in details, f'{relative}: Developer ID Application authority')
         check(re.search(r'^Timestamp=', details, re.M) is not None, f'{relative}: secure timestamp')

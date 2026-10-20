@@ -47,6 +47,11 @@ Repository → Settings → Secrets and variables → Actions:
 | Variable | `STILLLEAF_DOWNLOAD_BASE_URL` | `https://HOST/download` |
 | Variable | `STILLLEAF_RELEASE_NOTES_URL` | `https://HOST/releases/{version}` |
 
+Set the three variables before the first tag. A signed build without
+`STILLLEAF_UPDATE_FEED_URL` stops at the Info.plist release gate by design, after signing and
+before notarization. The feed URL must be the final, canonical address: the app refuses
+redirects, including apex to `www`.
+
 Consider a protected `release` environment with required reviewers, and restrict `v*` tag
 creation to maintainers.
 
