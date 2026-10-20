@@ -10,6 +10,7 @@ final class AppModel: ObservableObject {
     let audiobookPlayer = AudiobookPlayer()
     @Published private(set) var importingAudio = false
     let epubLibrary: EPUBLibraryController
+    let updates = UpdateController()
     private var transferringReaderState = Set<String>()
     private let epubReaders: EPUBReaderWindows
     /// The tracker's state. Tracking assigns it every second while a book is open, but only the

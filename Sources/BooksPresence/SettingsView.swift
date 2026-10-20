@@ -323,6 +323,7 @@ struct SettingsView: View {
                     }
                 }
             }
+            UpdateSettingsSection(updates: model.updates)
             ReadingSection("Help") {
                 VStack(spacing: 0) {
                     SettingsRow(title: "Trouble with tracking?", description: "Check permissions and recent tracking issues.") {

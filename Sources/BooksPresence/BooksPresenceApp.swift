@@ -43,6 +43,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             item.button?.target = self; item.button?.action = #selector(togglePopover)
             statusItem = item
             menuPanel = makeMenuPanel(model: state)
+            state.updates.start()
             NSApp.mainMenu = AppPresence.makeMainMenu(dashboardTarget: self, dashboardAction: #selector(openDashboard))
             let center = NotificationCenter.default
             center.addObserver(forName: NSWindow.willCloseNotification, object: nil, queue: .main) { note in
@@ -140,6 +141,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     }
     @objc private func openDashboard() { showDashboard() }
     @objc func openSettings() { model?.showDashboard(section: .settings) }
+    @objc func checkForUpdates() { model?.updates.checkNow() }
     @objc func openLibrary() { model?.showDashboard(section: .library) }
     /// The welcome tour. Closing it early counts as done; Settings can replay it.
     func showOnboarding() {
