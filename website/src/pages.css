@@ -152,6 +152,7 @@
 }
 .page-toc h2 {
   font: 500 13px "DM Sans", sans-serif;
+  letter-spacing: 0;
   color: var(--muted);
   margin-bottom: 12px;
 }
