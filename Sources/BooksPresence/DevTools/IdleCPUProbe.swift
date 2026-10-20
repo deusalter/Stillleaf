@@ -1,4 +1,6 @@
 import AppKit
+import Combine
+import SwiftUI
 import BooksCore
 import BooksPlatform
 import CSQLite
@@ -15,7 +17,9 @@ import Darwin
 ///
 /// Every scenario uses a disposable support folder seeded at a heavy reader's scale (70 books,
 /// 6,000 intervals, 11,000 events) and a synthetic Apple Books catalog, so the 30-second
-/// finished-books sync is included without reading the user's Books library or history.
+/// finished-books sync is included without reading the user's Books library or history. The menu
+/// panel's view is built and kept hidden, as the app does at launch, since hidden SwiftUI views
+/// still update when the model publishes.
 @MainActor
 func measureIdleCPU(seconds: Double) throws {
     let names = (ProcessInfo.processInfo.environment["STILLLEAF_IDLE_SCENARIOS"] ?? "menu,manual")
@@ -28,13 +32,9 @@ func measureIdleCPU(seconds: Double) throws {
         defer { defaults.removePersistentDomain(forName: suite); try? FileManager.default.removeItem(at: root) }
         defaults.set("America/Los_Angeles", forKey: "timezoneID")
         defaults.set(true, forKey: "didConfigureLogin")
-        let support = root.appendingPathComponent("support", isDirectory: true)
-        try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
-        try seedIdleHistory(at: support)
-        let catalog = try seedSyntheticBooksCatalog(at: root.appendingPathComponent("catalog", isDirectory: true))
-
-        let model = try AppModel(support: support, defaults: defaults, startTracking: true,
-                                 accessibilityStatus: { false }, booksCatalog: catalog)
+        let (model, panel) = try makeProbeApp(root: root, defaults: defaults)
+        var publishes = 0
+        let counter = model.objectWillChange.sink { _ in publishes += 1 }
         switch name {
         case "menu": break
         case "manual": model.startManual(title: "Synthetic manual book", author: "")
@@ -42,12 +42,77 @@ func measureIdleCPU(seconds: Double) throws {
         }
         // Launch work (first refresh, first catalog sync) settles before the window opens.
         RunLoop.main.run(until: Date().addingTimeInterval(5))
+        publishes = 0
         let start = ResourceSample.now()
         RunLoop.main.run(until: Date().addingTimeInterval(seconds))
         let used = ResourceSample.now() - start
-        model.shutdown()
-        print(used.line(name, seconds: seconds))
+        let published = publishes
+        model.shutdown(); counter.cancel(); panel.close()
+        print(used.line(name, seconds: seconds) + String(format: ", %.0f model publishes/min", Double(published) * 60 / seconds))
     }
+}
+
+/// The parts of a launch that cost something: the tracker over a heavy synthetic history and a
+/// synthetic Books catalog, and the hidden menu panel built the way `AppDelegate` builds it.
+@MainActor
+private func makeProbeApp(root: URL, defaults: UserDefaults) throws -> (AppModel, NSPanel) {
+    let support = root.appendingPathComponent("support", isDirectory: true)
+    try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
+    try seedIdleHistory(at: support)
+    let catalog = try seedSyntheticBooksCatalog(at: root.appendingPathComponent("catalog", isDirectory: true))
+    let started = ProcessInfo.processInfo.systemUptime
+    let model = try AppModel(support: support, defaults: defaults, startTracking: true,
+                             accessibilityStatus: { false }, booksCatalog: catalog)
+    let modelReady = ProcessInfo.processInfo.systemUptime
+    let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 350, height: 430), styleMask: [.borderless, .nonactivatingPanel],
+                        backing: .buffered, defer: false)
+    panel.isReleasedWhenClosed = false
+    let controller = NSHostingController(rootView: PopoverView(model: model, maximumHeight: 640))
+    controller.sizingOptions = [.preferredContentSize]
+    panel.contentViewController = controller
+    controller.view.layoutSubtreeIfNeeded()
+    let panelReady = ProcessInfo.processInfo.systemUptime
+    ProbeLaunch.last = (modelReady - started, panelReady - modelReady)
+    return (model, panel)
+}
+
+@MainActor
+enum ProbeLaunch {
+    static var last: (model: TimeInterval, panel: TimeInterval) = (0, 0)
+}
+
+/// `--measure-launch`: how long the tracker takes to load the heavy synthetic history, build the
+/// hidden menu panel and finish its first background history refresh, and the footprint after.
+/// Run it several times in fresh processes and compare medians.
+@MainActor
+func measureLaunch() throws {
+    var process = kinfo_proc(), size = MemoryLayout<kinfo_proc>.stride
+    var name: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid()]
+    sysctl(&name, 4, &process, &size, nil, 0)
+    let begun = process.kp_proc.p_starttime
+    let processStart = Date(timeIntervalSince1970: Double(begun.tv_sec) + Double(begun.tv_usec) / 1_000_000)
+    let toProbe = Date().timeIntervalSince(processStart)
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("Stillleaf-launch-\(UUID().uuidString)")
+    let suite = "Stillleaf.Launch.\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suite)!
+    defer { defaults.removePersistentDomain(forName: suite); try? FileManager.default.removeItem(at: root) }
+    defaults.set("America/Los_Angeles", forKey: "timezoneID")
+    defaults.set(true, forKey: "didConfigureLogin")
+    let (model, panel) = try makeProbeApp(root: root, defaults: defaults)
+    let refreshStarted = ProcessInfo.processInfo.systemUptime
+    let deadline = Date().addingTimeInterval(10)
+    while !model.historyRefreshIsIdle && Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.005)) }
+    let refreshed = ProcessInfo.processInfo.systemUptime - refreshStarted
+    RunLoop.main.run(until: Date().addingTimeInterval(2))
+    var info = task_vm_info_data_t()
+    var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size)
+    _ = withUnsafeMutablePointer(to: &info) {
+        $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count) }
+    }
+    model.shutdown(); panel.close()
+    print(String(format: "launch: exec to main %.0f ms, tracker ready %.0f ms, menu panel %.0f ms, first background refresh %.0f ms, footprint %.1f MB",
+                 toProbe * 1000, ProbeLaunch.last.model * 1000, ProbeLaunch.last.panel * 1000, refreshed * 1000,
+                 Double(info.phys_footprint) / 1_048_576))
 }
 
 /// Whole-process counters from `proc_pid_rusage`, so work on background queues counts too.

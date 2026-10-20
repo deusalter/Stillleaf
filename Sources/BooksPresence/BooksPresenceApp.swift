@@ -364,6 +364,10 @@ struct BooksPresenceMain {
             measureSeedlingCPU(seconds: Double(CommandLine.arguments[index + 1]) ?? 21)
             exit(0)
         }
+        if CommandLine.arguments.contains("--measure-launch") {
+            do { try measureLaunch(); exit(0) }
+            catch { fputs("launch probe failed: \(error)\n", stderr); exit(1) }
+        }
         if let index = CommandLine.arguments.firstIndex(of: "--measure-idle"), index + 1 < CommandLine.arguments.count {
             do { try measureIdleCPU(seconds: Double(CommandLine.arguments[index + 1]) ?? 60); exit(0) }
             catch { fputs("idle-cpu failed: \(error)\n", stderr); exit(1) }
