@@ -12,6 +12,8 @@ final class AppModel: ObservableObject {
     let epubLibrary: EPUBLibraryController
     let updates = UpdateController()
     private var transferringReaderState = Set<String>()
+    /// Set while delete-all waits for imported books' readers to close; no reader may open meanwhile.
+    private var deletingAllData = false
     private let epubReaders: EPUBReaderWindows
     /// The tracker's state. Tracking assigns it every second while a book is open, but only the
     /// running session time changes then, and two labels show it. So views are told about any
@@ -464,7 +466,7 @@ final class AppModel: ObservableObject {
         return openingEPUBIDs.contains { resolver.resolvedID(for: "epub:" + $0) == canonicalID }
     }
     func readEPUB(_ book: BookRecord) {
-        guard !isOpeningEPUB(book), let publication = chooseEPUB(book), !epubLibrary.removingIDs.contains(publication.id),
+        guard !deletingAllData, !isOpeningEPUB(book), let publication = chooseEPUB(book), !epubLibrary.removingIDs.contains(publication.id),
               !transferringReaderState.contains(publication.id), openingEPUBIDs.insert(publication.id).inserted else { return }
         cancelExternalCoverLookups()
         Task {
@@ -1632,20 +1634,28 @@ final class AppModel: ObservableObject {
         }
     }
     func deleteAllData() {
-        guard !importingAudio else { errorMessage = "Finish the audio import before deleting all data."; return }
-        guard !epubLibrary.queue.isBusy, epubLibrary.removingIDs.isEmpty, transferringReaderState.isEmpty else {
-            errorMessage = "Finish importing, removing or transferring books before deleting all data."; return
-        }
+        guard !deletingAllData, canDeleteAllData() else { return }
         // Imported books, with their notes and highlights, are reading data too. Their readers
         // close first so none is still saving state into a folder that is going away.
         let imported = Array(epubLibrary.publications.keys)
         guard !imported.isEmpty else { return deleteAllDataNow() }
+        deletingAllData = true
         Task {
+            defer { deletingAllData = false }
             for id in imported where !(await epubReaders.close(publicationID: id)) {
                 errorMessage = "Close the open books, then delete all data again."; return
             }
+            // An import or transfer may have started while the readers closed.
+            guard canDeleteAllData() else { return }
             deleteAllDataNow()
         }
+    }
+    private func canDeleteAllData() -> Bool {
+        if importingAudio { errorMessage = "Finish the audio import before deleting all data."; return false }
+        guard !epubLibrary.queue.isBusy, epubLibrary.removingIDs.isEmpty, transferringReaderState.isEmpty, openingEPUBIDs.isEmpty else {
+            errorMessage = "Finish importing, opening, removing or transferring books before deleting all data."; return false
+        }
+        return true
     }
     private func deleteAllDataNow() {
         trackingEnabled = false

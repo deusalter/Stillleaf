@@ -31,6 +31,8 @@ final class UpdateController: ObservableObject {
     private var activationObserver: NSObjectProtocol?
     /// An automatic result waiting for the app to come forward, so a check never steals focus.
     private var pendingAnnouncement: UpdateRelease?
+    /// "Check for Updates…" chosen while an automatic check was already running.
+    private var userWaiting = false
     private static let automaticKey = "automaticUpdateChecks", lastCheckKey = "lastUpdateCheck", announcedKey = "announcedUpdateBuild"
     private static let checkInterval: TimeInterval = 24 * 60 * 60
 
@@ -88,7 +90,7 @@ final class UpdateController: ObservableObject {
             if userInitiated { present(title: "Updates are not set up for this build", message: statusDescription) }
             return
         }
-        guard status != .checking else { return }
+        guard status != .checking else { userWaiting = userWaiting || userInitiated; return }
         status = .checking
         Task { [weak self] in
             let result: Result<UpdateAvailability, Error>
@@ -97,7 +99,9 @@ final class UpdateController: ObservableObject {
         }
     }
 
-    private func finish(_ result: Result<UpdateAvailability, Error>, userInitiated: Bool) {
+    private func finish(_ result: Result<UpdateAvailability, Error>, userInitiated automatic: Bool) {
+        let userInitiated = automatic || userWaiting
+        userWaiting = false
         switch result {
         case .success(let availability):
             lastChecked = Date(); defaults.set(lastChecked, forKey: Self.lastCheckKey)
