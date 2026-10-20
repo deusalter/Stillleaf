@@ -31,6 +31,30 @@ final class BooksHistoryTests: XCTestCase {
         XCTAssertThrowsError(try catalog.finishedBooks())
     }
 
+    func testChangeStampIgnoresReadsAndFollowsWrites() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let catalog = BooksCatalog(documents: root)
+        XCTAssertNil(catalog.changeStamp(), "no catalog, nothing to compare")
+        let directory = root.appendingPathComponent("BKLibrary")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        var db: OpaquePointer?
+        XCTAssertEqual(sqlite3_open(directory.appendingPathComponent("BKLibrary-test.sqlite").path, &db), SQLITE_OK)
+        defer { sqlite3_close(db) }
+        func execute(_ sql: String) throws {
+            guard sqlite3_exec(db, sql, nil, nil, nil) == SQLITE_OK else { throw NSError(domain: "fixture", code: 1) }
+        }
+        // Books keeps its catalog in WAL mode with the database open.
+        try execute("PRAGMA journal_mode=WAL")
+        try execute("CREATE TABLE ZBKLIBRARYASSET (ZASSETID TEXT,ZTITLE TEXT,ZAUTHOR TEXT,ZISFINISHED INTEGER,ZDATEFINISHED REAL)")
+        try execute("INSERT INTO ZBKLIBRARYASSET VALUES ('a','Finished','Author',1,700000000)")
+        let before = try XCTUnwrap(catalog.changeStamp())
+        XCTAssertEqual(try catalog.finishedBooks().count, 1)
+        XCTAssertEqual(catalog.changeStamp(), before, "reading the catalog must not look like a change")
+        try execute("INSERT INTO ZBKLIBRARYASSET VALUES ('b','Also finished','Author',1,700000100)")
+        XCTAssertNotEqual(catalog.changeStamp(), before, "a write by Books must change the stamp")
+    }
+
     func testInvalidCompletionDatesStayUnknown() {
         for seconds: Double? in [nil, 0, -1, .infinity, .nan, 900_000_000] {
             XCTAssertNil(BooksCatalog.completionDate(referenceSeconds: seconds, now: Date(timeIntervalSinceReferenceDate: 800_000_000)))
