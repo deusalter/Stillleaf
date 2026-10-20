@@ -11,6 +11,10 @@ public final class ReaderPageMapStore {
     private let root: URL
     private let lock = NSLock()
     public init(directory: URL) { root = directory }
+    /// The store kept beside a reader-state folder, in its `PageMaps` subfolder.
+    public convenience init(stateDirectory: URL) {
+        self.init(directory: stateDirectory.appendingPathComponent("PageMaps", isDirectory: true))
+    }
 
     /// Saved maps for this book, most recent first, as JSON objects for the renderer.
     public func load(publication: EPUBPublication) -> [[String: Any]] {

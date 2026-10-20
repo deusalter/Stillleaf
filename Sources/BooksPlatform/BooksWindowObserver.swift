@@ -1,3 +1,4 @@
+#if os(macOS)
 import AppKit
 import ApplicationServices
 
@@ -66,3 +67,4 @@ public final class BooksWindowObserver {
     }
     deinit { invalidate() }
 }
+#endif

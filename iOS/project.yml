@@ -1,0 +1,100 @@
+# XcodeGen spec for Stillleaf on iPhone and iPad. Generate with iOS/scripts/generate-project.sh;
+# the generated Stillleaf.xcodeproj is not committed. See docs/IOS_APP.md.
+name: Stillleaf
+options:
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+  developmentLanguage: en
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    # Set your Apple Developer team to sign for devices and App Store Connect.
+    DEVELOPMENT_TEAM: ""
+    # The Mac app's identifier; one App ID allows a future universal purchase. Change here if preferred.
+    STILLLEAF_BUNDLE_ID: com.bookspresence.app
+packages:
+  Stillleaf:
+    # The repository's own Package.swift: BooksCore and BooksPlatform are shared with the Mac app.
+    path: ..
+targets:
+  Stillleaf:
+    type: application
+    platform: iOS
+    sources:
+      - path: Stillleaf
+      # Mac presentation files that are Foundation + BooksCore only, compiled here unchanged.
+      # iOS/shared-sources.sh lists the same files for the local check.
+      - path: ../Sources/BooksPresence/HistoryPresentation.swift
+        group: Shared
+      - path: ../Sources/BooksPresence/LibraryProgressLabel.swift
+        group: Shared
+      - path: ../Sources/BooksPresence/BookMergeResolver.swift
+        group: Shared
+    dependencies:
+      - package: Stillleaf
+        product: BooksCore
+      - package: Stillleaf
+        product: BooksPlatform
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(STILLLEAF_BUNDLE_ID)
+        PRODUCT_NAME: Stillleaf
+        INFOPLIST_FILE: Stillleaf/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        CODE_SIGN_STYLE: Automatic
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+        SWIFT_EMIT_LOC_STRINGS: NO
+      configs:
+        # Tests link against package symbols the app itself does not use.
+        Debug:
+          DEAD_CODE_STRIPPING: NO
+    postBuildScripts:
+      - name: Bundle shared reader renderer
+        basedOnDependencyAnalysis: false
+        shell: /bin/bash
+        script: |
+          set -euo pipefail
+          # The same renderer build the Mac app copies into Contents/Resources/Reader.
+          # CI supplies a prebuilt copy through STILLLEAF_READER_ASSETS; otherwise build once here.
+          ASSETS="${STILLLEAF_READER_ASSETS:-$SRCROOT/build/ReaderAssets}"
+          if [ ! -f "$ASSETS/Reader/index.html" ]; then
+            export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+            "$SRCROOT/../scripts/build-reader-assets.sh" "$ASSETS"
+          fi
+          DEST="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/Reader"
+          rm -rf "$DEST"
+          mkdir -p "$DEST"
+          cp -R "$ASSETS/Reader/." "$DEST/"
+  StillleafTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: StillleafTests
+    dependencies:
+      - target: Stillleaf
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(STILLLEAF_BUNDLE_ID).tests
+        GENERATE_INFOPLIST_FILE: YES
+        TARGETED_DEVICE_FAMILY: "1,2"
+schemes:
+  Stillleaf:
+    build:
+      targets:
+        Stillleaf: all
+        StillleafTests: [test]
+    test:
+      config: Debug
+      gatherCoverageData: false
+      targets:
+        - StillleafTests
+    run:
+      config: Debug
+    archive:
+      config: Release

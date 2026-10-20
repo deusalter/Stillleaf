@@ -1,0 +1,62 @@
+name: iOS app
+on:
+  push:
+    branches: ['ios/**']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  simulator:
+    name: Build and test (iOS Simulator)
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: Reader/desktop/reader/package-lock.json
+      - name: Select the newest Xcode 26 (App Store uploads require the iOS 26 SDK)
+        run: |
+          xcode=$(ls -d /Applications/Xcode_26*.app | grep -v -i beta | sort -V | tail -1)
+          echo "DEVELOPER_DIR=$xcode/Contents/Developer" >> "$GITHUB_ENV"
+      - name: Toolchain
+        run: |
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+          xcrun simctl list runtimes
+      - name: Build for device and simulator, then run XCTest on an iPhone simulator
+        run: iOS/scripts/ci-build-and-test.sh
+      - uses: actions/upload-artifact@v4
+        if: ${{ failure() }}
+        with:
+          name: Stillleaf-iOS-test-results
+          path: .build/ios/Stillleaf.xcresult
+          if-no-files-found: ignore
+  shared-package:
+    # The iOS app changes code the Mac app shares; prove the Mac package still builds and passes.
+    name: Shared package on macOS
+    runs-on: macos-14
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: Reader/desktop/reader/package-lock.json
+      - name: XCTest (BooksCore and BooksPlatform)
+        run: swift test --parallel
+      - name: Import tests through the iOS ZIP reader
+        run: STILLLEAF_PORTABLE_ZIP=1 swift test --filter 'BooksPlatformTests.(EPUB|PortableZIP)'
+      - name: Release build with the reader renderer
+        run: |
+          swift build -c release
+          scripts/build-reader-assets.sh .build/release
+      - name: Native EPUB reader smoke (shared launch payload, offscreen WKWebView, synthetic book)
+        timeout-minutes: 7
+        run: |
+          python3 scripts/reader-review-fixture.py "$RUNNER_TEMP/reader-fixture.epub" --chapters 3
+          python3 scripts/run-native-reader-smoke.py --timeout 300 --output "$RUNNER_TEMP/reader-diagnostics" -- .build/release/BooksPresence --self-test-epub "$RUNNER_TEMP/reader-fixture.epub"

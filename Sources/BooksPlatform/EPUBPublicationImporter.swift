@@ -20,8 +20,9 @@ public enum EPUBImportError: Error, LocalizedError {
     public var errorDescription: String? { if case .invalid(let message) = self { return message }; return nil }
 }
 
-/// Uses the system libarchive ZIP reader; extraction never follows archive-controlled links.
-/// Call off the main thread. A private serial lock protects staging and duplicate resolution.
+/// Uses the system libarchive ZIP reader on macOS and the portable Compression-based reader
+/// elsewhere; extraction never follows archive-controlled links. Call off the main thread.
+/// A private serial lock protects staging and duplicate resolution.
 public final class EPUBPublicationImporter {
     public struct Limits {
         public var compressedBytes = 128 * 1024 * 1024
@@ -34,6 +35,14 @@ public final class EPUBPublicationImporter {
     private let limits: Limits
     private let lock = NSLock()
     public init(directory: URL, limits: Limits = Limits()) { root = directory; self.limits = limits }
+    /// macOS uses libarchive unless `STILLLEAF_PORTABLE_ZIP=1` selects the portable reader for checks.
+    static var usesPortableZIP: Bool {
+        #if os(macOS)
+        return ProcessInfo.processInfo.environment["STILLLEAF_PORTABLE_ZIP"] == "1"
+        #else
+        return true
+        #endif
+    }
     /// FairPlay rights files that mark an Apple Books Store purchase. Such books are never imported.
     static let rightsFiles = ["META-INF/sinf.xml", "META-INF/rights.xml"]
     /// Whether an unpacked Apple Books folder is a protected store purchase. Nil when the book is not
@@ -136,6 +145,7 @@ public final class EPUBPublicationImporter {
     /// order without extra attributes, so the same folder packs to the same edition. Hidden
     /// files are skipped; links are refused rather than followed.
     private func packBundle(_ folder: URL, into archive: URL) throws {
+        #if os(macOS)
         guard let walker = FileManager.default.enumerator(atPath: folder.path) else { throw EPUBImportError.invalid("This book folder could not be read.") }
         var names: [String] = [], total = 0
         while let name = walker.nextObject() as? String {
@@ -151,7 +161,12 @@ public final class EPUBPublicationImporter {
         try Self.zip(["-X", "-0", "-q", archive.path, "mimetype"], in: folder)
         let rest = names.filter { $0 != "mimetype" }.sorted()
         if !rest.isEmpty { try Self.zip(["-X", "-D", "-q", "-@", archive.path], in: folder, names: rest) }
+        #else
+        // Unpacked folders come from Apple Books on a Mac; packing them needs the system zip tool.
+        throw EPUBImportError.invalid("Choose an .epub file. Unpacked book folders can be imported on a Mac.")
+        #endif
     }
+    #if os(macOS)
     private static func zip(_ arguments: [String], in folder: URL, names: [String]? = nil) throws {
         let process = Process(), input = Pipe()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/zip"); process.arguments = arguments; process.currentDirectoryURL = folder
@@ -165,6 +180,7 @@ public final class EPUBPublicationImporter {
         process.waitUntilExit()
         guard process.terminationReason == .exit, process.terminationStatus == 0 else { throw EPUBImportError.invalid("This book folder could not be packed for reading.") }
     }
+    #endif
     /// Loads committed receipts only. Hidden staging directories are never library entries.
     public func loadLibrary() throws -> [EPUBPublicationImportResult] {
         lock.lock(); defer { lock.unlock() }
@@ -351,6 +367,8 @@ public final class EPUBPublicationImporter {
         guard cursor == end else { try fail() }
     }
     private func extract(_ archiveURL: URL, to content: URL) throws -> Set<String> {
+        #if os(macOS)
+        if Self.usesPortableZIP { return try PortableZIPExtractor(limits: limits).extract(archiveURL, to: content) }
         let api = try ArchiveAPI(); guard let archive = api.create() else { throw EPUBImportError.invalid("Cannot allocate ZIP reader.") }
         defer { _ = api.free(archive) }
         guard api.support(archive) == 0, archiveURL.path.withCString({ api.open(archive, $0, 65536) }) == 0 else { throw EPUBImportError.invalid("Cannot open ZIP archive.") }
@@ -395,6 +413,9 @@ public final class EPUBPublicationImporter {
             names.insert(name)
         }
         return names
+        #else
+        return try PortableZIPExtractor(limits: limits).extract(archiveURL, to: content)
+        #endif
     }
     private func deobfuscateFonts(content: URL, package: PackageXML, resources: [EPUBResource]) throws {
         let data = try Data(contentsOf: content.appendingPathComponent("META-INF/encryption.xml"))
@@ -652,6 +673,7 @@ private final class NavigationXML: NSObject, XMLParserDelegate {
     }
 }
 
+#if os(macOS)
 /// System ABI declarations use C calling convention; no external ZIP process or package is involved.
 private final class ArchiveAPI {
     let handle: UnsafeMutableRawPointer
@@ -688,3 +710,4 @@ private final class ArchiveAPI {
     }
     deinit { dlclose(handle) }
 }
+#endif
