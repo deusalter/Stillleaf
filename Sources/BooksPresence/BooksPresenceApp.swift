@@ -326,6 +326,18 @@ struct BooksPresenceMain {
             application.run()
             return
         }
+        if let index = CommandLine.arguments.firstIndex(of: "--measure-reader"), index + 1 < CommandLine.arguments.count {
+            let fixture = URL(fileURLWithPath: CommandLine.arguments[index + 1])
+            let cycles = index + 2 < CommandLine.arguments.count ? Int(CommandLine.arguments[index + 2]) ?? 5 : 5
+            Task { @MainActor in
+                do {
+                    let result = try await measureReaderLifecycle(fixture: fixture, cycles: cycles)
+                    result.lines.forEach { print($0) }
+                    exit(result.alive == 0 ? 0 : 1)
+                } catch { fputs("reader-memory failed: \(error)\n", stderr); exit(1) }
+            }
+            application.run(); return
+        }
         if CommandLine.arguments.contains("--render-native-chrome") && BackgroundUI.isEnabled {
             print("native-chrome-preview: SKIPPED in background mode (it tests focus); CI runs it, or set STILLLEAF_FOREGROUND_UI=1 when nobody is using the Mac")
             exit(0)

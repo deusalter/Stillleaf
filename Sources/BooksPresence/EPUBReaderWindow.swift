@@ -153,6 +153,7 @@ private final class EPUBReaderWindow: NSObject, NSWindowDelegate, WKNavigationDe
         configuration.userContentController.addUserScript(WKUserScript(source:
             "window.__stillleafGardenMode = \"\(Self.currentGardenMode())\";", injectionTime: .atDocumentStart, forMainFrameOnly: true))
         webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 1000, height: 800), configuration: configuration)
+        Self.liveObjects.add(self); Self.liveObjects.add(webView)
         guardDelegate = ReaderNavigationGuard(resources: map)
         webView.navigationDelegate = self
         let window = NSWindow(contentRect: webView.frame, styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
@@ -439,6 +440,55 @@ private final class EPUBReaderWindow: NSObject, NSWindowDelegate, WKNavigationDe
     }
 }
 
+extension EPUBReaderWindow {
+    /// Readers and their web views still alive in this process, held weakly for teardown checks.
+    static let liveObjects = NSHashTable<AnyObject>.weakObjects()
+}
+
+/// `--measure-reader <book.epub> [cycles]` opens and closes a parked reader `cycles` times and
+/// reports this process's memory footprint with no reader, with one open and after each close,
+/// and how many readers and web views outlive their windows. The EPUB smoke runs two cycles and
+/// fails if anything is left alive: a closed reader must release its window, WKWebView and bridge.
+@MainActor
+func measureReaderLifecycle(fixture: URL, cycles: Int) async throws -> (alive: Int, lines: [String]) {
+    let temporary = FileManager.default.temporaryDirectory.appendingPathComponent("Stillleaf-reader-memory-" + UUID().uuidString)
+    try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: temporary) }
+    let importer = EPUBPublicationImporter(directory: temporary.appendingPathComponent("Publications"))
+    let imported = try await Task.detached { try importer.importPublication(from: fixture) }.value
+    func footprint() -> Double {
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size)
+        let status = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count) }
+        }
+        return status == KERN_SUCCESS ? Double(info.phys_footprint) / 1_048_576 : 0
+    }
+    func settle(_ seconds: Double) async throws { try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000)) }
+    try await settle(1)
+    let baseline = footprint()
+    var lines = [String(format: "reader-memory: no reader %.1f MB", baseline)]
+    for cycle in 1...max(1, cycles) {
+        let state = temporary.appendingPathComponent("State\(cycle)")
+        var reader: EPUBReaderWindow? = try await EPUBReaderWindow(publication: imported.publication, directory: imported.directory, stateDirectory: state)
+        reader?.window?.setFrameOrigin(NSPoint(x: -20_000, y: -20_000)); reader?.window?.orderBack(nil)
+        try await reader?.testWaitUntilReady()
+        try await settle(1.5)
+        let open = footprint()
+        guard await reader?.requestClose() == true else { throw EPUBImportError.invalid("The reader refused to close.") }
+        reader = nil
+        try await settle(1.5)
+        lines.append(String(format: "reader-memory: cycle %d open %.1f MB, closed %.1f MB (+%.1f MB over no reader), alive %d",
+                            cycle, open, footprint(), footprint() - baseline, EPUBReaderWindow.liveObjects.allObjects.count))
+    }
+    // WebKit may finish tearing a view down a moment after its window closes.
+    let deadline = Date().addingTimeInterval(5)
+    while !EPUBReaderWindow.liveObjects.allObjects.isEmpty && Date() < deadline { try await settle(0.2) }
+    let alive = EPUBReaderWindow.liveObjects.allObjects.count
+    lines.append("reader-memory: readers and web views alive after closing: \(alive)")
+    return (alive, lines)
+}
+
 private final class EPUBReaderBridge: NSObject, WKScriptMessageHandler {
     weak var owner: EPUBReaderWindow?
     init(owner: EPUBReaderWindow) { self.owner = owner }
@@ -457,6 +507,10 @@ private func readerSmokeCheckpoint(_ phase: String) {
 func runEPUBReaderSmoke(fixture: URL) async throws {
     readerSmokeCheckpoint("native command queue")
     try await runNativeReaderQueueSmoke()
+    readerSmokeCheckpoint("reader teardown")
+    let teardown = try await measureReaderLifecycle(fixture: fixture, cycles: 2)
+    teardown.lines.forEach { print($0) }
+    guard teardown.alive == 0 else { throw EPUBImportError.invalid("A closed reader left \(teardown.alive) readers or web views alive.") }
     let temporary = FileManager.default.temporaryDirectory.appendingPathComponent("Stillleaf-reader-smoke-" + UUID().uuidString)
     try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: temporary) }
