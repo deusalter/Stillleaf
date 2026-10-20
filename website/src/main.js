@@ -67,7 +67,10 @@ function element(tag, className, text) {
 const releaseGrid = document.querySelector("#release-grid");
 releaseGrid.replaceChildren(
   ...releases.map((release) => {
-    const card = element("article", "release-card");
+    const card = element(
+      "article",
+      release.id === "macos" ? "release-card is-primary" : "release-card",
+    );
     const download = getDownload(release);
     const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     icon.setAttribute("class", "platform-icon");
@@ -89,7 +92,8 @@ releaseGrid.replaceChildren(
       element("h3", "", `Stillleaf for ${release.name}`),
       element("p", "", release.summary),
     );
-    const requirements = element("ul");
+    const requirements = element("ul", "release-requirements");
+    requirements.setAttribute("aria-label", "Requirements");
     release.requirements.forEach((requirement) =>
       requirements.append(element("li", "", requirement)),
     );
@@ -97,7 +101,12 @@ releaseGrid.replaceChildren(
     if (download) {
       const link = element("a", "button button-primary", download.label);
       link.href = download.url;
-      card.append(link);
+      const facts = element(
+        "p",
+        "release-checksum",
+        `Version ${release.artifact.version}. SHA-256 ${release.artifact.sha256.toLowerCase()}`,
+      );
+      card.append(link, facts);
     } else {
       card.append(element("p", "release-state", "Download not yet available"));
     }
@@ -244,3 +253,12 @@ hero.addEventListener(
 );
 hero.addEventListener("pointerleave", resetParallax);
 syncMotion();
+// Arriving from another page at /#next-chapter: in the shared stage, go to the
+// point where the reader is shown rather than the top of the stage.
+if (
+  location.hash === "#next-chapter" &&
+  document.body.classList.contains("journey-running")
+)
+  document
+    .querySelector("#reader-transition")
+    .scrollIntoView({ behavior: "instant" });

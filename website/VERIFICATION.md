@@ -1,4 +1,45 @@
-# Local verification — 2026-09-24
+# Launch-readiness verification — 2026-10-19
+
+Scope: website only, branch `website/launch-ready` from main `698558f`. Not a release certification: no binary, signing, notarization, hosting or domain was checked or configured.
+
+## Automated checks
+
+- `npm test`: 34/34 pass (releases 8, showcase model 13, site config/feed 9, pages 4).
+- `npm run build`: passes. Five pages plus `404.html`; generated `robots.txt` is `Disallow: /`; no `sitemap.xml` or `/updates/*` while unpublished.
+- `npm run check:release`: valid; Mac and Windows `development`, iOS `coming-soon`, origin not chosen.
+- `node scripts/validate-release.mjs --for-publication`: exits 1 as required. It lists publication approval, a verified release, origin, contact, publisher and effective date.
+- Mutation check: removing `itunes.apple.com` from the privacy policy fails `tests/pages.test.mjs` (the privacy drift guard).
+- iOS `available` was checked in a scratch copy: the build fails until `public/badges/app-store.svg` exists, then renders the App Store link (`design/website-launch/after/config-ios-available-test-badge.webp`, test badge only).
+
+## Browser checks (headless Chromium via Playwright, local production preview)
+
+- Accessibility: axe-core 4.14 (WCAG 2.0/2.1 A and AA, plus best practices) on all six pages at 1440×900, 390×844 and 1440×900 with reduced motion; the landing page at seven scroll positions with every `<details>` open. **0 violations.** The first run found reader copy fading in over a mid-blend background (2.4–3.1:1); fixed in `journeyState` and covered by a test.
+- Keyboard: Tab through each page at 1440×900. Every focus stop is on screen, has a visible outline, and none is inside an `inert` layer.
+- Without JavaScript: both release cards, no download links, iOS “coming soon”, interactive controls hidden, sample passage and screenshot present.
+- Every capture reported no console errors or warnings, no failed requests, and no horizontal overflow at 1440 and 390 widths.
+- Lighthouse 12.8.2 (Chrome, local preview):
+
+  | Page | Mobile perf | Desktop perf | A11y | Best practices | SEO | Mobile CLS |
+  | --- | --- | --- | --- | --- | --- | --- |
+  | `/` before (main) | 95 | 100 | 100 | 100 | 66 | 0.084 |
+  | `/` after | 100 | 100 | 100 | 100 | 66 | 0.002 |
+  | `/privacy/` | 100 | 100 | 100 | 100 | 66 | 0.003 |
+  | `/support/` | 100 | 100 | 100 | 100 | 66 | 0.006 |
+
+  SEO is 66 only because of the intentional `noindex` (“Page is blocked from indexing”). One desktop run measured 92 while other sessions were compiling; the rerun was 100. Scores on a shared, busy machine vary by a few points.
+- Content-Security-Policy is active in the build: an injected inline script was refused.
+
+## Screenshots
+
+`design/website-launch/before/` (main) and `design/website-launch/after/` (this branch) hold matching viewport captures. The native app screenshots inside the gallery were **not** recaptured; native builds were deliberately not run while other sessions compiled the Swift package. ASSETS.md lists the shots to recapture.
+
+## Not verified
+
+Real devices, Safari/WebKit and Firefox rendering, a screen-reader pass, live hosting, HTTPS/DNS, and the update feed served from a real domain.
+
+---
+
+# Earlier record: local verification — 2026-09-24
 
 Scope: website only. Native reference baseline is `0e23ba6`. This does not certify the built-in reader, Windows application, release binaries, signing, or distribution.
 

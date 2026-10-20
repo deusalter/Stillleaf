@@ -4,6 +4,7 @@ import {
   journeyState,
   readerPresets,
   readerPresetAt,
+  readerSettledProgress,
 } from "./showcase-model.js";
 
 /** Interactive samples and scroll scenes share one state; no reading is recorded. */
@@ -106,7 +107,7 @@ export function createProductShowcase() {
     const spacing = String(Number(spacingControl.value));
     spacingOutput.value = spacing;
     document.querySelector("#reader-look-detail").textContent =
-      `${fontControl.selectedOptions[0].textContent} · ${spacing} spacing`;
+      `${fontControl.selectedOptions[0].textContent}, ${spacing} line spacing`;
   }
 
   function animatePassage() {
@@ -250,7 +251,7 @@ export function createProductShowcase() {
           reader.contains(document.activeElement) ||
           readerTop < window.innerHeight * 0.55;
         journeyProgress = inReader
-          ? Math.max(0.62, journeyProgress)
+          ? Math.max(readerSettledProgress, journeyProgress)
           : Math.min(0.38, journeyProgress);
       }
       const active = journeyProgress < 0.5 ? daily : reader;
@@ -265,14 +266,17 @@ export function createProductShowcase() {
         daily.inert = false;
         reader.inert = false;
       }
+      // In the shared stage the reader section is layered over the daily one,
+      // so links aim at the scroll point where the reader is fully shown.
       document
         .querySelectorAll(
-          'a[href="#next-chapter"],a[href="#reader-transition"]',
+          'a[href$="#next-chapter"],a[href$="#reader-transition"]',
         )
         .forEach((link) => {
+          const prefix = link.getAttribute("href").startsWith("/") ? "/" : "";
           link.setAttribute(
             "href",
-            layoutActive ? "#reader-transition" : "#next-chapter",
+            `${prefix}${layoutActive ? "#reader-transition" : "#next-chapter"}`,
           );
         });
       if (!enabled) {

@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#e5eeea" />
+    <title>Support | Stillleaf</title>
+    <meta
+      name="description"
+      content="Help with Stillleaf for Mac: importing EPUBs, reading goals, Apple Books tracking, Discord presence, backups, and getting in touch."
+    />
+    <link rel="icon" href="/favicon.ico" sizes="32x32" />
+    <link rel="icon" type="image/svg+xml" href="/leaf.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Stillleaf" />
+    <meta property="og:title" content="Stillleaf support" />
+    <meta
+      property="og:description"
+      content="Answers for Stillleaf for Mac, and how to reach us."
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="stylesheet" href="/src/page.css" />
+  </head>
+  <body>
+    {{site-header}}
+    <main id="main" tabindex="-1">
+      <div class="page-hero">
+        <div class="section-wrap">
+          <p class="page-kicker">Support</p>
+          <h1>How can we help?</h1>
+          <p class="page-lede">
+            Answers for Stillleaf for Mac. If you don’t find what you need,
+            write to {{contact}} and we’ll get back to you.
+          </p>
+        </div>
+      </div>
+
+      <div class="page-body section-wrap">
+        <article class="prose">
+          <h2 id="start">Getting started</h2>
+          <h3>What do I need?</h3>
+          <p>
+            A Mac with macOS 13 Ventura or later. Apple Books tracking and
+            Discord presence are optional and have their own requirements,
+            described below.
+          </p>
+          <h3>Where is Stillleaf after I open it?</h3>
+          <p>
+            In the menu bar. Click the leaf to see today’s reading and open
+            your journal. A Dock icon and the usual Mac menus appear while the
+            journal or a book is open. Move the app to your Applications folder
+            before turning on Open at login or Accessibility permission.
+          </p>
+          <h3>Can I see the welcome tour again?</h3>
+          <p>
+            Yes. Open Settings, choose Data &amp; privacy, and select Welcome
+            tour under Help.
+          </p>
+
+          <h2 id="reading">Reading in Stillleaf</h2>
+          <h3>How do I add books?</h3>
+          <p>
+            Choose Import EPUBs in Library, or at the end of the welcome tour.
+            Stillleaf copies the files into its own library, so you can open
+            them offline. Your originals are left where they were.
+          </p>
+          <h3>Why won’t a book open?</h3>
+          <p>
+            Stillleaf reads DRM-free EPUB 2 and EPUB 3 books. Books protected
+            by DRM, including purchases from the Apple Books Store, can’t be
+            opened. Very large or damaged files are also refused, with a
+            message that says why. You can still track DRM-protected books in
+            Apple Books, or add the time by hand.
+          </p>
+          <h3>Can I change how books look?</h3>
+          <p>
+            Yes. In the reader, choose a page colour, typeface, text size,
+            margins and line spacing, or switch between pages and continuous
+            scrolling. Night is true black for dark rooms. Original keeps the
+            publisher’s styling.
+          </p>
+          <h3>How are pages and time counted?</h3>
+          <p>
+            Stillleaf counts the pages you move through and the time you spend
+            with a book open. It records reading activity; it can’t tell
+            whether you were paying attention. Choose pages or minutes for your
+            daily goal in Settings. You can add an optional yearly books goal
+            too.
+          </p>
+          <h3>Can I record paper books or audiobooks?</h3>
+          <p>
+            Yes. Use Add reading for a paper book or a session you forgot, or
+            Start manual reading to time one now. Local audiobooks can be
+            imported in Library and played in Stillleaf.
+          </p>
+
+          <h2 id="apple-books">Apple Books</h2>
+          <h3>How do I turn on Apple Books tracking?</h3>
+          <ol>
+            <li>
+              In Stillleaf’s reading settings, open Optional Apple Books
+              integration and choose to allow access.
+            </li>
+            <li>
+              In System Settings, go to Privacy &amp; Security, then
+              Accessibility, and turn on Stillleaf.
+            </li>
+            <li>
+              Open a book in Apple Books. If nothing appears, quit and reopen
+              Stillleaf.
+            </li>
+          </ol>
+          <h3>Tracking stopped after an update</h3>
+          <p>
+            macOS sometimes forgets the permission when an app is replaced. In
+            Accessibility settings, turn Stillleaf off and on again, then reopen
+            it.
+          </p>
+          <h3>Why does tracking pause?</h3>
+          <p>
+            Stillleaf only counts reading when it can be sure which book is
+            open. It pauses for windows it doesn’t support, when the Mac is
+            locked or asleep, and when the permission is missing. The
+            troubleshooting panel in Settings explains the current reason, and
+            Health lists any gaps.
+          </p>
+
+          <h2 id="discord">Discord</h2>
+          <h3>How do I show my reading on Discord?</h3>
+          <p>
+            Discord presence is off by default. Create an application in the
+            Discord Developer Portal, copy its Application ID into Stillleaf’s
+            Discord settings, and turn sharing on. The Discord desktop app needs
+            to be running on the same Mac. The card shows the book’s title,
+            author and page progress, and disappears when you stop reading,
+            lock your Mac, or turn sharing off.
+          </p>
+
+          <h2 id="data">Your data</h2>
+          <h3>Where is my journal stored?</h3>
+          <p>
+            On your Mac, in
+            <code>~/Library/Application Support/BooksPresence/</code>. See the
+            <a href="/privacy/">privacy policy</a> for everything it contains.
+          </p>
+          <h3>How do I back up or move to a new Mac?</h3>
+          <p>
+            In Settings, under Data &amp; privacy, create a backup or export
+            your journal as JSON. Restore it on the other Mac from the same
+            place. Cover images are separate files in the <code>Covers</code>
+            folder; copy it too if you want your artwork.
+          </p>
+          <h3>How do I delete my data or uninstall?</h3>
+          <p>
+            Delete all data, in Settings under Data &amp; privacy, removes your
+            history from this Mac. Uninstall turns off Open at login, moves the
+            app to the Trash and quits. Uninstalling keeps your history in case
+            you come back, so delete your data first if you want it gone.
+          </p>
+
+          <h2 id="contact">Contact us</h2>
+          <p>
+            Write to {{contact}}. Tell us which versions of Stillleaf and macOS
+            you use. For tracking problems, a diagnostic
+            report helps. Run this in Terminal and attach the output:
+          </p>
+          <p>
+            <code
+              >/Applications/Stillleaf.app/Contents/MacOS/books-diagnostic</code
+            >
+          </p>
+          <p>
+            The report describes permissions and the state of the Apple Books
+            window. It leaves out book titles unless you add
+            <code>--include-metadata</code>, so check it before sharing.
+          </p>
+        </article>
+
+        <nav class="page-toc" aria-labelledby="toc-title">
+          <h2 id="toc-title">On this page</h2>
+          <ol>
+            <li><a href="#start">Getting started</a></li>
+            <li><a href="#reading">Reading</a></li>
+            <li><a href="#apple-books">Apple Books</a></li>
+            <li><a href="#discord">Discord</a></li>
+            <li><a href="#data">Your data</a></li>
+            <li><a href="#contact">Contact us</a></li>
+          </ol>
+        </nav>
+      </div>
+    </main>
+    {{site-footer}}
+  </body>
+</html>

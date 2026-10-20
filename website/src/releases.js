@@ -8,9 +8,14 @@ export const publication = Object.freeze({ approved: false });
 
 /**
  * @typedef {Object} ReleaseArtifact
- * @property {string} url Permanent public HTTPS download URL.
- * @property {string} version Version of the exact verified binary.
+ * @property {string} url Permanent public HTTPS download URL (the notarized DMG on Mac).
+ * @property {string} version Marketing version of the exact verified binary (CFBundleShortVersionString).
+ * @property {string} build Build number of that binary (CFBundleVersion); updaters compare this.
+ * @property {string} minimumSystemVersion Lowest supported OS version, such as "13.0".
+ * @property {number} length Size of the download in bytes.
+ * @property {string} publishedAt Release date and time, ISO 8601 with a timezone.
  * @property {string} sha256 SHA-256 digest of that binary (64 hexadecimal digits).
+ * @property {string} [edSignature] Optional Sparkle EdDSA signature of the download (base64).
  * @property {boolean} verified True only after checking the exact release artifact.
  *
  * @typedef {Object} Release
@@ -29,10 +34,11 @@ export const releases = Object.freeze([
     name: "Mac",
     state: "development",
     summary:
-      "The Mac reading journal exists today. Its built-in EPUB reader is in development; a download will follow when the next release is ready.",
+      "The menu-bar reading journal with its built-in EPUB reader. The notarized download will appear here when the release is ready.",
     requirements: Object.freeze([
-      "The current Mac tracker requires macOS 13 or later.",
-      "Requirements for the next release will be confirmed before download.",
+      "macOS 13 Ventura or later.",
+      "Optional Apple Books tracking needs Accessibility permission.",
+      "Optional Discord presence needs the Discord desktop app.",
     ]),
     artifact: null,
   }),
@@ -41,7 +47,7 @@ export const releases = Object.freeze([
     name: "Windows",
     state: "development",
     summary:
-      "We’re bringing the reading journal and built-in EPUB reader to Windows. A tested release is still ahead.",
+      "The journal and reader are being brought to Windows. There is no tested release or date yet.",
     requirements: Object.freeze([
       "Supported Windows versions and hardware requirements will be confirmed with the release.",
     ]),
@@ -54,6 +60,9 @@ const placeholderHosts =
   /(^|\.)(example\.(com|net|org)|example|invalid|localhost|local|test)$/i;
 const placeholderSegments =
   /^(?:your[-_](?:org|user|username|domain)|placeholder|todo|changeme)$/i;
+const buildPattern = /^\d+(?:\.\d+){0,2}$/;
+const systemVersionPattern = /^\d+\.\d+(?:\.\d+)?$/;
+const signaturePattern = /^[A-Za-z0-9+/]{86}==$/;
 const versionPattern =
   /^\d+\.\d+\.\d+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?(?:\+[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$/;
 
@@ -127,7 +136,17 @@ function validateRelease(release, label) {
     return errors;
   }
 
-  const { url, version, sha256, verified } = release.artifact;
+  const {
+    url,
+    version,
+    build,
+    minimumSystemVersion,
+    length,
+    publishedAt,
+    sha256,
+    edSignature,
+    verified,
+  } = release.artifact;
   if (!isPublicArtifactURL(url)) {
     errors.push(
       `${label} artifact needs a public HTTPS file URL without credentials, fragments, local hosts, or placeholder domains/paths.`,
@@ -135,6 +154,36 @@ function validateRelease(release, label) {
   }
   if (typeof version !== "string" || !versionPattern.test(version)) {
     errors.push(`${label} artifact needs a version such as 1.5.0.`);
+  }
+  if (typeof build !== "string" || !buildPattern.test(build)) {
+    errors.push(`${label} artifact needs its build number, such as 18.`);
+  }
+  if (
+    typeof minimumSystemVersion !== "string" ||
+    !systemVersionPattern.test(minimumSystemVersion)
+  ) {
+    errors.push(
+      `${label} artifact needs a minimum system version, such as 13.0.`,
+    );
+  }
+  if (!Number.isSafeInteger(length) || length <= 0) {
+    errors.push(`${label} artifact needs its download size in bytes.`);
+  }
+  if (
+    typeof publishedAt !== "string" ||
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(
+      publishedAt,
+    ) ||
+    Number.isNaN(Date.parse(publishedAt))
+  ) {
+    errors.push(
+      `${label} artifact needs a publication time such as 2026-11-02T17:00:00Z.`,
+    );
+  }
+  if (edSignature !== undefined && !signaturePattern.test(edSignature)) {
+    errors.push(
+      `${label} artifact edSignature must be a base64 Sparkle EdDSA signature when present.`,
+    );
   }
   if (
     typeof sha256 !== "string" ||
