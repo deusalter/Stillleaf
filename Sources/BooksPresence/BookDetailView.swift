@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import BooksCore
 
@@ -58,6 +59,7 @@ struct BookDetailView: View {
                     // While the finish question is open it is the one place to rate and review.
                     if completionEntry == nil {
                         BookRatingSection(model: model, bookID: currentBook.id)
+                            .viewProbe("detail-rating-section")
                             .transition(FinishMoment.promptTransition)
                         BookReviewSection(model: model, bookID: currentBook.id)
                             .transition(FinishMoment.promptTransition)
@@ -158,6 +160,7 @@ struct BookDetailView: View {
                 if finishedEntry == nil {
                     Button { markFinished() } label: { Label("Mark as finished", systemImage: "checkmark.circle") }
                         .controlSize(.small).buttonStyle(ReadingButtonStyle(emphasis: .primary))
+                        .viewProbe("mark-finished")
                 }
                 if let entry = completionEntry {
                     VStack(alignment: .leading, spacing: 8) {
@@ -495,3 +498,26 @@ struct ProgressDescription: View {
     }
 }
 
+/// Marks a control in the AppKit view tree so self-checks can find and click it, the way
+/// `DashboardSidebarProbe` marks the sidebar. Draws nothing, takes no clicks, and is no
+/// accessibility element. SwiftUI vends no accessibility tree without an assistive client attached,
+/// so this is how a check finds a button reliably.
+struct ViewProbe: NSViewRepresentable {
+    let id: String
+    static func identifier(_ id: String) -> NSUserInterfaceItemIdentifier { NSUserInterfaceItemIdentifier("probe-\(id)") }
+    func makeNSView(context: Context) -> NSView {
+        let view = ProbeView()
+        view.identifier = Self.identifier(id)
+        return view
+    }
+    func updateNSView(_ view: NSView, context: Context) {}
+
+    private final class ProbeView: NSView {
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+        override func isAccessibilityElement() -> Bool { false }
+    }
+}
+
+extension View {
+    func viewProbe(_ id: String) -> some View { background(ViewProbe(id: id)) }
+}

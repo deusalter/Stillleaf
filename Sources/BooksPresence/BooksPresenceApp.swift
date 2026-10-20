@@ -309,6 +309,10 @@ struct BooksPresenceMain {
             do { try captureWindowChrome(to: URL(fileURLWithPath: CommandLine.arguments[index + 1], isDirectory: true)); exit(0) }
             catch { fputs("window-chrome capture failed: \(error)\n", stderr); exit(1) }
         }
+        if CommandLine.arguments.contains("--self-test-book-detail-finish") {
+            do { try checkBookDetailFinish(); exit(0) }
+            catch { fputs("book-detail-finish smoke failed: \(error)\n", stderr); exit(1) }
+        }
         if let index = CommandLine.arguments.firstIndex(of: "--capture-finish-moment"), index + 1 < CommandLine.arguments.count {
             do { try captureFinishMoment(to: URL(fileURLWithPath: CommandLine.arguments[index + 1], isDirectory: true)); exit(0) }
             catch { fputs("finish-moment capture failed: \(error)\n", stderr); exit(1) }

@@ -128,6 +128,7 @@ struct FinishedBookRating: View {
                 }
                 .buttonStyle(ReadingButtonStyle(emphasis: .primary))
                 .disabled(rating == nil)
+                .viewProbe("finish-save-rating")
                 Button(model.review(for: entry.id) == nil ? "Write a review" : "Edit review") { writingReview = true }
                 if model.rating(for: entry.id) != nil {
                     Button("Clear rating") {
@@ -137,6 +138,7 @@ struct FinishedBookRating: View {
                 }
                 Button(placement == .sheet ? "Done" : "Maybe later") { model.acknowledgeCompletion(entry); dismissed() }
                     .keyboardShortcut(placement == .sheet ? .cancelAction : nil)
+                    .viewProbe("finish-dismiss")
             }
             .controlSize(.small)
         }

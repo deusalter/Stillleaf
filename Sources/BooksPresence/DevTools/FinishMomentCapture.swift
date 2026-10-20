@@ -2,11 +2,11 @@ import AppKit
 import SwiftUI
 import BooksCore
 
-/// `--capture-finish-moment <dir> [--preview-appearance light|dark] [--reduce-motion]`
+/// `--capture-finish-moment <dir> [--preview-appearance light|dark] [--reduce-motion] [--scenario today|sheet|detail]`
 ///
 /// Plays the finish-a-book moment the two ways it really happens, with synthetic history in a
-/// disposable store: a completion arriving while Today is on screen, and the sheet that
-/// "Mark as finished" opens from the Library. For each it first measures the moment without
+/// disposable store: a completion arriving while Today is on screen, the sheet that
+/// "Mark as finished" opens from the Library, and "Mark as finished" pressed in Book details. For each it first measures the moment without
 /// capturing (main-thread stalls and CPU time against the idle second before it), then plays it
 /// again and saves composited window frames about 30 times a second. Windows are parked by
 /// background mode, so nothing takes focus.
@@ -20,7 +20,9 @@ func captureFinishMoment(to destination: URL) throws {
     let activity = ProcessInfo.processInfo.beginActivity(options: [.userInitiated, .latencyCritical], reason: "Finish moment capture")
     defer { ProcessInfo.processInfo.endActivity(activity) }
     var report: [[String: Any]] = []
-    for scenario in ["today", "sheet"] {
+    // `--scenario today|sheet|detail` plays just one.
+    let only = arguments.firstIndex(of: "--scenario").flatMap { arguments.indices.contains($0 + 1) ? arguments[$0 + 1] : nil }
+    for scenario in ["today", "sheet", "detail"] where only == nil || only == scenario {
         for pass in ["measure", "frames"] {
             let support = FileManager.default.temporaryDirectory.appendingPathComponent("Stillleaf-finish-\(UUID().uuidString)")
             let suite = "Stillleaf.FinishMoment.\(UUID().uuidString)"
@@ -63,12 +65,18 @@ private func playFinishMoment(scenario: String, model: AppModel, book: BookRecor
     window.setContentSize(NSSize(width: 1060, height: 760))
     window.makeKeyAndOrderFront(nil)
     defer { window.contentViewController = nil; window.close() }
+    var sheet: NSWindow?
+    // Book details is already open; the moment is a real click on its Mark as finished button.
+    if scenario == "detail" { sheet = presentBookDetail(model: model, book: book, over: window, reduceMotion: reduceMotion) }
     // Let the screen, its entrance and the garden settle before anything is finished.
     spin(for: 2.0)
     let idle = sampleMainThread(for: 1.0)
 
-    var sheet: NSWindow?
     let moment: () -> Void = {
+        if scenario == "detail", let sheet {
+            clickProbe("mark-finished", in: sheet)
+            return
+        }
         guard let entry = model.markFinished(book) else { return }
         guard scenario == "sheet" else { return }
         let content = CompletionReviewSheet(model: model, entry: entry)
