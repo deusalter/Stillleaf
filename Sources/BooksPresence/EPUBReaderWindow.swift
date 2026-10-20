@@ -98,6 +98,7 @@ private final class EPUBReaderWindow: NSObject, NSWindowDelegate, WKNavigationDe
     private let payload: String
     private let stateURL: URL
     private let stateStore: ReaderStateStore
+    private let pageMapStore: ReaderPageMapStore
     private let stateWorker = DispatchQueue(label: "Stillleaf.reader-state", qos: .utility)
     private var latestState: Data?
     private var closing = false
@@ -136,6 +137,7 @@ private final class EPUBReaderWindow: NSObject, NSWindowDelegate, WKNavigationDe
         self.publication = publication
         stateURL = stateDirectory.appendingPathComponent(publication.id + ".json")
         stateStore = ReaderStateStore(directory: stateDirectory)
+        pageMapStore = ReaderPageMapStore(directory: Self.pageMapDirectory(stateDirectory))
         let stateURL = self.stateURL
         let prepared = try await Task.detached(priority: .userInitiated) {
             try Self.prepare(publication: publication, directory: directory, stateURL: stateURL)
@@ -271,6 +273,15 @@ private final class EPUBReaderWindow: NSObject, NSWindowDelegate, WKNavigationDe
         if event["type"] as? String == "position" || event["type"] as? String == "pageTurn" {
             receiveProgress(event); return
         }
+        if event["type"] as? String == "pageMap" {
+            // Layout-only screen counts for the footer, kept so a reopened book shows them at once. Never
+            // progress, evidence or reading state, so they bypass all three.
+            guard let map = event["pageMap"], JSONSerialization.isValidJSONObject([map]),
+                  let data = try? JSONSerialization.data(withJSONObject: map) else { return }
+            let store = pageMapStore, publication = self.publication
+            stateWorker.async { store.record(data, publication: publication) }
+            return
+        }
         guard event["type"] as? String == "state",
               let state = event["state"] as? [String: Any], JSONSerialization.isValidJSONObject(state),
               let encoded = try? JSONSerialization.data(withJSONObject: state),
@@ -368,6 +379,10 @@ private final class EPUBReaderWindow: NSObject, NSWindowDelegate, WKNavigationDe
         }
     }
 
+    nonisolated private static func pageMapDirectory(_ stateDirectory: URL) -> URL {
+        stateDirectory.appendingPathComponent("PageMaps", isDirectory: true)
+    }
+
     nonisolated private static func prepare(publication: EPUBPublication, directory: URL, stateURL: URL) throws -> (ReaderResourceMap, String) {
         let fm = FileManager.default
         let executableFolder = URL(fileURLWithPath: CommandLine.arguments[0]).deletingLastPathComponent()
@@ -435,6 +450,8 @@ private final class EPUBReaderWindow: NSObject, NSWindowDelegate, WKNavigationDe
         if let data = try ReaderStateStore(directory: stateURL.deletingLastPathComponent()).load(publication: publication) {
             input["state"] = try JSONSerialization.jsonObject(with: data)
         }
+        let pageMaps = ReaderPageMapStore(directory: pageMapDirectory(stateURL.deletingLastPathComponent())).load(publication: publication)
+        if !pageMaps.isEmpty { input["pageMaps"] = pageMaps }
         return (map, String(decoding: try JSONSerialization.data(withJSONObject: input), as: UTF8.self))
     }
 }
@@ -568,9 +585,16 @@ func runEPUBReaderSmoke(fixture: URL) async throws {
           (closedState?["bookmarks"] as? [Any])?.count == 1 else {
         throw EPUBImportError.invalid("Immediate close lost the latest note or bookmark.")
     }
+    readerSmokeCheckpoint("page maps")
+    // Finished whole-book screen counts are kept apart from reading state, so the next opening shows them at once.
+    let pageMaps = ReaderPageMapStore(directory: state.appendingPathComponent("PageMaps", isDirectory: true)).load(publication: imported.publication)
+    guard !pageMaps.isEmpty, closedState?["pageMaps"] == nil else {
+        throw EPUBImportError.invalid("The reader did not keep a finished page map apart from its reading state.")
+    }
     readerSmokeCheckpoint("restore saved reader")
     let second = try await EPUBReaderWindow(publication: imported.publication, directory: imported.directory, stateDirectory: state)
     defer { second.window?.close() }
+    guard second.openedWithPageMapsForTest else { throw EPUBImportError.invalid("A reopened book did not receive its saved page maps.") }
     second.window?.setFrameOrigin(NSPoint(x: -20_000, y: -20_000)); second.window?.orderBack(nil)
     let restoreDeadline = Date().addingTimeInterval(20)
     var restored = false
@@ -1210,6 +1234,7 @@ private extension EPUBReaderWindow {
         try await webView.evaluateJavaScript("window.StillleafReader.exportState().annotations.at(-1)?.note.length || 0") as? Int ?? 0
     }
     func flushStateForTest() { stateWorker.sync {} }
+    var openedWithPageMapsForTest: Bool { payload.contains("\"pageMaps\"") }
     func testDiagnostic() async throws -> String {
         let result = try await webView.evaluateJavaScript("JSON.stringify({url:location.href,api:typeof window.StillleafReader,frames:document.querySelectorAll('iframe').length,text:document.body?.innerText})")
         return (result as? String ?? "") + " startup=" + (startupError ?? "none") + " didLoad=\(didLoad)"

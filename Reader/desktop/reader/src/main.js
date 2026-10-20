@@ -12,6 +12,7 @@ import {installPageTurnWheel,toggledListener} from './page-turn-input';
 import {NavigationCompletion} from './navigation-completion';
 import {screenPages,pageLabel,chapterPagesLeft} from './page-progress';
 import {ScreenPaginationIndex} from './screen-pagination-index';
+import {estimateCounts,StablePageCount,pageMapsFor} from './page-estimate';
 import {continuousTextCandidates} from './content-geometry';
 import {pageTextCandidates,touchTextIndex} from './page-text-index';
 import {syncTypographyChoices} from './appearance-choices';
@@ -39,34 +40,41 @@ const pageLayoutObservers=new WeakMap();
 let screenIndex,backgroundQuietUntil=0;
 const deferredAnnotationHrefs=new Set();
 let deferredAnnotationDocuments=new WeakSet();
-// Whole-book page counting lays out a hidden copy of every chapter. It starts only after the reader has been still for
-// a while, so a burst of turns or scrolling never competes with it.
+// Whole-book page counting lays out a hidden copy of every chapter. It runs only once the reader has been still for
+// a while, so a burst of turns or scrolling never competes with it. The footer shows an estimate meanwhile.
 const PAGINATION_QUIET=2000;
 const backgroundActivity=()=>{backgroundQuietUntil=performance.now()+PAGINATION_QUIET;garden.activity()};
+// The reader's own relayout scrolls its frames too, so a scroll holds the garden still but only input pauses counting.
+const scrollActivity=()=>garden.activity();
 // Vines in the empty margins and the facing-page gap; they freeze while the reader scrolls.
 const garden=installGarden({canvas:$('garden'),spine:$('garden-spine'),footer:$('garden-footer'),percent:$('footer-percent'),viewport:$('reading-viewport'),
  chrome:()=>[...document.querySelectorAll('.reader-bar,.footer-navigation,.footer-pill')],
  layout:()=>({columns:effectiveColumns(),gutter:state?readingMargins().gutter:0,scroll:Boolean(state?.preferences.scroll)}),
  enabled:()=>Boolean(state)&&state.preferences.vines!=='off',edition:()=>input?.editionId??''});
-for(const type of ['wheel','scroll','pointerdown','keydown','input'])window.addEventListener(type,backgroundActivity,{capture:true,passive:true});
+for(const type of ['wheel','pointerdown','keydown','input'])window.addEventListener(type,backgroundActivity,{capture:true,passive:true});
+window.addEventListener('scroll',scrollActivity,{capture:true,passive:true});
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
-const idleSlot=()=>new Promise(resolve=>typeof requestIdleCallback==='function'?requestIdleCallback(()=>resolve(),{timeout:1500}):setTimeout(resolve,50));
+// WebKit has no idle callback; a zero-delay task still lets waiting input and rendering run first.
+const idleSlot=()=>new Promise(resolve=>typeof requestIdleCallback==='function'?requestIdleCallback(()=>resolve(),{timeout:1500}):setTimeout(resolve,0));
+const paginationPaused=()=>opening||reflowCount||resizing||performance.now()<backgroundQuietUntil;
 async function paginationIdle(signal){
- // Yield between chapters, wait for an idle slot, and pause while the reader scrolls or changes layout.
- await new Promise(requestAnimationFrame);
+ // Yield between chapters and pause while the reader turns, scrolls or changes layout.
  do{
-  while(!signal.aborted&&(opening||reflowCount||resizing||performance.now()<backgroundQuietUntil))await delay(80);
+  while(!signal.aborted&&paginationPaused())await delay(80);
   if(!signal.aborted)await idleSlot();
- }while(!signal.aborted&&performance.now()<backgroundQuietUntil);
+ }while(!signal.aborted&&paginationPaused());
 }
+// A frame, or a short wait where a background window gets none.
+const nextFrame=()=>new Promise(resolve=>{const timer=setTimeout(resolve,50);requestAnimationFrame(()=>{clearTimeout(timer);resolve()})});
 // Every position update asks for this key (a scrolling book asks every 80 ms). Building it measures text and serialises
 // all the layout preferences, so it is remembered until a preference object, a window size or the system theme changes.
+// Colours never move a line, so a theme change keeps the book's counts. The host keeps finished maps under this key.
 let paginationLayoutCache=null;
 function paginationLayout(){
  const width=$('reading-viewport').clientWidth,height=$('reader').clientHeight,c=paginationLayoutCache;
  if(c&&c.input===input&&c.preferences===state.preferences&&c.width===width&&c.height===height&&c.inner===innerWidth&&c.dark===media.matches&&c.wide===widePage.matches&&c.fonts===document.fonts.status+document.fonts.size)return c.key;
  const key=JSON.stringify({edition:input.editionId,width,height,
-  continuous:Boolean(input.experimentalContinuous&&state.preferences.scroll),settings:readiumPreferences(),renderer:'screen-v1'});
+  continuous:Boolean(input.experimentalContinuous&&state.preferences.scroll),settings:layoutPreferences(),renderer:'screen-v2'});
  paginationLayoutCache={input,preferences:state.preferences,width,height,inner:innerWidth,dark:media.matches,wide:widePage.matches,fonts:document.fonts.status+document.fonts.size,key};
  return key;
 }
@@ -97,14 +105,18 @@ async function measureChapterScreens(book,owner,chapter,signal,key){
    const wnd=frame?.contentWindow,doc=frame?.contentDocument;
    if(!doc?.body)throw Error('Missing chapter layout');
    await doc.fonts.ready;
-   // Image load/error both settle geometry. A pending resource leaves the
-   // denominator calculating rather than claiming a provisional exact count.
+   // Image load/error both settle geometry. A pending resource keeps the
+   // chapter's estimate rather than claiming a provisional exact count.
    await Promise.all([...doc.images].filter(image=>!image.complete).map(image=>new Promise(resolve=>{image.addEventListener('load',resolve,{once:true});image.addEventListener('error',resolve,{once:true})})));
-   await delay(120);
    if(signal.aborted)return;
-   let extent,viewport;
-   if(layout.continuous){probe.measure(probe.entries[0]);extent=probe.entries[0].height;viewport=layout.height;}
-   else{const root=doc.scrollingElement;extent=layout.settings.scroll?root.scrollHeight:root.scrollWidth;viewport=layout.settings.scroll?wnd.innerHeight:wnd.innerWidth;}
+   const root=doc.scrollingElement,measure=()=>{
+    if(layout.continuous){probe.measure(probe.entries[0]);return probe.entries[0].height}
+    return layout.settings.scroll?root.scrollHeight:root.scrollWidth;
+   };
+   // Read the extent once it holds still across a frame, rather than after a fixed wait.
+   let extent=measure();
+   for(let frame=0;frame<8;frame++){await nextFrame();if(signal.aborted)return;const next=measure();if(next===extent)break;extent=next}
+   const viewport=layout.continuous?layout.height:layout.settings.scroll?wnd.innerHeight:wnd.innerWidth;
    return screenPages({extent,viewport})?.total;
   })();
   return await Promise.race([measuring,aborted]);
@@ -248,7 +260,7 @@ function updatePosition(light=false){
  const left=chapterPagesLeft(metrics??{});
  const chapter=input.readingOrder.findIndex(link=>link.href===lastLocator.href);
  if(screenIndex&&!opening){
-  screenIndex.configure(paginationLayout(),input.readingOrder.length);
+  screenIndex.configure(paginationLayout(),input.readingOrder.length,Math.max(0,chapter));
   if(!reflowCount&&!resizing&&navigator?.kind==='continuous'){
    for(const entry of navigator.entries)if(entry.frame&&!navigator.dirtyEntries.has(entry)&&assetsSettled(entry.frame.contentDocument)){
     screenIndex.record(entry.index,screenPages({extent:entry.height,viewport:$('reader').clientHeight})?.total);
@@ -261,38 +273,63 @@ function updatePosition(light=false){
   nativePosition=contentPosition(pages,left===0,liveFrame);
   emit('position',{position:nativePosition});
  }
- const displayFrame=navigator?.kind==='continuous'?navigator.entries.find(entry=>entry.index===chapter)?.frame:liveFrame;
- const bookScreens=!reflowCount&&!resizing&&assetsSettled(displayFrame?.contentDocument)?screenIndex?.pages(chapter,pages):null;
- const label=bookScreens?pageLabel(bookScreens):pages?`${pageLabel(pages)} · Chapter ${chapter+1} · Calculating book pages…`:'Calculating book pages…';
- if($('position-label').textContent!==label)$('position-label').textContent=label;
- $('position-label').title=heading+' · One page is one full reading screen. Whole-book counts update with layout.';
+ // While the layout moves, and briefly after while a new count may still become exact, the footer keeps its last page.
+ const book=pages&&screenIndex&&!opening&&!reflowCount&&!resizing?shownPages.show({key:paginationLayout(),best:bookEstimate(chapter,pages),chapter,local:pages}):null;
+ if(book?.hold){clearTimeout(footerHold);footerHold=setTimeout(()=>updatePosition(true),book.hold+16)}
+ else if(book)showBookPages(book,heading);
  const remaining=left===null?'':`${left} ${left===1?'page':'pages'} left in chapter`;
  if($('chapter-label').textContent!==remaining)$('chapter-label').textContent=remaining;
  $('chapter-label').title=heading+' · Remaining reading screens in this chapter.';
  const saved=state.bookmarks.some(x=>samePlace(x.locator,lastLocator));
  $('save-bookmark').setAttribute('aria-pressed',String(saved));$('save-bookmark').setAttribute('aria-label',saved?'Remove bookmark':'Add bookmark');$('save-bookmark').title=saved?'Remove bookmark':'Add bookmark';
 }
+function showBookPages(book,heading){
+ const label=book?pageLabel(book):'',status=book?(book.exact?'exact':'estimate'):'',footer=$('position-label');
+ if(footer.textContent!==label)footer.textContent=label;
+ if(footer.dataset.pages!==status)footer.dataset.pages=status;
+ footer.title=book?heading+' · One page is one full reading screen. Whole-book counts update with layout'+(book.exact?'.':', and settle as the rest of the book is measured.'):'';
+}
+let footerHold=0;
+const shownPages=new StablePageCount({hold:300,changeHold:900,enough:40});
 // Text coordinates survive font changes and resizing. Never infer a whole-book
 // page total from chapter ordinals. Empty/image-only pages retain position only.
-let nativePosition=null,contentIndex=null,contentIndexFailed=false;
+let nativePosition=null,contentIndex=null,contentProfiles=null,contentIndexFailed=false;
 const contentIndexes=new Map();
+/**
+ * Whole-book screen counts for the footer: measured chapters, and an estimate for the rest. The chapter on screen, and
+ * one being measured again, keep their latest count meanwhile. Display-only: native progress never receives these numbers.
+ */
+function bookEstimate(chapter,pages){
+ const provisional=screenIndex.previous.slice();if(pages)provisional[chapter]=pages.total;
+ // Until the text index is ready, chapter sizes stand in for their text: markup is roughly a quarter of the bytes.
+ const weights=contentProfiles??input.readingOrder.map(link=>({text:pool.size(link.href)*.75,images:0}));
+ return estimateCounts({exact:screenIndex.counts,provisional,references:screenIndex.references(),weights,density:screenDensity});
+}
+/** Screens per character from the page geometry, for a book whose measured chapters hold no text yet (a cover). */
+function screenDensity(){
+ const p=state.preferences,size=16*p.fontSize,stack=fontStack(p.fontFamily),perCharacter=(stack&&averageCharacterWidth(stack,size))||size*.48;
+ const columns=effectiveColumns(),line=Math.min(p.measure,Math.max(1,(readingWidth()/columns-2*readingMargins().gutter)/perCharacter));
+ const lines=Math.max(1,$('reader').clientHeight*.9/(size*p.lineHeight));
+ // Paragraph ends and headings leave part of each screen empty.
+ return 1/(line*lines*columns*.85);
+}
 async function indexContent(owner,generation,edition,order){
  try{
-  let counts=contentIndexes.get(edition);
-  if(!counts){
-   counts=[];
+  let profiles=contentIndexes.get(edition);
+  if(!profiles){
+   profiles=[];
    for(const link of order){
     // Yield between chapters. Never block opening on the complete denominator.
     await new Promise(resolve=>setTimeout(resolve,0));
     if(owner!==pool||generation!==lifecycle)return;
-    counts.push(await owner.textLength(link.href));
+    profiles.push(await owner.profile(link.href));
    }
    if(owner!==pool||generation!==lifecycle)return;
-   contentIndexes.set(edition,counts);
+   contentIndexes.set(edition,profiles);
    while(contentIndexes.size>16)contentIndexes.delete(contentIndexes.keys().next().value);
   }
   if(owner!==pool||generation!==lifecycle)return;
-  contentIndex=counts;refreshPosition();
+  contentIndex=profiles.map(profile=>profile.text);contentProfiles=profiles;refreshPosition();
  }catch{if(owner===pool&&generation===lifecycle){contentIndexFailed=true;refreshPosition()}}
 }
 
@@ -377,6 +414,8 @@ function readiumPreferences(){
  const p=state.preferences,t=currentTheme(),{gutter}=readingMargins();
  return {fontSize:p.fontSize,fontFamily:fontStack(p.fontFamily),fontWeight:p.fontWeight,textAlign:p.textAlign==='publisher'?null:p.textAlign,hyphens:p.hyphens,letterSpacing:p.letterSpacing,wordSpacing:p.wordSpacing,scroll:p.scroll,scrollPaddingTop:0,scrollPaddingBottom:0,scrollPaddingLeft:gutter,scrollPaddingRight:gutter,lineHeight:p.lineHeight,optimalLineLength:p.measure,maximalLineLength:p.measure+5,minimalLineLength:Math.min(effectiveColumns()===2?Math.min(20,p.measure):Math.min(p.measure,Math.max(20,p.measure-15)),Math.max(1,Math.floor((readingWidth()/effectiveColumns()-2*gutter)/(16*p.fontSize*.55)))),pageGutter:gutter,columnCount:effectiveColumns(),backgroundColor:t.background,textColor:t.text,linkColor:t.link,selectionBackgroundColor:t.selection,darkenFilter:t.dimImages===true};
 }
+/** The preferences that can move a line. Colours and image dimming cannot, so they never invalidate page counts. */
+function layoutPreferences(){const {backgroundColor,textColor,linkColor,selectionBackgroundColor,darkenFilter,...layout}=readiumPreferences();return layout}
 /** Page width for the chosen measure: the chosen typeface's measured advance, or an
  *  average serif estimate when the publisher's own font is in use. */
 function readingWidth(){
@@ -855,7 +894,7 @@ async function installNavigator(location,settings=readiumPreferences()){
    readerScrolled:(delta,height)=>{if(generation===lifecycle)trackContinuousScroll(delta,height)},
    readerAnchorChanged:locator=>{if(generation===lifecycle&&performance.now()>=quietUntil&&!reflowCount&&!resizing)stableAnchor=clone(locator)},
    textSelected:value=>{if(generation===lifecycle)selected(value)},
-   frameLoaded:wnd=>{if(!wnd.CSS?.highlights&&navigator)navigator.decorationsAvailable=false;if(!frames.has(wnd)){frames.add(wnd);observeChapterPages(wnd,generation);for(const type of ["wheel","scroll","keydown","pointerdown"])wnd.addEventListener(type,backgroundActivity,{capture:true,passive:true});const page=installPageTurnWheel(wnd,{gesture:pageTurnGesture,enabled:()=>Boolean(state&&!state.preferences.scroll&&!document.querySelector('dialog[open]')),rtl:()=>input?.readingProgression==='rtl'||navigator?.readingProgression==='rtl',turn});wnd.document.addEventListener('keydown',keyboard);let anchorTimer;const boundary=toggledListener(wnd,'wheel',event=>{void crossScrollBoundary(wnd,event.deltaY,event);clearTimeout(anchorTimer);if(!boundaryBusy)anchorTimer=setTimeout(()=>{if(!reflowCount&&!resizing)stableAnchor=visibleAnchor()},100)},{passive:false});frameWheel.set(wnd,{page,boundary});syncWheel();wnd.document.addEventListener('keydown',event=>{if(navigator?.kind!=='continuous'&&['ArrowDown','PageDown','ArrowUp','PageUp'].includes(event.key)&&!['INPUT','TEXTAREA','SELECT'].includes(event.target?.tagName)){void crossScrollBoundary(wnd,['ArrowDown','PageDown'].includes(event.key)?1:-1,event);setTimeout(()=>{if(!boundaryBusy&&!reflowCount&&!resizing)stableAnchor=visibleAnchor()},100)}});wnd.document.addEventListener('pointerup',followPublicationLink,true);wnd.addEventListener('scroll',()=>trackScroll(wnd),{passive:true});wnd.document.addEventListener('click',followPublicationLink,true);wnd.document.addEventListener('auxclick',followPublicationLink,true);wnd.document.addEventListener('keyup',()=>{const text=wnd.getSelection()?.toString();if(text&&lastLocator&&navigator?.kind!=='continuous')selected({text,locator:Locator.deserialize({...lastLocator,text:{highlight:text}})});});}},
+   frameLoaded:wnd=>{if(!wnd.CSS?.highlights&&navigator)navigator.decorationsAvailable=false;if(!frames.has(wnd)){frames.add(wnd);observeChapterPages(wnd,generation);for(const type of ["wheel","keydown","pointerdown"])wnd.addEventListener(type,backgroundActivity,{capture:true,passive:true});wnd.addEventListener('scroll',scrollActivity,{capture:true,passive:true});const page=installPageTurnWheel(wnd,{gesture:pageTurnGesture,enabled:()=>Boolean(state&&!state.preferences.scroll&&!document.querySelector('dialog[open]')),rtl:()=>input?.readingProgression==='rtl'||navigator?.readingProgression==='rtl',turn});wnd.document.addEventListener('keydown',keyboard);let anchorTimer;const boundary=toggledListener(wnd,'wheel',event=>{void crossScrollBoundary(wnd,event.deltaY,event);clearTimeout(anchorTimer);if(!boundaryBusy)anchorTimer=setTimeout(()=>{if(!reflowCount&&!resizing)stableAnchor=visibleAnchor()},100)},{passive:false});frameWheel.set(wnd,{page,boundary});syncWheel();wnd.document.addEventListener('keydown',event=>{if(navigator?.kind!=='continuous'&&['ArrowDown','PageDown','ArrowUp','PageUp'].includes(event.key)&&!['INPUT','TEXTAREA','SELECT'].includes(event.target?.tagName)){void crossScrollBoundary(wnd,['ArrowDown','PageDown'].includes(event.key)?1:-1,event);setTimeout(()=>{if(!boundaryBusy&&!reflowCount&&!resizing)stableAnchor=visibleAnchor()},100)}});wnd.document.addEventListener('pointerup',followPublicationLink,true);wnd.addEventListener('scroll',()=>trackScroll(wnd),{passive:true});wnd.document.addEventListener('click',followPublicationLink,true);wnd.document.addEventListener('auxclick',followPublicationLink,true);wnd.document.addEventListener('keyup',()=>{const text=wnd.getSelection()?.toString();if(text&&lastLocator&&navigator?.kind!=='continuous')selected({text,locator:Locator.deserialize({...lastLocator,text:{highlight:text}})});});}},
    error:error=>{notice(error.message);emit('error',{message:error.message})}
   };
   navigator=input.experimentalContinuous&&settings.scroll?new ContinuousNavigator($('reader'),input,pool,listeners,location,settings):new EpubNavigator($('reader'),publication,listeners,positions,location?engineLocator(location):undefined,{preferences:settings,defaults:{}});
@@ -879,8 +918,12 @@ async function open(value){
   $('reader').replaceChildren();$('book-title').textContent=value.title??'Untitled';$('book-author').textContent=value.creators?.join(', ')??'';document.title=(value.title??'Book')+' · Stillleaf';$('back').hidden=!value.canReturnToLibrary;
   syncAppearance();await prepareFont(state.preferences.fontFamily,lifecycle);
   const owner=pool,book=input;
+  shownPages.reset();
   screenIndex=new ScreenPaginationIndex({measure:(chapter,signal,key)=>measureChapterScreens(book,owner,chapter,signal,key),idle:paginationIdle,
-   changed:()=>{if(owner===pool&&!opening){cancelPosition();positionFrame=requestAnimationFrame(()=>{positionFrame=0;if(owner===pool)refreshPosition()})}}});
+   changed:()=>{if(owner===pool&&!opening){cancelPosition();positionFrame=requestAnimationFrame(()=>{positionFrame=0;if(owner===pool)refreshPosition()})}},
+   // Finished maps go to the host, which hands them back next time so a reopened book shows its exact count at once.
+   completed:(key,counts)=>{if(owner===pool)emit('pageMap',{pageMap:{key,counts}})}});
+  screenIndex.seed(pageMapsFor(value.pageMaps,value.readingOrder.length));
   await installNavigator(state.position);opening=false;refreshPosition();emit('ready',{warnings:[...pool.warnings]});announcedLayout=null;relayout();changed();
   void indexContent(pool,lifecycle,input.editionId,input.readingOrder);
   if(pool.warnings.size&&$('notice').hidden)notice('Some original styling or illustrations could not be displayed.');
@@ -892,7 +935,7 @@ async function close(){
  if(navigator?.kind==='continuous')navigator.report();
  nativeChrome.disconnect();clearTimeout(noteSaveTimer);annotationUI.reset();pageSlide.invalidate();lifecycle++;searchGeneration++;cancelPosition();anchorPending=false;positionDirty=true;clearTimeout(resizeTimer);resizing=false;clearTimeout(searchTimer);clearTimeout(stateTimer);clearTimeout(noticeTimer);
  const paginationClosed=screenIndex?.queue;screenIndex?.close();screenIndex=undefined;
- nativePosition=null;contentIndex=null;contentIndexFailed=false;preferenceRestore=false;
+ nativePosition=null;contentIndex=null;contentProfiles=null;contentIndexFailed=false;preferenceRestore=false;shownPages.reset();clearTimeout(footerHold);showBookPages(null);
  if(state)emit('state',{state:snapshot()});
  for(const dialog of document.querySelectorAll('dialog[open]'))dialog.close();
  const current=navigator;navigator=undefined;navigationCompletion.dispose(current);await preferenceQueue.catch(()=>{});await destroyNavigator(current);await paginationClosed?.catch(()=>{});pool?.close();pool=undefined;state=undefined;lastLocator=undefined;selection=undefined;$('selection-tools').hidden=true;$('notice').hidden=true;editingNote=undefined;return true;

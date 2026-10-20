@@ -156,14 +156,16 @@ export class PublicationResources {
  }
  /** Content indexing reads only chapter markup, never referenced images/fonts/CSS.
   * Its sanitizer matches the displayed document; release bytes after counting. */
- async textLength(href){
+ async textLength(href){return (await this.profile(href)).text}
+ /** A chapter's characters and illustrations, from the same pass: they weigh its share of the book's screens. */
+ async profile(href){
   const item=this.map.get(href);if(!item||!htmlTypes.has(item.type))throw Error('Unsupported content index resource');
   // Displayed chapters already own the sanitized markup after releasing bytes.
   // Reusing it avoids a second host fetch when the book denominator starts.
   const source=this.chapters.get(href)??unwrapSvgImages(htmlSource(new TextDecoder().decode(await this.read(href)),item.type));
   const doc=sanitizedDocument(source);
   for(const node of doc.body.querySelectorAll('script,style'))node.remove();
-  const length=doc.body.textContent.length;this.release(item);return length;
+  const length=doc.body.textContent.length;this.release(item);return {text:length,images:doc.body.querySelectorAll('img').length};
  }
  rewrite(source,href,collecting){
   const warnings=collecting?new Set():this.warnings;
