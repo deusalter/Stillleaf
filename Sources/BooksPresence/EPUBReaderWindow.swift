@@ -230,6 +230,11 @@ private final class EPUBReaderWindow: NSObject, NSWindowDelegate, WKNavigationDe
         stateWorker.sync {}
         webView.stopLoading()
         webView.configuration.userContentController.removeScriptMessageHandler(forName: "readerEvents")
+        // Detach the page completely so WebKit can release the view, its page and its
+        // web content process as soon as the window goes.
+        webView.navigationDelegate = nil
+        webView.configuration.userContentController.removeAllUserScripts()
+        webView.configuration.userContentController.removeAllContentRuleLists()
         closed?()
     }
     nonisolated func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
