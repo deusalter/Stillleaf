@@ -1,0 +1,152 @@
+name: macOS release
+# Tags v1.2.3 build, sign, notarize and staple a universal release, then open a DRAFT GitHub
+# release for a person to check and publish (docs/RELEASE_CHECKLIST.md). Without the signing
+# secrets the same pipeline builds an unsigned preview and reports that signing was skipped.
+on:
+  push:
+    tags: ['v*.*.*']
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/release.yml
+      - scripts/release/**
+      - scripts/package-app.sh
+      - scripts/build-local.sh
+      - scripts/check-package-sdk.py
+      - assets/Info.plist
+      - assets/Stillleaf.entitlements
+permissions:
+  contents: read
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 90
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.0.1.app/Contents/Developer
+    outputs:
+      level: ${{ steps.creds.outputs.level }}
+      version: ${{ steps.build.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the build number is the commit count
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: Reader/desktop/reader/package-lock.json
+      - name: Toolchain
+        run: sw_vers && xcodebuild -version && xcrun --sdk macosx --show-sdk-version && node --version
+      - name: Detect signing credentials
+        id: creds
+        env:
+          EVENT: ${{ github.event_name }}
+          P12: ${{ secrets.MACOS_SIGNING_CERTIFICATE_P12 }}
+          P12_PASSWORD: ${{ secrets.MACOS_SIGNING_CERTIFICATE_PASSWORD }}
+          IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+          NOTARY_KEY: ${{ secrets.NOTARY_API_KEY_P8 }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_API_KEY_ID }}
+          NOTARY_ISSUER: ${{ secrets.NOTARY_API_ISSUER_ID }}
+        run: |
+          level=adhoc
+          if [[ "$EVENT" != pull_request && -n "$P12" && -n "$P12_PASSWORD" && -n "$IDENTITY" ]]; then
+            level=signed
+            [[ -n "$NOTARY_KEY" && -n "$NOTARY_KEY_ID" && -n "$NOTARY_ISSUER" ]] && level=notarized
+          fi
+          echo "level=$level" >> "$GITHUB_OUTPUT"
+          case $level in
+            adhoc) reason="Developer ID secrets are not configured (or this is a pull request): building an unsigned preview; signing and notarization skipped." ;;
+            signed) reason="Notary API key secrets are missing: signing only; notarization skipped." ;;
+            notarized) reason="Signing and notarizing." ;;
+          esac
+          echo "::notice title=Release level: $level::$reason"
+          echo "### Release level: \`$level\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "$reason" >> "$GITHUB_STEP_SUMMARY"
+      - name: Import Developer ID certificate into a temporary keychain
+        if: steps.creds.outputs.level != 'adhoc'
+        env:
+          P12: ${{ secrets.MACOS_SIGNING_CERTIFICATE_P12 }}
+          P12_PASSWORD: ${{ secrets.MACOS_SIGNING_CERTIFICATE_PASSWORD }}
+        run: |
+          keychain="$RUNNER_TEMP/stillleaf-signing.keychain-db"
+          password=$(uuidgen)
+          printf '%s' "$P12" | base64 --decode > "$RUNNER_TEMP/signing.p12"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 3600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          security import "$RUNNER_TEMP/signing.p12" -k "$keychain" -P "$P12_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$password" "$keychain" >/dev/null
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          rm -f "$RUNNER_TEMP/signing.p12"
+          echo "STILLLEAF_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
+      - name: Write notary API key
+        if: steps.creds.outputs.level == 'notarized'
+        env:
+          NOTARY_KEY: ${{ secrets.NOTARY_API_KEY_P8 }}
+        run: |
+          umask 077
+          # Accept either the raw .p8 text or its base64 encoding.
+          if [[ "$NOTARY_KEY" == *"BEGIN PRIVATE KEY"* ]]; then printf '%s\n' "$NOTARY_KEY"; else printf '%s' "$NOTARY_KEY" | base64 --decode; fi > "$RUNNER_TEMP/notary-key.p8"
+          echo "STILLLEAF_NOTARY_KEY_PATH=$RUNNER_TEMP/notary-key.p8" >> "$GITHUB_ENV"
+      - name: Build release
+        id: build
+        env:
+          STILLLEAF_SIGN_IDENTITY: ${{ steps.creds.outputs.level != 'adhoc' && secrets.MACOS_SIGNING_IDENTITY || '' }}
+          STILLLEAF_NOTARY_KEY_ID: ${{ steps.creds.outputs.level == 'notarized' && secrets.NOTARY_API_KEY_ID || '' }}
+          STILLLEAF_NOTARY_ISSUER: ${{ steps.creds.outputs.level == 'notarized' && secrets.NOTARY_API_ISSUER_ID || '' }}
+          STILLLEAF_REQUIRE_NOTARIZATION: ${{ startsWith(github.ref, 'refs/tags/v') && steps.creds.outputs.level != 'adhoc' && '1' || '0' }}
+          STILLLEAF_RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
+          # Public URLs (not secrets) live in repository variables once the domain is chosen.
+          STILLLEAF_UPDATE_FEED_URL: ${{ vars.STILLLEAF_UPDATE_FEED_URL }}
+          STILLLEAF_DOWNLOAD_BASE_URL: ${{ vars.STILLLEAF_DOWNLOAD_BASE_URL }}
+          STILLLEAF_RELEASE_NOTES_URL: ${{ vars.STILLLEAF_RELEASE_NOTES_URL }}
+        run: |
+          scripts/release/build-release.sh
+          echo "version=$(plutil -extract CFBundleShortVersionString raw assets/Info.plist)" >> "$GITHUB_OUTPUT"
+          {
+            echo '```'
+            cat .build/release-artifacts/*/SHA256SUMS
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: Stillleaf-release-${{ steps.creds.outputs.level }}
+          path: |
+            .build/release-artifacts/*/*.dmg
+            .build/release-artifacts/*/*.zip
+            .build/release-artifacts/*/SHA256SUMS
+            .build/release-artifacts/*/*.json
+            .build/release-artifacts/*/logs/
+          if-no-files-found: ignore
+      - name: Remove signing material
+        if: always()
+        run: |
+          [[ -n "${STILLLEAF_KEYCHAIN:-}" ]] && security delete-keychain "$STILLLEAF_KEYCHAIN" || true
+          rm -f "$RUNNER_TEMP/notary-key.p8" "$RUNNER_TEMP/signing.p12"
+
+  draft-release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v') && needs.build.outputs.level == 'notarized'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: Stillleaf-release-notarized
+          path: artifacts
+      - name: Create draft GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          dir=$(dirname "$(ls artifacts/*/SHA256SUMS)")
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag \
+            --title "Stillleaf $VERSION" \
+            --notes "Draft created by the release workflow. Complete docs/RELEASE_CHECKLIST.md before publishing." \
+            "$dir"/*.dmg "$dir"/*.zip "$dir"/SHA256SUMS $(ls "$dir"/macos.json 2>/dev/null)
