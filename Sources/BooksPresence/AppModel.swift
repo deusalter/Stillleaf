@@ -279,7 +279,9 @@ final class AppModel: ObservableObject {
         }
         refresh()
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in Task { @MainActor [weak self] in self?.tick() } }
-        if !defaults.bool(forKey: "didConfigureLogin"), Bundle.main.bundleURL.pathExtension == "app" {
+        // Only from a real install: registering a disk-image or translocated copy would point
+        // login startup at a path that disappears, and the flag would stop a later retry.
+        if !defaults.bool(forKey: "didConfigureLogin"), InstallLocation.current() == .installed {
             defaults.set(true, forKey: "didConfigureLogin")
             do { try LoginService.setEnabled(true); launchAtLogin = LoginService.enabled }
             catch { errorMessage = "Login startup needs setup: \(error.localizedDescription). Enable it in Settings after installing the app." }
