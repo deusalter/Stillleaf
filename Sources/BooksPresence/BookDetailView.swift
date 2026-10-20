@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import BooksCore
 
@@ -8,7 +9,11 @@ struct BookDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var editingInterval: ReadingInterval?
     @State private var deleteBookConfirmation = false
+    /// A finish marked here: its seal settles on the hero cover and its question opens in place.
     @State private var completionEntry: FinishedBookEntry?
+    @State private var completionTicket = CelebrationTicket()
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.nativePreviewReduceMotion) private var previewReduceMotion
     @State private var deleteSessionID: String?
     @State private var mergePresented = false
     @State private var showAllSessions = false
@@ -51,8 +56,14 @@ struct BookDetailView: View {
                     hero
                     AudiobookSection(model: model, book: currentBook, player: model.audiobookPlayer)
                     readingSummary
-                    BookRatingSection(model: model, bookID: currentBook.id)
-                    BookReviewSection(model: model, bookID: currentBook.id)
+                    // While the finish question is open it is the one place to rate and review.
+                    if completionEntry == nil {
+                        BookRatingSection(model: model, bookID: currentBook.id)
+                            .viewProbe("detail-rating-section")
+                            .transition(FinishMoment.promptTransition)
+                        BookReviewSection(model: model, bookID: currentBook.id)
+                            .transition(FinishMoment.promptTransition)
+                    }
                     sessionHistory
                     privacyControls
                     DisclosureGroup("Cover art & sharing details") { artworkControls.padding(.top, 8) }
@@ -62,6 +73,7 @@ struct BookDetailView: View {
                 }
                 .padding(.horizontal, 24)
                 .padding(.vertical, 20)
+                .animation((previewReduceMotion ?? reduceMotion) ? nil : FinishMoment.arrive, value: completionEntry?.id)
             }
         }
         .frame(width: 760, height: 720)
@@ -70,7 +82,6 @@ struct BookDetailView: View {
         .tint(ReadingPalette.accent)
         .foregroundStyle(ReadingPalette.ink)
         .buttonStyle(ReadingButtonStyle())
-        .sheet(item: $completionEntry) { CompletionReviewSheet(model: model, entry: $0).readingMotionAccessibility() }
         .sheet(item: $editingInterval) { ReadingSessionEditor(model: model, interval: $0) }
         .sheet(isPresented: $mergePresented) { MergeBooksView(model: model, source: currentBook) }
         .sheet(isPresented: $editingDates) {
@@ -81,6 +92,12 @@ struct BookDetailView: View {
             }
         }
         .onAppear { publicCoverURLDraft = model.publicCoverURL(for: currentBook) }
+        // As the finish sheet did: saving a rating (or a finish elsewhere) closes the question, and
+        // leaving Book details with it open counts as "Maybe later".
+        .onChange(of: model.pendingCompletion?.id) { id in
+            if let entry = completionEntry, id != entry.id { completionEntry = nil }
+        }
+        .onDisappear { if let entry = completionEntry { model.acknowledgeCompletion(entry) } }
         .alert("Delete \(currentBook.title)?", isPresented: $deleteBookConfirmation) {
             Button("Delete book", role: .destructive) { model.deleteBook(currentBook); dismiss() }
             Button("Cancel", role: .cancel) { }
@@ -114,7 +131,14 @@ struct BookDetailView: View {
 
     private var hero: some View {
         HStack(alignment: .top, spacing: 24) {
-            BookCoverView(book: currentBook, size: .hero)
+            ZStack(alignment: .topTrailing) {
+                BookCoverView(book: currentBook, size: .hero)
+                if let entry = completionEntry {
+                    CompletionCelebrationBadge(eventID: model.pendingCompletionEventID ?? entry.id) { completionTicket.take() }
+                        .offset(x: 8, y: -8)
+                        .transition(.opacity)
+                }
+            }
             VStack(alignment: .leading, spacing: 7) {
                 Text(currentBook.title)
                     .font(ReadingType.bookTitle(30))
@@ -134,8 +158,17 @@ struct BookDetailView: View {
                     }.padding(.top, 4)
                 }
                 if finishedEntry == nil {
-                    Button { completionEntry = model.markFinished(currentBook) } label: { Label("Mark as finished", systemImage: "checkmark.circle") }
+                    Button { markFinished() } label: { Label("Mark as finished", systemImage: "checkmark.circle") }
                         .controlSize(.small).buttonStyle(ReadingButtonStyle(emphasis: .primary))
+                        .viewProbe("mark-finished")
+                }
+                if let entry = completionEntry {
+                    VStack(alignment: .leading, spacing: 8) {
+                        FinishedBookRating(model: model, entry: entry, placement: .detail) { completionEntry = nil }
+                        if let error = model.errorMessage { Text(error).font(.caption).foregroundStyle(ReadingPalette.warning) }
+                    }
+                    .padding(.top, 10)
+                    .transition(FinishMoment.promptTransition)
                 }
                 if let ratingText {
                     Label("Your rating: \(ratingText)", systemImage: "star.fill")
@@ -146,6 +179,13 @@ struct BookDetailView: View {
             Spacer(minLength: 0)
         }
         .padding(.vertical, 8)
+    }
+
+    /// Marks the book finished and claims its moment before Today, behind this sheet, can.
+    private func markFinished() {
+        guard let entry = model.markFinished(currentBook) else { return }
+        completionTicket.hold(model.claimCompletionCelebration(for: entry))
+        completionEntry = entry
     }
 
     private var readingSummary: some View {
@@ -456,4 +496,28 @@ struct ProgressDescription: View {
         .font(.callout)
         .foregroundStyle(observation.reliable ? ReadingPalette.accent : ReadingPalette.secondaryInk)
     }
+}
+
+/// Marks a control in the AppKit view tree so self-checks can find and click it, the way
+/// `DashboardSidebarProbe` marks the sidebar. Draws nothing, takes no clicks, and is no
+/// accessibility element. SwiftUI vends no accessibility tree without an assistive client attached,
+/// so this is how a check finds a button reliably.
+struct ViewProbe: NSViewRepresentable {
+    let id: String
+    static func identifier(_ id: String) -> NSUserInterfaceItemIdentifier { NSUserInterfaceItemIdentifier("probe-\(id)") }
+    func makeNSView(context: Context) -> NSView {
+        let view = ProbeView()
+        view.identifier = Self.identifier(id)
+        return view
+    }
+    func updateNSView(_ view: NSView, context: Context) {}
+
+    private final class ProbeView: NSView {
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+        override func isAccessibilityElement() -> Bool { false }
+    }
+}
+
+extension View {
+    func viewProbe(_ id: String) -> some View { background(ViewProbe(id: id)) }
 }

@@ -8,41 +8,31 @@ private enum VineMotionSmokeError: Error { case failed(String) }
 func checkVineMotionModes() throws {
     func fail(_ message: String) -> Error { VineMotionSmokeError.failed(message) }
 
-    // The completion burst reads the effective mode, not the raw setting.
-    let defaults = UserDefaults(suiteName: "stillleaf-burst-smoke-\(UUID().uuidString)")!
+    // The finish moment follows the one Quiet UI policy: Reduce Motion stills it, Low Power Mode
+    // and a still garden keep only the seal and ring, and nothing in it outlasts its timeline.
+    let defaults = UserDefaults(suiteName: "stillleaf-finish-smoke-\(UUID().uuidString)")!
     let store = ThemeStore(defaults: defaults)
     let lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
-    store.select(garden: .off)
-    for reduce in [false, true] {
-        guard CompletionCelebrationBadge.burstPresentation(theme: store, reduceMotion: reduce) == .none else { throw fail("An Off garden still bursts") }
+    for garden in [GardenMode.off, .still, .animated] {
+        store.select(garden: garden)
+        let still = FinishMoment.plan(for: QuietMotion.resolve(reduceMotion: true, lowPower: lowPower, garden: garden, capture: false))
+        guard still == FinishMoment.Plan(settles: false, ring: false, ripple: false) else { throw fail("Reduce Motion still moves the finish moment") }
+        let plan = FinishMoment.plan(for: QuietMotion.resolve(reduceMotion: false, lowPower: lowPower, garden: garden, capture: false))
+        guard plan.settles, plan.ring, plan.ripple == (garden == .animated && !lowPower) else {
+            throw fail("The finish moment plays wrongly for a \(garden) garden: \(plan)")
+        }
     }
-    store.select(garden: .still)
-    for reduce in [false, true] {
-        guard CompletionCelebrationBadge.burstPresentation(theme: store, reduceMotion: reduce) == .still else { throw fail("A Still garden does not burst as a still flourish") }
+    guard FinishMoment.plan(for: .still) == FinishMoment.Plan(settles: false, ring: false, ripple: false) else { throw fail("Captures move the finish moment") }
+    guard FinishMoment.delay + FinishMoment.duration <= 1.25 else { throw fail("The finish moment runs longer than 1.25 s") }
+    // At rest (0 before it starts, 1 after) the ring is gone and the seal is fully drawn at its own size.
+    guard FinishMoment.ring(0).opacity == 0, FinishMoment.ring(1).opacity == 0, FinishMoment.seal(1) == (1, 1),
+          FinishMoment.seal(0).opacity == 0, FinishMoment.ring(0.5).opacity > 0 else { throw fail("The finish moment does not come to rest") }
+    // No overshoot: the seal only grows, the ring only grows and fades.
+    let samples = stride(from: 0.01, to: 1.0, by: 0.02).map { ($0, FinishMoment.seal($0), FinishMoment.ring($0)) }
+    guard samples.allSatisfy({ $0.1.scale <= 1 && $0.1.opacity <= 1 }),
+          zip(samples, samples.dropFirst()).allSatisfy({ $1.1.scale >= $0.1.scale && $1.2.scale >= $0.2.scale && $1.2.opacity <= $0.2.opacity }) else {
+        throw fail("The finish moment overshoots or reverses")
     }
-    store.select(garden: .animated)
-    guard CompletionCelebrationBadge.burstPresentation(theme: store, reduceMotion: false) == (lowPower ? .still : .animated) else { throw fail("An Animated garden bursts wrongly") }
-    guard CompletionCelebrationBadge.burstPresentation(theme: store, reduceMotion: true) == .still else { throw fail("Reduce Motion still animates the burst") }
-    guard VineBurst.duration(for: .none) == 0, VineBurst.duration(for: .still) < VineBurst.duration(for: .animated) else { throw fail("Burst durations are wrong") }
-
-    // The burst's timeline ends by itself once the burst has faded.
-    let start = Date(timeIntervalSinceReferenceDate: 1_000)
-    let burstTicks = Array(VineBurst.Schedule(start: start).entries(from: start, mode: .normal))
-    guard let last = burstTicks.last, last.timeIntervalSince(start) >= VineBurst.duration(for: .animated) - 0.1,
-          last.timeIntervalSince(start) <= VineBurst.duration(for: .animated) + 0.1, burstTicks.count < 200 else {
-        throw fail("The burst timeline does not end when the burst does: \(burstTicks.count) ticks")
-    }
-
-    // Growing the burst's field happens on the main thread at the celebration, at the badge's real size.
-    let badge = CGSize(width: 220, height: 140)
-    let centre = CGRect(x: badge.width / 2 - 16, y: badge.height / 2 - 16, width: 32, height: 32)
-    var slowest = 0.0
-    for seed in 0..<20 as Range<UInt32> {
-        let began = DispatchTime.now().uptimeNanoseconds
-        _ = VineBurst.field(size: badge, around: centre, seed: seed)
-        slowest = max(slowest, Double(DispatchTime.now().uptimeNanoseconds - began) / 1_000_000)
-    }
-    print(String(format: "ui-smoke: completion burst field grows in at most %.2f ms on the main thread (20 seeds)", slowest))
 
     // The seedling pauses through the hold and never ticks past its cycle's animated parts.
     let ticks = VineSeedling.ticks(from: 0, to: VineSeedling.cycle * 3)

@@ -26,6 +26,7 @@ func runUISmoke() throws {
     guard let atlasSource = model.historyAtlasSource else { throw BooksAccessErrorForUI.failed("History source was not published") }
     try runHistoryAtlasNavigationSmoke(source: atlasSource)
     try runHistoryInteractionSmoke(model: model)
+    try checkBookDetailFinish()
     guard model.manualPages(forBookID: "smoke-pages-a") == 7 else {
         throw BooksAccessErrorForUI.failed("Manual page corrections were not exposed to the journal")
     }
@@ -403,12 +404,6 @@ func runUISmoke() throws {
     let order = VineSeedling.glyphOrder
     guard order.count > 10, order.last?.glyph == "❀", order.first.map({ $0.y == VineSeedling.art.count - 1 }) == true else {
         throw BooksAccessErrorForUI.failed("The seedling does not grow from the ground up to its bloom")
-    }
-    let centre = CGRect(x: 100, y: 110, width: 200, height: 80)
-    let burst = VineBurst.field(size: CGSize(width: 400, height: 300), around: centre, seed: 7)
-    let cellRect = { (c: VineCell) in CGRect(x: Double(c.x) * burst.cellWidth, y: Double(c.y) * burst.cellHeight, width: burst.cellWidth, height: burst.cellHeight) }
-    guard burst.cells.count > 40, burst.cells.values.allSatisfy({ !cellRect($0).intersects(centre) }) else {
-        throw BooksAccessErrorForUI.failed("The completion burst grew over its badge")
     }
     try checkVineMotionModes()
     try checkQuietMotion()

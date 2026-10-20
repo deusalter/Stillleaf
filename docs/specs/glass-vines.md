@@ -146,7 +146,7 @@ New files under `Sources/BooksPresence/Vines/`:
 | `VinePalette.swift` | Derives the vine palette from `ThemeColors`. |
 | `VineCanvas.swift` | SwiftUI `Canvas` + `TimelineView` renderer. Glyphs are pre-resolved once per character and palette slot, then drawn with per-cell opacity. Frame pacing and pausing follow the engine rules. |
 | `GardenBackground.swift` | Pollen field + vines for a window. Collects avoid regions from a `.vineAvoid()` modifier (anchor preference). |
-| `VineSeedling.swift`, `VineBurst.swift` | Path-follower components for empty states and the completion burst. |
+| `VineSeedling.swift` | Path-follower component for empty states. (The completion burst it once shared was replaced by the finish moment; see `docs/QUIET_UI.md`.) |
 | `DottedProgress.swift` | The dotted progress row, sharing dot size, spacing and smooth leading edge with the existing ring. |
 | `GlassSurface.swift` | One modifier choosing glass, vibrancy or opaque surface as described above. Replaces the ad hoc glass in `ReadingButtonStyle` and `NativeChrome`. |
 

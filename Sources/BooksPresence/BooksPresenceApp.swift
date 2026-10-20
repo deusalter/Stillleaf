@@ -96,13 +96,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         guard let model else { return }
         dismissMenuPanel()
         if dashboard == nil {
-            let window = DashboardWindow(contentRect: NSRect(x: 0, y: 0, width: 1060, height: 760), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-            window.title = "Stillleaf"; window.titlebarAppearsTransparent = false
-            // Menu-bar (accessory) apps get no full-screen behavior unless a window opts in.
-            window.collectionBehavior.insert(.fullScreenPrimary)
+            let window = DashboardWindow.make()
             let content = NSHostingController(rootView: dashboardView(model: model))
             window.contentViewController = content
-            window.isReleasedWhenClosed = false; window.delegate = self; window.center()
+            window.delegate = self; window.center()
             dashboard = window; dashboardContent = content
         } else if dashboardReleased, let window = dashboard, let content = dashboardContent {
             // A closed dashboard holds no views (see `windowWillClose`). Build them again at the
@@ -307,6 +304,18 @@ struct BooksPresenceMain {
         if CommandLine.arguments.contains("--preview-library") {
             do { try runInteractiveLibraryPreview(); exit(0) }
             catch { fputs("library-preview failed: \(error)\n", stderr); exit(1) }
+        }
+        if let index = CommandLine.arguments.firstIndex(of: "--capture-window-chrome"), index + 1 < CommandLine.arguments.count {
+            do { try captureWindowChrome(to: URL(fileURLWithPath: CommandLine.arguments[index + 1], isDirectory: true)); exit(0) }
+            catch { fputs("window-chrome capture failed: \(error)\n", stderr); exit(1) }
+        }
+        if CommandLine.arguments.contains("--self-test-book-detail-finish") {
+            do { try checkBookDetailFinish(); exit(0) }
+            catch { fputs("book-detail-finish smoke failed: \(error)\n", stderr); exit(1) }
+        }
+        if let index = CommandLine.arguments.firstIndex(of: "--capture-finish-moment"), index + 1 < CommandLine.arguments.count {
+            do { try captureFinishMoment(to: URL(fileURLWithPath: CommandLine.arguments[index + 1], isDirectory: true)); exit(0) }
+            catch { fputs("finish-moment capture failed: \(error)\n", stderr); exit(1) }
         }
         if let index = CommandLine.arguments.firstIndex(of: "--self-test-audio"), index + 1 < CommandLine.arguments.count {
             let destination = URL(fileURLWithPath: CommandLine.arguments[index + 1])

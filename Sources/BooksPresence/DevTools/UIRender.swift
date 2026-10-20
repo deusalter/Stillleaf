@@ -22,9 +22,7 @@ func runInteractiveLibraryPreview() throws {
     try seedPreviewHistory(at: support)
     let model = try AppModel(support: support, defaults: defaults, startTracking: false)
     defer { model.shutdown() }
-    let window = DashboardWindow(contentRect: NSRect(x: 0, y: 0, width: 1060, height: 760),
-        styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-    window.isReleasedWhenClosed = false
+    let window = DashboardWindow.make()
     window.title = "Stillleaf — Synthetic Library Preview"
     // `--preview-section today` opens another screen of the same synthetic dashboard.
     let section = CommandLine.arguments.firstIndex(of: "--preview-section")
@@ -561,13 +559,13 @@ private func renderRatingMotion(to destination: URL) throws {
     }
 }
 
-/// Samples the real badge task in a native host. These frames verify states,
-/// not display refresh pacing or input-to-render latency.
+/// Samples the real badge task in a native host: before it starts, as the seal settles and the
+/// ring leaves it, and at rest. These frames verify states, not display refresh pacing.
 @MainActor
 private func renderCompletionMotion(to destination: URL) throws {
-    for reduced in [false, true] {
+    for motion in [QuietMotion.full, .still] {
         var claims = 0
-        let badge = CompletionCelebrationBadge(forceReducedMotion: reduced, eventID: "synthetic-completion") {
+        let badge = CompletionCelebrationBadge(motionOverride: motion, eventID: "synthetic-completion") {
             claims += 1
             return claims == 1
         }
@@ -581,13 +579,13 @@ private func renderCompletionMotion(to destination: URL) throws {
         if !CommandLine.arguments.contains("--offscreen") { window.orderBack(nil) }
         hosting.layoutSubtreeIfNeeded()
         let started = Date()
-        for (name, time) in [("start", 0.02), ("middle", 0.25), ("end", 0.9)] {
+        for (name, time) in [("start", 0.1), ("middle", FinishMoment.delay + 0.2), ("end", FinishMoment.delay + FinishMoment.duration + 0.2)] {
             RunLoop.current.run(until: started.addingTimeInterval(time))
             hosting.displayIfNeeded()
             guard let bitmap = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) else { throw UIPreviewError.renderFailed }
             hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
             guard let data = bitmap.representation(using: .png, properties: [:]) else { throw UIPreviewError.renderFailed }
-            try data.write(to: destination.appendingPathComponent("completion-motion-\(reduced ? "reduced" : "normal")-\(name).png"), options: .atomic)
+            try data.write(to: destination.appendingPathComponent("completion-motion-\(motion == .still ? "reduced" : "normal")-\(name).png"), options: .atomic)
         }
         guard claims == 1 else { throw UIPreviewError.renderFailed }
         window.close()
