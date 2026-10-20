@@ -96,13 +96,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         guard let model else { return }
         dismissMenuPanel()
         if dashboard == nil {
-            let window = DashboardWindow(contentRect: NSRect(x: 0, y: 0, width: 1060, height: 760), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-            window.title = "Stillleaf"; window.titlebarAppearsTransparent = false
-            // Menu-bar (accessory) apps get no full-screen behavior unless a window opts in.
-            window.collectionBehavior.insert(.fullScreenPrimary)
+            let window = DashboardWindow.make()
             let content = NSHostingController(rootView: dashboardView(model: model))
             window.contentViewController = content
-            window.isReleasedWhenClosed = false; window.delegate = self; window.center()
+            window.delegate = self; window.center()
             dashboard = window; dashboardContent = content
         } else if dashboardReleased, let window = dashboard, let content = dashboardContent {
             // A closed dashboard holds no views (see `windowWillClose`). Build them again at the

@@ -22,9 +22,7 @@ func runInteractiveLibraryPreview() throws {
     try seedPreviewHistory(at: support)
     let model = try AppModel(support: support, defaults: defaults, startTracking: false)
     defer { model.shutdown() }
-    let window = DashboardWindow(contentRect: NSRect(x: 0, y: 0, width: 1060, height: 760),
-        styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-    window.isReleasedWhenClosed = false
+    let window = DashboardWindow.make()
     window.title = "Stillleaf — Synthetic Library Preview"
     // `--preview-section today` opens another screen of the same synthetic dashboard.
     let section = CommandLine.arguments.firstIndex(of: "--preview-section")
