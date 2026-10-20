@@ -203,7 +203,7 @@ p {
   align-items: center;
   justify-content: center;
   gap: 10px;
-  font-size: 12px;
+  font-size: 13.5px;
   font-weight: 500;
   letter-spacing: 0.1px;
 }
@@ -257,7 +257,7 @@ h1 {
   margin-top: 27px;
 }
 .hero-availability {
-  font-size: 11px;
+  font-size: 13px;
   color: var(--muted);
   margin-top: 14px;
 }
@@ -269,7 +269,7 @@ h1 {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-size: 11px;
+  font-size: 13px;
   color: #4b695b;
 }
 .quiet-link {
@@ -290,7 +290,7 @@ h1 {
   align-items: center;
   padding: 9px 12px;
   border-radius: 5px;
-  font-size: 11px;
+  font-size: 13px;
 }
 .motion-control:hover {
   background: #f8fbf5;
@@ -391,7 +391,7 @@ h1 {
 }
 .book-spine span {
   font:
-    12px Georgia,
+    13.5px Georgia,
     serif;
   white-space: nowrap;
   writing-mode: vertical-rl;
@@ -524,43 +524,26 @@ h1 {
     transform: translate3d(11px, 22px, 24px) rotateZ(4deg) rotateY(3deg);
   }
 }
-.motion-paused .book-drift,
-.scene-away .book-drift {
+.motion-paused .book-drift {
   animation-play-state: paused;
 }
-.motion-paused .book-position,
-.scene-away .book-position {
+.motion-paused .book-position {
   transition: none;
 }
 .journal {
   padding-top: 105px;
   padding-bottom: 91px;
 }
-.section-intro {
-  display: flex;
-  gap: 90px;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 50px;
-}
 h2 {
   font-size: 59px;
   line-height: 1.06;
   letter-spacing: -1px;
 }
-.section-description {
-  max-width: 380px;
-  padding-top: 8px;
-}
-.section-description p {
-  font-size: 14px;
-  color: var(--muted);
-}
 .status-note {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  font-size: 10px;
+  font-size: 12px;
   margin-top: 20px;
   color: #526b5c;
 }
@@ -569,13 +552,6 @@ h2 {
   height: 5px;
   background: #559b79;
   border-radius: 50%;
-}
-.journal-showcase {
-  background: #e2eee7;
-  border: 1px solid #cedfd4;
-  border-radius: 12px;
-  padding: 24px 48px 28px;
-  overflow: hidden;
 }
 .preview-controls {
   display: flex;
@@ -587,7 +563,7 @@ h2 {
   border: 0;
   background: transparent;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13.5px;
   padding: 10px 18px;
   border-radius: 5px;
   min-height: 40px;
@@ -619,54 +595,22 @@ h2 {
 }
 .app-preview figcaption {
   text-align: center;
-  font-size: 11px;
+  font-size: 13px;
   color: var(--muted);
   margin-top: 18px;
 }
 .preview-description {
   text-align: center;
-  font-size: 12px;
+  font-size: 13.5px;
   color: #3f5b4d;
   margin: 12px auto 0;
   min-height: 40px;
   max-width: 550px;
 }
-.feature-list {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 55px;
-  margin-top: 50px;
-}
-.feature-list article > svg {
-  height: 29px;
-  width: 29px;
-  stroke: #44755f;
-  stroke-width: 1.15;
-  margin-bottom: 20px;
-}
-.feature-list h3 {
-  font-family: var(--serif);
-  font-weight: 400;
-  font-size: 27px;
-  margin-bottom: 10px;
-}
-.feature-list p {
-  font-size: 14px;
-  color: var(--muted);
-  max-width: 290px;
-}
 .next-chapter {
   background: #1b4036;
   color: #eef4e9;
   overflow: hidden;
-}
-.next-layout {
-  display: grid;
-  grid-template-columns: 1.2fr 1fr;
-  gap: 70px;
-  align-items: center;
-  padding-top: 89px;
-  padding-bottom: 90px;
 }
 .development-label {
   display: inline-flex;
@@ -675,19 +619,8 @@ h2 {
   border-radius: 30px;
   padding: 6px 12px;
   color: #c2d8c7;
-  font-size: 10px;
+  font-size: 12px;
   margin-bottom: 25px;
-}
-.next-copy h2 {
-  font-size: 50px;
-  margin-bottom: 23px;
-  letter-spacing: -0.6px;
-}
-.next-copy p {
-  font-size: 13px;
-  color: #bbd0c3;
-  margin-top: 13px;
-  max-width: 435px;
 }
 .text-link {
   display: inline-flex;
@@ -695,7 +628,7 @@ h2 {
   align-items: center;
   border-bottom: 1px solid #729484;
   padding-bottom: 7px;
-  font-size: 12px;
+  font-size: 13.5px;
   margin-top: 25px;
 }
 .text-link:hover {
@@ -703,98 +636,6 @@ h2 {
 }
 .text-link span {
   font-size: 19px;
-}
-.reader-illustration {
-  perspective: 900px;
-  position: relative;
-  padding-top: 10px;
-}
-.open-book {
-  display: flex;
-  aspect-ratio: 1.44;
-  transform: translateY(var(--reader-lift, 0px))
-    rotateX(calc(24deg + var(--reader-tilt, 0deg))) rotateZ(-12deg);
-  filter: drop-shadow(0 25px 20px #081c2350);
-  max-width: 440px;
-}
-.open-page {
-  width: 50%;
-  background: #edf0da;
-  color: #334b3c;
-  position: relative;
-  padding: 25px 25px 32px;
-  overflow: hidden;
-  border-top: 2px solid #fafbeb;
-  border-bottom: 4px solid #cbd0b9;
-  font-family: Georgia, serif;
-}
-.open-left {
-  border-radius: 7px 2px 0 7px;
-  transform: rotateY(calc(9deg + var(--page-fold, 0deg)));
-  transform-origin: right center;
-  background: linear-gradient(90deg, #e8ecd5 0%, #f4f3df 75%, #c0c9ac 100%);
-  border-left: 3px solid #d2d8bd;
-}
-.open-right {
-  border-radius: 2px 8px 8px 0;
-  transform: rotateY(calc(-9deg - var(--page-fold, 0deg)));
-  transform-origin: left center;
-  background: linear-gradient(90deg, #b7c1a6, #f5f3df 15%, #e8e9d1 100%);
-  border-right: 4px solid #c6ceb1;
-}
-.page-small {
-  display: block;
-  font-size: 8px;
-  text-align: center;
-  margin-top: 1px;
-}
-.illustration-leaf {
-  display: block;
-  text-align: center;
-  font-size: 40px;
-  line-height: 1;
-  margin-top: 20px;
-  color: #76966d;
-}
-.page-heading {
-  display: block;
-  text-align: center;
-  font-size: 24px;
-  line-height: 1.14;
-  margin-top: 4px;
-}
-.page-lines {
-  height: 60px;
-  margin-top: 20px;
-  background: repeating-linear-gradient(
-    0deg,
-    transparent 0px,
-    transparent 6px,
-    #81937866 6px,
-    #81937866 7px
-  );
-  opacity: 0.7;
-}
-.open-right .page-lines {
-  height: 145px;
-  margin-top: 24px;
-}
-.open-right .page-lines.shorter {
-  height: 30px;
-  width: 72%;
-  margin-top: 12px;
-}
-.page-number {
-  position: absolute;
-  bottom: 15px;
-  left: 50%;
-  font-size: 8px;
-}
-.reader-illustration > p {
-  font-size: 9px;
-  color: #9fb8a9;
-  text-align: center;
-  margin-top: 28px;
 }
 .downloads {
   padding-top: 102px;
@@ -846,7 +687,7 @@ h2 {
   color: var(--muted);
 }
 .release-card ul {
-  font-size: 12px;
+  font-size: 13.5px;
   list-style: none;
   padding: 0;
   margin: 20px 0 25px;
@@ -863,7 +704,7 @@ h2 {
   min-height: 45px;
   width: 100%;
   padding: 10px 12px;
-  font-size: 11px;
+  font-size: 13px;
   border-radius: 5px;
   background: #e9eee8;
   color: #5b6c5e;
@@ -877,7 +718,7 @@ h2 {
   position: absolute;
   right: 25px;
   top: 31px;
-  font-size: 9px;
+  font-size: 12px;
   color: #647266;
   display: flex;
   gap: 5px;
@@ -891,7 +732,7 @@ h2 {
   background: #98aa9a;
 }
 .release-footnote {
-  font-size: 11px;
+  font-size: 13px;
   color: var(--muted);
   text-align: center;
   margin-top: 23px;
@@ -951,13 +792,9 @@ h2 {
   font-size: 29px;
 }
 .site-footer p {
-  font-size: 11px;
+  font-size: 13px;
   color: #5b7163;
   flex: 1;
-}
-.site-footer > a:last-child {
-  font-size: 11px;
-  padding: 12px 0;
 }
 @media (min-width: 1600px) {
   .book-one {
@@ -1011,32 +848,8 @@ h2 {
   .section-wrap {
     padding-inline: 38px;
   }
-  .section-intro {
-    gap: 60px;
-  }
   h2 {
     font-size: 51px;
-  }
-  .section-description {
-    max-width: 330px;
-  }
-  .next-layout {
-    gap: 40px;
-  }
-  .next-copy h2 {
-    font-size: 43px;
-  }
-  .open-page {
-    padding: 22px 17px;
-  }
-  .page-heading {
-    font-size: 21px;
-  }
-  .open-right .page-lines {
-    height: 110px;
-  }
-  .feature-list {
-    gap: 30px;
   }
   .questions {
     gap: 45px;
@@ -1061,7 +874,7 @@ h2 {
     display: none;
   }
   .site-header nav .nav-release {
-    font-size: 11px;
+    font-size: 13px;
     padding: 10px 12px;
     gap: 13px;
   }
@@ -1080,7 +893,7 @@ h2 {
     margin: 21px 0;
   }
   .intro-line {
-    font-size: 10px;
+    font-size: 12px;
   }
   .hero-description {
     font-size: 13px;
@@ -1089,7 +902,7 @@ h2 {
     margin-top: 23px;
   }
   .hero-availability {
-    font-size: 10px;
+    font-size: 12px;
     max-width: 240px;
     margin: 14px auto 0;
     line-height: 1.7;
@@ -1098,14 +911,14 @@ h2 {
     left: 24px;
     right: 24px;
     bottom: 24px;
-    font-size: 10px;
+    font-size: 12px;
   }
   .hero-foot .quiet-link {
     max-width: 165px;
     gap: 8px;
   }
   .motion-control {
-    font-size: 10px;
+    font-size: 12px;
     padding: 8px;
   }
   .book-one {
@@ -1158,102 +971,36 @@ h2 {
     padding-top: 65px;
     padding-bottom: 61px;
   }
-  .section-intro {
-    display: block;
-    margin-bottom: 30px;
-  }
   h2 {
     font-size: 48px;
   }
-  .section-description {
-    max-width: 460px;
-    padding-top: 23px;
-  }
-  .section-description p {
-    font-size: 13px;
-  }
   .status-note {
     margin-top: 15px;
-  }
-  .journal-showcase {
-    margin: 0 -10px;
-    padding: 17px 12px 20px;
-    border-radius: 7px;
   }
   .preview-controls {
     gap: 2px;
     margin-bottom: 18px;
   }
   .preview-tab {
-    font-size: 11px;
+    font-size: 13px;
     padding: 9px 13px;
   }
   .preview-window {
     border-radius: 4px;
   }
   .app-preview figcaption {
-    font-size: 10px;
+    font-size: 12px;
     line-height: 1.5;
     margin-top: 15px;
   }
   .preview-description {
-    font-size: 11px;
+    font-size: 13px;
     line-height: 1.6;
     margin-top: 10px;
     min-height: 36px;
   }
-  .feature-list {
-    grid-template-columns: 1fr;
-    gap: 29px;
-    margin-top: 36px;
-  }
-  .feature-list article {
-    display: grid;
-    grid-template-columns: 30px 1fr;
-    column-gap: 18px;
-  }
-  .feature-list article > svg {
-    grid-row: 1/3;
-    width: 25px;
-    height: 25px;
-    margin-top: 4px;
-  }
-  .feature-list h3 {
-    font-size: 26px;
-    margin-bottom: 6px;
-  }
-  .feature-list p {
-    font-size: 13px;
-    max-width: 380px;
-  }
-  .next-layout {
-    grid-template-columns: 1fr;
-    gap: 45px;
-    padding-top: 59px;
-    padding-bottom: 46px;
-  }
-  .next-copy h2 {
-    font-size: 43px;
-  }
-  .next-copy p {
-    font-size: 12px;
-  }
   .development-label {
-    font-size: 9px;
-  }
-  .reader-illustration {
-    max-width: 350px;
-    width: 100%;
-    margin: auto;
-  }
-  .open-page {
-    padding: 22px;
-  }
-  .open-right .page-lines {
-    height: 125px;
-  }
-  .reader-illustration > p {
-    margin-top: 20px;
+    font-size: 12px;
   }
   .downloads {
     padding-top: 64px;
@@ -1263,7 +1010,7 @@ h2 {
     font-size: 51px;
   }
   .download-heading p {
-    font-size: 12px;
+    font-size: 13.5px;
   }
   .release-grid {
     grid-template-columns: 1fr;
@@ -1280,7 +1027,7 @@ h2 {
     top: 28px;
   }
   .release-footnote {
-    font-size: 10px;
+    font-size: 12px;
     max-width: 280px;
     margin: 22px auto 0;
   }
@@ -1308,10 +1055,7 @@ h2 {
   .site-footer p {
     order: 3;
     flex: 0 0 100%;
-    font-size: 10px;
-  }
-  .site-footer > a:last-child {
-    margin-left: auto;
+    font-size: 12px;
   }
   .desktop-break {
     display: none;
@@ -1328,7 +1072,7 @@ h2 {
     min-height: 785px;
   }
   .intro-line {
-    font-size: 9px;
+    font-size: 12px;
   }
   .hero-availability {
     max-width: 210px;
@@ -1345,12 +1089,6 @@ h2 {
   }
   .preview-tab {
     padding-inline: 10px;
-  }
-  .open-page {
-    padding: 19px;
-  }
-  .open-right .page-lines {
-    height: 105px;
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -1393,5 +1131,120 @@ h2 {
   }
   .book-front {
     transform: none;
+  }
+}
+
+/* Launch additions: privacy promise, footer links and configuration markers. */
+.privacy-promise {
+  display: grid;
+  grid-template-columns: 1fr 1.4fr;
+  gap: 80px;
+  padding-top: 112px;
+  padding-bottom: 72px;
+}
+.privacy-heading h2 {
+  font-size: 43px;
+  line-height: 1.13;
+  margin-bottom: 22px;
+}
+.privacy-heading p {
+  color: var(--muted);
+  font-size: 15px;
+  max-width: 380px;
+}
+.privacy-heading .text-link {
+  font-size: 14px;
+}
+.privacy-points {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 48px;
+}
+.privacy-points li {
+  border-top: 1px solid var(--line);
+  padding: 24px 0 30px;
+}
+.privacy-points h3 {
+  font: 25px/1.15 var(--serif);
+  font-weight: 400;
+  margin-bottom: 10px;
+}
+.privacy-points p {
+  color: var(--muted);
+  font-size: 14px;
+}
+.questions-more {
+  grid-column: 2;
+  font-size: 14px;
+  color: var(--muted);
+  margin-top: -50px;
+}
+.questions-more a,
+.prose a,
+.site-footer .footer-links a {
+  text-decoration: underline;
+  text-decoration-color: #72948480;
+  text-underline-offset: 4px;
+}
+.questions-more a:hover,
+.prose a:hover,
+.site-footer .footer-links a:hover {
+  text-decoration-color: currentColor;
+}
+.site-footer {
+  /* Leave room for the fixed animation control in the bottom-right corner. */
+  padding-right: 112px;
+}
+.site-footer .footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 28px;
+  font-size: 13px;
+}
+.site-footer .footer-links a {
+  padding-block: 10px;
+  text-decoration-color: transparent;
+}
+.pending-config {
+  border: 1px dashed #a8742a;
+  background: #fbefd2;
+  color: #5b3b07;
+  border-radius: 3px;
+  padding: 0 5px;
+  font-size: 0.9em;
+  white-space: nowrap;
+}
+@media (max-width: 1100px) {
+  .privacy-promise {
+    grid-template-columns: 1fr;
+    gap: 36px;
+    padding-top: 80px;
+  }
+  .questions-more {
+    grid-column: 1;
+    margin-top: 0;
+  }
+}
+@media (max-width: 760px) {
+  .privacy-promise {
+    padding-top: 64px;
+    padding-bottom: 40px;
+  }
+  .privacy-heading h2 {
+    font-size: 39px;
+  }
+  .privacy-points {
+    grid-template-columns: 1fr;
+  }
+  .site-footer {
+    padding-right: 25px;
+    padding-bottom: 88px;
+  }
+  .site-footer .footer-links {
+    order: 4;
+    flex: 0 0 100%;
   }
 }

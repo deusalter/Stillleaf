@@ -25,7 +25,7 @@
 }
 .story-copy .story-instruction {
   margin-top: 30px;
-  font-size: 11px;
+  font-size: 13px;
 }
 .scroll-instruction {
   display: none;
@@ -48,36 +48,6 @@
   min-height: 100svh;
   padding-top: 54px;
   padding-bottom: 54px;
-}
-.story-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  align-items: center;
-  margin-top: 20px;
-}
-.follow-scroll {
-  color: inherit;
-  background: transparent;
-  border: 0;
-  border-bottom: 1px solid #8ca99a;
-  padding: 8px 0;
-  font-size: 11px;
-  min-height: 34px;
-}
-.follow-scroll[aria-pressed="true"]:before {
-  content: "";
-  display: inline-block;
-  width: 5px;
-  height: 5px;
-  background: currentColor;
-  border-radius: 50%;
-  margin-right: 7px;
-  vertical-align: 1px;
-}
-.story-actions .motion-control {
-  font-size: 10px;
-  min-height: 34px;
 }
 .daily-story {
   background: #f5f8f5;
@@ -103,7 +73,7 @@
   letter-spacing: -0.8px;
 }
 .daily-panel-header > span {
-  font-size: 10px;
+  font-size: 12px;
   color: #426858;
   border: 1px solid #afcfc0;
   border-radius: 25px;
@@ -147,7 +117,7 @@
   letter-spacing: -4px;
 }
 .goal-arc-count > span {
-  font-size: 12px;
+  font-size: 13.5px;
   color: #526f64;
   font-weight: 500;
   margin-top: 9px;
@@ -157,7 +127,7 @@
   left: 50%;
   bottom: 4%;
   transform: translateX(-50%);
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 500;
   color: #087d65;
   background: #087d6517;
@@ -175,7 +145,7 @@
   margin-bottom: 9px;
 }
 .daily-goal-copy > p {
-  font-size: 11px;
+  font-size: 13px;
   color: #526f64;
 }
 .sample-book {
@@ -194,7 +164,7 @@
 }
 .sample-book span,
 .sample-book small {
-  font-size: 8px;
+  font-size: 12px;
   color: #526f64;
 }
 .sample-book strong {
@@ -207,7 +177,7 @@
   display: flex;
   justify-content: space-between;
   gap: 15px;
-  font-size: 10px;
+  font-size: 12px;
   color: #526f64;
   margin-bottom: 9px;
 }
@@ -222,7 +192,7 @@ input[type="range"] {
   min-height: 28px;
 }
 .daily-demonstration figcaption {
-  font-size: 10px;
+  font-size: 12px;
   color: var(--muted);
   text-align: center;
   line-height: 1.5;
@@ -238,7 +208,7 @@ input[type="range"] {
   color: #c5d7cb;
 }
 .custom-copy .custom-context {
-  font-size: 11px;
+  font-size: 13px;
   color: #b0c8b9;
   margin-top: 16px;
 }
@@ -251,7 +221,7 @@ input[type="range"] {
   border: 0;
 }
 .theme-choices legend {
-  font-size: 11px;
+  font-size: 13px;
   color: #d6e4d7;
   margin-bottom: 10px;
 }
@@ -269,7 +239,7 @@ input[type="range"] {
   border: 1px solid #79978670;
   padding: 10px 12px;
   border-radius: 5px;
-  font-size: 11px;
+  font-size: 13px;
   min-height: 42px;
   text-align: left;
 }
@@ -288,17 +258,17 @@ input[type="range"] {
   border-radius: 50%;
   box-shadow: inset 0 0 0 1px #ffffff30;
 }
-.swatch-sea-glass {
-  background: #dce9e0;
+.swatch-stillleaf {
+  background: #f0f7f3;
 }
-.swatch-paper {
-  background: #f2e9d8;
+.swatch-warm {
+  background: #f6f1e3;
 }
 .swatch-dusk {
-  background: #49414d;
+  background: #25212e;
 }
-.swatch-midnight {
-  background: #142923;
+.swatch-night {
+  background: #000;
 }
 .reader-setting-row {
   display: grid;
@@ -307,7 +277,7 @@ input[type="range"] {
   margin-top: 16px;
 }
 .reader-setting-row label {
-  font-size: 10px;
+  font-size: 12px;
   color: #c1d4c5;
 }
 .reader-setting-row output {
@@ -325,16 +295,12 @@ input[type="range"] {
   border-radius: 4px;
   padding: 6px 9px;
   font:
-    11px "DM Sans",
+    13px "DM Sans",
     sans-serif;
 }
 .reader-setting-row input {
   accent-color: #b9d6b9;
   margin-top: 12px;
-}
-.custom-copy .story-actions {
-  color: #c9dccd;
-  margin-top: 18px;
 }
 .custom-copy .motion-control {
   background: #ffffff08;
@@ -350,11 +316,12 @@ input[type="range"] {
   min-width: 0;
 }
 .reader-window {
-  --page-background: #dce9e0;
-  --page-ink: #244338;
-  --page-muted: #4d695b;
-  --page-rule: #24433824;
-  --reader-font: "Instrument Serif", Georgia, serif;
+  /* Page colours match THEMES in Reader/desktop/reader/src/appearance.js. */
+  --page-background: #f0f7f3;
+  --page-ink: #0e2c24;
+  --page-muted: #43605a;
+  --page-rule: #0e2c2424;
+  --reader-font: ui-serif, "New York", Georgia, serif;
   --reader-leading: 1.8;
   background: var(--page-background);
   color: var(--page-ink);
@@ -367,29 +334,29 @@ input[type="range"] {
 .showcase-animating {
   --showcase-transition: 420ms;
 }
-.reader-window[data-reader-theme="paper"] {
-  --page-background: #f2e9d8;
-  --page-ink: #4e4030;
-  --page-muted: #716249;
-  --page-rule: #4e403024;
+.reader-window[data-reader-theme="warm"] {
+  --page-background: #f6f1e3;
+  --page-ink: #28241a;
+  --page-muted: #5c5543;
+  --page-rule: #28241a24;
 }
 .reader-window[data-reader-theme="dusk"] {
-  --page-background: #49414d;
-  --page-ink: #f1e7e7;
-  --page-muted: #dbccd9;
-  --page-rule: #f1e7e72b;
+  --page-background: #25212e;
+  --page-ink: #f7f1fa;
+  --page-muted: #d9cfe0;
+  --page-rule: #f7f1fa2b;
 }
-.reader-window[data-reader-theme="midnight"] {
-  --page-background: #142923;
-  --page-ink: #e0e9d8;
-  --page-muted: #b6c8b4;
-  --page-rule: #e0e9d829;
+.reader-window[data-reader-theme="night"] {
+  --page-background: #000;
+  --page-ink: #ececee;
+  --page-muted: #a2a2a8;
+  --page-rule: #ececee29;
 }
-.reader-window[data-reader-font="classic"] {
+.reader-window[data-reader-font="georgia"] {
   --reader-font: Georgia, "Times New Roman", serif;
 }
-.reader-window[data-reader-font="modern"] {
-  --reader-font: "DM Sans", sans-serif;
+.reader-window[data-reader-font="sans"] {
+  --reader-font: system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 .reader-toolbar,
 .reader-window-footer {
@@ -401,7 +368,7 @@ input[type="range"] {
   padding: 12px 25px;
   color: var(--page-muted);
   border-bottom: 1px solid var(--page-rule);
-  font-size: 10px;
+  font-size: 12px;
 }
 .reader-bookmark {
   font-size: 23px;
@@ -414,12 +381,12 @@ input[type="range"] {
 }
 .reader-passage {
   padding: 34px 46px 32px;
-  font: 18px / var(--reader-leading) var(--reader-font);
+  font: 16.5px / var(--reader-leading) var(--reader-font);
   min-height: 428px;
 }
 .reader-passage .passage-chapter {
   font:
-    10px "DM Sans",
+    13.5px "DM Sans",
     sans-serif;
   color: var(--page-muted);
   letter-spacing: 0.3px;
@@ -428,7 +395,7 @@ input[type="range"] {
 .reader-passage h3 {
   font-family: var(--reader-font);
   font-weight: 400;
-  font-size: 39px;
+  font-size: 32px;
   line-height: 1.14;
   margin-bottom: 23px;
   letter-spacing: -0.4px;
@@ -437,34 +404,34 @@ input[type="range"] {
   font: inherit;
   margin-top: 17px;
 }
-.reader-window[data-reader-font="modern"] .reader-passage {
+.reader-window[data-reader-font="sans"] .reader-passage {
   font-size: 15px;
 }
-.reader-window[data-reader-font="classic"] .reader-passage {
+.reader-window[data-reader-font="georgia"] .reader-passage {
   font-size: 15.5px;
 }
-.reader-window[data-reader-font="modern"] .reader-passage h3 {
+.reader-window[data-reader-font="sans"] .reader-passage h3 {
   font-size: 30px;
   letter-spacing: -0.8px;
 }
-.reader-window[data-reader-font="classic"] .reader-passage h3 {
+.reader-window[data-reader-font="georgia"] .reader-passage h3 {
   font-size: 33px;
 }
 .reader-window-footer {
   border-top: 1px solid var(--page-rule);
   border-bottom: 0;
   min-height: 42px;
-  font-size: 9px;
+  font-size: 12px;
 }
 .reader-demonstration figcaption {
-  font-size: 9px;
+  font-size: 12px;
   color: #c0d3c3;
   line-height: 1.5;
   text-align: center;
   margin-top: 17px;
 }
 .reader-mood-description {
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.5;
   color: #c7d9c9;
   text-align: center;
@@ -493,13 +460,13 @@ input[type="range"] {
   margin-bottom: 8px;
 }
 .mobile-roadmap p {
-  font-size: 12px;
+  font-size: 13.5px;
   color: #52695f;
 }
 .mobile-roadmap p span {
   display: inline-block;
   margin-left: 12px;
-  font-size: 10px;
+  font-size: 12px;
   color: #365d45;
   padding: 2px 8px;
   border: 1px solid #b5cfc2;
@@ -507,7 +474,7 @@ input[type="range"] {
 }
 .mobile-roadmap small {
   display: block;
-  font-size: 10px;
+  font-size: 12px;
   color: #52695f;
   margin-top: 6px;
 }
@@ -538,7 +505,7 @@ input[type="range"] {
     display: none;
   }
   .daily-goal-copy > p {
-    font-size: 10px;
+    font-size: 12px;
   }
   .reader-passage {
     padding-inline: 30px;
@@ -559,10 +526,10 @@ input[type="range"] {
     margin-block: 17px;
   }
   .custom-copy > p {
-    font-size: 12px;
+    font-size: 13.5px;
   }
   .custom-copy .custom-context {
-    font-size: 10px;
+    font-size: 12px;
     margin-top: 11px;
   }
   .reader-options {
@@ -617,9 +584,6 @@ input[type="range"] {
   .story-copy .story-instruction {
     margin-top: 20px;
   }
-  .story-actions .follow-scroll {
-    display: none;
-  }
   .daily-panel {
     padding: 20px;
   }
@@ -640,16 +604,16 @@ input[type="range"] {
     font-size: 19px;
   }
   .daily-goal-copy > p {
-    font-size: 11px;
+    font-size: 13px;
   }
   .daily-panel-header strong {
     font-size: 27px;
   }
   .daily-preview-input label {
-    font-size: 10px;
+    font-size: 12px;
   }
   .daily-demonstration figcaption {
-    font-size: 9px;
+    font-size: 12px;
     max-width: 280px;
     margin: 15px auto 0;
   }
@@ -658,7 +622,7 @@ input[type="range"] {
     max-width: 440px;
   }
   .custom-copy .custom-context {
-    font-size: 12px;
+    font-size: 13.5px;
     line-height: 1.7;
   }
   .theme-choice-grid {
@@ -666,30 +630,27 @@ input[type="range"] {
   }
   .theme-choice-grid button {
     min-height: 45px;
-    font-size: 12px;
+    font-size: 13.5px;
   }
   .reader-setting-row {
     gap: 17px;
   }
   .reader-setting-row label {
-    font-size: 11px;
+    font-size: 13px;
   }
   .reader-setting-row select {
-    font-size: 12px;
+    font-size: 13.5px;
     min-height: 42px;
   }
   .reader-setting-row input {
     margin-top: 14px;
-  }
-  .custom-copy .story-actions {
-    margin-top: 0;
   }
   .reader-window {
     border-radius: 7px;
   }
   .reader-toolbar {
     padding-inline: 20px;
-    font-size: 9px;
+    font-size: 12px;
     min-height: 47px;
   }
   .reader-passage {
@@ -700,24 +661,24 @@ input[type="range"] {
   .reader-passage h3 {
     font-size: 36px;
   }
-  .reader-window[data-reader-font="modern"] .reader-passage {
+  .reader-window[data-reader-font="sans"] .reader-passage {
     font-size: 15px;
   }
-  .reader-window[data-reader-font="classic"] .reader-passage {
+  .reader-window[data-reader-font="georgia"] .reader-passage {
     font-size: 16px;
   }
   .reader-window-footer {
     padding-inline: 20px;
-    font-size: 8px;
+    font-size: 12px;
     gap: 7px;
   }
   .reader-demonstration figcaption {
-    font-size: 9px;
+    font-size: 12px;
     max-width: 290px;
     margin: 17px auto 0;
   }
   .reader-mood-description {
-    font-size: 11px;
+    font-size: 13px;
   }
   .mobile-roadmap {
     margin-top: 36px;
@@ -729,13 +690,13 @@ input[type="range"] {
     font-size: 25px;
   }
   .mobile-roadmap p {
-    font-size: 11px;
+    font-size: 13px;
   }
   .mobile-roadmap p span {
-    font-size: 9px;
+    font-size: 12px;
   }
   .mobile-roadmap small {
-    font-size: 9px;
+    font-size: 12px;
   }
   .scroll-instruction {
     display: none !important;
@@ -760,9 +721,6 @@ input[type="range"] {
   }
   .static-instruction {
     display: inline !important;
-  }
-  .follow-scroll {
-    display: none;
   }
 }
 
@@ -828,7 +786,7 @@ input[type="range"] {
 .daily-preview-input > summary {
   color: #426858;
   cursor: pointer;
-  font-size: 11px;
+  font-size: 13px;
   padding: 3px 0;
 }
 .daily-preview-input[open] > summary {
@@ -942,7 +900,7 @@ input[type="range"] {
   border: 1px solid #b5cfc2;
   padding: 7px 10px;
   border-radius: 5px;
-  font-size: 11px;
+  font-size: 13px;
 }
 
 /* A single persistent stage carries the daily arc into the reading page. */
@@ -998,7 +956,9 @@ input[type="range"] {
 .journey-running .reader-scroll-anchor {
   display: block;
   position: absolute;
-  top: calc(204.6svh + 32px);
+  /* 0.662 of the 330svh scroll distance: reader copy fully shown, before the
+     first page-colour change (readerSettledProgress in showcase.js). */
+  top: calc(218.5svh + 32px);
 }
 .journey-running .reading-journey .product-story {
   position: absolute;
@@ -1027,6 +987,11 @@ input[type="range"] {
 .journey-running .daily-story .story-copy {
   opacity: var(--daily-copy, 1);
   transform: translateY(calc(var(--journey-blend, 0) * -32px));
+}
+.journey-running .reader-demonstration figcaption,
+.journey-running .reader-mood-description {
+  /* Pale captions wait for the dark background, like the reader copy. */
+  opacity: var(--reader-copy, 0);
 }
 .journey-running .customization-story .story-copy {
   opacity: var(--reader-copy, 0);
@@ -1096,12 +1061,6 @@ input[type="range"] {
     #dfe9df 700px,
     #f5f8f5 100%
   );
-}
-.journal-proof .section-intro {
-  color: #f1f5e9;
-}
-.journal-proof .section-description p {
-  color: #d3dfcf;
 }
 .journal-proof .status-note {
   color: #d3dfcf;
@@ -1197,7 +1156,7 @@ input[type="range"] {
   left: 0;
   opacity: 0;
   pointer-events: none;
-  font-size: 12px;
+  font-size: 13.5px;
   padding: 12px;
   color: #234338;
   background: #f5f8f5;

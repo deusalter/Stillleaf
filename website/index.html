@@ -6,27 +6,34 @@
     <meta name="theme-color" content="#e5eeea" />
     <meta
       name="description"
-      content="Stillleaf brings EPUB reading, a personal journal, and reading progress together. In development for Mac and Windows, with optional external-reader connections."
+      content="Stillleaf is a quiet reading journal for your Mac’s menu bar, with a built-in offline EPUB reader, daily goals, and private reviews. Your reading stays on your Mac."
     />
-    <meta name="robots" content="noindex, nofollow" />
+    <title>Stillleaf: Make room for reading</title>
+    <link rel="icon" href="/favicon.ico" sizes="32x32" />
     <link rel="icon" type="image/svg+xml" href="/leaf.svg" />
-    <title>Stillleaf — Make room for reading</title>
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Stillleaf" />
+    <meta property="og:title" content="Stillleaf: Make room for reading" />
+    <meta
+      property="og:description"
+      content="A reading journal and offline EPUB reader for your Mac. Daily goals, a Library, a Timeline of finished books, and private reviews."
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "Stillleaf",
+        "applicationCategory": "LifestyleApplication",
+        "operatingSystem": "macOS 13 or later",
+        "description": "A reading journal and offline EPUB reader for the Mac menu bar. Reading history stays on your Mac."
+      }
+    </script>
   </head>
   <body class="motion-paused">
-    <a class="skip-link" href="#main">Skip to content</a>
-    <header class="site-header">
-      <a class="wordmark" href="#" aria-label="Stillleaf home">
-        <svg class="brand-mark" viewBox="0 0 100 100" fill="currentColor" aria-hidden="true"><use href="/leaf.svg#pageleaf" /></svg>
-        <span>Stillleaf</span>
-      </a>
-      <nav aria-label="Main navigation">
-        <a href="#daily-reading">The journal</a>
-        <a href="#next-chapter">What’s next</a>
-        <a class="nav-release" href="#downloads"
-          >Get Stillleaf <span aria-hidden="true">↗</span></a
-        >
-      </nav>
-    </header>
+    {{site-header}}
 
     <main id="main" tabindex="-1">
       <section class="hero" aria-labelledby="hero-title">
@@ -114,7 +121,7 @@
           </p>
           <h1 id="hero-title">Make room<br />for reading.</h1>
           <p class="hero-description">
-            An EPUB reader and reading journal, together.<br
+            A reading journal and EPUB reader for your Mac.<br
               class="desktop-break"
             />
             For the books you read and the thoughts they leave.
@@ -130,7 +137,7 @@
                 stroke-linejoin="round"
               /></svg
           ></a>
-          <p class="hero-availability">In development for Mac and Windows.</p>
+          <p class="hero-availability">Coming soon for Mac.</p>
         </div>
         <div class="hero-foot">
           <a class="quiet-link" href="#daily-reading"
@@ -274,44 +281,42 @@
           >
             <div class="story-stage section-wrap">
               <div class="story-copy custom-copy">
-                <span class="development-label"
-                  >Reader preview · In development</span
-                >
+                <span class="development-label">The built-in reader</span>
                 <h2 id="next-title">Settle into<br />your kind of page.</h2>
                 <p>
-                  A different light. A familiar typeface. A little more room
-                  between the lines. Make the page feel like a place you want to
-                  stay.
+                  Import your EPUBs and read them right in Stillleaf, offline.
+                  Choose the light, the typeface, and the room between the
+                  lines.
                 </p>
                 <p class="custom-context">
-                  We’re bringing EPUB reading and your journal together on Mac
-                  and Windows, with optional connections to other readers.
+                  Pages and reading time count toward your goal as you read.
+                  Notes and bookmarks stay with the book.
                 </p>
                 <div class="reader-options" hidden>
                   <fieldset class="theme-choices">
-                    <legend>Try a reading mood</legend>
+                    <legend>Try a page colour</legend>
                     <div class="theme-choice-grid">
                       <button
                         type="button"
-                        data-theme-choice="sea-glass"
+                        data-theme-choice="stillleaf"
                         aria-pressed="true"
                       >
                         <span
-                          class="theme-swatch swatch-sea-glass"
+                          class="theme-swatch swatch-stillleaf"
                           aria-hidden="true"
                         ></span
-                        >Sea glass
+                        >Stillleaf
                       </button>
                       <button
                         type="button"
-                        data-theme-choice="paper"
+                        data-theme-choice="warm"
                         aria-pressed="false"
                       >
                         <span
-                          class="theme-swatch swatch-paper"
+                          class="theme-swatch swatch-warm"
                           aria-hidden="true"
                         ></span
-                        >Paper
+                        >Warm
                       </button>
                       <button
                         type="button"
@@ -326,23 +331,23 @@
                       </button>
                       <button
                         type="button"
-                        data-theme-choice="midnight"
+                        data-theme-choice="night"
                         aria-pressed="false"
                       >
                         <span
-                          class="theme-swatch swatch-midnight"
+                          class="theme-swatch swatch-night"
                           aria-hidden="true"
                         ></span
-                        >Midnight
+                        >Night
                       </button>
                     </div>
                   </fieldset>
                   <div class="reader-setting-row">
                     <label for="reader-font"
                       >Typeface<select id="reader-font">
-                        <option value="literary">Literary serif</option>
-                        <option value="classic">Classic serif</option>
-                        <option value="modern">Modern sans</option>
+                        <option value="newyork">New York</option>
+                        <option value="georgia">Georgia</option>
+                        <option value="sans">San Francisco</option>
                       </select></label
                     ><label for="reader-spacing"
                       >Line spacing
@@ -365,8 +370,8 @@
               <figure class="reader-demonstration">
                 <div
                   class="reader-window"
-                  data-reader-theme="sea-glass"
-                  data-reader-font="literary"
+                  data-reader-theme="stillleaf"
+                  data-reader-font="newyork"
                 >
                   <div class="reader-toolbar">
                     <span class="reader-bookmark" aria-hidden="true">⌑</span
@@ -392,18 +397,18 @@
                     <p>There was still a little of the day left.</p>
                   </article>
                   <div class="reader-window-footer">
-                    <span id="reader-look-name">Sea glass</span
+                    <span id="reader-look-name">Stillleaf</span
                     ><span id="reader-look-detail"
-                      >Literary serif · 1.8 spacing</span
+                      >New York, 1.8 line spacing</span
                     >
                   </div>
                 </div>
                 <figcaption>
-                  Illustrative customization preview. Reader settings are in
-                  development.
+                  Page colours from the Stillleaf reader, with an original
+                  sample passage. Typefaces use your device’s closest match.
                 </figcaption>
                 <p class="reader-mood-description" id="reader-mood-description">
-                  Soft green light, with room for each line to breathe.
+                  Soft green paper and dark ink, Stillleaf’s own page.
                 </p>
               </figure>
             </div>
@@ -521,24 +526,31 @@
           </div>
           <div class="journal-thread">
             <article>
-              <h3>A shelf that’s yours.</h3>
+              <h3>Library</h3>
               <p>
-                Gather your books in Library. Let Timeline remember the ones you
-                finish.
+                Every book you’re reading or have read, with its cover, pages,
+                time, and dates.
               </p>
             </article>
             <article>
-              <h3>Small days add up.</h3>
+              <h3>Timeline</h3>
               <p>
-                Daily pages or minutes. An optional yearly books goal. Room to
-                find your rhythm.
+                The books you finish, in order. Mark one finished and Stillleaf
+                keeps the date.
               </p>
             </article>
             <article>
-              <h3>Keep your own words.</h3>
+              <h3>History</h3>
               <p>
-                Write a personal review, with a rating if you like. Remember
-                what stayed with you.
+                Your reading by day, week, month, and year. Pick a date to see
+                what you read.
+              </p>
+            </article>
+            <article>
+              <h3>Reviews</h3>
+              <p>
+                Private written reviews, with an optional rating in quarter
+                stars.
               </p>
             </article>
           </div>
@@ -621,80 +633,90 @@
                 <h2 id="downloads-title">A home for your<br />next chapter.</h2>
               </div>
               <p>
-                Stillleaf’s next release is taking shape. Downloads will appear
-                here when it’s ready.
+                Stillleaf for Mac is nearly ready. The download will appear here
+                when the release is published.
               </p>
             </div>
             <div class="release-grid" id="release-grid">
-              <article class="release-card">
+              <article class="release-card is-primary">
                 <h3>Stillleaf for Mac</h3>
                 <p>
-                  The reading journal exists today. The integrated EPUB reader
-                  is in development.
+                  The menu-bar reading journal with its built-in EPUB reader.
+                  Requires macOS 13 Ventura or later.
                 </p>
-                <p class="release-state">
-                  In development · Download not yet available
-                </p>
+                <p class="release-state">Download not yet available</p>
               </article>
               <article class="release-card">
                 <h3>Stillleaf for Windows</h3>
-                <p>
-                  The Windows app is in development. A verified Windows release
-                  is not available yet.
-                </p>
-                <p class="release-state">
-                  In development · Download not yet available
-                </p>
+                <p>In development. There is no release date yet.</p>
+                <p class="release-state">Download not yet available</p>
               </article>
             </div>
-            <p class="release-footnote">
-              This is a local website preview. No public downloads are available
-              here.
-            </p>
-            <div
-              class="mobile-roadmap closing-mobile"
-              aria-label="Mobile roadmap"
-            >
-              <svg viewBox="0 0 24 32" fill="none" aria-hidden="true">
-                <rect
-                  x="4"
-                  y="1"
-                  width="16"
-                  height="29"
-                  rx="3"
-                  stroke="currentColor"
-                  stroke-width="1.3"
-                />
-                <path
-                  d="M9 5h6M10 26h4"
-                  stroke="currentColor"
-                  stroke-width="1.3"
-                  stroke-linecap="round"
-                />
-              </svg>
-              <div>
-                <h3>A little further, in time.</h3>
-                <p>Android and iOS <span>Coming soon</span></p>
-                <small>On the roadmap. No release date announced yet.</small>
-              </div>
-            </div>
+            <p class="release-footnote">{{release-note}}</p>
+            {{ios}}
           </div>
         </section>
       </div>
+
+      <section
+        class="privacy-promise section-wrap"
+        id="privacy"
+        aria-labelledby="privacy-title"
+      >
+        <div class="privacy-heading">
+          <h2 id="privacy-title">Your reading<br />stays on your Mac.</h2>
+          <p>
+            No account, no analytics, no ads. Your history, reviews, and books
+            are files on your Mac that you can export, back up, or delete.
+          </p>
+          <a class="text-link" href="/privacy/">Read the privacy policy</a>
+        </div>
+        <ul class="privacy-points">
+          <li>
+            <h3>Nothing to sign up for</h3>
+            <p>
+              Stillleaf has no accounts and no servers of its own. It works
+              offline.
+            </p>
+          </li>
+          <li>
+            <h3>Apple Books, if you want it</h3>
+            <p>
+              With Accessibility permission, Stillleaf can notice when you read
+              in Apple Books. It never changes your Books library.
+            </p>
+          </li>
+          <li>
+            <h3>Discord, off by default</h3>
+            <p>
+              Turn it on to show what you’re reading on your Discord profile.
+              Turn it off and the card disappears.
+            </p>
+          </li>
+          <li>
+            <h3>Yours to take with you</h3>
+            <p>
+              Export to JSON or CSV, make backups, or delete everything from
+              Settings.
+            </p>
+          </li>
+        </ul>
+      </section>
 
       <section class="questions section-wrap" aria-labelledby="questions-title">
         <h2 id="questions-title">A few things<br />you might wonder.</h2>
         <div class="question-list">
           <details>
             <summary>
-              What can Stillleaf do today?<span aria-hidden="true">+</span>
+              Which books can I read in Stillleaf?<span aria-hidden="true"
+                >+</span
+              >
             </summary>
             <p>
-              The current native Mac app is a reading tracker and journal. It
-              includes a Library, a completion Timeline, reading history, daily
-              and yearly goals, personal written reviews, optional ratings, and
-              optional Discord presence. The integrated EPUB reader is still in
-              development.
+              DRM-free EPUB 2 and EPUB 3 files. Import them from Library and
+              read offline. Books protected by DRM, including Apple Books Store
+              purchases, can’t be opened. You can still track those in Apple
+              Books.
             </p>
           </details>
           <details>
@@ -702,49 +724,54 @@
               Can I keep using Apple Books?<span aria-hidden="true">+</span>
             </summary>
             <p>
-              Yes. The current Mac journal can track supported Apple Books
-              reading windows with Accessibility permission. Tracking pauses
-              when the reader cannot be identified reliably. Manual reading
-              records are also available. These options remain alongside the
-              built-in reader as it develops.
+              Yes. Optional Apple Books tracking notices supported Apple Books
+              reading windows once you allow Accessibility access. It pauses
+              when it can’t identify the book reliably. You can also add reading
+              sessions by hand, including paper books.
             </p>
           </details>
           <details>
             <summary>
-              Where does my journal live?<span aria-hidden="true">+</span>
-            </summary>
-            <p>
-              The current Mac journal stores reading history and written reviews
-              locally on your Mac, with export and backup tools. Discord sharing
-              is optional and off by default. These describe the current Mac
-              app; details for future releases will be confirmed before
-              download.
-            </p>
-          </details>
-          <details>
-            <summary>
-              Can I read EPUBs in Stillleaf yet?<span aria-hidden="true"
+              Does Stillleaf need the internet?<span aria-hidden="true"
                 >+</span
               >
             </summary>
             <p>
-              Not yet. The built-in offline EPUB reader is in development for
-              Mac and Windows. It is planned to import local EPUBs and use their
-              embedded covers. There is no release date to announce yet.
+              No. Reading, goals, and your journal work offline. Searching for a
+              book to add by hand asks Open Library, and the optional cover
+              lookup asks Apple’s public catalogue. Both happen only when you
+              use them.
+            </p>
+          </details>
+          <details>
+            <summary>
+              How are pages and reading time counted?<span aria-hidden="true"
+                >+</span
+              >
+            </summary>
+            <p>
+              In the built-in reader, Stillleaf counts the pages you move
+              through and the time you spend with the book open. It is a record
+              of reading activity, not a measure of attention. Pick pages or
+              minutes for your daily goal.
+            </p>
+          </details>
+          <details>
+            <summary>
+              What will iPhone and iPad bring?<span aria-hidden="true">+</span>
+            </summary>
+            <p>
+              An iPhone and iPad version is in development. We’ll share details
+              and availability here when it’s ready.
             </p>
           </details>
         </div>
+        <p class="questions-more">
+          More answers on the <a href="/support/">support page</a>.
+        </p>
       </section>
     </main>
-    <footer class="site-footer section-wrap">
-      <a class="wordmark" href="#" aria-label="Stillleaf home"
-        ><img src="/leaf.svg" alt="" width="30" height="32" /><span
-          >Stillleaf</span
-        ></a
-      >
-      <p>A little space for a life with books.</p>
-      <a href="#downloads">Release status</a>
-    </footer>
+    {{site-footer}}
     <button
       class="motion-control"
       id="motion-toggle"
