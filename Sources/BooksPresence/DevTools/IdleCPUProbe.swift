@@ -169,12 +169,13 @@ private func seedIdleHistory(at support: URL) throws {
         let session = "session-\(index / 3)"
         archive.intervals.append(ReadingInterval(sessionID: session, bookID: book.id, start: start,
             end: start.addingTimeInterval(900), duration: 900, timezoneID: "America/Los_Angeles", mode: .automatic))
+        // Page evidence sits at the end of its session interval, as the tracker records it.
+        archive.events.append(AuditEvent(date: start.addingTimeInterval(900), kind: "pageTurn",
+            bookID: book.id, sessionID: session, detail: "Synthetic idle fixture",
+            pageTurn: PageTurnEvidence(fromPage: index + 1, toPage: index + 3, pagesRead: 2, visiblePages: 1, layoutSignature: "fixture")))
         if index < 5000 {
-            for turn in 0..<2 {
-                archive.events.append(AuditEvent(date: start.addingTimeInterval(Double(300 + turn * 300)), kind: "pageTurn",
-                    bookID: book.id, sessionID: session, detail: "Synthetic idle fixture",
-                    pageTurn: PageTurnEvidence(fromPage: index + turn + 1, toPage: index + turn + 3, pagesRead: 2, visiblePages: 1, layoutSignature: "fixture")))
-            }
+            archive.events.append(AuditEvent(date: start.addingTimeInterval(900), kind: "trackingPaused", bookID: book.id,
+                sessionID: session, detail: "reason=background;lastTrusted=\(start.addingTimeInterval(900).timeIntervalSince1970)"))
         }
     }
     for (index, book) in archive.books.prefix(40).enumerated() {
