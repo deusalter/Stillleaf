@@ -1,0 +1,139 @@
+#!/usr/bin/env python3
+"""Generate THIRD_PARTY_NOTICES.md for everything shipped inside Stillleaf.app.
+
+Usage: generate-third-party-notices.py [--check]
+
+Licence texts come from the reader's installed node_modules (run scripts/build-reader-assets.sh
+first), the shipped font licences in Reader/desktop/reader/public/font-licenses, and
+assets/licenses for code that @readium/* already compiled into its own dist. Versions come from
+package-lock.json and from Readium's embedded package folders. --check exits non-zero when the
+committed file is stale, for example after a dependency update.
+"""
+import json
+import re
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+READER = ROOT / 'Reader/desktop/reader'
+MODULES = READER / 'node_modules'
+OUTPUT = ROOT / 'THIRD_PARTY_NOTICES.md'
+
+# (package, licence, licence-text package, note). Packages without their own LICENSE file reuse
+# the identical Readium Foundation BSD text that their package.json names.
+PACKAGES = [
+    ('@readium/navigator', 'BSD-3-Clause', '@readium/navigator', None),
+    ('@readium/shared', 'BSD-3-Clause', '@readium/shared', None),
+    ('@readium/decorator', 'BSD-3-Clause', '@readium/decorator', None),
+    ('@readium/navigator-html-injectables', 'BSD-3-Clause', '@readium/navigator',
+     'Its package declares BSD-3-Clause but ships no LICENSE file; the Readium Foundation text applies.'),
+    ('@readium/helpers', 'BSD-3-Clause', '@readium/navigator',
+     'Its package declares BSD-3-Clause but ships no LICENSE file; the Readium Foundation text applies.'),
+    ('dompurify', 'Apache-2.0', 'dompurify',
+     'DOMPurify is dual-licensed (MPL-2.0 OR Apache-2.0). Stillleaf uses it under Apache-2.0.'),
+    ('css-tree', 'MIT', 'css-tree', None),
+    ('mdn-data', 'CC0-1.0', 'mdn-data', 'CSS syntax data bundled with css-tree.'),
+    ('source-map-js', 'BSD-3-Clause', 'source-map-js', 'Bundled through css-tree.'),
+]
+# Code that @readium/navigator and @readium/shared compile into their published dist.
+EMBEDDED = [
+    ('@readium/css', '@readium_css', 'BSD-3-Clause', 'readium-css'),
+    ('css-selector-generator', 'css-selector-generator', 'MIT', 'css-selector-generator'),
+    ('path-browserify', 'path-browserify', 'MIT', 'path-browserify'),
+]
+FONTS = [
+    ('Literata', 'literata', '@fontsource-variable/literata', None),
+    ('Source Serif 4', 'source-serif', '@fontsource-variable/source-serif-4',
+     "Upstream: Copyright 2014-2021 Adobe (http://www.adobe.com/), with Reserved Font Name 'Source'."),
+    ('Lora', 'lora', '@fontsource-variable/lora', None),
+    ('Libre Baskerville', 'libre-baskerville', '@fontsource/libre-baskerville', None),
+    ('Atkinson Hyperlegible', 'atkinson', '@fontsource/atkinson-hyperlegible', None),
+    ('Inter', 'inter', '@fontsource-variable/inter', None),
+    ('Nunito Sans', 'nunito', '@fontsource-variable/nunito-sans', None),
+    ('Source Sans 3', 'source-sans', '@fontsource-variable/source-sans-3',
+     "Upstream: Copyright 2010-2020 Adobe (http://www.adobe.com/), with Reserved Font Name 'Source'."),
+]
+
+
+def lock_version(name):
+    entry = json.loads((READER / 'package-lock.json').read_text())['packages'].get(f'node_modules/{name}')
+    if not entry:
+        sys.exit(f'{name} is not in Reader/desktop/reader/package-lock.json; update {Path(__file__).name}')
+    return entry['version']
+
+
+def licence_text(package):
+    folder = MODULES / package
+    files = sorted(p for p in folder.iterdir() if p.name.upper().startswith(('LICENSE', 'LICENCE')) and p.name != 'LICENSE-MPL')
+    if not files:
+        sys.exit(f'No licence file in {folder}; run scripts/build-reader-assets.sh first')
+    return files[0].read_text().strip()
+
+
+def embedded_version(folder):
+    pattern = re.compile(re.escape(folder) + r'@(\d+\.\d+\.\d+)$')
+    found = {m.group(1) for path in MODULES.glob('@readium/*/dist/node_modules/.pnpm/*') if (m := pattern.match(path.name))}
+    if len(found) != 1:
+        sys.exit(f'Expected one embedded {folder} version in @readium/*/dist, found {sorted(found) or "none"}')
+    return found.pop()
+
+
+def font_parts(stem):
+    text = (READER / f'public/font-licenses/{stem}-OFL.txt').read_text()
+    copyright, _, licence = text.partition('This Font Software is licensed under the SIL Open Font License')
+    return copyright.strip(), ('This Font Software is licensed under the SIL Open Font License' + licence).strip()
+
+
+def block(text):
+    return '```text\n' + text + '\n```\n'
+
+
+def render():
+    out = ['# Third-party notices\n',
+           'Stillleaf includes the third-party software and fonts listed below inside its app bundle, '
+           'all in the built-in EPUB reader (`Contents/Resources/Reader`). The Swift application links '
+           'only Apple system frameworks and libraries (including the system SQLite and libarchive) and '
+           'has no third-party Swift packages. The Stillleaf icon and artwork are original.\n',
+           f'Generated by `scripts/release/{Path(__file__).name}`; do not edit by hand.\n',
+           '## Fonts\n',
+           'Latin subsets from Fontsource, embedded in the reader bundle. Each font is licensed under the '
+           'SIL Open Font License, Version 1.1. The per-font licence files also ship in '
+           '`Contents/Resources/Reader/font-licenses/`.\n']
+    ofl = None
+    for family, stem, package, note in FONTS:
+        copyright, text = font_parts(stem)
+        if ofl is not None and text != ofl:
+            sys.exit(f'{stem}-OFL.txt differs from the other OFL texts; print each licence separately')
+        ofl = text
+        out.append(f'### {family}\n\n`{package}` {lock_version(package)}, OFL-1.1\n')
+        out.append(block(copyright))
+        if note:
+            out.append(note + '\n')
+    out.append('### SIL Open Font License, Version 1.1\n')
+    out.append(block(ofl))
+    out.append('## JavaScript libraries\n')
+    for package, licence, text_from, note in PACKAGES:
+        out.append(f'### {package} {lock_version(package)}\n\nLicence: {licence}' + (f'. {note}' if note else '') + '\n')
+        out.append(block(licence_text(text_from)))
+    out.append('## Code embedded in Readium packages\n')
+    out.append('These libraries are compiled into the published `@readium/navigator` and `@readium/shared` '
+               'packages. Their licence texts are kept in `assets/licenses/`.\n')
+    for package, folder, licence, stem in EMBEDDED:
+        version = embedded_version(folder)
+        source = ROOT / f'assets/licenses/{stem}-{version}.txt'
+        if not source.is_file():
+            sys.exit(f'Missing {source.relative_to(ROOT)} for embedded {package} {version}')
+        out.append(f'### {package} {version}\n\nLicence: {licence}\n')
+        out.append(block(source.read_text().strip()))
+    return '\n'.join(out)
+
+
+if __name__ == '__main__':
+    text = render()
+    if '--check' in sys.argv:
+        if not OUTPUT.is_file() or OUTPUT.read_text() != text:
+            sys.exit('THIRD_PARTY_NOTICES.md is stale; run scripts/release/generate-third-party-notices.py')
+        print('third-party-notices: up to date')
+    else:
+        OUTPUT.write_text(text)
+        print(f'third-party-notices: wrote {OUTPUT.relative_to(ROOT)}')
