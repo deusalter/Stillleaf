@@ -477,6 +477,12 @@ func measureReaderLifecycle(fixture: URL, cycles: Int) async throws -> (alive: I
         let open = footprint()
         guard await reader?.requestClose() == true else { throw EPUBImportError.invalid("The reader refused to close.") }
         reader = nil
+        // `NSApp.currentEvent` keeps the last event, and with it that event's window, until another
+        // event arrives. Ordinary use supplies one; a parked probe gets none, so it posts one.
+        if let event = NSEvent.otherEvent(with: .applicationDefined, location: .zero, modifierFlags: [], timestamp: 0,
+                                          windowNumber: 0, context: nil, subtype: 0, data1: 0, data2: 0) {
+            NSApp.postEvent(event, atStart: false)
+        }
         try await settle(1.5)
         lines.append(String(format: "reader-memory: cycle %d open %.1f MB, closed %.1f MB (+%.1f MB over no reader), alive %d",
                             cycle, open, footprint(), footprint() - baseline, EPUBReaderWindow.liveObjects.allObjects.count))
@@ -485,7 +491,13 @@ func measureReaderLifecycle(fixture: URL, cycles: Int) async throws -> (alive: I
     let deadline = Date().addingTimeInterval(5)
     while !EPUBReaderWindow.liveObjects.allObjects.isEmpty && Date() < deadline { try await settle(0.2) }
     let alive = EPUBReaderWindow.liveObjects.allObjects.count
-    lines.append("reader-memory: readers and web views alive after closing: \(alive)")
+    let names = EPUBReaderWindow.liveObjects.allObjects.map { String(describing: type(of: $0)) }
+    lines.append("reader-memory: readers and web views alive after closing: \(alive)\(names.isEmpty ? "" : " (" + names.joined(separator: ", ") + ")")")
+    if alive > 0, let seconds = ProcessInfo.processInfo.environment["STILLLEAF_PROBE_HOLD"].flatMap(Double.init) {
+        // Keep the process alive for `leaks <pid>` or `heap <pid>` to find the owners.
+        print("reader-memory: holding pid \(getpid()) for \(Int(seconds)) s"); fflush(stdout)
+        try await settle(seconds)
+    }
     return (alive, lines)
 }
 
