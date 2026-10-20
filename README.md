@@ -34,7 +34,9 @@ open dist/Stillleaf.app
 
 Run `scripts/install-git-hooks.sh` once per clone. The local builder bypasses SwiftPM using `swiftc`. The check script runs independent assertion executables because this host does not have XCTest. GitHub Actions runs the actual XCTest suites on a full macOS/Xcode runner.
 
-Move the app to `~/Applications` or `/Applications` before configuring permissions and login startup. This is an **ad-hoc signed development build**, not a notarized release. Rebuilding or replacing it may require re-enabling its Accessibility entry and reopening the app. A distribution build requires your own Developer ID and notarization; no signing credentials are stored here.
+Move the app to `~/Applications` or `/Applications` before configuring permissions and login startup. This is an **ad-hoc signed development build**, not a notarized release. Rebuilding or replacing it may require re-enabling its Accessibility entry and reopening the app. `STILLLEAF_UNIVERSAL=1 scripts/package-app.sh` builds an arm64 + x86_64 app.
+
+Public releases are Developer ID signed, notarized and distributed from the website, not the Mac App Store: Apple Books tracking and Discord IPC cannot run in the App Sandbox. `scripts/release/build-release.sh` and the `macOS release` workflow build them; no signing credentials are stored here. See [distribution](docs/DISTRIBUTION.md), the [release checklist](docs/RELEASE_CHECKLIST.md), the [privacy statement](docs/PRIVACY.md) and [third-party notices](THIRD_PARTY_NOTICES.md).
 
 ## First use
 
@@ -46,7 +48,7 @@ After the tour, or to set things up by hand:
 2. Click the book icon in the menu bar to open your journal. A Dock icon and standard Mac menu bar appear while the dashboard or reader is open.
 3. Open Dashboard → Settings to adjust reading goals or **Track reading**, which controls tracking across Stillleaf and supported readers. The daily goal starts at 20 reading pages, using this Mac's initial timezone.
 4. If you want Apple Books tracking, expand **Optional Apple Books integration** in reading settings, allow access and enable **Stillleaf** in macOS Accessibility settings. Then open a reading window in Apple Books. macOS may require reopening Stillleaf. Unsupported or ambiguous Apple Books windows pause that integration; its troubleshooting panel explains why. You can also use **Start manual reading** for a paper book or unsupported reader.
-5. Check **Open at login**. The app attempts main-app login registration once on first packaged launch, subject to macOS approval. You can disable it in Settings or System Settings → General → Login Items.
+5. Check **Open at login**. The app attempts main-app login registration once, on its first launch from an installed location, subject to macOS approval. Launches from the disk image or a translocated download skip it and suggest moving the app to Applications. You can disable it in Settings or System Settings → General → Login Items.
 
 Closing all dashboard/reader windows returns Stillleaf to the menu bar and leaves tracking running. Quit stops the tracker. A per-user file lock prevents duplicate instances. Pause tracking and Share with Discord are independent controls; each book also has separate tracking and sharing exclusions.
 
@@ -92,9 +94,11 @@ Elapsed time uses monotonic uptime. Wall clocks place intervals on the calendar,
 
 JSON is a versioned complete structured-history archive, with duplicate-safe atomic import. SQLite backup/restore validates before replacing history. CSV includes raw and effective interval tables so corrections remain traceable. Cover references are exported; binary cover images are separate local files, so keep the `Covers/` directory when migrating artwork. Imported paths are not uploaded or fetched from the internet.
 
-Deletion physically removes affected records and dependent private lineage, preserving unrelated split/reassigned intervals. Deleting a book also suppresses it from later automatic Apple Books completion imports. SQLite secure deletion, WAL checkpoint and vacuum remove normal database copies; OS snapshots, SSD wear-leveling and user-made copies are outside application control. Delete-all clears managed local covers and managed backups, turns off automatic Apple Books history sync, and clears its import state. **Exports and backups you saved elsewhere must be removed separately.** No automatic remote backups exist.
+Deletion physically removes affected records and dependent private lineage, preserving unrelated split/reassigned intervals. Deleting a book also suppresses it from later automatic Apple Books completion imports. SQLite secure deletion, WAL checkpoint and vacuum remove normal database copies; OS snapshots, SSD wear-leveling and user-made copies are outside application control. Delete-all clears managed local covers and managed backups, moves imported EPUBs (with their notes and highlights) and audiobooks to the Trash, turns off automatic Apple Books history sync, and clears its import state. **Exports and backups you saved elsewhere must be removed separately.** No automatic remote backups exist.
 
-Uninstall disables login startup, moves the app bundle to Trash and quits. Reading history is preserved; use Delete all data first if you want it removed. No global daemon or privileged helper is installed.
+Uninstall disables login startup, moves the app bundle to Trash and quits. Reading history is preserved; use Delete all data first if you want it removed. No global daemon or privileged helper is installed. [Uninstalling completely](docs/PRIVACY.md#uninstalling-completely) lists the remaining preference, cache and permission entries.
+
+Updates: **Stillleaf → Check for Updates…** compares the build number with the release feed and opens the download page; it never downloads or installs anything itself. Automatic daily checks are off by default. Development builds have no feed URL and never check.
 
 ## Diagnostic
 

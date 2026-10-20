@@ -67,6 +67,10 @@ Browser and Electron UI tests write screenshots to `Reader/desktop/reader/artifa
 
 `BooksPresence --render-ui <folder> --offscreen` renders every dashboard screen, the menu panel and onboarding to PNGs from a disposable synthetic database. `--preview-filter today,library` limits the set and `--all-themes` adds every theme. Glass and system materials do not render offscreen. `scripts/run-native-chrome-preview.sh` captures real windows, but it needs Screen Recording permission.
 
+## Releases
+
+Public Mac releases are Developer ID signed and notarized ([distribution](DISTRIBUTION.md)). `scripts/release/build-release.sh` builds, signs, notarizes, packages and verifies them; the `macOS release` workflow runs it for `v*` tags and opens a draft GitHub release. Pull requests that touch the release scripts get an unsigned dry run. Follow the [release checklist](RELEASE_CHECKLIST.md) to publish, and keep the [privacy statement](PRIVACY.md) and `THIRD_PARTY_NOTICES.md` current.
+
 ## Not verified by automated checks
 
-Live Apple Books Accessibility behaviour, live Discord rendering, VoiceOver operation, notarized distribution and Windows hardware.
+Live Apple Books Accessibility behaviour, live Discord rendering, VoiceOver operation and Windows hardware. Notarization runs only once the Developer ID secrets are configured. Gatekeeper's first-launch prompts on a clean account are a manual release-checklist step.
