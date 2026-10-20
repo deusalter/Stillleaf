@@ -114,6 +114,8 @@ private final class EPUBReaderWindow: NSObject, NSWindowDelegate, WKNavigationDe
     private var progressDelivery = ReaderProgressDeliveryGate()
     private var progressDeliveryTask: Task<Void, Never>?
     private var gardenSubscription: AnyCancellable?
+    /// Keeps the title bar in the page's colour (see `ReaderTitlebar`).
+    private var pageSubscription: AnyCancellable?
 
     /// The Garden setting as the reader should see it right now (Reduce Motion and Low Power already applied).
     fileprivate static func currentGardenMode() -> String {
@@ -156,13 +158,17 @@ private final class EPUBReaderWindow: NSObject, NSWindowDelegate, WKNavigationDe
         guardDelegate = ReaderNavigationGuard(resources: map)
         webView.navigationDelegate = self
         let window = NSWindow(contentRect: webView.frame, styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-        window.title = publication.title; window.titlebarAppearsTransparent = false
+        window.title = publication.title
+        ReaderTitlebar.configure(window)
         window.minSize = NSSize(width: 520, height: 440)
         // Menu-bar (accessory) apps get no full-screen behavior unless a window opts in.
         window.collectionBehavior.insert(.fullScreenPrimary)
         window.contentView = webView; window.isReleasedWhenClosed = false
         window.delegate = self; window.center(); self.window = window
         chrome = NativeReaderChrome(window: window)
+        pageSubscription = chrome.model.$effectiveAppearance.sink { [weak window] page in
+            if let window { ReaderTitlebar.follow(page: page, in: window) }
+        }
         chrome.send = { [weak self] command, payload in
             guard let self else { throw ReaderStateValidation.Failure.invalidState }
             return try await self.sendNativeControl(command, payload: payload)
