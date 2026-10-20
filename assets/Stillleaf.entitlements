@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Reviewed hardened-runtime entitlements for Developer ID releases: intentionally empty.
+  See docs/DISTRIBUTION.md#entitlements before adding anything. In particular:
+  - No App Sandbox: Apple Books Accessibility capture and Discord IPC need it off.
+  - No JIT, unsigned-memory or library-validation exceptions: WebKit runs JavaScript in its
+    own WebContent process, the bundled dylibs share the app's Team ID, and libarchive is an
+    Apple platform library.
+  - No Apple Events: Stillleaf never sends Apple Events to Books or any other app.
+  - No get-task-allow: notarization rejects debuggable release builds.
+  scripts/release/verify-release.sh fails if a signed binary carries anything else.
+-->
+<plist version="1.0">
+<dict/>
+</plist>
