@@ -41,7 +41,7 @@ final class Scratch {
 extension XCTestCase {
     /// Polls `condition` on the main actor until it holds or `timeout` passes.
     @MainActor
-    func waitUntil(_ description: String, timeout: TimeInterval, _ condition: () -> Bool) async throws {
+    func waitUntil(_ description: String, timeout: TimeInterval, _ condition: @escaping () -> Bool) async throws {
         let deadline = Date().addingTimeInterval(timeout)
         while !condition() {
             guard Date() < deadline else { throw TimeoutError(description: "Timed out waiting for \(description)") }

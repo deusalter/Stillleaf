@@ -1,7 +1,7 @@
 import UIKit
 import WebKit
-import BooksCore
-import BooksPlatform
+@preconcurrency import BooksCore
+@preconcurrency import BooksPlatform
 
 /// Hosts the shared renderer for one edition. Loading, the content rule list, the
 /// session URL scheme and event validation are the Mac reader's; this class adds

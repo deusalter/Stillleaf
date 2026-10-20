@@ -4,7 +4,8 @@ import CoreGraphics
 
 /// Downsampled covers read straight from an imported edition's own cover image.
 /// No absolute cover paths are stored: app-container paths change across restores.
-final class CoverThumbnails {
+/// NSCache is thread-safe and the queue only reads files, so sharing across threads is sound.
+final class CoverThumbnails: @unchecked Sendable {
     static let shared = CoverThumbnails()
     private let cache = NSCache<NSString, CGImage>()
     private let queue = DispatchQueue(label: "Stillleaf.covers", qos: .utility, attributes: .concurrent)
