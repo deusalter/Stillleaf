@@ -768,12 +768,13 @@ public final class ReadingStore {
         }
         for correction in archive.corrections where !validDate(correction.createdAt) { throw ReadingStoreError.invalidData("invalid correction date \(correction.id)") }
         for goal in archive.goals where !validGoal(goal) { throw ReadingStoreError.invalidData("invalid goal \(goal.id)") }
+        let pageSources = pageSourceIndex(archive.intervals + archive.corrections.flatMap(\.replacements))
         for event in archive.events {
             try validateEvent(event)
             if (event.pageTurn != nil || event.pageAdjustment != nil || event.completion != nil || event.rating != nil || event.review != nil), event.bookID.map({ books.contains($0) }) != true {
                 throw ReadingStoreError.invalidData("typed event \(event.id) refers to an unknown book")
             }
-            if (event.pageTurn != nil || event.pageAdjustment != nil), !pageEventHasSourceInterval(event, in: archive) {
+            if (event.pageTurn != nil || event.pageAdjustment != nil), !pageEventHasSourceInterval(event, in: pageSources) {
                 throw ReadingStoreError.invalidData("page event \(event.id) has no source session interval")
             }
         }
@@ -877,13 +878,22 @@ public final class ReadingStore {
         mode == .automatic || (mode == .manual && event.pageAdjustment != nil)
     }
 
-    private static func pageEventHasSourceInterval(_ event: AuditEvent, in archive: HistoryArchive) -> Bool {
+    /// Interval ends by book and session, built once per validation. Scanning every interval for
+    /// each page event made importing or restoring a two-year history take many seconds.
+    private static func pageSourceIndex(_ intervals: [ReadingInterval]) -> [PageSourceKey: [(end: Date, mode: ReadingMode)]] {
+        var index: [PageSourceKey: [(end: Date, mode: ReadingMode)]] = [:]
+        for interval in intervals {
+            index[PageSourceKey(bookID: interval.bookID, sessionID: interval.sessionID), default: []].append((interval.end, interval.mode))
+        }
+        return index
+    }
+
+    private static func pageEventHasSourceInterval(_ event: AuditEvent, in sources: [PageSourceKey: [(end: Date, mode: ReadingMode)]]) -> Bool {
         guard event.pageTurn != nil || event.pageAdjustment != nil,
               let bookID = event.bookID, let sessionID = event.sessionID else { return false }
-        return (archive.intervals + archive.corrections.flatMap(\.replacements)).contains { interval in
-            interval.bookID == bookID && interval.sessionID == sessionID && mode(interval.mode, hosts: event)
-                && abs(event.date.timeIntervalSince(interval.end)) <= 0.001
-        }
+        return sources[PageSourceKey(bookID: bookID, sessionID: sessionID)]?.contains { source in
+            mode(source.mode, hosts: event) && abs(event.date.timeIntervalSince(source.end)) <= 0.001
+        } ?? false
     }
 
     private static func merged(_ lhs: HistoryArchive, _ rhs: HistoryArchive) throws -> HistoryArchive {
