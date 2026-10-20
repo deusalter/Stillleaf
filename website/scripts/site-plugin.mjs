@@ -20,6 +20,34 @@ const badge = fileURLToPath(new URL("../public/badges/app-store.svg", import.met
  * appears once publication is approved; see README.md.
  */
 export function stillleafSite() {
+  return [preloadHeadlineFont(), siteFiles()];
+}
+
+/** Preload the headline face so the first paint of every heading uses it. */
+function preloadHeadlineFont() {
+  return {
+    name: "stillleaf-font-preload",
+    apply: "build",
+    transformIndexHtml: {
+      order: "post",
+      handler(html, context) {
+        const font = Object.keys(context.bundle ?? {}).find((name) =>
+          /instrument-serif-latin-400-normal-[\w-]+\.woff2$/.test(name),
+        );
+        if (!font) return html;
+        return [
+          {
+            tag: "link",
+            attrs: { rel: "preload", href: `/${font}`, as: "font", type: "font/woff2", crossorigin: "" },
+            injectTo: "head",
+          },
+        ];
+      },
+    },
+  };
+}
+
+function siteFiles() {
   return {
     name: "stillleaf-site",
     buildStart() {

@@ -1,3 +1,8 @@
+@font-face {
+  font-family: "Instrument Serif Fallback";
+  src: local("Georgia");
+  size-adjust: 91.2%;
+}
 :root {
   font-family: "DM Sans", sans-serif;
   color: #183d33;
@@ -9,7 +14,11 @@
   --green: #176650;
   --sea: #e5eeea;
   --line: #d0ded6;
-  --serif: "Instrument Serif", Georgia, serif;
+  /* Fallbacks match Instrument Serif's width so headlines don't reflow when
+     it loads: Times New Roman is within 0.1%; Georgia is scaled below. */
+  --serif:
+    "Instrument Serif", "Times New Roman", Times, "Instrument Serif Fallback",
+    serif;
 }
 * {
   box-sizing: border-box;
