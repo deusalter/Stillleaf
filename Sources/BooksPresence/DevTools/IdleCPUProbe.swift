@@ -173,7 +173,7 @@ private func seedIdleHistory(at support: URL) throws {
             for turn in 0..<2 {
                 archive.events.append(AuditEvent(date: start.addingTimeInterval(Double(300 + turn * 300)), kind: "pageTurn",
                     bookID: book.id, sessionID: session, detail: "Synthetic idle fixture",
-                    pageTurn: PageTurnEvidence(fromPage: index + turn, toPage: index + turn + 2, pagesRead: 2, visiblePages: 1, layoutSignature: "fixture")))
+                    pageTurn: PageTurnEvidence(fromPage: index + turn + 1, toPage: index + turn + 3, pagesRead: 2, visiblePages: 1, layoutSignature: "fixture")))
             }
         }
     }
