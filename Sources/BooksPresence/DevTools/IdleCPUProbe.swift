@@ -57,11 +57,14 @@ struct ResourceSample {
     var interruptWakeups: Double
     var idleWakeups: Double
 
+    /// `proc_pid_rusage` is in libSystem but not in the Swift overlay of every SDK.
+    private typealias ProcPidRusage = @convention(c) (Int32, Int32, UnsafeMutableRawPointer?) -> Int32
+    private static let procPidRusage = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "proc_pid_rusage")
+        .map { unsafeBitCast($0, to: ProcPidRusage.self) }
+
     static func now() -> ResourceSample {
         var info = rusage_info_v4()
-        let status = withUnsafeMutablePointer(to: &info) {
-            $0.withMemoryRebound(to: rusage_info_t?.self, capacity: 1) { proc_pid_rusage(getpid(), RUSAGE_INFO_V4, $0) }
-        }
+        let status = procPidRusage.map { call in withUnsafeMutablePointer(to: &info) { call(getpid(), RUSAGE_INFO_V4, $0) } } ?? -1
         guard status == 0 else { return ResourceSample(cpuNanoseconds: 0, instructions: 0, interruptWakeups: 0, idleWakeups: 0) }
         var timebase = mach_timebase_info_data_t()
         mach_timebase_info(&timebase)
