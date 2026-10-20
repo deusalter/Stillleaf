@@ -1,3 +1,4 @@
+#if os(macOS)
 import AppKit
 import CryptoKit
 import Foundation
@@ -145,3 +146,4 @@ private final class PackageMetadataParser: NSObject, XMLParserDelegate {
         }
     }
 }
+#endif

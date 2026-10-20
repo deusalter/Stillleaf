@@ -2,7 +2,7 @@
 import PackageDescription
 let package = Package(
     name: "BooksPresence",
-    platforms: [.macOS(.v13)],
+    platforms: [.macOS(.v13), .iOS("17.0")],
     products: [
         .executable(name: "BooksPresence", targets: ["BooksPresence"]),
         .executable(name: "books-diagnostic", targets: ["BooksDiagnostic"]),

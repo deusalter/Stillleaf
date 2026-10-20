@@ -1,3 +1,4 @@
+#if os(macOS)
 import ServiceManagement
 
 public enum LoginService {
@@ -20,3 +21,4 @@ public enum LoginService {
         SMAppService.openSystemSettingsLoginItems()
     }
 }
+#endif

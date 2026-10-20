@@ -1,3 +1,4 @@
+#if os(macOS)
 import AppKit
 import CoreGraphics
 
@@ -16,3 +17,4 @@ public enum SystemEligibility {
     /// Reads elapsed input inactivity only, never keys, buttons, pointer coordinates or other app titles.
     public static var secondsSinceInput: TimeInterval { CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: CGEventType(rawValue: UInt32.max)!) }
 }
+#endif

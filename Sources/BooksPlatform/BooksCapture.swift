@@ -1,3 +1,4 @@
+#if os(macOS)
 import AppKit
 import ApplicationServices
 import BooksCore
@@ -216,3 +217,4 @@ public final class BooksCapture {
         }
     }
 }
+#endif

@@ -1,3 +1,4 @@
+#if os(macOS)
 import Foundation
 import CSQLite
 import BooksCore
@@ -199,3 +200,4 @@ public final class BooksCatalog {
         }
     }
 }
+#endif
