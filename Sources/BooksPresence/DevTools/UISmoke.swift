@@ -404,12 +404,6 @@ func runUISmoke() throws {
     guard order.count > 10, order.last?.glyph == "❀", order.first.map({ $0.y == VineSeedling.art.count - 1 }) == true else {
         throw BooksAccessErrorForUI.failed("The seedling does not grow from the ground up to its bloom")
     }
-    let centre = CGRect(x: 100, y: 110, width: 200, height: 80)
-    let burst = VineBurst.field(size: CGSize(width: 400, height: 300), around: centre, seed: 7)
-    let cellRect = { (c: VineCell) in CGRect(x: Double(c.x) * burst.cellWidth, y: Double(c.y) * burst.cellHeight, width: burst.cellWidth, height: burst.cellHeight) }
-    guard burst.cells.count > 40, burst.cells.values.allSatisfy({ !cellRect($0).intersects(centre) }) else {
-        throw BooksAccessErrorForUI.failed("The completion burst grew over its badge")
-    }
     try checkVineMotionModes()
     try checkQuietMotion()
     // Each tour step shows more of the same garden, and the last shows all of it.

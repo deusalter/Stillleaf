@@ -5,6 +5,13 @@ import BooksCore
 struct TodayView: View {
     @ObservedObject var model: AppModel
     let present: (DashboardSheet) -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.nativePreviewReduceMotion) private var previewReduceMotion
+
+    private var completionShown: FinishedBookEntry? {
+        guard model.snapshot.phase != .reading, !model.manualActive else { return nil }
+        return model.pendingCompletion
+    }
 
     private var featuredBook: BookRecord? {
         if let book = model.snapshot.book { return book }
@@ -29,8 +36,9 @@ struct TodayView: View {
                 // the dashboard's minimum window height.
                 VStack(alignment: .leading, spacing: 40) {
                     featuredReading(featuredBook)
-                    if let entry = model.pendingCompletion, model.snapshot.phase != .reading, !model.manualActive {
+                    if let entry = completionShown {
                         FinishedBookPrompt(model: model, entry: entry)
+                            .transition(FinishMoment.promptTransition)
                     }
                     ReadingSection("Manual reading") {
                         HStack(spacing: 10) {
@@ -48,6 +56,8 @@ struct TodayView: View {
                     DailyReadingOverview(model: model)
                     AnnualReadingGoalView(model: model, openBook: { present(.book($0)) }).equatable()
                 }
+                // A finish arriving while Today is open makes room for its prompt, and gives it back, in one glide.
+                .animation((previewReduceMotion ?? reduceMotion) ? nil : FinishMoment.arrive, value: completionShown?.id)
                 .readingPanel()
             }
             .readingPage()
