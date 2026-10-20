@@ -122,7 +122,7 @@ struct DashboardView: View {
             Button("Delete all data", role: .destructive) { model.deleteAllData() }
             Button("Cancel", role: .cancel) { }
         } message: {
-            Text("This removes local reading records, managed backups, and cached covers. Exports and backups you saved elsewhere are not removed; keep those yourself if needed.")
+            Text("This removes local reading records, managed backups, and cached covers. Imported books with their notes and highlights, and imported audiobooks, move to the Trash. Exports and backups you saved elsewhere are not removed; keep those yourself if needed.")
         }
         .alert("Uninstall Stillleaf?", isPresented: $uninstallConfirmation) {
             Button("Uninstall", role: .destructive) { model.uninstall() }

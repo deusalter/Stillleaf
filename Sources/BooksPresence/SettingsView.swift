@@ -338,7 +338,7 @@ struct SettingsView: View {
                 GlassDisclosure(title: "Reset or uninstall", subtitle: "Delete reading data or remove Stillleaf from this Mac.",
                                 isExpanded: $showRemoval) {
                     VStack(alignment: .leading, spacing: ReadingMetrics.Space.m) {
-                        Text("Deleting removes history, managed backups, and cached covers. Copies you exported elsewhere remain.")
+                        Text("Deleting removes history, managed backups, and cached covers, and moves imported books, notes and audiobooks to the Trash. Copies you exported elsewhere remain.")
                             .font(.callout).foregroundStyle(ReadingPalette.secondaryInk)
                             .fixedSize(horizontal: false, vertical: true)
                         HStack(spacing: ReadingMetrics.Space.s) {

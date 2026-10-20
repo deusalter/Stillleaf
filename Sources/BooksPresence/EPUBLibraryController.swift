@@ -101,6 +101,8 @@ final class EPUBLibraryController: ObservableObject {
     }
 
     func cancelPending() { queue.cancelPending() }
+    /// Delete-all moved the Publications folder away; nothing imported remains to list.
+    func forgetAll() { publications.removeAll(); recoveryError = nil }
     func reserveRemoval(_ id: String) -> Bool { removingIDs.insert(id).inserted }
     func cancelRemoval(_ id: String) { removingIDs.remove(id) }
 

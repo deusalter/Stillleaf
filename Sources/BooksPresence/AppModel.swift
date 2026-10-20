@@ -1632,6 +1632,21 @@ final class AppModel: ObservableObject {
     }
     func deleteAllData() {
         guard !importingAudio else { errorMessage = "Finish the audio import before deleting all data."; return }
+        guard !epubLibrary.queue.isBusy, epubLibrary.removingIDs.isEmpty, transferringReaderState.isEmpty else {
+            errorMessage = "Finish importing, removing or transferring books before deleting all data."; return
+        }
+        // Imported books, with their notes and highlights, are reading data too. Their readers
+        // close first so none is still saving state into a folder that is going away.
+        let imported = Array(epubLibrary.publications.keys)
+        guard !imported.isEmpty else { return deleteAllDataNow() }
+        Task {
+            for id in imported where !(await epubReaders.close(publicationID: id)) {
+                errorMessage = "Close the open books, then delete all data again."; return
+            }
+            deleteAllDataNow()
+        }
+    }
+    private func deleteAllDataNow() {
         trackingEnabled = false
         syncAppleBooksHistoryEnabled = false; defaults.set(false, forKey: "syncAppleBooksHistoryEnabled")
         perform {
@@ -1639,8 +1654,13 @@ final class AppModel: ObservableObject {
             publicCoverURLs = [:]; defaults.removeObject(forKey: "publicCoverURLs")
             suppressedHistoryIDs = []; defaults.removeObject(forKey: "suppressedAppleHistory")
             defaults.removeObject(forKey: "lastAppleHistorySync"); pendingCompletion = nil
-            let audioDirectory = support.appendingPathComponent("Audiobooks")
-            if FileManager.default.fileExists(atPath: audioDirectory.path) { try FileManager.default.trashItem(at: audioDirectory, resultingItemURL: nil) }
+            // Copied files go to the Trash, as audiobooks always have, so a mistaken deletion of
+            // imported books or their notes can still be recovered there.
+            for name in ["Audiobooks", "Publications", "ReaderState"] {
+                let directory = support.appendingPathComponent(name)
+                if FileManager.default.fileExists(atPath: directory.path) { try FileManager.default.trashItem(at: directory, resultingItemURL: nil) }
+            }
+            epubLibrary.forgetAll()
             let coverDirectory = support.appendingPathComponent("Covers")
             if FileManager.default.fileExists(atPath: coverDirectory.path) { try FileManager.default.removeItem(at: coverDirectory); try FileManager.default.createDirectory(at: coverDirectory, withIntermediateDirectories: true) }
         }
