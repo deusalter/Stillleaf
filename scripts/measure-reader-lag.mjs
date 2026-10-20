@@ -1,7 +1,9 @@
 // Input-path cost of the reader in headless Chromium or WebKit: main-thread work and frame pacing around page turns,
 // a chapter crossing, continuous scrolling and idle. Nothing opens a visible window.
-//   node scripts/measure-reader-lag.mjs scenario=turn|chapter|scroll|idle engine=chromium|webkit dpr=2 w=1500 h=860
-//        paras=1500 chapters=3 turns=5 start=0.9 prof=1 dist=<dir>
+//   node scripts/measure-reader-lag.mjs scenario=turn|chapter|scroll|idle|boot engine=chromium|webkit dpr=2 w=1500 h=860
+//        paras=1500 chapters=3 turns=5 start=0.9 prof=1 dist=<dir> reps=8
+// scenario=boot opens `reps` fresh pages and reports, per page, when the renderer script has loaded and run
+// (window.StillleafReader assigned, ms after navigation) and how long open() of the fixture takes; medians last.
 // Per window it prints frames over 20 / 50 ms, main-thread time blocked (a 4 ms timer's lateness), key-to-animation
 // latency, long tasks, and in Chromium the Script / Task / Layout / RecalcStyle time (CDP Performance.getMetrics).
 // prof=1 adds the hottest functions of a Chromium sampling profile; build with `vite build --minify false` to read names.
@@ -28,6 +30,22 @@ const browser = engine === 'webkit' ? await webkit.launch() : await chromium.lau
 const ctx = await browser.newContext({viewport: {width: +(o.w ?? 1500), height: +(o.h ?? 860)}, deviceScaleFactor: +(o.dpr ?? 2), reducedMotion: 'no-preference'});
 const page = await ctx.newPage();
 const errors = []; page.on('pageerror', e => errors.push(String(e)));
+if (scenario === 'boot') {
+  const runs = [];
+  for (let i = 0; i < +(o.reps ?? 8); i++) {
+    const fresh = await ctx.newPage();
+    fresh.on('pageerror', e => errors.push(String(e)));
+    await fresh.addInitScript(() => { let api; Object.defineProperty(window, 'StillleafReader', {configurable: true, get: () => api, set: v => { api = v; window.__bootAt = performance.now(); }}); });
+    await fresh.goto(`http://127.0.0.1:${server.address().port}/index.html`);
+    await fresh.waitForFunction(() => window.__bootAt);
+    const open = await fresh.evaluate(async b => { const t = performance.now(); await window.StillleafReader.open(b); return performance.now() - t; }, book);
+    runs.push({boot: Math.round(await fresh.evaluate(() => window.__bootAt)), open: Math.round(open)});
+    await fresh.close();
+  }
+  const median = k => runs.map(r => r[k]).sort((a, b) => a - b)[runs.length >> 1];
+  console.log(JSON.stringify({engine, scenario, dist: root, runs, medianBoot: median('boot'), medianOpen: median('open'), errors}));
+  await Promise.race([browser.close(), new Promise(resolve => setTimeout(resolve, 3000))]); server.close(); process.exit(0);
+}
 await page.addInitScript(() => { window.__stillleafGardenDebug = true; });
 await page.goto(`http://127.0.0.1:${server.address().port}/index.html`);
 await page.waitForFunction(() => window.StillleafReader);

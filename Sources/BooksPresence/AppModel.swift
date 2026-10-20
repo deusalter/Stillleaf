@@ -176,9 +176,19 @@ final class AppModel: ObservableObject {
     private var coverLookupGeneration = 0
     private var coverLookupDates: [String: Date] = [:]
     private let historyQueue = DispatchQueue(label: "BooksPresence.finished-history", qos: .utility)
+    /// The Apple Books catalog this model reads. Dev-tool probes point it at a synthetic copy.
+    private let booksCatalog: BooksCatalog
     private var historySyncInFlight = false
     private var historyGeneration = 0
     private var lastHistorySync = Date.distantPast
+    /// Catalog stamps behind the last completed history sync and store-purchase check. The periodic
+    /// poll skips both while the Books catalog is unchanged, and repeats them every 10 minutes anyway.
+    /// A stamp is kept only once its read succeeded, so a failed or discarded read retries next poll.
+    private var historySyncStamp: [String]?
+    private var storePurchaseStamp: [String]?
+    private var lastFullHistorySync = Date.distantPast
+    private var lastFullStorePurchaseCheck = Date.distantPast
+    private static let unchangedCatalogRecheck: TimeInterval = 600
     private var suppressedHistoryIDs: Set<String> = []
     private var presenceState: ReadingPresenceState = .hidden
     private let captureQueue = DispatchQueue(label: "BooksPresence.capture", qos: .utility)
@@ -230,6 +240,7 @@ final class AppModel: ObservableObject {
 
     init(support: URL, defaults: UserDefaults = .standard, startTracking: Bool = true,
          accessibilityStatus: @escaping () -> Bool = { BooksCapture.isTrusted },
+         booksCatalog: BooksCatalog = BooksCatalog(),
          historyReader: @escaping (URL) throws -> (archive: HistoryArchive, intervals: [ReadingInterval]) = ReadingStore.readSnapshot,
          makeTrackingEngine: @escaping (ReadingStore, String) throws -> TrackingEngine = {
              try TrackingEngine(store: $0, timezoneID: $1)
@@ -237,6 +248,7 @@ final class AppModel: ObservableObject {
         self.historyReader = historyReader
         self.makeTrackingEngine = makeTrackingEngine
         self.accessibilityStatus = accessibilityStatus
+        self.booksCatalog = booksCatalog
         self.support = support
         self.defaults = defaults
         epubLibrary = EPUBLibraryController(directory: support.appendingPathComponent("Publications", isDirectory: true))
@@ -247,7 +259,7 @@ final class AppModel: ObservableObject {
         let zone = defaults.string(forKey: "timezoneID").flatMap { TimeZone(identifier: $0) }?.identifier ?? TimeZone.current.identifier
         engine = try makeTrackingEngine(store, zone)
         covers = try CoverCache(directory: support.appendingPathComponent("Covers"))
-        captures = BooksCapture(covers: covers)
+        captures = BooksCapture(catalog: booksCatalog, covers: covers)
         accessibilityGranted = accessibilityStatus()
         timezoneID = zone
         trackingEnabled = defaults.object(forKey: "trackingEnabled") as? Bool ?? true
@@ -278,7 +290,7 @@ final class AppModel: ObservableObject {
             if self.manualBook == nil && self.epubReaders.focusedPublicationID == nil { self.pause(.noReadingWindow); self.tick() }
         }
         refresh()
-        timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in Task { @MainActor [weak self] in self?.tick() } }
+        schedulePoll()
         if !defaults.bool(forKey: "didConfigureLogin"), Bundle.main.bundleURL.pathExtension == "app" {
             defaults.set(true, forKey: "didConfigureLogin")
             do { try LoginService.setEnabled(true); launchAtLogin = LoginService.enabled }
@@ -363,17 +375,24 @@ final class AppModel: ObservableObject {
         return !appleBooksStorePurchaseIDs.contains(assetID)
     }
     /// Checks the journal's Apple Books books for store purchases off the main thread.
-    private func refreshStorePurchases() {
+    private func refreshStorePurchases(onlyIfCatalogChanged: Bool = false) {
         guard !storePurchaseCheckInFlight else { return }
         let prefix = "apple-books:"
         let assetIDs = Set(books.filter { $0.id.hasPrefix(prefix) }.map { String($0.id.dropFirst(prefix.count)) })
         guard !assetIDs.isEmpty else { return }
+        let unchanged = onlyIfCatalogChanged && Date().timeIntervalSince(lastFullStorePurchaseCheck) < Self.unchangedCatalogRecheck
+            ? storePurchaseStamp : nil
         storePurchaseCheckInFlight = true; lastStorePurchaseCheck = Date()
-        historyQueue.async { [weak self] in
-            let purchases = try? BooksCatalog().storePurchases(among: assetIDs)
+        historyQueue.async { [weak self, booksCatalog] in
+            // Touch the Books container off the main thread, as every other catalog read does.
+            let stamp = booksCatalog.changeStamp().map { $0 + assetIDs.sorted() }
+            let skip = stamp != nil && stamp == unchanged
+            let purchases = skip ? nil : try? booksCatalog.storePurchases(among: assetIDs)
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.storePurchaseCheckInFlight = false
+                guard !skip else { return }
+                if purchases != nil { self.storePurchaseStamp = stamp; self.lastFullStorePurchaseCheck = Date() }
                 if let purchases, purchases != self.appleBooksStorePurchaseIDs { self.appleBooksStorePurchaseIDs = purchases }
             }
         }
@@ -560,6 +579,11 @@ final class AppModel: ObservableObject {
         workspaceObservers.append(center.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self else { return }; self.captureGeneration += 1
+                // The relaxed poll last sampled input up to 30 s ago. Count only what a
+                // one-second poll would have: input from the second before this switch.
+                if self.timer?.timeInterval == Self.idlePollInterval {
+                    self.lastInputUptime = max(self.lastInputUptime, ProcessInfo.processInfo.systemUptime - Self.activePollInterval)
+                }
                 if self.manualBook == nil && self.epubReaders.focusedPublicationID == nil && !SystemEligibility.booksForeground { self.pause(.background) }
                 self.tick()
             }
@@ -577,6 +601,14 @@ final class AppModel: ObservableObject {
                 Task { @MainActor [weak self] in self?.systemChanged(key: key, stopped: stop, reason: reason) }
             })
         }
+        // Today rolls over at midnight even while the poll is relaxed.
+        observers.append(NotificationCenter.default.addObserver(forName: .NSCalendarDayChanged, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.tick() }
+        })
+        // A Stillleaf window or the menu panel coming on screen or leaving it changes the poll rate.
+        observers.append(NotificationCenter.default.addObserver(forName: NSWindow.didChangeOcclusionStateNotification, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.schedulePoll() }
+        })
         for (name, stop) in [("com.apple.screenIsLocked", true), ("com.apple.screenIsUnlocked", false)] {
             distributedObservers.append(DistributedNotificationCenter.default().addObserver(forName: Notification.Name(name), object: nil, queue: .main) { [weak self] _ in
                 Task { @MainActor [weak self] in self?.systemChanged(key: "lock", stopped: stop, reason: .locked) }
@@ -601,10 +633,38 @@ final class AppModel: ObservableObject {
         health = message
     }
 
+    /// The eligibility poll runs every second while anything could be credited or watched: manual
+    /// reading, a focused Stillleaf reader, Apple Books in front, audio playing, an open session, or
+    /// a Stillleaf window or the menu panel on screen. Otherwise nothing can start without an app
+    /// activation, reader focus, wake/unlock or day change, and each of those ticks at once, so the
+    /// poll relaxes to the 30-second Apple Books history sync and lets the Mac stay idle (App Nap).
+    nonisolated static let activePollInterval: TimeInterval = 1
+    nonisolated static let idlePollInterval: TimeInterval = 30
+    private var pollShouldStayActive: Bool {
+        readingTrackingSource != .idle || audiobookPlayer.isPlaying || snapshot.phase != .paused
+            || NSApp.windows.contains { window in
+                window.isVisible && window.occlusionState.contains(.visible)
+                    && (window.styleMask.contains(.titled) || window is StatusMenuPanel)
+            }
+    }
+    private func schedulePoll() {
+        guard ready else { return }
+        let interval = pollShouldStayActive ? Self.activePollInterval : Self.idlePollInterval
+        if let timer, timer.isValid, timer.timeInterval == interval { return }
+        timer?.invalidate()
+        let poll = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in Task { @MainActor [weak self] in self?.tick() } }
+        // Let macOS batch the wakeup with others; elapsed time comes from uptime, not the timer.
+        poll.tolerance = interval / 10
+        timer = poll
+    }
+    var pollInterval: TimeInterval? { timer?.isValid == true ? timer?.timeInterval : nil }
+
     private func tick() {
         guard ready, !trackingRecoveryRequired else { return }
-        if Date().timeIntervalSince(lastHistorySync) > 30 { syncAppleBooksHistory() }
-        if Date().timeIntervalSince(lastStorePurchaseCheck) > 60 { refreshStorePurchases() }
+        defer { schedulePoll() }
+        // A second of slack, so a 30-second poll runs the sync on every tick rather than every other.
+        if Date().timeIntervalSince(lastHistorySync) >= 29 { syncAppleBooksHistory(onlyIfCatalogChanged: true) }
+        if Date().timeIntervalSince(lastStorePurchaseCheck) >= 59 { refreshStorePurchases(onlyIfCatalogChanged: true) }
         let trusted = accessibilityStatus()
         if accessibilityGranted != trusted { accessibilityGranted = trusted }
         windowObserver?.refresh()
@@ -1169,17 +1229,24 @@ final class AppModel: ObservableObject {
     nonisolated private static func historyKey(_ id: String) -> String {
         SHA256.hash(data: Data(id.utf8)).map { String(format: "%02x", $0) }.joined()
     }
-    func syncAppleBooksHistory() {
+    func syncAppleBooksHistory(onlyIfCatalogChanged: Bool = false) {
         guard syncAppleBooksHistoryEnabled, !historySyncInFlight else { return }
+        let unchanged = onlyIfCatalogChanged && Date().timeIntervalSince(lastFullHistorySync) < Self.unchangedCatalogRecheck
+            ? historySyncStamp : nil
         historySyncInFlight = true; lastHistorySync = Date()
         let generation = historyGeneration
         let knownBooks = Dictionary(uniqueKeysWithValues: books.map { ($0.id, $0) })
         let suppressed = suppressedHistoryIDs
-        historyQueue.async { [weak self] in
+        historyQueue.async { [weak self, booksCatalog] in
+            let stamp = booksCatalog.changeStamp()
+            if stamp != nil && stamp == unchanged {
+                DispatchQueue.main.async { [weak self] in self?.historySyncInFlight = false }
+                return
+            }
             let staging = FileManager.default.temporaryDirectory.appendingPathComponent("BooksPresence-history-\(UUID().uuidString)", isDirectory: true)
             do {
                 let stagedCovers = try CoverCache(directory: staging)
-                var imported = try BooksCatalog().finishedBooks()
+                var imported = try booksCatalog.finishedBooks()
                 imported.removeAll { suppressed.contains(Self.historyKey($0.book.id)) }
                 for index in imported.indices {
                     let book = imported[index].book
@@ -1197,7 +1264,9 @@ final class AppModel: ObservableObject {
                     guard let self else { return }
                     self.historySyncInFlight = false
                     guard self.historyGeneration == generation, self.syncAppleBooksHistoryEnabled else { return }
-                    self.acceptFinishedHistory(records, staging: staging)
+                    if self.acceptFinishedHistory(records, staging: staging) {
+                        self.historySyncStamp = stamp; self.lastFullHistorySync = Date()
+                    }
                 }
             } catch {
                 try? FileManager.default.removeItem(at: staging)
@@ -1211,8 +1280,10 @@ final class AppModel: ObservableObject {
         }
     }
     /// Internal seam for synthetic integration checks; callers own staged-file cleanup.
-    func acceptFinishedHistory(_ records: [CatalogFinishedBook], staging: URL) {
-        guard syncAppleBooksHistoryEnabled else { return }
+    /// Returns whether the records were saved.
+    @discardableResult
+    func acceptFinishedHistory(_ records: [CatalogFinishedBook], staging: URL) -> Bool {
+        guard syncAppleBooksHistoryEnabled else { return false }
         do {
             let previousSync = defaults.object(forKey: "lastAppleHistorySync") as? Date
             let archive = try store.archive()
@@ -1263,7 +1334,8 @@ final class AppModel: ObservableObject {
             if historyChanged { refresh() }
             if let id = newestCompletionID { pendingCompletionEventID = newestCompletionEventID; pendingCompletion = finishedBooks.first { $0.id == id } }
             appleHistoryStatus = "Synced \(records.count) finished books from Apple Books."
-        } catch { appleHistoryStatus = "Could not save Apple Books history: \(error.localizedDescription)" }
+            return true
+        } catch { appleHistoryStatus = "Could not save Apple Books history: \(error.localizedDescription)"; return false }
     }
     @discardableResult
     private func perform(afterCommit: (() throws -> Void)? = nil, _ action: () throws -> Void) -> Bool {

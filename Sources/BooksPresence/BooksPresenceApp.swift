@@ -326,6 +326,18 @@ struct BooksPresenceMain {
             application.run()
             return
         }
+        if let index = CommandLine.arguments.firstIndex(of: "--measure-reader"), index + 1 < CommandLine.arguments.count {
+            let fixture = URL(fileURLWithPath: CommandLine.arguments[index + 1])
+            let cycles = index + 2 < CommandLine.arguments.count ? Int(CommandLine.arguments[index + 2]) ?? 5 : 5
+            Task { @MainActor in
+                do {
+                    let result = try await measureReaderLifecycle(fixture: fixture, cycles: cycles)
+                    result.lines.forEach { print($0) }
+                    exit(result.alive == 0 ? 0 : 1)
+                } catch { fputs("reader-memory failed: \(error)\n", stderr); exit(1) }
+            }
+            application.run(); return
+        }
         if CommandLine.arguments.contains("--render-native-chrome") && BackgroundUI.isEnabled {
             print("native-chrome-preview: SKIPPED in background mode (it tests focus); CI runs it, or set STILLLEAF_FOREGROUND_UI=1 when nobody is using the Mac")
             exit(0)
@@ -351,6 +363,14 @@ struct BooksPresenceMain {
         if let index = CommandLine.arguments.firstIndex(of: "--measure-seedling"), index + 1 < CommandLine.arguments.count {
             measureSeedlingCPU(seconds: Double(CommandLine.arguments[index + 1]) ?? 21)
             exit(0)
+        }
+        if CommandLine.arguments.contains("--measure-launch") {
+            do { try measureLaunch(); exit(0) }
+            catch { fputs("launch probe failed: \(error)\n", stderr); exit(1) }
+        }
+        if let index = CommandLine.arguments.firstIndex(of: "--measure-idle"), index + 1 < CommandLine.arguments.count {
+            do { try measureIdleCPU(seconds: Double(CommandLine.arguments[index + 1]) ?? 60); exit(0) }
+            catch { fputs("idle-cpu failed: \(error)\n", stderr); exit(1) }
         }
         // Only the Quiet UI motion checks; they build layers and never show a window.
         if quietCheck {
