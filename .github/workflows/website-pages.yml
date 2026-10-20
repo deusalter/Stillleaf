@@ -1,0 +1,42 @@
+name: Website deploy (GitHub Pages)
+# Manual only. Nothing deploys until the publication gate passes:
+# website/scripts/validate-release.mjs --for-publication requires
+# publication.approved, a verified release, a site origin, a contact address
+# and the legal publisher and date. See website/DEPLOY.md.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: website-pages
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+      - run: npm --prefix website ci --ignore-scripts
+      - run: npm --prefix website test
+      - name: Publication gate
+        run: node website/scripts/validate-release.mjs --for-publication
+      - run: npm --prefix website run build
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: website/dist
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
