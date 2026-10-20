@@ -27,20 +27,15 @@ struct CompletionReviewSheet: View {
 struct FinishedBookPrompt: View {
     @ObservedObject var model: AppModel
     let entry: FinishedBookEntry
-    /// Inline on Today the prompt waits with "Maybe later"; in a sheet it closes with "Done" or Escape.
-    enum Placement { case today, sheet }
-    let placement: Placement
+    let placement: FinishedBookRating.Placement
     let dismissed: () -> Void
-    @State private var rating: Double?
-    @State private var writingReview = false
     @State private var editingDates = false
 
-    init(model: AppModel, entry: FinishedBookEntry, placement: Placement = .today, dismissed: @escaping () -> Void = {}) {
+    init(model: AppModel, entry: FinishedBookEntry, placement: FinishedBookRating.Placement = .today, dismissed: @escaping () -> Void = {}) {
         self.model = model
         self.entry = entry
         self.placement = placement
         self.dismissed = dismissed
-        _rating = State(initialValue: model.rating(for: entry.id))
     }
 
     private var book: BookRecord? { model.books.first { $0.id == entry.id } }
@@ -73,34 +68,13 @@ struct FinishedBookPrompt: View {
                         .buttonStyle(.link).font(.caption).foregroundStyle(ReadingPalette.accent)
                         .accessibilityHint("Change when you started and finished this book")
                 }
-                Text("How did this one stay with you?")
-                    .font(.callout).foregroundStyle(ReadingPalette.secondaryInk)
+                FinishedBookRating(model: model, entry: entry, placement: placement, dismissed: dismissed)
                     .padding(.top, 6)
-                QuarterStarRating(rating: $rating)
-                HStack(spacing: 10) {
-                    Button("Save rating") {
-                        model.saveRating(rating, for: entry.id)
-                        if model.errorMessage == nil { model.acknowledgeCompletion(entry) }
-                    }
-                    .buttonStyle(ReadingButtonStyle(emphasis: .primary))
-                    .disabled(rating == nil)
-                    Button(model.review(for: entry.id) == nil ? "Write a review" : "Edit review") { writingReview = true }
-                    if model.rating(for: entry.id) != nil {
-                        Button("Clear rating") {
-                            rating = nil
-                            model.saveRating(nil, for: entry.id)
-                        }
-                    }
-                    Button(placement == .sheet ? "Done" : "Maybe later") { model.acknowledgeCompletion(entry); dismissed() }
-                        .keyboardShortcut(placement == .sheet ? .cancelAction : nil)
-                }
-                .controlSize(.small)
             }
         }
         .readingPanel()
         .buttonStyle(ReadingButtonStyle())
         .accessibilityElement(children: .contain)
-        .sheet(isPresented: $writingReview) { BookReviewEditor(model: model, bookID: entry.id).readingMotionAccessibility() }
         .sheet(isPresented: $editingDates) {
             ReadingDatesEditor(title: entry.title,
                 dates: ReadingCompletionDates(startedAt: savedEntry.startedAt, finishedAt: savedEntry.finishedAt),
@@ -116,5 +90,57 @@ struct FinishedBookPrompt: View {
         let entry = savedEntry
         let date = entry.finishedAt.map { ReadingFormat.date($0) } ?? "Finish date unavailable"
         return "\(date) · \(entry.imported ? "Imported history" : entry.source)"
+    }
+}
+
+/// The finish prompt's one question: a rating, a review and a way to leave. Today, the Library's
+/// sheet and Book details share it, so a finish saves the same way wherever it happens.
+@MainActor
+struct FinishedBookRating: View {
+    /// Today and Book details wait with "Maybe later" (Book details' own Done keeps Escape); the
+    /// Library's sheet closes with "Done" or Escape.
+    enum Placement { case today, sheet, detail }
+
+    @ObservedObject var model: AppModel
+    let entry: FinishedBookEntry
+    let placement: Placement
+    let dismissed: () -> Void
+    @State private var rating: Double?
+    @State private var writingReview = false
+
+    init(model: AppModel, entry: FinishedBookEntry, placement: Placement, dismissed: @escaping () -> Void) {
+        self.model = model
+        self.entry = entry
+        self.placement = placement
+        self.dismissed = dismissed
+        _rating = State(initialValue: model.rating(for: entry.id))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("How did this one stay with you?")
+                .font(.callout).foregroundStyle(ReadingPalette.secondaryInk)
+            QuarterStarRating(rating: $rating)
+            HStack(spacing: 10) {
+                Button("Save rating") {
+                    model.saveRating(rating, for: entry.id)
+                    if model.errorMessage == nil { model.acknowledgeCompletion(entry) }
+                }
+                .buttonStyle(ReadingButtonStyle(emphasis: .primary))
+                .disabled(rating == nil)
+                Button(model.review(for: entry.id) == nil ? "Write a review" : "Edit review") { writingReview = true }
+                if model.rating(for: entry.id) != nil {
+                    Button("Clear rating") {
+                        rating = nil
+                        model.saveRating(nil, for: entry.id)
+                    }
+                }
+                Button(placement == .sheet ? "Done" : "Maybe later") { model.acknowledgeCompletion(entry); dismissed() }
+                    .keyboardShortcut(placement == .sheet ? .cancelAction : nil)
+            }
+            .controlSize(.small)
+        }
+        .buttonStyle(ReadingButtonStyle())
+        .sheet(isPresented: $writingReview) { BookReviewEditor(model: model, bookID: entry.id).readingMotionAccessibility() }
     }
 }
