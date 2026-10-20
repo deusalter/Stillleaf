@@ -352,6 +352,10 @@ struct BooksPresenceMain {
             measureSeedlingCPU(seconds: Double(CommandLine.arguments[index + 1]) ?? 21)
             exit(0)
         }
+        if let index = CommandLine.arguments.firstIndex(of: "--measure-idle"), index + 1 < CommandLine.arguments.count {
+            do { try measureIdleCPU(seconds: Double(CommandLine.arguments[index + 1]) ?? 60); exit(0) }
+            catch { fputs("idle-cpu failed: \(error)\n", stderr); exit(1) }
+        }
         // Only the Quiet UI motion checks; they build layers and never show a window.
         if quietCheck {
             do { try checkQuietMotion(); exit(0) }

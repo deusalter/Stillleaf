@@ -176,6 +176,8 @@ final class AppModel: ObservableObject {
     private var coverLookupGeneration = 0
     private var coverLookupDates: [String: Date] = [:]
     private let historyQueue = DispatchQueue(label: "BooksPresence.finished-history", qos: .utility)
+    /// The Apple Books catalog this model reads. Dev-tool probes point it at a synthetic copy.
+    private let booksCatalog: BooksCatalog
     private var historySyncInFlight = false
     private var historyGeneration = 0
     private var lastHistorySync = Date.distantPast
@@ -230,6 +232,7 @@ final class AppModel: ObservableObject {
 
     init(support: URL, defaults: UserDefaults = .standard, startTracking: Bool = true,
          accessibilityStatus: @escaping () -> Bool = { BooksCapture.isTrusted },
+         booksCatalog: BooksCatalog = BooksCatalog(),
          historyReader: @escaping (URL) throws -> (archive: HistoryArchive, intervals: [ReadingInterval]) = ReadingStore.readSnapshot,
          makeTrackingEngine: @escaping (ReadingStore, String) throws -> TrackingEngine = {
              try TrackingEngine(store: $0, timezoneID: $1)
@@ -237,6 +240,7 @@ final class AppModel: ObservableObject {
         self.historyReader = historyReader
         self.makeTrackingEngine = makeTrackingEngine
         self.accessibilityStatus = accessibilityStatus
+        self.booksCatalog = booksCatalog
         self.support = support
         self.defaults = defaults
         epubLibrary = EPUBLibraryController(directory: support.appendingPathComponent("Publications", isDirectory: true))
@@ -247,7 +251,7 @@ final class AppModel: ObservableObject {
         let zone = defaults.string(forKey: "timezoneID").flatMap { TimeZone(identifier: $0) }?.identifier ?? TimeZone.current.identifier
         engine = try makeTrackingEngine(store, zone)
         covers = try CoverCache(directory: support.appendingPathComponent("Covers"))
-        captures = BooksCapture(covers: covers)
+        captures = BooksCapture(catalog: booksCatalog, covers: covers)
         accessibilityGranted = accessibilityStatus()
         timezoneID = zone
         trackingEnabled = defaults.object(forKey: "trackingEnabled") as? Bool ?? true
@@ -369,8 +373,8 @@ final class AppModel: ObservableObject {
         let assetIDs = Set(books.filter { $0.id.hasPrefix(prefix) }.map { String($0.id.dropFirst(prefix.count)) })
         guard !assetIDs.isEmpty else { return }
         storePurchaseCheckInFlight = true; lastStorePurchaseCheck = Date()
-        historyQueue.async { [weak self] in
-            let purchases = try? BooksCatalog().storePurchases(among: assetIDs)
+        historyQueue.async { [weak self, booksCatalog] in
+            let purchases = try? booksCatalog.storePurchases(among: assetIDs)
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.storePurchaseCheckInFlight = false
@@ -1175,11 +1179,11 @@ final class AppModel: ObservableObject {
         let generation = historyGeneration
         let knownBooks = Dictionary(uniqueKeysWithValues: books.map { ($0.id, $0) })
         let suppressed = suppressedHistoryIDs
-        historyQueue.async { [weak self] in
+        historyQueue.async { [weak self, booksCatalog] in
             let staging = FileManager.default.temporaryDirectory.appendingPathComponent("BooksPresence-history-\(UUID().uuidString)", isDirectory: true)
             do {
                 let stagedCovers = try CoverCache(directory: staging)
-                var imported = try BooksCatalog().finishedBooks()
+                var imported = try booksCatalog.finishedBooks()
                 imported.removeAll { suppressed.contains(Self.historyKey($0.book.id)) }
                 for index in imported.indices {
                     let book = imported[index].book
