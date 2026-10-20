@@ -181,11 +181,13 @@ final class AppModel: ObservableObject {
     private var historySyncInFlight = false
     private var historyGeneration = 0
     private var lastHistorySync = Date.distantPast
-    /// Catalog stamps behind the last history sync and store-purchase check. The periodic poll
-    /// skips both while the Books catalog is unchanged, and repeats them every 10 minutes anyway.
+    /// Catalog stamps behind the last completed history sync and store-purchase check. The periodic
+    /// poll skips both while the Books catalog is unchanged, and repeats them every 10 minutes anyway.
+    /// A stamp is kept only once its read succeeded, so a failed or discarded read retries next poll.
     private var historySyncStamp: [String]?
     private var storePurchaseStamp: [String]?
     private var lastFullHistorySync = Date.distantPast
+    private var lastFullStorePurchaseCheck = Date.distantPast
     private static let unchangedCatalogRecheck: TimeInterval = 600
     private var suppressedHistoryIDs: Set<String> = []
     private var presenceState: ReadingPresenceState = .hidden
@@ -378,16 +380,19 @@ final class AppModel: ObservableObject {
         let prefix = "apple-books:"
         let assetIDs = Set(books.filter { $0.id.hasPrefix(prefix) }.map { String($0.id.dropFirst(prefix.count)) })
         guard !assetIDs.isEmpty else { return }
-        let stamp = booksCatalog.changeStamp().map { $0 + assetIDs.sorted() }
-        if onlyIfCatalogChanged, let stamp, stamp == storePurchaseStamp,
-           Date().timeIntervalSince(lastStorePurchaseCheck) < Self.unchangedCatalogRecheck { return }
-        storePurchaseStamp = stamp
+        let unchanged = onlyIfCatalogChanged && Date().timeIntervalSince(lastFullStorePurchaseCheck) < Self.unchangedCatalogRecheck
+            ? storePurchaseStamp : nil
         storePurchaseCheckInFlight = true; lastStorePurchaseCheck = Date()
         historyQueue.async { [weak self, booksCatalog] in
-            let purchases = try? booksCatalog.storePurchases(among: assetIDs)
+            // Touch the Books container off the main thread, as every other catalog read does.
+            let stamp = booksCatalog.changeStamp().map { $0 + assetIDs.sorted() }
+            let skip = stamp != nil && stamp == unchanged
+            let purchases = skip ? nil : try? booksCatalog.storePurchases(among: assetIDs)
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.storePurchaseCheckInFlight = false
+                guard !skip else { return }
+                if purchases != nil { self.storePurchaseStamp = stamp; self.lastFullStorePurchaseCheck = Date() }
                 if let purchases, purchases != self.appleBooksStorePurchaseIDs { self.appleBooksStorePurchaseIDs = purchases }
             }
         }
@@ -657,8 +662,9 @@ final class AppModel: ObservableObject {
     private func tick() {
         guard ready, !trackingRecoveryRequired else { return }
         defer { schedulePoll() }
-        if Date().timeIntervalSince(lastHistorySync) > 30 { syncAppleBooksHistory(onlyIfCatalogChanged: true) }
-        if Date().timeIntervalSince(lastStorePurchaseCheck) > 60 { refreshStorePurchases(onlyIfCatalogChanged: true) }
+        // A second of slack, so a 30-second poll runs the sync on every tick rather than every other.
+        if Date().timeIntervalSince(lastHistorySync) >= 29 { syncAppleBooksHistory(onlyIfCatalogChanged: true) }
+        if Date().timeIntervalSince(lastStorePurchaseCheck) >= 59 { refreshStorePurchases(onlyIfCatalogChanged: true) }
         let trusted = accessibilityStatus()
         if accessibilityGranted != trusted { accessibilityGranted = trusted }
         windowObserver?.refresh()
@@ -1225,17 +1231,18 @@ final class AppModel: ObservableObject {
     }
     func syncAppleBooksHistory(onlyIfCatalogChanged: Bool = false) {
         guard syncAppleBooksHistoryEnabled, !historySyncInFlight else { return }
-        let stamp = booksCatalog.changeStamp()
-        if onlyIfCatalogChanged, let stamp, stamp == historySyncStamp,
-           Date().timeIntervalSince(lastFullHistorySync) < Self.unchangedCatalogRecheck {
-            lastHistorySync = Date(); return
-        }
-        historySyncStamp = stamp; lastFullHistorySync = Date()
+        let unchanged = onlyIfCatalogChanged && Date().timeIntervalSince(lastFullHistorySync) < Self.unchangedCatalogRecheck
+            ? historySyncStamp : nil
         historySyncInFlight = true; lastHistorySync = Date()
         let generation = historyGeneration
         let knownBooks = Dictionary(uniqueKeysWithValues: books.map { ($0.id, $0) })
         let suppressed = suppressedHistoryIDs
         historyQueue.async { [weak self, booksCatalog] in
+            let stamp = booksCatalog.changeStamp()
+            if stamp != nil && stamp == unchanged {
+                DispatchQueue.main.async { [weak self] in self?.historySyncInFlight = false }
+                return
+            }
             let staging = FileManager.default.temporaryDirectory.appendingPathComponent("BooksPresence-history-\(UUID().uuidString)", isDirectory: true)
             do {
                 let stagedCovers = try CoverCache(directory: staging)
@@ -1257,7 +1264,9 @@ final class AppModel: ObservableObject {
                     guard let self else { return }
                     self.historySyncInFlight = false
                     guard self.historyGeneration == generation, self.syncAppleBooksHistoryEnabled else { return }
-                    self.acceptFinishedHistory(records, staging: staging)
+                    if self.acceptFinishedHistory(records, staging: staging) {
+                        self.historySyncStamp = stamp; self.lastFullHistorySync = Date()
+                    }
                 }
             } catch {
                 try? FileManager.default.removeItem(at: staging)
@@ -1271,8 +1280,10 @@ final class AppModel: ObservableObject {
         }
     }
     /// Internal seam for synthetic integration checks; callers own staged-file cleanup.
-    func acceptFinishedHistory(_ records: [CatalogFinishedBook], staging: URL) {
-        guard syncAppleBooksHistoryEnabled else { return }
+    /// Returns whether the records were saved.
+    @discardableResult
+    func acceptFinishedHistory(_ records: [CatalogFinishedBook], staging: URL) -> Bool {
+        guard syncAppleBooksHistoryEnabled else { return false }
         do {
             let previousSync = defaults.object(forKey: "lastAppleHistorySync") as? Date
             let archive = try store.archive()
@@ -1323,7 +1334,8 @@ final class AppModel: ObservableObject {
             if historyChanged { refresh() }
             if let id = newestCompletionID { pendingCompletionEventID = newestCompletionEventID; pendingCompletion = finishedBooks.first { $0.id == id } }
             appleHistoryStatus = "Synced \(records.count) finished books from Apple Books."
-        } catch { appleHistoryStatus = "Could not save Apple Books history: \(error.localizedDescription)" }
+            return true
+        } catch { appleHistoryStatus = "Could not save Apple Books history: \(error.localizedDescription)"; return false }
     }
     @discardableResult
     private func perform(afterCommit: (() throws -> Void)? = nil, _ action: () throws -> Void) -> Bool {
