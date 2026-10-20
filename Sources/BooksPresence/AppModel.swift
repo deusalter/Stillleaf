@@ -181,6 +181,12 @@ final class AppModel: ObservableObject {
     private var historySyncInFlight = false
     private var historyGeneration = 0
     private var lastHistorySync = Date.distantPast
+    /// Catalog stamps behind the last history sync and store-purchase check. The periodic poll
+    /// skips both while the Books catalog is unchanged, and repeats them every 10 minutes anyway.
+    private var historySyncStamp: [String]?
+    private var storePurchaseStamp: [String]?
+    private var lastFullHistorySync = Date.distantPast
+    private static let unchangedCatalogRecheck: TimeInterval = 600
     private var suppressedHistoryIDs: Set<String> = []
     private var presenceState: ReadingPresenceState = .hidden
     private let captureQueue = DispatchQueue(label: "BooksPresence.capture", qos: .utility)
@@ -367,11 +373,15 @@ final class AppModel: ObservableObject {
         return !appleBooksStorePurchaseIDs.contains(assetID)
     }
     /// Checks the journal's Apple Books books for store purchases off the main thread.
-    private func refreshStorePurchases() {
+    private func refreshStorePurchases(onlyIfCatalogChanged: Bool = false) {
         guard !storePurchaseCheckInFlight else { return }
         let prefix = "apple-books:"
         let assetIDs = Set(books.filter { $0.id.hasPrefix(prefix) }.map { String($0.id.dropFirst(prefix.count)) })
         guard !assetIDs.isEmpty else { return }
+        let stamp = booksCatalog.changeStamp().map { $0 + assetIDs.sorted() }
+        if onlyIfCatalogChanged, let stamp, stamp == storePurchaseStamp,
+           Date().timeIntervalSince(lastStorePurchaseCheck) < Self.unchangedCatalogRecheck { return }
+        storePurchaseStamp = stamp
         storePurchaseCheckInFlight = true; lastStorePurchaseCheck = Date()
         historyQueue.async { [weak self, booksCatalog] in
             let purchases = try? booksCatalog.storePurchases(among: assetIDs)
@@ -647,8 +657,8 @@ final class AppModel: ObservableObject {
     private func tick() {
         guard ready, !trackingRecoveryRequired else { return }
         defer { schedulePoll() }
-        if Date().timeIntervalSince(lastHistorySync) > 30 { syncAppleBooksHistory() }
-        if Date().timeIntervalSince(lastStorePurchaseCheck) > 60 { refreshStorePurchases() }
+        if Date().timeIntervalSince(lastHistorySync) > 30 { syncAppleBooksHistory(onlyIfCatalogChanged: true) }
+        if Date().timeIntervalSince(lastStorePurchaseCheck) > 60 { refreshStorePurchases(onlyIfCatalogChanged: true) }
         let trusted = accessibilityStatus()
         if accessibilityGranted != trusted { accessibilityGranted = trusted }
         windowObserver?.refresh()
@@ -1213,8 +1223,14 @@ final class AppModel: ObservableObject {
     nonisolated private static func historyKey(_ id: String) -> String {
         SHA256.hash(data: Data(id.utf8)).map { String(format: "%02x", $0) }.joined()
     }
-    func syncAppleBooksHistory() {
+    func syncAppleBooksHistory(onlyIfCatalogChanged: Bool = false) {
         guard syncAppleBooksHistoryEnabled, !historySyncInFlight else { return }
+        let stamp = booksCatalog.changeStamp()
+        if onlyIfCatalogChanged, let stamp, stamp == historySyncStamp,
+           Date().timeIntervalSince(lastFullHistorySync) < Self.unchangedCatalogRecheck {
+            lastHistorySync = Date(); return
+        }
+        historySyncStamp = stamp; lastFullHistorySync = Date()
         historySyncInFlight = true; lastHistorySync = Date()
         let generation = historyGeneration
         let knownBooks = Dictionary(uniqueKeysWithValues: books.map { ($0.id, $0) })

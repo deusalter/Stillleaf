@@ -27,6 +27,21 @@ public final class BooksCatalog {
         guard files.count == 1, let file = files.first else { throw BooksAccessError.unavailable("Books catalog is missing or ambiguous. Manual tracking remains available.") }
         return file
     }
+    /// Size and modification time of the catalog database and its write-ahead log. Books writes
+    /// one of them whenever the catalog changes; reading it (ours included) touches only `-shm`.
+    /// Pollers compare stamps to skip re-reading an unchanged catalog. Nil when unreadable.
+    public func changeStamp() -> [String]? {
+        let folder = documents.appendingPathComponent("BKLibrary", isDirectory: true)
+        let keys: [URLResourceKey] = [.contentModificationDateKey, .fileSizeKey]
+        guard let files = try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: keys) else { return nil }
+        let stamp = files.filter { $0.lastPathComponent.hasPrefix("BKLibrary-") && !$0.lastPathComponent.hasSuffix("-shm") }
+            .compactMap { url -> String? in
+                guard let values = try? url.resourceValues(forKeys: Set(keys)) else { return nil }
+                return "\(url.lastPathComponent)|\(values.fileSize ?? -1)|\(values.contentModificationDate?.timeIntervalSince1970 ?? 0)"
+            }
+            .sorted()
+        return stamp.isEmpty ? nil : stamp
+    }
     private func withDatabase<T>(_ body: (OpaquePointer) throws -> T) throws -> T {
         var db: OpaquePointer?
         let path = try databaseURL().path
