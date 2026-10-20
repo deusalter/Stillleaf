@@ -305,6 +305,14 @@ struct BooksPresenceMain {
             do { try runInteractiveLibraryPreview(); exit(0) }
             catch { fputs("library-preview failed: \(error)\n", stderr); exit(1) }
         }
+        if let index = CommandLine.arguments.firstIndex(of: "--capture-window-chrome"), index + 1 < CommandLine.arguments.count {
+            do { try captureWindowChrome(to: URL(fileURLWithPath: CommandLine.arguments[index + 1], isDirectory: true)); exit(0) }
+            catch { fputs("window-chrome capture failed: \(error)\n", stderr); exit(1) }
+        }
+        if let index = CommandLine.arguments.firstIndex(of: "--capture-finish-moment"), index + 1 < CommandLine.arguments.count {
+            do { try captureFinishMoment(to: URL(fileURLWithPath: CommandLine.arguments[index + 1], isDirectory: true)); exit(0) }
+            catch { fputs("finish-moment capture failed: \(error)\n", stderr); exit(1) }
+        }
         if let index = CommandLine.arguments.firstIndex(of: "--self-test-audio"), index + 1 < CommandLine.arguments.count {
             let destination = URL(fileURLWithPath: CommandLine.arguments[index + 1])
             Task { @MainActor in

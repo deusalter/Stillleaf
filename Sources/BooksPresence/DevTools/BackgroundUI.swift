@@ -17,7 +17,8 @@ enum BackgroundUI {
 
     private static let launches: Set<String> = [
         "--preview-library", "--self-test-ui", "--self-test-epub", "--self-test-audio",
-        "--render-ui", "--benchmark-ui", "--benchmark-settled-ui", "--render-native-chrome", "--measure-seedling"
+        "--render-ui", "--benchmark-ui", "--benchmark-settled-ui", "--render-native-chrome", "--measure-seedling",
+        "--capture-finish-moment", "--capture-window-chrome"
     ]
 
     static func enableIfRequested(arguments: [String] = CommandLine.arguments,
