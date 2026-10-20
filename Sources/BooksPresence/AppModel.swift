@@ -282,7 +282,7 @@ final class AppModel: ObservableObject {
             if self.manualBook == nil && self.epubReaders.focusedPublicationID == nil { self.pause(.noReadingWindow); self.tick() }
         }
         refresh()
-        timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in Task { @MainActor [weak self] in self?.tick() } }
+        schedulePoll()
         if !defaults.bool(forKey: "didConfigureLogin"), Bundle.main.bundleURL.pathExtension == "app" {
             defaults.set(true, forKey: "didConfigureLogin")
             do { try LoginService.setEnabled(true); launchAtLogin = LoginService.enabled }
@@ -564,6 +564,11 @@ final class AppModel: ObservableObject {
         workspaceObservers.append(center.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self else { return }; self.captureGeneration += 1
+                // The relaxed poll last sampled input up to 30 s ago. Count only what a
+                // one-second poll would have: input from the second before this switch.
+                if self.timer?.timeInterval == Self.idlePollInterval {
+                    self.lastInputUptime = max(self.lastInputUptime, ProcessInfo.processInfo.systemUptime - Self.activePollInterval)
+                }
                 if self.manualBook == nil && self.epubReaders.focusedPublicationID == nil && !SystemEligibility.booksForeground { self.pause(.background) }
                 self.tick()
             }
@@ -581,6 +586,14 @@ final class AppModel: ObservableObject {
                 Task { @MainActor [weak self] in self?.systemChanged(key: key, stopped: stop, reason: reason) }
             })
         }
+        // Today rolls over at midnight even while the poll is relaxed.
+        observers.append(NotificationCenter.default.addObserver(forName: .NSCalendarDayChanged, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.tick() }
+        })
+        // A Stillleaf window or the menu panel coming on screen or leaving it changes the poll rate.
+        observers.append(NotificationCenter.default.addObserver(forName: NSWindow.didChangeOcclusionStateNotification, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.schedulePoll() }
+        })
         for (name, stop) in [("com.apple.screenIsLocked", true), ("com.apple.screenIsUnlocked", false)] {
             distributedObservers.append(DistributedNotificationCenter.default().addObserver(forName: Notification.Name(name), object: nil, queue: .main) { [weak self] _ in
                 Task { @MainActor [weak self] in self?.systemChanged(key: "lock", stopped: stop, reason: .locked) }
@@ -605,8 +618,35 @@ final class AppModel: ObservableObject {
         health = message
     }
 
+    /// The eligibility poll runs every second while anything could be credited or watched: manual
+    /// reading, a focused Stillleaf reader, Apple Books in front, audio playing, an open session, or
+    /// a Stillleaf window or the menu panel on screen. Otherwise nothing can start without an app
+    /// activation, reader focus, wake/unlock or day change, and each of those ticks at once, so the
+    /// poll relaxes to the 30-second Apple Books history sync and lets the Mac stay idle (App Nap).
+    nonisolated static let activePollInterval: TimeInterval = 1
+    nonisolated static let idlePollInterval: TimeInterval = 30
+    private var pollShouldStayActive: Bool {
+        readingTrackingSource != .idle || audiobookPlayer.isPlaying || snapshot.phase != .paused
+            || NSApp.windows.contains { window in
+                window.isVisible && window.occlusionState.contains(.visible)
+                    && (window.styleMask.contains(.titled) || window is StatusMenuPanel)
+            }
+    }
+    private func schedulePoll() {
+        guard ready else { return }
+        let interval = pollShouldStayActive ? Self.activePollInterval : Self.idlePollInterval
+        if let timer, timer.isValid, timer.timeInterval == interval { return }
+        timer?.invalidate()
+        let poll = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in Task { @MainActor [weak self] in self?.tick() } }
+        // Let macOS batch the wakeup with others; elapsed time comes from uptime, not the timer.
+        poll.tolerance = interval / 10
+        timer = poll
+    }
+    var pollInterval: TimeInterval? { timer?.isValid == true ? timer?.timeInterval : nil }
+
     private func tick() {
         guard ready, !trackingRecoveryRequired else { return }
+        defer { schedulePoll() }
         if Date().timeIntervalSince(lastHistorySync) > 30 { syncAppleBooksHistory() }
         if Date().timeIntervalSince(lastStorePurchaseCheck) > 60 { refreshStorePurchases() }
         let trusted = accessibilityStatus()

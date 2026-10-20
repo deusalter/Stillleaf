@@ -47,8 +47,12 @@ func measureIdleCPU(seconds: Double) throws {
         RunLoop.main.run(until: Date().addingTimeInterval(seconds))
         let used = ResourceSample.now() - start
         let published = publishes
+        let poll = model.pollInterval ?? 0
         model.shutdown(); counter.cancel(); panel.close()
-        print(used.line(name, seconds: seconds) + String(format: ", %.0f model publishes/min", Double(published) * 60 / seconds))
+        print(used.line(name, seconds: seconds) + String(format: ", %.0f model publishes/min, poll every %.0f s", Double(published) * 60 / seconds, poll))
+        // Nothing to credit in the menu bar: the poll must have relaxed. A session needs every second.
+        let expected = name == "menu" ? AppModel.idlePollInterval : AppModel.activePollInterval
+        guard poll == expected else { throw ReadingStoreError.invalidData("\(name): poll every \(poll) s, expected \(expected) s") }
     }
 }
 
