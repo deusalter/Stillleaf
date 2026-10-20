@@ -34,6 +34,7 @@ renderer.
 | History | Day/Week/Month/Year atlas | Month calendar, then a day's sessions | Atlas views are AppKit-specific; day totals use the same core functions |
 | Reviews | Yes | Yes | |
 | Session corrections (adjust/split/reassign/exclude) | Yes | Delete only (v1) | Imported corrections are honoured in all totals |
+| Export/import one book's notes and reader settings | Yes | No (v1) | Reader state stays per device; `ReaderStateTransfer` is portable when needed |
 | Merge editions | Yes | Honoured when imported (v1) | No merge UI on iOS yet |
 | Per-book “don't track” exclusion | Yes | Yes | |
 | Calendar time zone | Yes | Yes | |
