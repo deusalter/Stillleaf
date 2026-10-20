@@ -18,7 +18,10 @@ The garden stays as it ships. The interface carries a little motion on top of it
   overshoot. It plays once per completion; the prompt beside it is usable from its first frame.
   On Today the sections below make room in one 0.3 s glide that starts on the frame the finish
   lands, and the prompt fades into the space over its second half; when it is dismissed it is gone
-  within the first third of the glide that closes the space.
+  within the first third of the glide that closes the space. In Book details the moment happens in
+  place, never as a second sheet: the Mark as finished button becomes the finished line, the seal
+  settles on the hero cover, and the same question opens below while the rating and review sections
+  step aside until it is answered or left for later.
 
 ## How it is kept light
 

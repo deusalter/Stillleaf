@@ -72,6 +72,20 @@ enum FinishMoment {
     private static func easeOut(_ t: Double) -> Double { 1 - pow(1 - t, 3) }
 }
 
+/// The finish moment belongs to the place the reader acted. Book details claims the celebration
+/// as it marks the book finished, before Today (which shows the same pending completion behind
+/// the sheet) can, and hands it to its own seal exactly once.
+@MainActor
+final class CelebrationTicket {
+    private var won = false
+    func hold(_ won: Bool) { self.won = won }
+    /// Whether the holder won the celebration; true at most once per `hold`.
+    func take() -> Bool {
+        defer { won = false }
+        return won
+    }
+}
+
 /// Use only in the pending completion prompt. The owner consumes the saved completion event
 /// before returning true; remounting a view cannot replay it.
 struct CompletionCelebrationBadge: View {
