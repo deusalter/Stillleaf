@@ -7,8 +7,10 @@ mkdir -p "$OUT"
 SDK="$(xcrun --sdk macosx --show-sdk-path)"
 SDK_VERSION="$(xcrun --sdk macosx --show-sdk-version)"
 SWIFTC="${BOOKSPRESENCE_SWIFTC:-$(xcrun --find swiftc)}"
+# Release packaging builds each architecture into its own directory, then joins them with lipo.
+ARCH="${BOOKSPRESENCE_ARCH:-$(uname -m)}"
 # Packaged apps use this same build. Enable release optimization for the tracker and UI.
-FLAGS=(-sdk "$SDK" -target "$(uname -m)-apple-macosx13.0" -I Sources/CSQLite -enable-testing -O)
+FLAGS=(-sdk "$SDK" -target "$ARCH-apple-macosx13.0" -I Sources/CSQLite -enable-testing -O)
 # The direct Swift link otherwise records the deployment version as its SDK.
 # AppKit/SwiftUI use linked-SDK metadata to select modern system behavior.
 FLAGS+=(-Xlinker -platform_version -Xlinker macos -Xlinker 13.0 -Xlinker "$SDK_VERSION")

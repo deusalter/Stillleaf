@@ -43,6 +43,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             item.button?.target = self; item.button?.action = #selector(togglePopover)
             statusItem = item
             menuPanel = makeMenuPanel(model: state)
+            state.updates.start()
             NSApp.mainMenu = AppPresence.makeMainMenu(dashboardTarget: self, dashboardAction: #selector(openDashboard))
             let center = NotificationCenter.default
             center.addObserver(forName: NSWindow.willCloseNotification, object: nil, queue: .main) { note in
@@ -52,6 +53,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             for name in [NSWindow.didBecomeKeyNotification, NSWindow.didDeminiaturizeNotification] {
                 center.addObserver(forName: name, object: nil, queue: .main) { _ in Task { @MainActor in AppPresence.refresh() } }
             }
+            if InstallLocation.current().isTemporary, !BackgroundUI.isEnabled, recommendMovingToApplications() { return }
             if state.needsOnboarding {
                 if returning { state.markOnboardingComplete() } else { showOnboarding() }
             }
@@ -77,6 +79,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         } catch {
             let alert = NSAlert(); alert.messageText = "Stillleaf could not start"; alert.informativeText = String(describing: error); alert.runModal(); NSApp.terminate(nil)
         }
+    }
+    /// A download opened in place runs from a temporary read-only location until it is moved.
+    /// Returns true when the reader chose to quit and move it first.
+    private func recommendMovingToApplications() -> Bool {
+        let alert = NSAlert()
+        alert.messageText = "Move Stillleaf to your Applications folder"
+        alert.informativeText = "Stillleaf is running from the disk image or from a temporary location macOS uses for new downloads. Drag Stillleaf into Applications, then open it from there so Open at login, Apple Books access and updates keep working."
+        alert.addButton(withTitle: "Quit and Move")
+        alert.addButton(withTitle: "Continue Anyway")
+        NSApp.activate(ignoringOtherApps: true)
+        guard alert.runModal() == .alertFirstButtonReturn else { return false }
+        NSApp.terminate(nil)
+        return true
     }
     func application(_ application: NSApplication, open urls: [URL]) {
         if let model { model.epubLibrary.enqueue(urls) }
@@ -123,6 +138,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     }
     @objc private func openDashboard() { showDashboard() }
     @objc func openSettings() { model?.showDashboard(section: .settings) }
+    @objc func checkForUpdates() { model?.updates.checkNow() }
     @objc func openLibrary() { model?.showDashboard(section: .library) }
     /// The welcome tour. Closing it early counts as done; Settings can replay it.
     func showOnboarding() {
