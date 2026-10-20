@@ -24,6 +24,12 @@
     <string>17</string>
     <key>LSMinimumSystemVersion</key>
     <string>13.0</string>
+    <key>LSApplicationCategoryType</key>
+    <string>public.app-category.lifestyle</string>
+    <key>NSHumanReadableCopyright</key>
+    <string>Copyright © 2026 Stillleaf. All rights reserved.</string>
+    <key>NSPrincipalClass</key>
+    <string>NSApplication</string>
     <key>LSUIElement</key>
     <true/>
     <key>CFBundleDocumentTypes</key>
