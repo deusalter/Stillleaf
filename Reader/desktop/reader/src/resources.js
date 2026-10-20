@@ -1,5 +1,10 @@
 import DOMPurify from 'dompurify';
-import * as css from 'css-tree';
+// The parser, walker and generator entries leave out css-tree's validator (lexer and its
+// property-syntax tables), which this rewrite never uses: about a quarter of the bundle.
+import parseCSS from 'css-tree/parser';
+import walkCSS from 'css-tree/walker';
+import generateCSS from 'css-tree/generator';
+const css={parse:parseCSS,walk:walkCSS,generate:generateCSS};
 import {Resource} from '@readium/shared';
 const htmlTypes=new Set(['application/xhtml+xml','text/html']);
 const assetTypes=new Set(['image/png','image/jpeg','image/gif','image/webp','font/woff','font/woff2','font/ttf','font/otf','font/sfnt','font/opentype','font/truetype','application/font-woff','application/vnd.ms-opentype','application/font-sfnt','application/x-font-ttf','application/x-font-otf','application/x-font-opentype','application/x-font-truetype','application/x-font-woff','application/font-ttf','application/font-otf']);
