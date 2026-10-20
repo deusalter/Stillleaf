@@ -14,6 +14,7 @@ enum SyntheticEPUB {
     }
 
     /// A reflowable book with `chapters` chapters of generated prose and a PNG cover.
+    /// Deterministic: the same arguments give the same bytes, so the same edition ID.
     static func book(title: String = "A Synthetic Garden", author: String = "Test Author", chapters: Int = 3,
                      paragraphs: Int = 40) -> [Entry] {
         var manifest = "<item id=\"nav\" href=\"nav.xhtml\" media-type=\"application/xhtml+xml\" properties=\"nav\"/>"
@@ -41,7 +42,7 @@ enum SyntheticEPUB {
         """.utf8)))
         entries.append(Entry(path: "EPUB/cover.png", data: onePixelPNG, deflate: false))
         entries.append(Entry(path: "EPUB/package.opf", data: Data("""
-        <?xml version="1.0" encoding="utf-8"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="uid">urn:uuid:\(UUID().uuidString)</dc:identifier><dc:title>\(title)</dc:title><dc:creator>\(author)</dc:creator><dc:language>en</dc:language></metadata><manifest>\(manifest)</manifest><spine>\(spine)</spine></package>
+        <?xml version="1.0" encoding="utf-8"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="uid">urn:stillleaf-test:\(title.lowercased().replacingOccurrences(of: " ", with: "-"))-\(chapters)</dc:identifier><dc:title>\(title)</dc:title><dc:creator>\(author)</dc:creator><dc:language>en</dc:language></metadata><manifest>\(manifest)</manifest><spine>\(spine)</spine></package>
         """.utf8)))
         return entries
     }

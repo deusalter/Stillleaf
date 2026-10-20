@@ -10,7 +10,7 @@ final class AppBundleTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: reader.appendingPathComponent("index.html").path))
         let files = (FileManager.default.enumerator(atPath: reader.path)?.allObjects as? [String]) ?? []
         XCTAssertTrue(files.contains { $0.hasSuffix(".js") }, "renderer script")
-        XCTAssertTrue(files.contains { $0.hasSuffix(".woff2") }, "bundled fonts")
+        XCTAssertTrue(files.contains { $0.hasSuffix(".css") }, "renderer styles (fonts are inlined in the scripts)")
     }
 
     func testPrivacyManifestDeclaresNoTrackingAndEachRequiredReasonAPI() throws {
