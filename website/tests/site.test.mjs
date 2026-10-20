@@ -5,6 +5,7 @@ import {
   fillTokens,
   headTags,
   iosCard,
+  iosQuestion,
   isIndexable,
   publicPath,
   robotsTxt,
@@ -78,6 +79,9 @@ test("iOS state switches between hidden, coming soon, and the App Store", () => 
   assert.match(live, new RegExp(`href="${url}"`));
   assert.match(live, /alt="Download on the App Store"/);
 
+  assert.equal(iosQuestion({ state: "hidden", appStoreURL: null }), "");
+  assert.match(iosQuestion({ state: "coming-soon", appStoreURL: null }), /in development/);
+  assert.match(iosQuestion({ state: "available", appStoreURL: url }), /on the App Store/);
   const ios = (state, appStoreURL) => validateSite({ ...site, ios: { state, appStoreURL } });
   assert.deepEqual(ios("available", url), []);
   assert.ok(ios("available", null).length > 0);

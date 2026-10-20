@@ -76,6 +76,12 @@ export function fillTokens(html, site, gate = publication) {
     "site-header": siteHeader,
     "site-footer": siteFooter,
     ios: iosCard(site.ios),
+    "ios-faq": iosQuestion(site.ios),
+    "ios-platform": {
+      hidden: "",
+      "coming-soon": " iPhone and iPad in development.",
+      available: " iPhone and iPad on the App Store.",
+    }[site.ios.state],
     "release-note":
       gate.approved === true
         ? "Each download is the exact build we verified, with its SHA-256 checksum listed here."
@@ -150,6 +156,23 @@ export function iosCard(ios) {
               </div>
               ${status}
             </div>`;
+}
+
+/** The FAQ entry about iPhone and iPad, matching the card's state. */
+export function iosQuestion(ios) {
+  if (ios.state === "hidden") return "";
+  const answer =
+    ios.state === "available"
+      ? `Yes. Stillleaf for iPhone and iPad is <a href="${escapeHTML(ios.appStoreURL)}">on the App Store</a>.`
+      : "An iPhone and iPad version is in development. We’ll share details and availability here when it’s ready.";
+  return `<details>
+            <summary>
+              Is there an iPhone and iPad version?<span aria-hidden="true">+</span>
+            </summary>
+            <p>
+              ${answer}
+            </p>
+          </details>`;
 }
 
 /**
