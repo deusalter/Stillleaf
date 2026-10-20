@@ -52,6 +52,7 @@ test('host-served resources load on demand and render',{timeout:90000},async t=>
  await page.goto(origin+'/index.html');await page.waitForFunction(()=>Boolean(window.StillleafReader));
  const frameWith=selector=>page.waitForFunction(selector=>[...document.querySelectorAll('#reader iframe')].some(f=>f.contentDocument?.querySelector(selector)),selector);
 
+ await page.evaluate(()=>{window.pageMaps=[];window.addEventListener('stillleaf-reader-event',e=>{if(e.detail.type==='pageMap')window.pageMaps.push(e.detail.pageMap)})});
  await page.evaluate(input=>window.StillleafReader.open(input),input());
  await frameWith('#figure');
  const first=await page.evaluate(()=>{
@@ -69,13 +70,22 @@ test('host-served resources load on demand and render',{timeout:90000},async t=>
  for(const href of new Set(requested))assert.ok(requested.filter(item=>item===href).length<=2,'resource is not repeatedly fetched within a view: '+href);
 
  // Chapter screen pages render without eager whole-book layout or assets.
- await page.waitForFunction(()=>/^Page \d+ of \d+(?: · Chapter \d+ · Calculating book pages…)?$/.test(document.querySelector('#position-label').textContent));
+ await page.waitForFunction(()=>/^Page \d+ of \d+$/.test(document.querySelector('#position-label').textContent));
  assert.equal(requested.filter(href=>href==='text/one.html').length,1,'index reuses the displayed chapter instead of fetching its released bytes again');
- await page.evaluate(()=>{window.indexedPositions=[];window.addEventListener('stillleaf-reader-event',e=>{if(e.detail.type==='position')window.indexedPositions.push(e.detail.position)})});
- await page.evaluate(input=>window.StillleafReader.open({...input,contentProgress:true}),input());
+ // Page counting lays out (so fetches) every chapter in its own view. Reopened with this layout's saved page map, as
+ // the Mac app reopens a book, nothing is laid out again, so the requests that follow are the content index's alone.
+ await page.waitForFunction(()=>window.pageMaps.length,null,{timeout:20000});
+ const pageMaps=await page.evaluate(()=>window.pageMaps),seen=requested.length;
+ await page.evaluate(()=>{window.indexedPositions=[];window.probes=0;window.addEventListener('stillleaf-reader-event',e=>{if(e.detail.type==='position')window.indexedPositions.push(e.detail.position)});new MutationObserver(list=>{for(const m of list)for(const n of m.addedNodes)if(n.classList?.contains('pagination-probe'))window.probes++}).observe(document.body,{childList:true})});
+ // A new edition id misses the in-memory content index; its saved map names that edition.
+ const edition=input().editionId,reopened=edition+'-reopened';
+ const saved=pageMaps.map(map=>({...map,key:map.key.replace(JSON.stringify(edition),JSON.stringify(reopened))}));
+ await page.evaluate(([input,pageMaps])=>window.StillleafReader.open({...input,contentProgress:true,pageMaps}),[{...input(),editionId:reopened},saved]);
  await page.waitForFunction(()=>window.indexedPositions.some(p=>p.bookTotal>0));
- assert.ok(requested.includes('text/six.html'),'content denominator includes all chapters');
- assert.ok(!requested.includes('images/three.png'),'index does not load a future chapter image');
+ const indexed=requested.slice(seen);
+ assert.equal(await page.evaluate(()=>window.probes),0,'a saved page map lays out no chapter');
+ assert.ok(indexed.includes('text/six.html'),'content denominator includes all chapters');
+ assert.ok(!indexed.includes('images/three.png'),'index does not load a future chapter image: '+indexed.join(', '));
  assert.ok(!requested.includes('images/unused.png'),'index does not load unused images');
 
  await page.evaluate(()=>window.StillleafReader.go({href:'text/six.html',type:'text/html',locations:{progression:0}}));

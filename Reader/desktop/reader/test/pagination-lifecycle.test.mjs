@@ -35,7 +35,7 @@ test('closing and switching abort a probe with a deliberately unresolved resourc
  assert.equal(await page.locator('#position-label').textContent(),'Page 1 of 1');assert.deepEqual(errors,[]);
 });
 
-test('pending image geometry withdraws the exact denominator until it settles',{timeout:30000},async t=>{
+test('pending image geometry withdraws the exact denominator, without blanking or moving the footer, until it settles',{timeout:30000},async t=>{
  const {page,errors}=await setup(t);
  await page.evaluate(input=>StillleafReader.open(input),book(['<html><body>First chapter.</body></html>','<html><body>Second chapter.</body></html>']));
  await page.waitForFunction(()=>document.querySelector('#position-label').textContent==='Page 1 of 2');
@@ -45,22 +45,30 @@ test('pending image geometry withdraws the exact denominator until it settles',{
   // Gate the decoder's completion deterministically; final layout is real.
   window.pendingImage=image;window.imageSettled=false;Object.defineProperty(image,'complete',{get:()=>window.imageSettled});image.style.height='40px';image.style.width='20px';doc.body.append(image);
  });
- await page.waitForTimeout(150);assert.match(await page.locator('#position-label').textContent(),/Calculating book pages/);
+ await page.waitForTimeout(150);
+ assert.equal(await page.locator('#position-label').textContent(),'Page 1 of 2','the footer neither blanks nor shows a calculating notice');
  await page.evaluate(()=>{pendingImage.style.height='1800px';const caption=pendingImage.ownerDocument.createElement('p');caption.textContent='The caption wraps onto another reading screen. '.repeat(150);pendingImage.after(caption);window.imageSettled=true;pendingImage.dispatchEvent(new Event('load'))});
- await page.waitForFunction(()=>/^Page \d+ of \d+$/.test(document.querySelector('#position-label').textContent));
- const result=await page.evaluate(()=>({total:Number(document.querySelector('#position-label').textContent.match(/of (\d+)/)[1]),local:window.positions.at(-1).totalPages,turns:window.turns}));
- assert.ok(result.local>1);assert.equal(result.total,result.local+1);assert.deepEqual(result.turns,[]);assert.deepEqual(errors,[]);
+ await page.waitForFunction(()=>window.positions.at(-1)?.totalPages>1);
+ await page.waitForTimeout(300);
+ assert.equal(await page.locator('#position-label').textContent(),'Page 1 of 2','the settled count does not move the footer on its own');
+ assert.deepEqual(await page.evaluate(()=>window.turns),[],'layout settling is never a page turn');
+ // The exact count arrives with the reader's next move.
+ await page.evaluate(()=>StillleafReader.next());
+ await page.waitForFunction(()=>{const footer=document.querySelector('#position-label');return footer.dataset.pages==='exact'&&footer.textContent.startsWith('Page 2 ')});
+ const result=await page.evaluate(()=>({label:document.querySelector('#position-label').textContent,local:window.positions.at(-1).totalPages}));
+ assert.ok(result.local>1);assert.equal(result.label,`Page 2 of ${result.local+1}`);assert.deepEqual(errors,[]);
 });
 
 test('continuous probes share live reserved-scrollbar widths and screen counts',{timeout:30000},async t=>{
  const {page,errors}=await setup(t);
  await page.addStyleTag({content:'.continuous-reader{scrollbar-gutter:stable}.continuous-reader::-webkit-scrollbar{width:18px}'});
  const html='<html><body>'+Array.from({length:20},()=>'<p>'+('The garden held the last of the rain. '.repeat(12))+'</p>').join('')+'</body></html>';
+ await page.evaluate(()=>{window.pageMaps=[];window.addEventListener('stillleaf-reader-event',event=>{if(event.detail.type==='pageMap')window.pageMaps.push(event.detail.pageMap)})});
  await page.evaluate(input=>StillleafReader.open(input),book(Array(10).fill(html),{scroll:true,fontSize:1}));
- await page.waitForFunction(()=>document.querySelector('.pagination-probe iframe')?.contentDocument?.body?.textContent.includes('garden'));
- const widths=await page.evaluate(()=>({live:document.querySelector('#reader iframe').contentWindow.innerWidth,probe:document.querySelector('.pagination-probe iframe').contentWindow.innerWidth}));
+ // A probe lives only while its chapter lays out, so read both widths in the same poll.
+ const widths=await (await page.waitForFunction(()=>{const probe=document.querySelector('.pagination-probe iframe');if(!probe?.contentDocument?.body?.textContent.includes('garden'))return null;return {live:document.querySelector('#reader iframe').contentWindow.innerWidth,probe:probe.contentWindow.innerWidth}},null,{polling:'raf'})).jsonValue();
  assert.equal(widths.probe,widths.live,'non-overlay scrollbar consumes identical width');
- await page.waitForFunction(()=>/^Page \d+ of \d+$/.test(document.querySelector('#position-label').textContent));
- const totals=await page.evaluate(()=>{const flow=document.querySelector('#reader'),frame=flow.querySelector('iframe');return {book:Number(document.querySelector('#position-label').textContent.match(/of (\d+)/)[1]),chapter:Math.ceil(frame.clientHeight/flow.clientHeight-1e-6)}});
- assert.equal(totals.book,10*totals.chapter,'unmounted chapters wrap and count like live chapters');assert.deepEqual(errors,[]);
+ await page.waitForFunction(()=>window.pageMaps.length);
+ const totals=await page.evaluate(()=>{const flow=document.querySelector('#reader'),frame=flow.querySelector('iframe');return {counts:window.pageMaps.at(-1).counts,chapter:Math.ceil(frame.clientHeight/flow.clientHeight-1e-6)}});
+ assert.deepEqual(totals.counts,Array(10).fill(totals.chapter),'unmounted chapters wrap and count like live chapters');assert.deepEqual(errors,[]);
 });

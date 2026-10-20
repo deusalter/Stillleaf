@@ -40,7 +40,7 @@ test('one screen per page survives facing switches, odd final spreads, and chapt
  await page.evaluate(()=>StillleafReader.setPreferences({columns:'one',fontSize:1.5,contentWidth:80}));await settled();assert.deepEqual(await clear(),[]);assert.equal((await position()).visiblePages,1);
  await page.setViewportSize({width:520,height:700});await page.evaluate(()=>StillleafReader.setPreferences({columns:'two'}));await settled();assert.deepEqual(await clear(),[]);
  const narrow=await page.evaluate(()=>{const frame=[...document.querySelectorAll('#reader iframe')].find(f=>getComputedStyle(f).visibility!=='hidden');return {columns:frame.contentWindow.getComputedStyle(frame.contentDocument.documentElement).columnCount,position:window.positions.at(-1),label:document.querySelector('#position-label').textContent}});
- assert.equal(narrow.columns,'1');assert.equal(narrow.position.visiblePages,1);assert.match(narrow.label,/^Page \d+ of \d+(?: · Chapter \d+ · Calculating book pages…)?$/);
+ assert.equal(narrow.columns,'1');assert.equal(narrow.position.visiblePages,1);assert.match(narrow.label,/^Page \d+ of \d+$/,'the footer always shows a whole-book page, never a calculating notice');
  await page.waitForFunction(()=>/^Page \d+ of \d+$/.test(document.querySelector('#position-label').textContent));
  const final=await position();assert.equal(Number((await page.locator('#position-label').textContent()).match(/of (\d+)/)[1]),2*final.totalPages,'both chapters recalculated after font and narrow facing fallback');
  assert.deepEqual(await clear(),[],'background completion generates no reading turns');

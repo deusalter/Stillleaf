@@ -7,7 +7,7 @@ export function screenPages({extent,viewport,offset=0}){
  return {first,last:first,total};
 }
 export function pageLabel(pages){
- if(!pages)return 'Calculating pages…';
+ if(!pages)return '';
  return pages.last>pages.first?`Pages ${pages.first}–${pages.last} of ${pages.total}`:`Page ${pages.first} of ${pages.total}`;
 }
 
