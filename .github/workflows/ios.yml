@@ -38,7 +38,7 @@ jobs:
   shared-package:
     # The iOS app changes code the Mac app shares; prove the Mac package still builds and passes.
     name: Shared package on macOS
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
