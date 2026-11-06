@@ -156,11 +156,12 @@ private final class EPUBReaderWindow: NSObject, NSWindowDelegate, WKNavigationDe
         // The garden's first frame must already honour Off and Still; sendGardenMode() only carries later changes.
         configuration.userContentController.addUserScript(WKUserScript(source:
             "window.__stillleafGardenMode = \"\(Self.currentGardenMode())\";", injectionTime: .atDocumentStart, forMainFrameOnly: true))
-        webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 1000, height: 800), configuration: configuration)
+        // Apple Books opens a reader at 1024 x 768.
+        webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 1024, height: 768), configuration: configuration)
         Self.liveObjects.add(self); Self.liveObjects.add(webView)
         guardDelegate = ReaderNavigationGuard(resources: map)
         webView.navigationDelegate = self
-        let window = NSWindow(contentRect: webView.frame, styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+        let window = ReaderWindow(contentRect: webView.frame, styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
         window.title = publication.title
         ReaderTitlebar.configure(window)
         window.minSize = NSSize(width: 520, height: 440)
@@ -169,8 +170,11 @@ private final class EPUBReaderWindow: NSObject, NSWindowDelegate, WKNavigationDe
         window.contentView = webView; window.isReleasedWhenClosed = false
         window.delegate = self; window.center(); self.window = window
         chrome = NativeReaderChrome(window: window)
-        pageSubscription = chrome.model.$effectiveAppearance.sink { [weak window] page in
+        chrome.visibility.track(webView)
+        pageSubscription = chrome.model.$effectiveAppearance.sink { [weak window, weak webView] page in
             if let window { ReaderTitlebar.follow(page: page, in: window) }
+            // Past the page's edge, a rubber-band scroll shows the same colour.
+            if let color = ReaderTitlebar.color(hex: page["backgroundColor"] as? String) { webView?.underPageBackgroundColor = color }
         }
         chrome.send = { [weak self] command, payload in
             guard let self else { throw ReaderStateValidation.Failure.invalidState }
@@ -182,6 +186,12 @@ private final class EPUBReaderWindow: NSObject, NSWindowDelegate, WKNavigationDe
 
     func show() { AppPresence.willPresentWindow(); window?.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true) }
     func windowDidBecomeKey(_ notification: Notification) { focused?() }
+    /// Full screen is the page alone: the toolbar and menu bar slide in over it only when the pointer reaches the top.
+    func window(_ window: NSWindow, willUseFullScreenPresentationOptions proposedOptions: NSApplication.PresentationOptions = []) -> NSApplication.PresentationOptions {
+        [.fullScreen, .autoHideMenuBar, .autoHideToolbar]
+    }
+    func windowDidEnterFullScreen(_ notification: Notification) { chrome.setFullScreen(true) }
+    func windowDidExitFullScreen(_ notification: Notification) { chrome.setFullScreen(false) }
     func windowDidResignKey(_ notification: Notification) { flushPositionUpdate(final: true) }
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         Task { await requestClose() }

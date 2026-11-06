@@ -45,10 +45,13 @@ func captureWindowChrome(to destination: URL) throws {
         dashboard.close()
 
         // The reader's page is a web view; a plain view in the default page colour stands in for it.
-        let page = dark ? "#000000" : "#F0F7F3"
+        let page = dark ? "#000000" : "#FFFFFF"
         let reader = makeChromeReaderWindow(title: "The Waves", page: page)
         reader.appearance = appearance
         let chrome = NativeReaderChrome(window: reader)
+        // What the renderer reports on connecting, so the toolbar is drawn for this page.
+        chrome.accept(["effectiveAppearance": ["backgroundColor": page, "textColor": dark ? "#ECECEE" : "#111113"],
+                       "panelAppearance": ["panelColor": dark ? "#111113" : "#FAFAFB", "accentColor": dark ? "#A3C4F0" : "#0A57AD"]])
         chrome.toolbar.isVisible = true
         applyChromeReaderPage(page, to: reader)
         reader.makeKeyAndOrderFront(nil)
@@ -56,6 +59,9 @@ func captureWindowChrome(to destination: URL) throws {
         let readerFacts = chromeFacts(reader)
         report["reader-\(name)"] = readerFacts
         failures += unifiedChromeFailures(readerFacts, window: "reader-\(name)", expectsFullSize: false)
+        if readerFacts["fullSizeContentView"] as? Bool != true || readerFacts["contentReachesTop"] as? Bool != true {
+            failures.append("reader-\(name): the page does not run under the title bar")
+        }
         try captureChrome(reader, to: destination.appendingPathComponent("reader-\(name).png"))
         chrome.disconnect()
         reader.close()
@@ -76,8 +82,8 @@ private enum WindowChromeCaptureError: Error { case notUnified([String]); case c
 @MainActor private func makeChromeDashboardWindow() -> NSWindow { DashboardWindow.make() }
 
 @MainActor private func makeChromeReaderWindow(title: String, page: String) -> NSWindow {
-    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 800),
-                          styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+    let window = ReaderWindow(contentRect: NSRect(x: 0, y: 0, width: 1024, height: 768),
+                              styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
     window.isReleasedWhenClosed = false
     window.title = title
     ReaderTitlebar.configure(window)
@@ -113,6 +119,7 @@ private final class ChromePageStandIn: NSView {
 /// dashboard routing a press in the band as one), or the content.
 @MainActor private func hitOwner(_ window: NSWindow, _ point: NSPoint) -> String {
     if let dashboard = window as? DashboardWindow, dashboard.treatsAsTitlebar(point) { return "titlebar" }
+    if let reader = window as? ReaderWindow, reader.treatsAsTitlebar(point) { return "titlebar" }
     guard let frame = window.contentView?.superview, let hit = frame.hitTest(frame.convert(point, from: nil)) else { return "none" }
     var view: NSView? = hit
     while let current = view {

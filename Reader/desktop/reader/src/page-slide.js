@@ -9,9 +9,9 @@ export const slideSign = (direction, rtl = false) => (direction === 'next' ? 1 :
 
 /** The motion contract: tests, and the Mac smoke, hold the slide to these numbers. */
 export const SLIDE = Object.freeze({
-  duration: 320,                       // ms for a turn
+  duration: 420,                       // ms for a turn, measured from Apple Books 8 (docs/READER_APPLE_BOOKS_PARITY.md)
   hurried: 150,                        // ms when more turns are already waiting
-  easing: 'cubic-bezier(.3,.05,.12,1)', // eases in from rest (no first-frame jump), long gentle settle
+  easing: 'cubic-bezier(.25,.9,.4,1)', // fitted to that turn's frames: moves at once, then a long settle
   finishWithin: 90,                    // a held key fast-forwards the running turn to finish in about this long
   resident: 160,                       // how long the stage stays up after a turn for a follow-up turn to reuse it
   crossing: 250,                       // how long a turn into another chapter waits for that chapter's copy before it skips the slide

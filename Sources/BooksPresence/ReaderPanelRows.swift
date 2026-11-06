@@ -37,6 +37,7 @@ final class ReaderRow: NSObject {
             row.current = item["current"] as? Bool ?? false
             row.openable = item["openable"] as? Bool ?? true
             row.isGroup = item["group"] as? Bool ?? false
+            row.detail = (item["page"] as? Int).map(String.init) ?? ""
             row.children = outline(item["children"] as? [[String: Any]] ?? [])
             return row
         }
@@ -216,7 +217,13 @@ final class ReaderListCell: NSTableCellView {
                     .font: NSFont.systemFont(ofSize: 11, weight: .semibold), .foregroundColor: secondaryInk, .kern: 0.8])
             } else {
                 primary.attributedStringValue = NSAttributedString(string: row.title, attributes: [
-                    .font: row.current ? NSFont.systemFont(ofSize: 13, weight: .semibold) : ReaderRowMetrics.bodyFont, .foregroundColor: ink])
+                    .font: NSFont.systemFont(ofSize: 13, weight: .semibold), .foregroundColor: ink])
+                if !row.detail.isEmpty {
+                    let number = NSMutableParagraphStyle(); number.alignment = .right
+                    secondary.attributedStringValue = NSAttributedString(string: row.detail, attributes: [
+                        .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular), .foregroundColor: secondaryInk, .paragraphStyle: number])
+                    secondary.isHidden = false
+                }
             }
         case .bookmark:
             primary.attributedStringValue = NSAttributedString(string: row.title, attributes: [.font: ReaderRowMetrics.bodyFont, .foregroundColor: ink])
@@ -273,7 +280,10 @@ final class ReaderListCell: NSTableCellView {
         let bodyHeight = ReaderRowMetrics.lineHeight(ReaderRowMetrics.bodyFont)
         switch row.kind {
         case .outline:
-            primary.frame = NSRect(x: 4, y: (bounds.height - bodyHeight) / 2, width: max(0, width - 12), height: bodyHeight)
+            // The chapter's page sits at the row's right edge, as in Books' contents.
+            let number: CGFloat = row.detail.isEmpty ? 0 : 44
+            primary.frame = NSRect(x: 4, y: (bounds.height - bodyHeight) / 2, width: max(0, width - 12 - number), height: bodyHeight)
+            secondary.frame = NSRect(x: width - 8 - number, y: (bounds.height - bodyHeight) / 2, width: number, height: bodyHeight)
         case .bookmark:
             primary.frame = NSRect(x: 4, y: 7, width: max(0, width - 40), height: bodyHeight)
             secondary.frame = NSRect(x: 4, y: 7 + bodyHeight + 1, width: max(0, width - 40), height: ReaderRowMetrics.lineHeight(ReaderRowMetrics.captionFont))

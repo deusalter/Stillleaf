@@ -64,7 +64,7 @@ func renderReaderControlPreviews(to destination: URL) throws {
                 }
             }
             .padding(40).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            ReaderAppearanceView(model: model, close: {}, initiallyOpen: open).frame(width: 380, height: height).padding(14)
+            ReaderAppearanceView(model: model, close: {}, initiallyOpen: open).frame(width: ReaderPanelMetrics.width, height: height).padding(14)
         }
         .environment(\.nativePreviewOpaque, false)
         let name = "reader-appearance-\(id)\(height > 700 ? (open ? "-full-advanced" : "-full") : "")"

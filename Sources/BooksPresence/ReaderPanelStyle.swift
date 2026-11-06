@@ -5,6 +5,19 @@ import SwiftUI
 // Bookmarks, Notes and Search are all built from the pieces here, so they cannot drift apart.
 // The web panels (`panels.css`) follow the same tokens for the desktop host and the note editor.
 
+/// Panel sizes measured from Apple Books; `panels.css` carries the same tokens for the web panels.
+enum ReaderPanelMetrics {
+    static let width: CGFloat = 312
+    static let radius: CGFloat = 18
+    static let appearanceHeight: CGFloat = 424
+    static let customizeHeight: CGFloat = 640
+    static let listHeight: CGFloat = 722
+    static let searchHeight: CGFloat = 480
+    static let controlHeight: CGFloat = 44
+    static let tileHeight: CGFloat = 72
+    static let tileRadius: CGFloat = 14
+}
+
 /// Colours for a reader panel, taken from the page theme the reader is currently showing.
 struct ReaderPanelPalette {
     let panel: Color
@@ -23,6 +36,8 @@ struct ReaderPanelPalette {
     var hover: Color { ink.opacity(0.08) }
     var selected: Color { accent.opacity(0.18) }
     var field: Color { panel.opacity(0.6) }
+    /// The fill behind a panel's larger controls: measured #DEDEDF on a light panel, #303033 on a dark one.
+    var control: Color { ink.opacity(dark ? 0.16 : 0.12) }
     var nsSecondary: NSColor { nsInk.withAlphaComponent(0.88) }
     var nsRim: NSColor { nsInk.withAlphaComponent(0.18) }
     var nsHover: NSColor { nsInk.withAlphaComponent(0.08) }
@@ -67,7 +82,7 @@ private struct ReaderGlass: ViewModifier {
     @Environment(\.readerPalette) private var palette
 
     func body(content: Content) -> some View {
-        let shape = RoundedRectangle(cornerRadius: ReadingMetrics.Radius.card, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: ReaderPanelMetrics.radius, style: .continuous)
         content
             .background(shape.fill(palette.panel))
             .overlay {
@@ -100,22 +115,20 @@ struct ReaderPanelFrame<Content: View, Footer: View>: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Text(title).font(.system(size: 15, weight: .semibold)).accessibilityAddTraits(.isHeader)
-                Spacer(minLength: 12)
-                Button(action: close) {
-                    Image(systemName: "xmark").font(.system(size: 11, weight: .semibold))
-                        .frame(width: 30, height: 30).contentShape(Circle())
-                }
-                .buttonStyle(ReaderIconButtonStyle())
-                .accessibilityLabel("Close \(title.lowercased())")
-                .keyboardShortcut(.cancelAction)
+            // A centred title over a hairline, as in Books. Escape and a click outside close the panel; the button stays for VoiceOver.
+            ZStack {
+                Text(title).font(.system(size: 13, weight: .semibold)).foregroundStyle(palette.secondary).accessibilityAddTraits(.isHeader)
+                Button(action: close) { Color.clear.frame(width: 1, height: 1) }
+                    .buttonStyle(.plain).frame(width: 1, height: 1).frame(maxWidth: .infinity, alignment: .trailing)
+                    .accessibilityLabel("Close \(title.lowercased())")
+                    .keyboardShortcut(.cancelAction)
             }
-            .padding(.leading, 20).padding(.trailing, 16).padding(.top, 16).padding(.bottom, 10)
+            .padding(.top, 12).padding(.bottom, 10)
+            Rectangle().fill(palette.hairline).frame(height: 1).padding(.horizontal, 13)
             if scrolls {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) { content }
-                        .padding(.horizontal, 22).padding(.top, 4).padding(.bottom, 8)
+                        .padding(.horizontal, 13).padding(.top, 12).padding(.bottom, 13)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             } else {
@@ -358,6 +371,8 @@ struct ReaderDisclosure<Content: View>: View {
     var anchorHit: ((NSEvent) -> Bool)?
     var didShow: (() -> Void)?
     var didClose: (() -> Void)?
+    /// Told whenever the panel opens or closes.
+    var didChange: (() -> Void)?
 
     var isShown: Bool { panel.isVisible }
     var window: NSWindow? { panel }
@@ -379,7 +394,7 @@ struct ReaderDisclosure<Content: View>: View {
         panel.dismiss = { [weak self] in self?.close() }
         panel.setAccessibilityLabel("Appearance")
         container.wantsLayer = true
-        container.layer?.cornerRadius = ReadingMetrics.Radius.card
+        container.layer?.cornerRadius = ReaderPanelMetrics.radius
         container.layer?.cornerCurve = .continuous
         container.layer?.masksToBounds = true
         // A light behind-window blur. The SwiftUI glass tints it, so little of the material's frost remains.
@@ -398,6 +413,18 @@ struct ReaderDisclosure<Content: View>: View {
         panel.setContentSize(size)
         container.frame = NSRect(origin: .zero, size: size)
         effect.frame = container.bounds; host.frame = container.bounds
+    }
+
+    /// Changes the panel's height, keeping its top edge where it is.
+    func setHeight(_ height: CGFloat) {
+        guard height != size.height else { return }
+        size.height = height
+        guard isShown, let owner else { return }
+        let top = panel.frame.maxY
+        let fitted = min(height, max(260, top - owner.frame.minY - 16))
+        panel.setContentSize(NSSize(width: size.width, height: fitted))
+        panel.setFrameTopLeftPoint(NSPoint(x: panel.frame.minX, y: top))
+        panel.invalidateShadow()
     }
 
     /// What VoiceOver calls the panel.
@@ -426,7 +453,7 @@ struct ReaderDisclosure<Content: View>: View {
         panel.makeKeyAndOrderFront(nil)
         panel.invalidateShadow()
         installMonitors()
-        didShow?()
+        didShow?(); didChange?()
     }
 
     func close() {
@@ -436,7 +463,7 @@ struct ReaderDisclosure<Content: View>: View {
         owner?.removeChildWindow(panel)
         panel.orderOut(nil)
         if wasKey { owner?.makeKey() }
-        didClose?()
+        didClose?(); didChange?()
     }
 
     func consumeReopenSuppression() -> Bool {
