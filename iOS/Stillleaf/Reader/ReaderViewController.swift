@@ -16,6 +16,7 @@ final class ReaderViewController: UIViewController, WKNavigationDelegate, UIGest
     private var navigationGuard: ReaderNavigationGuard?
     private(set) var webView: WKWebView?
     private let stateStore: ReaderStateStore
+    private let pageMapStore: ReaderPageMapStore
     private let stateWorker = DispatchQueue(label: "Stillleaf.reader-state", qos: .utility)
     private var latestState: Data?
     private var didStart = false
@@ -37,6 +38,7 @@ final class ReaderViewController: UIViewController, WKNavigationDelegate, UIGest
         self.onClose = onClose
         gate = ReaderEventGate(publication: edition.publication, token: token)
         stateStore = ReaderStateStore(directory: journal.paths.readerState)
+        pageMapStore = ReaderPageMapStore(stateDirectory: journal.paths.readerState)
         super.init(nibName: nil, bundle: nil)
         modalPresentationStyle = .fullScreen
     }
@@ -184,6 +186,10 @@ final class ReaderViewController: UIViewController, WKNavigationDelegate, UIGest
             journal.readerMoved(observation)
         case .forwardCoverage(let evidence):
             if isReady { journal.readerTraversed(bookID: edition.bookID, evidence: evidence) }
+        case .pageMap(let data):
+            // Kept so a reopened book shows its exact page count at once; ReaderLaunch hands it back.
+            let store = pageMapStore, publication = edition.publication
+            stateWorker.async { store.record(data, publication: publication) }
         case .ignored:
             break
         }
@@ -245,7 +251,14 @@ final class ReaderViewController: UIViewController, WKNavigationDelegate, UIGest
         guard !finished else { return }
         finished = true
         webView?.stopLoading()
-        webView?.configuration.userContentController.removeScriptMessageHandler(forName: "readerEvents")
+        webView?.navigationDelegate = nil
+        // Detach the page completely so WebKit can release the view, its page and its
+        // web content process once the reader goes; the Mac reader does the same.
+        if let controller = webView?.configuration.userContentController {
+            controller.removeScriptMessageHandler(forName: "readerEvents")
+            controller.removeAllUserScripts()
+            controller.removeAllContentRuleLists()
+        }
         journal.readerClosed(bookID: edition.bookID)
     }
 

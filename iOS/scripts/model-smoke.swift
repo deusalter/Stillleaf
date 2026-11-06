@@ -145,6 +145,11 @@ func run(rendererShell: URL?) async throws {
     check(gate.classify(message(stale), fromSessionMainFrame: true, now: now) == .ignored, "stale event")
     check(gate.classify(message(["type": "ready", "editionId": "wrong"]), fromSessionMainFrame: true, now: now) == .ignored, "other edition")
     check(gate.classify(message(["type": "ready", "editionId": edition.publication.id]), fromSessionMainFrame: true, now: now) == .ready, "ready")
+    let pageMap: [String: Any] = ["key": "layout|screen-v2", "counts": [3, 5, 2]]
+    guard case .pageMap(let mapData) = gate.classify(message(["type": "pageMap", "editionId": edition.publication.id, "pageMap": pageMap]),
+                                                     fromSessionMainFrame: true, now: now) else { return check(false, "page map accepted") }
+    check(gate.classify(message(["type": "pageMap", "editionId": "wrong", "pageMap": pageMap]), fromSessionMainFrame: true, now: now) == .ignored, "other edition's page map")
+    check(ReaderPageMapStore(stateDirectory: journal.paths.readerState).record(mapData, publication: edition.publication), "page map saved")
 
     // The shared launch payload, when a renderer build is available.
     if let rendererShell {
@@ -153,12 +158,14 @@ func run(rendererShell: URL?) async throws {
         let payload = try JSONSerialization.jsonObject(with: Data(launch.payload.utf8)) as! [String: Any]
         check(payload["editionId"] as? String == edition.publication.id && (payload["readingOrder"] as? [Any])?.count == 3, "launch payload")
         check(launch.resources.url(for: "index.html") != nil, "renderer shell mapped")
+        check((payload["pageMaps"] as? [[String: Any]])?.first?["counts"] as? [Int] == [3, 5, 2], "saved page map reaches the renderer")
     }
 
     // Removing the download keeps history; deleting the book removes both.
     let removedDownload = journal.removeDownload(edition.bookID)
     check(removedDownload && journal.editions.isEmpty, "download removed: \(removedDownload) \(journal.editions.keys) \(journal.notice?.message ?? "")")
     check(journal.book(edition.bookID) != nil, "history kept")
+    check(ReaderPageMapStore(stateDirectory: journal.paths.readerState).load(publication: edition.publication).isEmpty, "page maps removed with the download")
     await journal.importEPUBs([epub])
     check(journal.deleteBook(edition.bookID) && journal.editions.isEmpty && journal.book(edition.bookID) == nil, "book deleted")
     check(journal.deleteAllData() && journal.history.books.isEmpty && journal.dailyGoal != nil, "delete all keeps a default goal")

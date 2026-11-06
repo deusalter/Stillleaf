@@ -451,6 +451,7 @@ final class Journal: ObservableObject {
         for name in [edition.publication.id + ".json", edition.publication.id + ".json.bak"] {
             try? FileManager.default.removeItem(at: paths.readerState.appendingPathComponent(name))
         }
+        ReaderPageMapStore(stateDirectory: paths.readerState).remove(publication: edition.publication)
         editions[edition.bookID] = nil
     }
 

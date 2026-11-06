@@ -1,6 +1,7 @@
 import XCTest
 import UIKit
 import BooksCore
+import BooksPlatform
 @testable import Stillleaf
 
 /// End to end in the simulator: a synthetic EPUB in the bundled renderer inside a real
@@ -42,9 +43,20 @@ final class ReaderIntegrationTests: XCTestCase {
         try await waitUntil("position events after turning pages", timeout: 30) { positions() > before }
         let coverage = events.filter { if case .forwardCoverage = $0 { return true }; return false }.count
         XCTAssertGreaterThan(coverage, 0, "forward turns report sequential coverage")
+        // The renderer finishes its whole-book count once turning stops, and it is kept for the next open.
+        try await waitUntil("a finished page map", timeout: 90) { events.contains { if case .pageMap = $0 { return true }; return false } }
 
+        let content = try XCTUnwrap(reader.webView).configuration.userContentController
         await reader.requestClose()
         XCTAssertTrue(closed)
+        XCTAssertTrue(content.userScripts.isEmpty, "a closed reader detaches from its page so WebKit can release it")
+        try await waitUntil("the page map to reach disk", timeout: 10) {
+            !ReaderPageMapStore(stateDirectory: journal.paths.readerState).load(publication: edition.publication).isEmpty
+        }
+        let reopened = try ReaderLaunch.prepare(publication: edition.publication, directory: edition.directory,
+                                                shellCandidates: [Bundle.main.bundleURL.appendingPathComponent("Reader")],
+                                                stateDirectory: journal.paths.readerState)
+        XCTAssertTrue(reopened.payload.contains("\"pageMaps\""), "a reopened book gets its saved page count at once")
         XCTAssertNil(journal.readingBookID)
         XCTAssertEqual(journal.tracker.phase, .paused)
         XCTAssertGreaterThanOrEqual(journal.history.today.creditedSeconds, 3)

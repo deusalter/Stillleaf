@@ -24,6 +24,8 @@ final class ReaderPageMapStoreTests: XCTestCase {
         for index in 0..<20 { store.record(try json(["key": "layout-\(index)", "counts": [1, 1, 1]]), publication: book) }
         XCTAssertEqual(store.load(publication: book).count, ReaderPageMapStore.maximumMaps)
         XCTAssertTrue(store.load(publication: publication(String(repeating: "d", count: 64))).isEmpty, "Maps belong to one edition")
+        store.remove(publication: book)
+        XCTAssertTrue(store.load(publication: book).isEmpty, "Removing a book forgets its maps")
     }
 
     func testMalformedMapsAndDamagedFilesOnlyMeanCountingAgain() throws {

@@ -15,6 +15,9 @@ struct ReaderEventGate {
         case position(NativeReaderPosition, ProgressObservation)
         /// A forward, sequential page departure: content coverage evidence.
         case forwardCoverage(PageTurnEvidence)
+        /// A finished whole-book screen count (renderer JSON) for `ReaderPageMapStore`, which validates it.
+        /// Layout only: never progress, evidence or reading state.
+        case pageMap(Data)
         case ignored
     }
 
@@ -44,6 +47,10 @@ struct ReaderEventGate {
                   let encoded = try? JSONSerialization.data(withJSONObject: state),
                   (try? ReaderStateValidation.validate(encoded, publication: publication)) != nil else { return .ignored }
             return .state(encoded)
+        case "pageMap":
+            guard let map = event["pageMap"], JSONSerialization.isValidJSONObject([map]),
+                  let data = try? JSONSerialization.data(withJSONObject: map) else { return .ignored }
+            return .pageMap(data)
         default:
             return .ignored
         }

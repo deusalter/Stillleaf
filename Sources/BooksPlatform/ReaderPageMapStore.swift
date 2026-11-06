@@ -44,6 +44,12 @@ public final class ReaderPageMapStore {
         } catch { return false }
     }
 
+    /// Forgets this book's maps, for hosts that delete a book's reader state with it.
+    public func remove(publication: EPUBPublication) {
+        lock.lock(); defer { lock.unlock() }
+        if let url = fileURL(publication) { try? FileManager.default.removeItem(at: url) }
+    }
+
     static func validated(_ value: Any, chapters: Int) -> [String: Any]? {
         guard let map = value as? [String: Any], Set(map.keys) == ["key", "counts"],
               let key = map["key"] as? String, !key.isEmpty, key.utf16.count <= maximumKeyLength,
