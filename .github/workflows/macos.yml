@@ -1,8 +1,10 @@
 name: macOS checks
 on:
   push:
-    branches: [main]
+    # Release candidates are integrated without a pull request (no auto-merge), so they are checked on push.
+    branches: [main, 'release/**']
   pull_request:
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:
