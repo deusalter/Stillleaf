@@ -41,6 +41,7 @@ enum AppPresence {
         let dashboard = item("Dashboard", dashboardAction, "0"); dashboard.target = dashboardTarget
         let applicationMenu = submenu("Stillleaf", [
             item("About Stillleaf", #selector(NSApplication.orderFrontStandardAboutPanel(_:))),
+            item("Open-Source Licences…", #selector(AppDelegate.showLicences)),
             item("Check for Updates…", #selector(AppDelegate.checkForUpdates)),
             item("Settings…", #selector(AppDelegate.openSettings), ","),
             .separator(),
@@ -50,7 +51,7 @@ enum AppPresence {
             .separator(),
             item("Quit Stillleaf", #selector(NSApplication.terminate(_:)), "q"),
         ])
-        for title in ["Check for Updates…", "Settings…"] { applicationMenu.items.first(where: { $0.title == title })?.target = dashboardTarget }
+        for title in ["Open-Source Licences…", "Check for Updates…", "Settings…"] { applicationMenu.items.first(where: { $0.title == title })?.target = dashboardTarget }
         let library = item("Library", #selector(AppDelegate.openLibrary), "l"); library.target = dashboardTarget
         _ = submenu("File", [library, item("Close", #selector(NSWindow.performClose(_:)), "w")])
         _ = submenu("Edit", [

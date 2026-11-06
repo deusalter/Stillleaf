@@ -139,6 +139,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     @objc private func openDashboard() { showDashboard() }
     @objc func openSettings() { model?.showDashboard(section: .settings) }
     @objc func checkForUpdates() { model?.updates.checkNow() }
+    @objc func showLicences() { ThirdPartyNoticesWindow.shared.show() }
     @objc func openLibrary() { model?.showDashboard(section: .library) }
     /// The welcome tour. Closing it early counts as done; Settings can replay it.
     func showOnboarding() {

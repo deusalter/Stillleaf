@@ -1,4 +1,5 @@
 import XCTest
+import BooksPlatform
 @testable import Stillleaf
 
 /// App Store packaging facts that are easy to lose in a project change.
@@ -11,6 +12,14 @@ final class AppBundleTests: XCTestCase {
         let files = (FileManager.default.enumerator(atPath: reader.path)?.allObjects as? [String]) ?? []
         XCTAssertTrue(files.contains { $0.hasSuffix(".js") }, "renderer script")
         XCTAssertTrue(files.contains { $0.hasSuffix(".css") }, "renderer styles (fonts are inlined in the scripts)")
+    }
+
+    func testBundlesTheLicenceNoticesTheSettingsScreenShows() throws {
+        let text = try XCTUnwrap(ThirdPartyNotices.text(), "THIRD_PARTY_NOTICES.md is in the app")
+        XCTAssertNotNil(bundle.url(forResource: "THIRD_PARTY_NOTICES", withExtension: "md"))
+        for name in ["@readium/navigator", "dompurify", "css-tree", "SIL Open Font License"] {
+            XCTAssertTrue(text.contains(name), name)
+        }
     }
 
     func testPrivacyManifestDeclaresNoTrackingAndEachRequiredReasonAPI() throws {

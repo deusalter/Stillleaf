@@ -5,6 +5,17 @@ import BooksCore
 import BooksPlatform
 import CSQLite
 
+/// Settings and the app menu must reach the licence notices the bundled reader requires.
+@MainActor
+private func checkThirdPartyNotices() throws {
+    guard let text = ThirdPartyNotices.text() else { throw BooksAccessErrorForUI.failed("The licence notices are not beside the app") }
+    for name in ["@readium/navigator", "dompurify", "css-tree", "SIL Open Font License"] where !text.contains(name) {
+        throw BooksAccessErrorForUI.failed("The licence notices do not mention \(name)")
+    }
+    let view = (ThirdPartyNoticesWindow.make(text: text).contentView as? NSScrollView)?.documentView as? NSTextView
+    guard view?.string == text, view?.isEditable == false else { throw BooksAccessErrorForUI.failed("The licence window does not show the notices") }
+}
+
 /// Explicit developer-only self-check. Uses temporary synthetic history and an isolated defaults suite.
 @MainActor
 func runUISmoke() throws {
@@ -27,6 +38,7 @@ func runUISmoke() throws {
     try runHistoryAtlasNavigationSmoke(source: atlasSource)
     try runHistoryInteractionSmoke(model: model)
     try checkBookDetailFinish()
+    try checkThirdPartyNotices()
     guard model.manualPages(forBookID: "smoke-pages-a") == 7 else {
         throw BooksAccessErrorForUI.failed("Manual page corrections were not exposed to the journal")
     }

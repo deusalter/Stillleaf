@@ -55,7 +55,7 @@ targets:
         Debug:
           DEAD_CODE_STRIPPING: NO
     postBuildScripts:
-      - name: Bundle shared reader renderer
+      - name: Bundle shared reader renderer and its licences
         basedOnDependencyAnalysis: false
         shell: /bin/bash
         script: |
@@ -71,6 +71,7 @@ targets:
           rm -rf "$DEST"
           mkdir -p "$DEST"
           cp -R "$ASSETS/Reader/." "$DEST/"
+          cp "$SRCROOT/../THIRD_PARTY_NOTICES.md" "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/THIRD_PARTY_NOTICES.md"
   StillleafTests:
     type: bundle.unit-test
     platform: iOS

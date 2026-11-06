@@ -333,6 +333,10 @@ struct SettingsView: View {
                     SettingsRow(title: "Welcome tour", description: "Replay the introduction to Stillleaf.") {
                         Button("Show tour") { model.showOnboarding() }.controlSize(.small)
                     }
+                    SettingsDivider()
+                    SettingsRow(title: "Open-source licences", description: "The libraries and fonts inside the built-in reader.") {
+                        Button("View") { ThirdPartyNoticesWindow.shared.show() }.controlSize(.small)
+                    }
                 }
             }
             ReadingSection("Reset") {

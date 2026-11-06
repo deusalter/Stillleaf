@@ -23,6 +23,7 @@ struct SettingsView: View {
                 Section("About") {
                     LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")
                     Button("Show Welcome", action: showWelcome)
+                    NavigationLink("Open-Source Licences") { LicencesView() }
                 }
             }
             .navigationTitle("Settings")
