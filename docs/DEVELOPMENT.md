@@ -7,12 +7,13 @@ How the repository fits together and how to check a change. For what the app doe
 | Path | What it is |
 |---|---|
 | `Sources/BooksPresence` | The native Mac app (SwiftUI/AppKit). This is the product that gets packaged as `Stillleaf.app`. |
-| `Sources/BooksCore`, `Sources/BooksPlatform` | Storage, tracking rules, EPUB import, Apple Books and Discord adapters. Covered by XCTest in `Tests/`. |
-| `Reader/desktop/reader` | The shared EPUB renderer. `scripts/build-reader-assets.sh` bundles it into the Mac app. |
+| `Sources/BooksCore`, `Sources/BooksPlatform` | Storage, tracking rules, EPUB import, Apple Books and Discord adapters. Covered by XCTest in `Tests/`. The iOS app uses them too, so Mac-only adapters sit behind `#if os(macOS)`. |
+| `iOS` | The iPhone and iPad app, generated with XcodeGen ([design](IOS_APP.md), [usage](../iOS/README.md)). It also compiles the Mac files in `iOS/shared-sources.sh`, which must stay Foundation + BooksCore only. |
+| `Reader/desktop/reader` | The shared EPUB renderer. `scripts/build-reader-assets.sh` bundles it into the Mac and iOS apps. |
 | `Reader/packages` | Publication importer and archive packages used by the renderer and the Electron host. |
 | `Reader/desktop` | A separate Electron development host with its own SQLite journal. It is not a validated Windows release. |
 | `prototypes/windows-journal` | The older Windows journal prototype. Kept isolated as the reference for the `stillleaf-journal-prototype/v1` format that `Reader/desktop/src/journal/migration.cjs` imports. |
-| `website` | The marketing site preview. |
+| `website` | The marketing site preview. Its build also publishes the Mac app's update feed ([contract](../website/UPDATES.md)). |
 | `design` | Design concepts and review renders. |
 | `docs/archive` | Finished plans, handoffs and dated reports, kept for history. |
 
@@ -56,8 +57,13 @@ Run `scripts/install-git-hooks.sh` once per clone. Branch names follow `<area>/<
 | Electron host UI tests | In `Reader/desktop`: `npm ci && npm run build:reader && node --test test/*.test.mjs` | No |
 | Windows prototype | `npm --prefix prototypes/windows-journal test` | Yes |
 | Website | `npm --prefix website ci && npm --prefix website test && npm --prefix website run build` | Yes |
+| iOS model and shared code | `iOS/scripts/check-model-local.sh` (Command Line Tools) | Simulator XCTest and device build instead, `ios.yml` |
+| Update feed contract | `scripts/release/test-update-feed-contract.py`, plus the website test and `UpdateCheckerTests` | Yes |
+| Unsigned universal release | `scripts/release/build-release.sh` with no signing identity | When release scripts change, `release.yml` |
 
 Most smoke suites only run locally, so run `scripts/check-local.sh` before packaging or merging native changes.
+
+macOS checks and Project checks run on pull requests and on pushes to `main` and `release/**`; the iOS workflow also runs on `ios/**` pushes. A ready pull request can be merged automatically on this Mac, so push a `release/**` branch to get CI on work that must not merge yet.
 
 Performance probes (`--measure-idle`, `--measure-launch`, `--measure-reader`) and the latest before/after numbers are in [the pre-launch performance pass](LAUNCH_PERFORMANCE.md).
 

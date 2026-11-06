@@ -2,7 +2,7 @@
 
 A native macOS menu-bar reading journal with a built-in offline EPUB reader, optional Apple Books tracking, and optional Discord Rich Presence. Reading history stays on this Mac. Automatic time is **inferred reading activity**, not proof of attention.
 
-The native app, shared reader, separate Electron development host, and website live in this repository. See [development](docs/DEVELOPMENT.md) for how the pieces fit together, how to build, and which checks run where. The Electron host is not a validated Windows release.
+The native Mac app, [iPhone and iPad app](docs/IOS_APP.md), shared reader, separate Electron development host, and website live in this repository. See [development](docs/DEVELOPMENT.md) for how the pieces fit together, how to build, and which checks run where. The Electron host is not a validated Windows release.
 
 **Integration status:** the diagnostic has matched a live local EPUB in Books 8.0 and rejected its Library window. This reader omits `AXDocument`, so a version-scoped structural inference supplements exact document-path matching. Apple Books tracking requires Accessibility access for the packaged app and pauses for unsupported or ambiguous Apple Books windows. Stillleaf’s built-in reader records progress, sequential page coverage and active reading time independently of that permission. See [capabilities](docs/CAPABILITIES.md).
 
@@ -36,7 +36,7 @@ Run `scripts/install-git-hooks.sh` once per clone. The local builder bypasses Sw
 
 Move the app to `~/Applications` or `/Applications` before configuring permissions and login startup. This is an **ad-hoc signed development build**, not a notarized release. Rebuilding or replacing it may require re-enabling its Accessibility entry and reopening the app. `STILLLEAF_UNIVERSAL=1 scripts/package-app.sh` builds an arm64 + x86_64 app.
 
-Public releases are Developer ID signed, notarized and distributed from the website, not the Mac App Store: Apple Books tracking and Discord IPC cannot run in the App Sandbox. `scripts/release/build-release.sh` and the `macOS release` workflow build them; no signing credentials are stored here. See [distribution](docs/DISTRIBUTION.md), the [release checklist](docs/RELEASE_CHECKLIST.md), the [privacy statement](docs/PRIVACY.md) and [third-party notices](THIRD_PARTY_NOTICES.md).
+Public releases are Developer ID signed, notarized and distributed from the website, not the Mac App Store: Apple Books tracking and Discord IPC cannot run in the App Sandbox. `scripts/release/build-release.sh` and the `macOS release` workflow build them; no signing credentials are stored here. See [distribution](docs/DISTRIBUTION.md), the [release checklist](docs/RELEASE_CHECKLIST.md), the [privacy statement](docs/PRIVACY.md) and [third-party notices](THIRD_PARTY_NOTICES.md), which both apps bundle and show under Settings (on the Mac, also **Stillleaf → Open-Source Licences…**).
 
 ## First use
 
@@ -87,6 +87,8 @@ Stable asset IDs preserve history across renamed books and covers. Same-title ed
 Stillleaf keeps the existing `com.bookspresence.app` identifier and `~/Library/Application Support/BooksPresence/` storage location so upgrades preserve permissions, settings, and history. Data lives in that folder:
 
 - `history.sqlite` and SQLite sidecars: original intervals, metadata changes, progress observations, goals, corrections, lifecycle evidence and recovery markers.
+- `Publications/` and `Audiobooks/`: copies of the books you import.
+- `ReaderState/`: reader position, settings, notes and bookmarks, plus saved page counts per layout in `ReaderState/PageMaps/`.
 - `Covers/`: local image cache. Local covers are never uploaded. Optional automatic public-cover lookup is off by default and uses Apple metadata only; it does not upload or read local images.
 - `tracker.lock`: instance-lock inode. Do not delete it while the app is running.
 
@@ -98,7 +100,7 @@ Deletion physically removes affected records and dependent private lineage, pres
 
 Uninstall disables login startup, moves the app bundle to Trash and quits. Reading history is preserved; use Delete all data first if you want it removed. No global daemon or privileged helper is installed. [Uninstalling completely](docs/PRIVACY.md#uninstalling-completely) lists the remaining preference, cache and permission entries.
 
-Updates: **Stillleaf → Check for Updates…** compares the build number with the release feed and opens the download page; it never downloads or installs anything itself. Automatic daily checks are off by default. Development builds have no feed URL and never check.
+Updates: **Stillleaf → Check for Updates…** compares the build number with the release feed (`/updates/macos.json` on the website, [contract](website/UPDATES.md)) and opens the download page; it never downloads or installs anything itself. Automatic daily checks are off by default. Development builds have no feed URL and never check.
 
 ## Diagnostic
 
@@ -120,9 +122,9 @@ Exact local covers stay local. With explicit opt-in, the app can search Apple’
 
 ## Scope
 
-This release observes this Mac only. It does not backfill or claim iPhone/iPad activity. Saved Books progress can be stale and is labeled accordingly. Verified small forward page observations support page goals and credited automatic-session pace; they do not establish total pagination, words read, reading speed, gaze or attention. The observed Books 8.0 footer is limited to the supported English reader layout and is never used as a Discord percentage. Books' private catalog schema may change: the adapter checks required columns and fails closed.
+The Mac app observes this Mac only. It does not backfill or claim iPhone/iPad activity; the iOS app keeps its own journal, and nothing syncs between devices. Saved Books progress can be stale and is labeled accordingly. Verified small forward page observations support page goals and credited automatic-session pace; they do not establish total pagination, words read, reading speed, gaze or attention. The observed Books 8.0 footer is limited to the supported English reader layout and is never used as a Discord percentage. Books' private catalog schema may change: the adapter checks required columns and fails closed.
 
-Source layout: `BooksCore` owns evidence/storage/statistics; `BooksPlatform` owns macOS/Books/Discord adapters; `BooksPresence` owns lifecycle and native views. The binding requirements are preserved in [the product specification](docs/PRODUCT_SPEC.md).
+Source layout: `BooksCore` owns evidence/storage/statistics; `BooksPlatform` owns the reader host logic shared with iOS and the macOS/Books/Discord adapters; `BooksPresence` owns the Mac lifecycle and native views; `iOS/` holds the iPhone and iPad app. The binding requirements are preserved in [the product specification](docs/PRODUCT_SPEC.md).
 
 ## UI development
 

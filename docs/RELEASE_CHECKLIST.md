@@ -119,6 +119,7 @@ Use the files from the draft release or CI artifact, not a local rebuild.
   - [ ] Import a synthetic EPUB and read a few pages: progress and time are recorded.
   - [ ] Optional Apple Books: grant Accessibility, open a book, confirm tracking.
   - [ ] Stillleaf → About shows the right version, build and copyright.
+        Stillleaf → Open-Source Licences… shows the notices.
         Stillleaf → Check for Updates… works against the published feed.
   - [ ] Delete reading data, then Uninstall, behave as PRIVACY.md describes.
 - [ ] **Upgrade test.** Install the previous release, add synthetic history, then replace the

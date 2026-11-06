@@ -22,9 +22,9 @@ measurement can complete its count.
 
 ### Saved maps
 
-A finished layout is emitted as a `pageMap` event (`{key, counts}`). The Mac
-host keeps the twelve most recent per book in `ReaderState/PageMaps/<edition>.json`
-(`ReaderPageMapStore`), separate from reading state, and passes them back as
+A finished layout is emitted as a `pageMap` event (`{key, counts}`). The Mac and
+iOS hosts keep the twelve most recent per book in `ReaderState/PageMaps/<edition>.json`
+(`ReaderPageMapStore`), separate from reading state, and pass them back as
 `pageMaps` when the book opens, so a reopened book shows its exact count on
 first paint and lays out nothing. The file is a disposable cache: malformed,
 mismatched or damaged entries are ignored and counted again. A saved map is

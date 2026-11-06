@@ -1,6 +1,6 @@
 # Stillleaf for iPhone and iPad — design
 
-Status: v1 implementation on branch `ios/iphone-app`. Scope: an App Store–ready
+Status: v1 implementation. Scope: an App Store–ready
 reading journal with the built-in offline EPUB reader, goals and the Library /
 Timeline / History / Reviews views, sharing the Mac app's storage, statistics and
 renderer.
@@ -36,6 +36,8 @@ renderer.
 | Session corrections (adjust/split/reassign/exclude) | Yes | Delete only (v1) | Imported corrections are honoured in all totals |
 | Export/import one book's notes and reader settings | Yes | No (v1) | Reader state stays per device; `ReaderStateTransfer` is portable when needed |
 | Merge editions | Yes | Honoured when imported (v1) | No merge UI on iOS yet |
+| Instant whole-book page count (saved page maps) | Yes | Yes | Same `ReaderPageMapStore`; `ReaderLaunch` hands saved maps to the renderer |
+| Open-source licences | Settings and app menu | Settings → About | Same `THIRD_PARTY_NOTICES.md`, bundled by both apps |
 | Per-book “don't track” exclusion | Yes | Yes | |
 | Calendar time zone | Yes | Yes | |
 | JSON export/import, CSV export, SQLite backup/restore, delete all | Yes | Yes | Byte-compatible formats |
@@ -168,15 +170,16 @@ records them. Position (`position` events) is saved independently of tracking.
 - [ ] Screenshots: 6.9″ iPhone, plus 13″ iPad while iPad is supported.
 - [ ] Age rating questionnaire (expected 4+), category Books, and the App Store
       description without Apple Books or Discord claims.
-- [ ] Open-source notices for the bundled renderer (Readium BSD-3, DOMPurify,
-      css-tree, OFL fonts), shared with the Mac distribution.
+- [x] Open-source notices for the bundled renderer (Readium BSD-3, DOMPurify,
+      css-tree, OFL fonts), shared with the Mac distribution: Settings → About →
+      Open-Source Licences.
 
 ## Verification
 
 - `.github/workflows/ios.yml` (macos-26 runner, newest Xcode 26): builds the
   renderer, generates the project, builds for the iOS Simulator and runs the
-  `StillleafTests` XCTest bundle on a simulator. It runs on pushes to `ios/**`,
-  on pull requests and manually.
+  `StillleafTests` XCTest bundle on a simulator. It runs on pushes to `ios/**`
+  and `release/**`, on pull requests and manually.
 - The tests cover ZIP extraction against hostile archives, import of synthetic
   EPUBs, journal operations, Mac-format JSON/CSV/backup round trips, tracking
   rules (foreground only, pause on inactive, gap rejection), the bundled

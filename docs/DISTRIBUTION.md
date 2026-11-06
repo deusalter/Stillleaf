@@ -46,7 +46,7 @@ Developer ID keeps every feature and still gives users Apple's protections:
 
 | Step | Script | Notes |
 |---|---|---|
-| Build | `scripts/package-app.sh` with `STILLLEAF_UNIVERSAL=1` | `build-local.sh` per architecture (arm64, x86_64), joined with `lipo`. Stamps the build number and update-feed URL into Info.plist, then copies `THIRD_PARTY_NOTICES.md`. |
+| Build | `scripts/package-app.sh` with `STILLLEAF_UNIVERSAL=1` | `build-local.sh` per architecture (arm64, x86_64), joined with `lipo`. Stamps the build number and update-feed URL into Info.plist, then copies `THIRD_PARTY_NOTICES.md`, which Settings and **Stillleaf → Open-Source Licences…** show. |
 | Info.plist gate | `scripts/release/check-info-plist.py` | Runs on every package, and in stricter `--release` mode for releases. |
 | Notices gate | `scripts/release/generate-third-party-notices.py --check` | Fails when reader dependencies change without regenerating the notices. |
 | Sign | `scripts/release/sign-app.sh` | Signs inside-out: dylibs, then `books-diagnostic`, then the bundle. Uses `--options runtime --timestamp` and the reviewed entitlements. No `--deep`. |
