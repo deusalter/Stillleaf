@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { pages, siteFooter, siteHeader } from "../src/site-build.js";
+import { site } from "../src/site-config.js";
 
 const root = new URL("../", import.meta.url);
 const read = (path) => readFileSync(new URL(path, root), "utf8");
@@ -57,8 +58,8 @@ test("internal links point at pages, files, or anchors that exist", () => {
   }
 });
 
-test("the privacy policy names every host the Mac app can contact", () => {
-  // Drift guard: a new network destination in the app must be disclosed.
+test("the privacy policy and statement name every host the Mac app can contact", () => {
+  // Drift guard: a new network destination in the app must be disclosed in both documents.
   const sourcesDir = new URL("../Sources/", root);
   const hosts = new Set();
   const walk = (dir) => {
@@ -76,14 +77,36 @@ test("the privacy policy names every host the Mac app can contact", () => {
   if (!existsSync(sourcesDir)) return; // Website-only checkout.
   walk(sourcesDir);
   const policy = read("privacy/index.html");
+  const statement = readFileSync(new URL("../docs/PRIVACY.md", root), "utf8");
   // Links the user opens in their browser are not app network requests.
   const browserLinks = new Set(["discord.com"]);
   assert.ok(hosts.size >= 2, `found hosts: ${[...hosts]}`);
   for (const host of hosts) {
     if (browserLinks.has(host)) continue;
-    const named = host.split(".").slice(-2).join(".");
-    assert.ok(policy.includes(named), `privacy policy does not mention ${host}`);
+    assert.ok(policy.includes(host), `privacy policy does not mention ${host}`);
+    assert.ok(statement.includes(host), `docs/PRIVACY.md does not mention ${host}`);
   }
+  // The update host comes from packaging, not source, so the feed itself is checked by name.
+  assert.match(policy, /\{\{feed-path\}\}/);
+  assert.ok(statement.includes(site.updates.feedPath), "docs/PRIVACY.md names the update feed");
+  for (const document of [policy, statement])
+    assert.match(document.replace(/\s+/g, " "), /Check automatically\W+\(off by default\)/);
+  // Facts both documents must state the same way.
+  const facts = [/on by default/, /Accessibility/, /PageMaps/, /Trash/];
+  for (const fact of facts) {
+    assert.match(policy, fact, `privacy policy: ${fact}`);
+    assert.match(statement, fact, `docs/PRIVACY.md: ${fact}`);
+  }
+});
+
+test("the privacy policy's Apple Books default matches the app", () => {
+  const model = fileURLToPath(new URL("../Sources/BooksPresence/AppModel.swift", root));
+  if (!existsSync(model)) return; // Website-only checkout.
+  assert.match(
+    readFileSync(model, "utf8"),
+    /forKey: "syncAppleBooksHistoryEnabled"\) as\? Bool \?\? true/,
+    "if this default changes, update the privacy policy and docs/PRIVACY.md",
+  );
 });
 
 test("reader presets use the Mac reader's own page colours", () => {

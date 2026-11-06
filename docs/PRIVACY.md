@@ -14,9 +14,10 @@ All data lives in your user account. Nothing is uploaded or synced by Stillleaf.
 
 | Data | Location |
 |---|---|
-| Reading history: sessions, pages, goals, corrections, finish dates, reviews and ratings | `~/Library/Application Support/BooksPresence/history.sqlite` and its `-wal`/`-shm` files |
+| Reading history: sessions, pages, goals, corrections, finish dates, reviews, ratings and a health log of tracking problems | `~/Library/Application Support/BooksPresence/history.sqlite` and its `-wal`/`-shm` files |
 | Imported EPUB copies | `~/Library/Application Support/BooksPresence/Publications/` |
 | Bookmarks, highlights, notes and reader appearance | `~/Library/Application Support/BooksPresence/ReaderState/` |
+| Saved page counts per screen layout, so a reopened book shows its count at once (never progress or reading evidence) | `~/Library/Application Support/BooksPresence/ReaderState/PageMaps/` |
 | Imported audiobook copies | `~/Library/Application Support/BooksPresence/Audiobooks/` |
 | Cover image cache | `~/Library/Application Support/BooksPresence/Covers/` |
 | Single-instance lock | `~/Library/Application Support/BooksPresence/tracker.lock` |
@@ -54,8 +55,8 @@ no logs containing titles or authors.
 | **Open Library** covers (`covers.openlibrary.org`) | For the search results you are viewing, and when you save a book chosen from them | The cover ID. Open Library may redirect cover requests to the Internet Archive. |
 | **Apple iTunes Search** (`itunes.apple.com`) | Only if you turn on both **Share with Discord** and **Find cover art automatically**, for a book not excluded from sharing; at most hourly per book | That book's title and author. The matched public artwork link is passed to Discord; Stillleaf never uploads your local covers. |
 | **Discord** (local) | Only with **Share with Discord** on and your own application ID set | Over Discord's local socket on your Mac: the title, author, page or progress, session pages and a public cover link or your asset key. Discord then shows this on your profile. |
-| **Update check** (Stillleaf website) | When you choose **Check for Updates…**, or once a day if you turn on **Check automatically** (off by default) | A plain request with the User-Agent `Stillleaf/<version>`. No identifiers, cookies or library data. |
-| Links you click | For example the Discord Developer Portal or a release page | Opened in your browser. |
+| **Update check** (the Stillleaf website, `/updates/macos.json`) | When you choose **Check for Updates…**, or once a day if you turn on **Check automatically** (off by default). Development builds never check. | A plain request with the User-Agent `Stillleaf/<version>`. No identifiers, cookies or library data. Stillleaf never downloads or installs anything itself. |
+| Links you click | For example the Discord Developer Portal or the website's download page | Opened in your browser. |
 
 All app requests use ephemeral sessions with no cookies. Like any internet request, each one
 reveals your network address to the server it reaches.

@@ -84,7 +84,10 @@
             </li>
             <li>
               <strong>Reader state</strong> (<code>ReaderState/</code>): where
-              you are in each book, your reader settings, notes, and bookmarks.
+              you are in each book, your reader settings, notes, and bookmarks,
+              plus saved page counts for each screen layout
+              (<code>ReaderState/PageMaps/</code>), so a book you reopen shows
+              its page count at once.
             </li>
             <li>
               <strong>Covers</strong> (<code>Covers/</code>): cover images taken
@@ -103,31 +106,33 @@
             history. It stays in the same folder.
           </p>
 
-          <h2 id="apple-books">Apple Books, if you turn it on</h2>
+          <h2 id="apple-books">Apple Books on your Mac</h2>
           <p>
-            Tracking Apple Books is optional and stays off until you give
-            Stillleaf Accessibility permission in System Settings. When it is
-            on, Stillleaf:
+            Stillleaf works with Apple Books in two separate ways. Neither
+            sends anything over the internet.
           </p>
           <ul>
             <li>
-              looks at the Apple Books window you are reading in: its title, the
-              structure of the window, and the page numbers in its footer, to
-              work out which book is open and when you turn a page;
-            </li>
-            <li>
+              <strong>Finished-book sync is on by default.</strong> Stillleaf
               reads Apple Books’ library database on your Mac, read-only, for
-              titles, authors, covers, and finished dates;
+              titles, authors, covers, saved progress, and finished dates. On
+              macOS 14 and later, macOS may ask whether Stillleaf may access
+              data from other apps. You can turn this off in Settings, under
+              Data &amp; privacy, then Apple Books.
             </li>
             <li>
-              never reads the text of your books, takes screenshots, uses OCR,
-              or looks at other apps’ windows, and never changes anything in
-              Apple Books.
+              <strong>Reading-time tracking is optional</strong> and stays off
+              until you give Stillleaf Accessibility permission in System
+              Settings. When it is on, Stillleaf looks at the Apple Books window
+              you are reading in: its title, the structure of the window, and
+              the page numbers in its footer, to work out which book is open and
+              when you turn a page. You can remove the permission at any time.
             </li>
           </ul>
           <p>
-            You can turn this off in Stillleaf’s settings, or remove the
-            permission in System Settings at any time.
+            Stillleaf never reads the text of your books, takes screenshots,
+            uses OCR, or looks at other apps’ windows, and never changes
+            anything in Apple Books.
           </p>
 
           <h2 id="network">When Stillleaf uses the internet</h2>
@@ -156,15 +161,20 @@
                   the results are then downloaded. No cookies, account, or
                   library contents are sent.
                 </td>
-                <td>Open Library (openlibrary.org), run by the Internet Archive</td>
+                <td>
+                  Open Library (openlibrary.org and covers.openlibrary.org), run
+                  by the Internet Archive, which may serve covers from its own
+                  servers
+                </td>
               </tr>
               <tr>
                 <th scope="row">
-                  Automatic public covers (off unless you turn it on)
+                  Automatic public covers (off unless you turn on both Discord
+                  sharing and automatic cover art)
                 </th>
                 <td>
                   A book’s title and author, to find one exactly matching public
-                  cover image.
+                  cover image for Discord. Your local covers are never uploaded.
                 </td>
                 <td>Apple’s public search service (itunes.apple.com)</td>
               </tr>
@@ -180,10 +190,15 @@
                 <td>The Discord desktop app, then Discord’s servers</td>
               </tr>
               <tr>
-                <th scope="row">Update checks, if your copy has them</th>
+                <th scope="row">
+                  Update checks, when you choose Check for Updates, or once a
+                  day if you turn on Check automatically (off by default)
+                </th>
                 <td>
-                  A request for the release file at {{feed-path}} on this
-                  website. It contains no reading data.
+                  One plain request for the release file at {{feed-path}} on
+                  this website, naming only the app version. It contains no
+                  reading data, identifiers, or cookies. Stillleaf never
+                  downloads or installs anything itself.
                 </td>
                 <td>This website</td>
               </tr>
@@ -202,10 +217,12 @@
             In Settings, under Data &amp; privacy, you can export your journal
             as JSON or CSV, make and restore backups, delete individual books
             or sessions, or delete everything. Deleting everything removes your
-            history, covers, and Stillleaf’s own backups from your Mac. Copies
-            you saved somewhere else, such as exports, need to be removed
-            separately. Removing a book from your Library never deletes the
-            original file in Apple Books.
+            history, cached covers, and Stillleaf’s own backups from your Mac,
+            moves imported books (with their notes and highlights) and
+            audiobooks to the Trash, and turns off Apple Books sync. Empty the
+            Trash to finish. Copies you saved somewhere else, such as exports,
+            need to be removed separately. Removing a book from your Library
+            never deletes the original file in Apple Books.
           </p>
 
           <h2 id="website">This website</h2>
