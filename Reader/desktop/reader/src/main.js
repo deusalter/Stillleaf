@@ -19,7 +19,6 @@ import {syncTypographyChoices} from './appearance-choices';
 import {fontCSS,installFont,contrast} from './bundled-fonts';
 import {DEFAULT_PREFERENCES,preferences,restoreState,selectorFor,rangePoint} from './state';
 import {installGarden} from './garden';
-import {backdropColor,cardColors} from './vines';
 import {THEMES,FONTS,MARGINS,resolveTheme,fontStack,fontAvailable,marginMetrics,averageCharacterWidth} from './appearance';
 
 const $=id=>document.getElementById(id);
@@ -425,13 +424,12 @@ function readingWidth(){
 }
 function applyChromeTheme(t){
  const root=document.documentElement.style;root.colorScheme=t.scheme;
- const card=cardColors(t.background,t.text);
- for(const [name,value]of [['chrome',t.chrome],['paper',t.background],['ink',t.text],['muted',t.muted],['accent',t.link],['line',t.text+(t.scheme==='dark'?'20':'1c')],['hover',t.scheme==='dark'?'#ffffff0d':t.text+'0f'],['panel',t.panel],['backdrop',backdropColor(t.background,t.text)],['card-fold',card.fold],['card-rule',card.rule],['card-shadow',card.shadow]])root.setProperty('--'+name,value);
+ for(const [name,value]of [['chrome',t.chrome],['paper',t.background],['ink',t.text],['muted',t.muted],['accent',t.link],['line',t.text+(t.scheme==='dark'?'20':'1c')],['hover',t.scheme==='dark'?'#ffffff0d':t.text+'0f'],['panel',t.panel],['backdrop',t.background]])root.setProperty('--'+name,value);
 }
 function renderVinesControl(){
  const vines=$('vines');
  if(!vines.childElementCount)for(const [id,label]of [['margins','Margins'],['off','Off']]){const b=document.createElement('button');b.dataset.vines=id;b.setAttribute('role','radio');b.textContent=label;b.onclick=()=>void setPreferences({vines:id});vines.append(b)}
- for(const b of vines.children){const on=b.dataset.vines===(state?.preferences.vines??'margins');b.setAttribute('aria-checked',String(on));b.tabIndex=on?0:-1}
+ for(const b of vines.children){const on=b.dataset.vines===(state?.preferences.vines??'off');b.setAttribute('aria-checked',String(on));b.tabIndex=on?0:-1}
 }
 function renderAppearanceControls(){
  renderVinesControl();
@@ -512,6 +510,7 @@ function destroyNavigator(current){
 async function setPreferences(value,retained){
  const requestedLifecycle=lifecycle;
  pageSlide.invalidate();
+ if(Object.hasOwn(value,'vines'))value={...value,vinesChosen:value.vines==='margins'};
  await navigation;
  if(!state||requestedLifecycle!==lifecycle)return;
  screenIndex?.cancel();

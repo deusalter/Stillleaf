@@ -14,7 +14,7 @@ const book = {editionId: 'living-garden', title: 'Living', contentProgress: true
   resources: [{href: 'one.html', type: 'text/html', dataBase64: Buffer.from(chapter(1)).toString('base64')},
     {href: 'two.html', type: 'text/html', dataBase64: Buffer.from(chapter(2)).toString('base64')}],
   // The publisher's font, which these timings and margins were measured with; the default typeface is not under test here.
-  state: {schemaVersion: 1, editionId: 'living-garden', revision: 0, position: null, preferences: {fontFamily: 'publisher'}, bookmarks: [], annotations: []}};
+  state: {schemaVersion: 1, editionId: 'living-garden', revision: 0, position: null, preferences: {fontFamily: 'publisher', vines: 'margins', vinesChosen: true}, bookmarks: [], annotations: []}};
 
 async function launch(t, engine, {reducedMotion = 'no-preference', gardenMode, pace, viewport = {width: 1400, height: 900}} = {}) {
   const server = createServer(async (req, res) => {

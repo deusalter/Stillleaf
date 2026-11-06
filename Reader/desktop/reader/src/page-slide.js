@@ -4,7 +4,7 @@
 // A turn slides two inert copies of the live chapter, the outgoing page and the incoming one, as one strip
 // inside a persistent stage. The copies are built once per chapter, off the animation path, and reused by
 // every following turn: a turn only scrolls them to their columns, so nothing heavier than a style change
-// runs between the key press and the first moving frame. Only transform and opacity animate.
+// runs between the key press and the first moving frame. Only transform animates.
 export const slideSign = (direction, rtl = false) => (direction === 'next' ? 1 : -1) * (rtl ? -1 : 1);
 
 /** The motion contract: tests, and the Mac smoke, hold the slide to these numbers. */
@@ -12,10 +12,8 @@ export const SLIDE = Object.freeze({
   duration: 320,                       // ms for a turn
   hurried: 150,                        // ms when more turns are already waiting
   easing: 'cubic-bezier(.3,.05,.12,1)', // eases in from rest (no first-frame jump), long gentle settle
-  dim: 0.42,                           // how far the departing page fades toward the paper
   finishWithin: 90,                    // a held key fast-forwards the running turn to finish in about this long
   resident: 160,                       // how long the stage stays up after a turn for a follow-up turn to reuse it
-  edge: 44,                            // width of the soft shadow along the incoming page's leading edge
   crossing: 250,                       // how long a turn into another chapter waits for that chapter's copy before it skips the slide
 });
 
@@ -70,6 +68,12 @@ function copyHighlights(source, target) {
     target.defaultView.CSS.highlights.set(name, new target.defaultView.Highlight(...ranges));
   }
 }
+
+/**
+ * How far the strip moves. The whole window is one surface, so a page travels until it has left the window and the next
+ * arrives from beyond its far edge; stopping at the text column would show that column's bounds while the page moves.
+ */
+const travel = reader => { const r = reader.getBoundingClientRect(); return Math.max(reader.clientWidth, r.right, window.innerWidth - r.left); };
 
 const liveFrame = reader => [...reader.querySelectorAll('iframe')].find(frame => getComputedStyle(frame).visibility !== 'hidden');
 
@@ -144,10 +148,6 @@ export class PageSlide {
     const stage = document.createElement('div');
     stage.className = 'reader-page-slide'; stage.dataset.state = 'idle'; stage.setAttribute('aria-hidden', 'true'); stage.inert = true;
     const track = document.createElement('div'); track.className = 'page-slide-track';
-    const shade = side => { const e = document.createElement('div'); e.className = `page-slide-shade page-slide-${side}`; return e; };
-    const edge = document.createElement('div'); edge.className = 'page-slide-edge';
-    this.shades = {outgoing: shade('outgoing'), incoming: shade('incoming')}; this.edge = edge;
-    track.append(this.shades.outgoing, this.shades.incoming, edge);
     stage.append(track);
     this.reader.parentElement.append(stage);
     this.stage = stage; this.track = track;
@@ -310,13 +310,12 @@ export class PageSlide {
       const entry = await within(this.ensure(source), 600);
       if (revision !== this.revision) return navigate();
       if (!entry) { this.hide(); return navigate(); }
-      const width = reader.clientWidth, x = source.contentWindow.scrollX, y = source.contentWindow.scrollY;
+      const width = reader.clientWidth, distance = travel(reader), x = source.contentWindow.scrollX, y = source.contentWindow.scrollY;
       const outgoing = this.shown && entry.frames.includes(this.shown) ? this.shown : entry.frames[0];
       let incoming = entry.frames.find(frame => frame !== outgoing);
       // The outgoing page in place, the incoming one pre-scrolled to where a turn within the chapter lands.
       place(outgoing, source, 0, x, y);
-      place(incoming, source, sign * width, x + sign * width, y);
-      this.layout(sign, width, outgoing, incoming);
+      place(incoming, source, sign * distance, x + sign * width, y);
       if (stage.dataset.state === 'idle') {
         // Rasterise the outgoing copy while it is all but invisible, so the first visible frame is the page itself.
         stage.dataset.state = 'arming';
@@ -332,7 +331,7 @@ export class PageSlide {
       const nx = live.contentWindow.scrollX, ny = live.contentWindow.scrollY;
       if (live.contentDocument === entry.doc && fingerprint(live) === entry.print) {
         // Same chapter. A turn lands where it was predicted, so this is almost always a no-op.
-        if (incoming.contentWindow.scrollX !== nx || incoming.contentWindow.scrollY !== ny) { place(incoming, live, sign * width, nx, ny); await paint(); }
+        if (incoming.contentWindow.scrollX !== nx || incoming.contentWindow.scrollY !== ny) { place(incoming, live, sign * distance, nx, ny); await paint(); }
         else copyHighlights(live.contentDocument, incoming.contentDocument);
       } else {
         // A chapter crossing: the incoming page is a copy of the new chapter.
@@ -349,14 +348,13 @@ export class PageSlide {
         if (!fresh || revision !== this.revision) { fresh?.remove(); return moved; }
         incoming.remove();
         incoming = fresh;
-        place(incoming, live, sign * width, nx, ny);
-        this.layout(sign, width, outgoing, incoming);
+        place(incoming, live, sign * distance, nx, ny);
         await paint();
         this.cache = {doc: live.contentDocument, print: fingerprint(live), frames: [incoming]};
         this.pendingDrop = outgoing;
       }
       if (revision !== this.revision || this.reduced) return moved;
-      this.animate(sign, width, hurried() ? SLIDE.hurried : SLIDE.duration);
+      this.animate(sign, distance, hurried() ? SLIDE.hurried : SLIDE.duration);
       await this.animation.finished.catch(() => {});
       if (revision === this.revision) { this.settle(incoming, hurried()); resident = true; }
       return moved;
@@ -367,22 +365,12 @@ export class PageSlide {
     }
   }
 
-  /** Where the outgoing and incoming pages, their shades and the leading-edge shadow sit on the strip. */
-  layout(sign, width, outgoing, incoming) {
-    const {outgoing: out, incoming: inn} = this.shades;
-    for (const [shade, frame] of [[out, outgoing], [inn, incoming]]) { shade.style.left = frame.style.left; shade.style.width = `${width}px`; }
-    this.edge.className = `page-slide-edge ${sign > 0 ? 'page-slide-edge-right' : 'page-slide-edge-left'}`;
-    this.edge.style.width = `${SLIDE.edge}px`;
-    this.edge.style.left = `${sign > 0 ? width - SLIDE.edge : 0}px`;
-  }
-
-  animate(sign, width, duration) {
+  animate(sign, distance, duration) {
     const timing = {duration, easing: SLIDE.easing, fill: 'forwards'};
-    const main = this.track.animate([{transform: 'translate3d(0,0,0)'}, {transform: `translate3d(${-sign * width}px,0,0)`}], timing);
-    const fade = (element, from, to) => element.animate([{opacity: from}, {opacity: to}], {duration, easing: 'linear', fill: 'forwards'});
+    const main = this.track.animate([{transform: 'translate3d(0,0,0)'}, {transform: `translate3d(${-sign * distance}px,0,0)`}], timing);
     this.animation = main;
-    this.animations = [main, fade(this.shades.outgoing, 0, SLIDE.dim), fade(this.shades.incoming, SLIDE.dim, 0),
-      this.edge.animate([{opacity: 0}, {opacity: 1, offset: 0.3}, {opacity: 1}], {duration, easing: 'linear', fill: 'forwards'})];
+    // Only the strip moves. A translucent fade over the page would round to a slightly different colour than the page, frame by frame.
+    this.animations = [main];
     this.motion(duration);
   }
 
