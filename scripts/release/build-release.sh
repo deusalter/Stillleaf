@@ -11,7 +11,7 @@
 #   STILLLEAF_REQUIRE_NOTARIZATION=1  fail instead of skipping when notarization is impossible
 #   STILLLEAF_UPDATE_FEED_URL     https URL the app checks, e.g. https://HOST/updates/macos.json
 #   STILLLEAF_DOWNLOAD_BASE_URL   https URL the disk image is published under, e.g. https://HOST/download
-#   STILLLEAF_RELEASE_NOTES_URL   optional; "{version}" is replaced, e.g. https://HOST/releases/{version}
+#   STILLLEAF_RELEASE_NOTES_URL   optional page the app opens, normally https://HOST/#downloads; "{version}" is replaced
 #   STILLLEAF_RELEASE_TAG         optional; must equal v<CFBundleShortVersionString> (CI passes the tag)
 #   STILLLEAF_ALLOW_DIRTY=1       allow uncommitted changes (never for a published release)
 set -euo pipefail

@@ -48,4 +48,17 @@ do {
 } catch { check(error as? UpdateFeedError == .unavailable("The update server answered with status 503."), "Server errors need a clear message") }
 check(UpdateChecker(bundle: .main) == nil, "A bundle without a feed URL must never check")
 
-print("update-feed-smoke: passed")
+// The website publishes this exact feed (website/tests/site.test.mjs); arguments add other feeds to
+// check, such as the macos.json a release build wrote.
+let contracts = CommandLine.arguments.count > 1 ? Array(CommandLine.arguments.dropFirst()) : ["Tests/Fixtures/update-feed/macos.json"]
+for path in contracts {
+    guard let data = FileManager.default.contents(atPath: path) else { fatalError("Missing feed \(path)") }
+    let shared = try UpdateFeed.parse(data, bundleIdentifier: identifier)
+    check(shared.latest.build > 0 && shared.latest.size ?? 0 > 0 && shared.latest.sha256.count == 64, "\(path) must carry build, size and checksum")
+    if path.hasPrefix("Tests/Fixtures/") {
+        check(shared.latest.version == "2.0.0" && shared.latest.build == 24 && shared.latest.minimumSystemVersion == "13.0", "Shared feed fields")
+        check(shared.latest.pageURL.absoluteString == "https://stillleaf.app/#downloads", "The website's feed opens its download page")
+    }
+}
+
+print("update-feed-smoke: passed (\(contracts.joined(separator: ", ")))")

@@ -4,11 +4,11 @@
 Usage:
   make-update-feed.py --app Stillleaf.app --artifact Stillleaf-1.5.0.dmg \
       --download-url https://HOST/download/Stillleaf-1.5.0.dmg \
-      [--notes-url https://HOST/releases/1.5.0] --output-dir DIR
+      [--notes-url https://HOST/#downloads] --output-dir DIR
 
 The feed format is documented in docs/DISTRIBUTION.md#update-feed and parsed by
-BooksCore/UpdateFeed.swift. Its artifact fields match the website's ReleaseArtifact
-(url, version, sha256), so one manifest can drive both.
+BooksCore/UpdateFeed.swift. The manifest's fields fill the website's ReleaseArtifact, and the
+website then publishes this same feed (website/UPDATES.md).
 """
 import argparse
 import datetime
@@ -20,18 +20,24 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 
-def https(value):
+def page(value):
     url = urlparse(value)
-    if url.scheme != 'https' or not url.hostname or url.username or url.password or url.fragment:
+    if url.scheme != 'https' or not url.hostname or url.username or url.password:
         raise argparse.ArgumentTypeError(f'{value!r} must be a credential-free https URL')
+    return value
+
+
+def download(value):
+    if urlparse(page(value)).fragment:
+        raise argparse.ArgumentTypeError(f'{value!r} must name a file, without a fragment')
     return value
 
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--app', type=Path, required=True)
 parser.add_argument('--artifact', type=Path, required=True)
-parser.add_argument('--download-url', type=https, required=True)
-parser.add_argument('--notes-url', type=https)
+parser.add_argument('--download-url', type=download, required=True)
+parser.add_argument('--notes-url', type=page)
 parser.add_argument('--output-dir', type=Path, required=True)
 args = parser.parse_args()
 

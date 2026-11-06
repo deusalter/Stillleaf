@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { site, validateSite } from "../src/site-config.js";
 import {
   fillTokens,
@@ -12,7 +13,7 @@ import {
   sitemapXML,
 } from "../src/site-build.js";
 import { releases } from "../src/releases.js";
-import { appcastXML, latestJSON, updateFeedFiles } from "../src/update-feed.js";
+import { macUpdateFeed, updateFeedFiles } from "../src/update-feed.js";
 
 const approved = { approved: true };
 const local = { approved: false };
@@ -64,7 +65,11 @@ test("site values fail closed on placeholders and malformed input", () => {
     );
   assert.ok(validateSite(null).length > 0);
   assert.ok(
-    validateSite({ ...site, updates: { feedPath: "updates.xml", jsonPath: "/x.json" } })
+    validateSite({ ...site, updates: { ...site.updates, feedPath: "/updates/appcast.xml" } })
+      .length > 0,
+  );
+  assert.ok(
+    validateSite({ ...site, updates: { ...site.updates, bundleIdentifier: "" } })
       .length > 0,
   );
 });
@@ -127,7 +132,7 @@ test("tokens fill from config, show pending markers, and escape values", () => {
   const html = "{{contact}} {{publisher}} {{effective-date}} {{feed-path}} {{unknown}}";
   const pending = fillTokens(html, site, local);
   assert.equal((pending.match(/class="pending-config"/g) ?? []).length, 3);
-  assert.match(pending, /\/updates\/appcast\.xml/);
+  assert.match(pending, /\/updates\/macos\.json/);
   assert.match(pending, /\{\{unknown\}\}/, "unknown tokens are left visible");
   const filled = fillTokens(html, configured, approved);
   assert.match(filled, /href="mailto:hello@stillleaf\.app"/);
@@ -147,12 +152,11 @@ const publishedMac = {
   artifact: {
     url: "https://releases.stillleaf.app/Stillleaf-2.0.0.dmg",
     version: "2.0.0",
-    build: "24",
+    build: 24,
     minimumSystemVersion: "13.0",
-    length: 18204331,
+    size: 18204331,
     publishedAt: "2026-11-02T17:00:00Z",
     sha256: "0123456789ABCDEF".repeat(4),
-    edSignature: `${"A".repeat(86)}==`,
     verified: true,
   },
 };
@@ -164,34 +168,23 @@ test("no update feed is published from the checked-in configuration", () => {
   assert.deepEqual(updateFeedFiles([publishedMac, releases[1]], configured), []);
 });
 
-test("appcast and JSON feed describe the exact verified Mac artifact", () => {
-  const xml = appcastXML(publishedMac, configured);
-  for (const fragment of [
-    'xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle"',
-    "<sparkle:version>24</sparkle:version>",
-    "<sparkle:shortVersionString>2.0.0</sparkle:shortVersionString>",
-    "<sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>",
-    "<pubDate>Mon, 02 Nov 2026 17:00:00 GMT</pubDate>",
-    'url="https://releases.stillleaf.app/Stillleaf-2.0.0.dmg" length="18204331"',
-    `sparkle:edSignature="${"A".repeat(86)}=="`,
-  ])
-    assert.ok(xml.includes(fragment), fragment);
-  const json = JSON.parse(latestJSON(publishedMac, configured));
-  assert.deepEqual(json, {
-    schemaVersion: 1,
-    platform: "macos",
-    version: "2.0.0",
-    build: "24",
-    minimumSystemVersion: "13.0",
-    publishedAt: "2026-11-02T17:00:00Z",
-    url: "https://releases.stillleaf.app/Stillleaf-2.0.0.dmg",
-    length: 18204331,
-    sha256: "0123456789abcdef".repeat(4),
-    edSignature: `${"A".repeat(86)}==`,
-    downloadPage: "https://stillleaf.app/#downloads",
-  });
-  const unsigned = { ...publishedMac, artifact: { ...publishedMac.artifact } };
-  delete unsigned.artifact.edSignature;
-  assert.doesNotMatch(appcastXML(unsigned, configured), /edSignature/);
-  assert.equal("edSignature" in JSON.parse(latestJSON(unsigned, configured)), false);
+test("the update feed is the app's contract, byte for byte", () => {
+  // The same file is parsed by the app's tests (UpdateCheckerTests, update-feed-smoke).
+  const contract = readFileSync(
+    new URL("../../Tests/Fixtures/update-feed/macos.json", import.meta.url),
+    "utf8",
+  );
+  assert.equal(macUpdateFeed(publishedMac, configured), contract);
+  assert.equal(site.updates.feedPath, "/updates/macos.json");
+});
+
+test("the feed names the app's real bundle identifier", () => {
+  const plist = readFileSync(
+    new URL("../../assets/Info.plist", import.meta.url),
+    "utf8",
+  );
+  const identifier = plist.match(
+    /<key>CFBundleIdentifier<\/key>\s*<string>([^<]+)<\/string>/,
+  )?.[1];
+  assert.equal(site.updates.bundleIdentifier, identifier);
 });

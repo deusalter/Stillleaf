@@ -45,7 +45,7 @@ Repository → Settings → Secrets and variables → Actions:
 | Secret | `NOTARY_API_ISSUER_ID` | Issuer ID |
 | Variable | `STILLLEAF_UPDATE_FEED_URL` | `https://HOST/updates/macos.json` |
 | Variable | `STILLLEAF_DOWNLOAD_BASE_URL` | `https://HOST/download` |
-| Variable | `STILLLEAF_RELEASE_NOTES_URL` | `https://HOST/releases/{version}` |
+| Variable | `STILLLEAF_RELEASE_NOTES_URL` | `https://HOST/#downloads` (the website's downloads section; `{version}` is substituted if you later add per-version pages) |
 
 Set the three variables before the first tag. A signed build without
 `STILLLEAF_UPDATE_FEED_URL` stops at the Info.plist release gate by design, after signing and
@@ -90,7 +90,7 @@ STILLLEAF_SIGN_IDENTITY="Developer ID Application: NAME (TEAMID)" \
 STILLLEAF_NOTARY_PROFILE=stillleaf-notary STILLLEAF_REQUIRE_NOTARIZATION=1 \
 STILLLEAF_UPDATE_FEED_URL=https://HOST/updates/macos.json \
 STILLLEAF_DOWNLOAD_BASE_URL=https://HOST/download \
-STILLLEAF_RELEASE_NOTES_URL='https://HOST/releases/{version}' \
+STILLLEAF_RELEASE_NOTES_URL='https://HOST/#downloads' \
 scripts/release/build-release.sh
 ```
 
@@ -129,17 +129,21 @@ Use the files from the draft release or CI artifact, not a local rebuild.
 
 - [ ] Upload `Stillleaf-<version>.dmg` (and optionally the `.zip`) to
       `https://HOST/download/` under its versioned name. Never overwrite an existing version.
-- [ ] Publish the release notes page `https://HOST/releases/<version>`.
-- [ ] Update the website's macOS `ReleaseArtifact` (`url`, `version`, `sha256`, then `verified: true`).
-- [ ] Publish `macos.json` at the feed URL **last**, so the app announces only downloadable
-      releases. Check that it serves directly without a redirect:
-      `curl -sI https://HOST/updates/macos.json`.
+- [ ] Update the website's macOS entry in `website/src/releases.js`: copy `url`, `version`,
+      `build`, `minimumSystemVersion`, `publishedAt`, `sha256` and `size` from
+      `release-manifest.json`, then set `state: "available"` and `verified: true`
+      ([website/UPDATES.md](../website/UPDATES.md)).
+- [ ] Deploy the website **last**. Its build writes `/updates/macos.json` from that entry, so
+      the app announces only downloadable releases. Check that it serves directly without a
+      redirect (`curl -sI https://HOST/updates/macos.json` shows `200`) and is identical to the
+      release's own copy (`curl -s https://HOST/updates/macos.json | diff - macos.json`).
 - [ ] Publish the draft GitHub release.
 
 ### 5. If something is wrong after publishing
 
-- Restore the previous `macos.json` straight away; users who have not updated will not be
-  offered the bad build.
+- Restore the previous `macos` entry in `website/src/releases.js` and redeploy the website
+  straight away (or put the previous `macos.json` back at the feed URL by hand). Users who have
+  not updated will not be offered the bad build.
 - Fix forward with a new version. Build numbers only increase, so a rollback is a new, higher
   build of the old code, never a re-published older file.
 - If a signing key is compromised, revoke the certificate in the developer portal and contact

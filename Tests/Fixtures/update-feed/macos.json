@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "bundleIdentifier": "com.bookspresence.app",
+  "latest": {
+    "version": "2.0.0",
+    "build": 24,
+    "minimumSystemVersion": "13.0",
+    "publishedAt": "2026-11-02T17:00:00Z",
+    "url": "https://releases.stillleaf.app/Stillleaf-2.0.0.dmg",
+    "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "size": 18204331,
+    "releaseNotesURL": "https://stillleaf.app/#downloads"
+  }
+}

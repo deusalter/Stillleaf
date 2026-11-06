@@ -14,7 +14,9 @@
  * @property {{publisher: string|null, effectiveDate: string|null}} legal
  *   Publisher is the person or company responsible for the app; effectiveDate is YYYY-MM-DD.
  * @property {{state: IOSState, appStoreURL: string|null}} ios
- * @property {{feedPath: string, jsonPath: string}} updates Paths the Mac app's updater reads.
+ * @property {{feedPath: string, bundleIdentifier: string}} updates Where the Mac app's update check
+ *   reads its feed, and the app identity the feed names. Both are fixed by the app
+ *   (Info.plist StillleafUpdateFeedURL and CFBundleIdentifier); see UPDATES.md.
  */
 
 /** @type {Readonly<SiteConfig>} */
@@ -24,8 +26,8 @@ export const site = Object.freeze({
   legal: Object.freeze({ publisher: null, effectiveDate: null }),
   ios: Object.freeze({ state: "coming-soon", appStoreURL: null }),
   updates: Object.freeze({
-    feedPath: "/updates/appcast.xml",
-    jsonPath: "/updates/latest.json",
+    feedPath: "/updates/macos.json",
+    bundleIdentifier: "com.bookspresence.app",
   }),
 });
 
@@ -89,12 +91,17 @@ export function isAppStoreURL(value) {
 }
 
 /** @param {unknown} value @returns {boolean} */
-function isSitePath(value) {
+function isFeedPath(value) {
   return (
     typeof value === "string" &&
-    /^\/[a-z0-9/_-]+\.(xml|json)$/i.test(value) &&
+    /^\/[a-z0-9/_-]+\.json$/i.test(value) &&
     !value.includes("//")
   );
+}
+
+/** @param {unknown} value @returns {boolean} */
+function isBundleIdentifier(value) {
+  return typeof value === "string" && /^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/.test(value);
 }
 
 /**
@@ -136,10 +143,12 @@ export function validateSite(config, { requirePublication = false } = {}) {
     errors.push("Keep the App Store URL null until the iOS app is available.");
   if (
     !isRecord(updates) ||
-    !isSitePath(updates.feedPath) ||
-    !isSitePath(updates.jsonPath)
+    !isFeedPath(updates.feedPath) ||
+    !isBundleIdentifier(updates.bundleIdentifier)
   )
-    errors.push("Update feed paths must be absolute site paths ending in .xml or .json.");
+    errors.push(
+      "The update feed needs an absolute site path ending in .json and the app's bundle identifier.",
+    );
 
   if (requirePublication) {
     if (origin === null) errors.push("Publication needs the site origin (domain).");

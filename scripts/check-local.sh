@@ -7,6 +7,7 @@ SWIFTC="${BOOKSPRESENCE_SWIFTC:-$(xcrun --find swiftc)}"
 "$SWIFTC" -parse-as-library -sdk "$(xcrun --sdk macosx --show-sdk-path)" -target "$(uname -m)-apple-macosx13.0" Sources/BooksPresence/Theme.swift Sources/BooksPresence/Vines/VineField.swift Sources/BooksPresence/Vines/VinePalette.swift Sources/BooksPresence/Vines/PanelGlass.swift scripts/theme-contrast-smoke.swift -o "$OUT/theme-contrast-smoke"
 "$OUT/theme-contrast-smoke"
 "$SWIFTC" -parse-as-library -sdk "$(xcrun --sdk macosx --show-sdk-path)" -target "$(uname -m)-apple-macosx13.0" Sources/BooksPresence/ReadingDatePicker.swift scripts/native-date-field-smoke.swift -o "$OUT/native-date-field-smoke"
+python3 scripts/release/test-update-feed-contract.py
 "$SWIFTC" -parse-as-library -sdk "$(xcrun --sdk macosx --show-sdk-path)" -target "$(uname -m)-apple-macosx13.0" Sources/BooksPresence/Vines/VineField.swift scripts/vine-field-smoke.swift -o "$OUT/vine-field-smoke"
 "$SWIFTC" -parse-as-library -sdk "$(xcrun --sdk macosx --show-sdk-path)" -target "$(uname -m)-apple-macosx13.0" Sources/BooksPresence/ReaderControlLayout.swift scripts/reader-controls-smoke.swift -o "$OUT/reader-controls-smoke"
 "$OUT/reader-controls-smoke"

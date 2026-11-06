@@ -42,6 +42,20 @@ final class UpdateCheckerTests: XCTestCase {
         catch { XCTAssertEqual(error as? UpdateFeedError, .unavailable("The update server answered with status 404.")) }
     }
 
+    /// The feed the website generates (website/tests/site.test.mjs checks it byte for byte).
+    func testParsesTheWebsiteFeedContract() throws {
+        let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Fixtures/update-feed/macos.json")
+        let feed = try UpdateFeed.parse(Data(contentsOf: fixture), bundleIdentifier: "com.bookspresence.app")
+        XCTAssertEqual(feed.latest.version, "2.0.0")
+        XCTAssertEqual(feed.latest.build, 24)
+        XCTAssertEqual(feed.latest.minimumSystemVersion, "13.0")
+        XCTAssertEqual(feed.latest.size, 18_204_331)
+        XCTAssertEqual(feed.latest.url.absoluteString, "https://releases.stillleaf.app/Stillleaf-2.0.0.dmg")
+        XCTAssertEqual(feed.latest.pageURL.absoluteString, "https://stillleaf.app/#downloads")
+        guard case .available = feed.availability(currentBuild: 23, system: ventura) else { return XCTFail("expected an update") }
+    }
+
     func testDevelopmentBundleHasNoChecker() {
         // Test bundles carry no StillleafUpdateFeedURL, like local development builds.
         XCTAssertNil(UpdateChecker(bundle: Bundle(for: Self.self)))

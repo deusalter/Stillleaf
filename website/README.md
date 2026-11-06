@@ -27,9 +27,9 @@ Build output is `website/dist/`; it is ignored by Git. The site has no mailing-l
 
 - `index.html`: landing page; semantic content and honest no-JavaScript availability fallback.
 - `privacy/`, `support/`, `about/`, `terms/`, `404.html`: document pages. They load `src/page.css` only (no JavaScript) and share the landing page's header and footer.
-- `src/site-config.js`: open publication decisions (domain, contact, legal publisher and date, iOS state, update-feed paths) and their validation.
+- `src/site-config.js`: open publication decisions (domain, contact, legal publisher and date, iOS state, update-feed path and app identity) and their validation.
 - `src/site-build.js`: pure build helpers: `{{token}}` filling, shared header/footer partials, robots/canonical/Open Graph tags, Content-Security-Policy, robots.txt and sitemap.
-- `src/update-feed.js`: the Mac update feed (Sparkle appcast and JSON), generated only for a published, verified release. Contract: [UPDATES.md](UPDATES.md).
+- `src/update-feed.js`: the Mac app's update feed (`/updates/macos.json`), generated only for a published, verified release. Contract, shared with the app and release scripts: [UPDATES.md](UPDATES.md).
 - `scripts/site-plugin.mjs`: Vite plugin that applies the above at build time, preloads the headline font, and fails the build on invalid config.
 - `src/pages.css`: document-page layout (reading column, contents list, tables, press assets).
 - `src/style.css`: responsive design and six-surface CSS 3D books.
@@ -87,7 +87,7 @@ The final command **must fail in the current local-only state**. Normal local bu
 
 `publication.approved` is false, both platform artifacts are null, and `site.origin`, `site.contactEmail` and `site.legal` are null. This is intentional. Do not change those values simply to make the publication check pass.
 
-For an authorized, verified release, update the Mac entry's summary, requirements, state and artifact: permanent public HTTPS URL of the notarized DMG, version, build number, minimum macOS version, size in bytes, publication time, actual SHA-256 checksum, optional Sparkle EdDSA signature, and `verified: true` ([UPDATES.md](UPDATES.md) lists each field). `getDownload()` also requires publication approval. Validation is offline and does not prove that a URL works, a checksum belongs to a binary, or that signing has passed; the human release process must establish those facts.
+For an authorized, verified release, update the Mac entry's summary, requirements, state and artifact: permanent public HTTPS URL of the notarized DMG, version, build number, minimum macOS version, size in bytes, publication time and actual SHA-256 checksum (all copied from the release's `release-manifest.json`), and `verified: true` ([UPDATES.md](UPDATES.md) lists each field). `getDownload()` also requires publication approval. Validation is offline and does not prove that a URL works, a checksum belongs to a binary, or that signing has passed; the human release process must establish those facts.
 
 Before any publication:
 

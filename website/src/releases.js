@@ -10,12 +10,11 @@ export const publication = Object.freeze({ approved: false });
  * @typedef {Object} ReleaseArtifact
  * @property {string} url Permanent public HTTPS download URL (the notarized DMG on Mac).
  * @property {string} version Marketing version of the exact verified binary (CFBundleShortVersionString).
- * @property {string} build Build number of that binary (CFBundleVersion); updaters compare this.
+ * @property {number} build Build number of that binary (CFBundleVersion, a positive integer); the app compares this.
  * @property {string} minimumSystemVersion Lowest supported OS version, such as "13.0".
- * @property {number} length Size of the download in bytes.
+ * @property {number} size Size of the download in bytes.
  * @property {string} publishedAt Release date and time, ISO 8601 with a timezone.
  * @property {string} sha256 SHA-256 digest of that binary (64 hexadecimal digits).
- * @property {string} [edSignature] Optional Sparkle EdDSA signature of the download (base64).
  * @property {boolean} verified True only after checking the exact release artifact.
  *
  * @typedef {Object} Release
@@ -60,11 +59,9 @@ const placeholderHosts =
   /(^|\.)(example\.(com|net|org)|example|invalid|localhost|local|test)$/i;
 const placeholderSegments =
   /^(?:your[-_](?:org|user|username|domain)|placeholder|todo|changeme)$/i;
-const buildPattern = /^\d+(?:\.\d+){0,2}$/;
 const systemVersionPattern = /^\d+\.\d+(?:\.\d+)?$/;
-const signaturePattern = /^[A-Za-z0-9+/]{86}==$/;
-const versionPattern =
-  /^\d+\.\d+\.\d+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?(?:\+[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$/;
+// The Mac app reads only MAJOR.MINOR.PATCH from its update feed (UpdateFeed.swift).
+const versionPattern = /^\d+\.\d+\.\d+$/;
 
 /** @param {unknown} value @returns {value is Record<string, unknown>} */
 function isRecord(value) {
@@ -141,10 +138,9 @@ function validateRelease(release, label) {
     version,
     build,
     minimumSystemVersion,
-    length,
+    size,
     publishedAt,
     sha256,
-    edSignature,
     verified,
   } = release.artifact;
   if (!isPublicArtifactURL(url)) {
@@ -155,7 +151,7 @@ function validateRelease(release, label) {
   if (typeof version !== "string" || !versionPattern.test(version)) {
     errors.push(`${label} artifact needs a version such as 1.5.0.`);
   }
-  if (typeof build !== "string" || !buildPattern.test(build)) {
+  if (!Number.isSafeInteger(build) || build <= 0) {
     errors.push(`${label} artifact needs its build number, such as 18.`);
   }
   if (
@@ -166,7 +162,7 @@ function validateRelease(release, label) {
       `${label} artifact needs a minimum system version, such as 13.0.`,
     );
   }
-  if (!Number.isSafeInteger(length) || length <= 0) {
+  if (!Number.isSafeInteger(size) || size <= 0) {
     errors.push(`${label} artifact needs its download size in bytes.`);
   }
   if (
@@ -178,11 +174,6 @@ function validateRelease(release, label) {
   ) {
     errors.push(
       `${label} artifact needs a publication time such as 2026-11-02T17:00:00Z.`,
-    );
-  }
-  if (edSignature !== undefined && !signaturePattern.test(edSignature)) {
-    errors.push(
-      `${label} artifact edSignature must be a base64 Sparkle EdDSA signature when present.`,
     );
   }
   if (

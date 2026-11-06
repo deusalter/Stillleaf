@@ -42,6 +42,8 @@ Cache-Control: public, max-age=31536000, immutable   (for /assets/* only)
 
 Files under `/assets/` have content hashes in their names and can be cached for a year; HTML, `/updates/*`, `robots.txt` and `sitemap.xml` should not be cached for long.
 
+`/updates/macos.json` is read by the Mac app, which refuses redirects. Serve it from the canonical host with `Content-Type: application/json` and `Cache-Control: max-age=300`, and never redirect it (including apex to `www`). See [UPDATES.md](UPDATES.md).
+
 ## Checks before every deploy
 
 ```sh
@@ -53,4 +55,4 @@ npm run build
 npm run preview                                         # look at it
 ```
 
-After deploying, confirm that `/updates/appcast.xml` serves the new release (if any), that `robots.txt` allows crawling, and that a page's source shows `index, follow`.
+After deploying, confirm that `/updates/macos.json` serves the new release (if any) with status 200 and no redirect, that `robots.txt` allows crawling, and that a page's source shows `index, follow`.

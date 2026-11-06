@@ -87,7 +87,6 @@ export function fillTokens(html, site, gate = publication) {
         ? "Each download is the exact build we verified, with its SHA-256 checksum listed here."
         : "This is a preview of the Stillleaf website. No downloads are published yet.",
     "feed-path": escapeHTML(site.updates.feedPath),
-    "json-path": escapeHTML(site.updates.jsonPath),
   };
   return html.replace(/\{\{([a-z-]+)\}\}/g, (match, key) =>
     Object.hasOwn(values, key) ? values[key] : match,
