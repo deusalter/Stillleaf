@@ -588,6 +588,13 @@ func runEPUBReaderSmoke(fixture: URL) async throws {
     let expectedGarden = EPUBReaderWindow.currentGardenMode()
     guard try await reader.testGardenMode() == expectedGarden else { throw EPUBImportError.invalid("Reader did not receive the Garden setting.") }
     guard try await reader.testInjectedGardenMode() == expectedGarden else { throw EPUBImportError.invalid("Reader was not started in the Garden setting at document start.") }
+    readerSmokeCheckpoint("page map finishes")
+    // The modes above keep changing the layout, and counting waits for it to settle. A larger book
+    // is still counting at this point, so wait for the finished map instead of racing the close.
+    let pageMapDeadline = Date().addingTimeInterval(60)
+    while ReaderPageMapStore(stateDirectory: state).load(publication: imported.publication).isEmpty, Date() < pageMapDeadline {
+        try await Task.sleep(nanoseconds: 100_000_000)
+    }
     readerSmokeCheckpoint("durable close")
     guard await reader.requestClose() else { throw EPUBImportError.invalid("Reader close did not complete.") }
     let closedState = try JSONSerialization.jsonObject(with: Data(contentsOf: locationURL)) as? [String: Any]
