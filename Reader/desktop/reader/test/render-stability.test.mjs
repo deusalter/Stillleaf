@@ -20,7 +20,7 @@ async function setup(t, options={}){
  const book={editionId:'render-stability',title:'Stable pages',contentProgress:true,readingProgression:options.rtl?'rtl':'ltr',readingOrder:[{href:'c.html',type:'text/html'}],resources:[{href:'c.html',type:options.html?'text/html':'application/xhtml+xml',dataBase64:Buffer.from(html).toString('base64')}]};
  if(options.svg)book.resources.push({href:'cover.png',type:'image/png',dataBase64:'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='});
  await page.evaluate(()=>{window.positions=[];window.addEventListener('stillleaf-reader-event',e=>{if(e.detail.type==='position')window.positions.push(e.detail.position)})});
- await page.evaluate(book=>window.StillleafReader.open(book),book);
+ await page.evaluate(b=>window.StillleafReader.open({...b,state:{schemaVersion:1,editionId:b.editionId,revision:0,position:null,preferences:{columns:'one',lineHeight:1.6},bookmarks:[],annotations:[]}}),book);
  await page.evaluate(options=>window.StillleafReader.setPreferences({theme:'original',fontFamily:'literata',fontSize:1.3,...options}),options);
  await page.waitForTimeout(300);
  return page;

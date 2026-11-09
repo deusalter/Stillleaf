@@ -214,9 +214,10 @@ async function facingReader(t, {width = 1500, height = 860, paragraphs = 120} = 
   return {page, errors};
 }
 
-test('a turn follows the motion contract: 280-360 ms, an eased-in curve, transform only', {timeout: 120000}, async t => {
+test('a turn follows the measured motion: about 420 ms, a long settle, transform only', {timeout: 120000}, async t => {
   const {page, errors} = await facingReader(t);
-  assert.ok(SLIDE.duration >= 280 && SLIDE.duration <= 360, `duration ${SLIDE.duration} is outside 280-360 ms`);
+  // Measured from Apple Books 8: about 420 ms, cubic-bezier(.25,.9,.4,1) within 8.5 px rms (docs/READER_APPLE_BOOKS_PARITY.md).
+  assert.ok(SLIDE.duration >= 400 && SLIDE.duration <= 440, `duration ${SLIDE.duration} is outside 400-440 ms`);
   assert.ok(SLIDE.hurried < SLIDE.duration);
   await page.evaluate(() => {
     window.animations = [];
@@ -256,7 +257,6 @@ test('a turn follows the motion contract: 280-360 ms, an eased-in curve, transfo
   // One moving strip: a translucent layer over the page would round to a slightly different colour than the page.
   assert.deepEqual(result.animations.map(a => a.target).filter(target => !target.includes('page-slide-track')), [], 'something besides the strip animated');
   assert.equal(result.iframesMade, 0, 'a turn within a warm chapter built a snapshot');
-  // The curve eases in from rest: a frame's worth of time moves it a few percent, not a fifth of the page.
   const bezier = (x1, y1, x2, y2) => t => {
     let low = 0, high = 1;
     for (let i = 0; i < 40; i++) { const u = (low + high) / 2, x = 3 * (1 - u) ** 2 * u * x1 + 3 * (1 - u) * u * u * x2 + u ** 3; if (x < t) low = u; else high = u; }
@@ -264,8 +264,8 @@ test('a turn follows the motion contract: 280-360 ms, an eased-in curve, transfo
     return 3 * (1 - u) ** 2 * u * y1 + 3 * (1 - u) * u * u * y2 + u ** 3;
   };
   const curve = bezier(...SLIDE.easing.match(/-?[\d.]+/g).map(Number));
-  assert.ok(curve(16.7 / SLIDE.duration) < 0.04, `the first frame of the curve covers ${(curve(16.7 / SLIDE.duration) * 100).toFixed(1)}% of the page`);
-  assert.ok(curve(0.5) > 0.7 && curve(0.5) < 0.95 && curve(0.9) > 0.97, 'the curve does not settle gently');
+  // Remaining distance at points read from Books' frames, as shares of the turn.
+  for (const [time, moved] of [[0.098, 0.318], [0.264, 0.695], [0.493, 0.928], [0.731, 0.985]]) assert.ok(Math.abs(curve(time) - moved) < 0.08, `at ${time} of the turn the curve is ${curve(time).toFixed(3)}, Books ${moved}`);
   // Whatever the frame pacing of the machine, the strip sits where the curve says it should at the animation clock.
   result.xs.forEach((x, i) => {
     const expected = curve(Math.min(1, result.clocks[i] / SLIDE.duration)) * result.travel;

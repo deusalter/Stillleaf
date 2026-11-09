@@ -105,6 +105,13 @@ export const hexAt = (image, x, y) => {
   return `#${h(image.pixels[i])}${h(image.pixels[i + 1])}${h(image.pixels[i + 2])}`;
 };
 
+/** The one colour of a screenshot, or null as soon as a pixel differs. Fast enough for 4K frames. */
+export function uniformColour(image) {
+  const {pixels, channels} = image, r = pixels[0], g = pixels[1], b = pixels[2];
+  for (let i = channels; i < pixels.length; i += channels) if (pixels[i] !== r || pixels[i + 1] !== g || pixels[i + 2] !== b) return null;
+  return '#' + [r, g, b].map(v => v.toString(16).padStart(2, '0')).join('');
+}
+
 /** Every colour in a screenshot, most common first, with where the first pixel of each was found. */
 export function census(image) {
   const counts = new Map(), {width, height, channels, pixels} = image;

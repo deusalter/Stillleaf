@@ -5,7 +5,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import {THEMES, resolveTheme} from '../src/appearance.js';
-import {SIZES, MODES, serve, launchBrowser, openReader, settle, hideInk, showInk, decodePNG, census} from './surface-support.mjs';
+import {SIZES, MODES, serve, launchBrowser, openReader, settle, hideInk, showInk, decodePNG, census, uniformColour} from './surface-support.mjs';
 
 const root = path.resolve(import.meta.dirname, '../dist');
 const engines = (process.env.READER_SURFACE_ENGINES ?? 'webkit,chromium').split(',');
@@ -19,12 +19,13 @@ const themes = [
 
 /** The whole window, ink removed: one colour, and the theme's own page colour. Polls briefly while a theme change lands. */
 async function assertOneSurface(page, expected, label) {
-  let colours;
+  let image;
   for (let attempt = 0; attempt < 12; attempt++) {
-    colours = census(decodePNG(await page.screenshot()));
-    if (colours.length === 1 && colours[0].color === expected.toLowerCase()) return;
+    image = decodePNG(await page.screenshot());
+    if (uniformColour(image) === expected.toLowerCase()) return;
     await page.waitForTimeout(150);
   }
+  const colours = census(image);
   const strays = colours.slice(0, 5).map(c => `${c.color} ×${c.count} first at ${c.x},${c.y}`).join('; ');
   assert.fail(`${label}: the surface should be only ${expected}, found ${colours.length} colours: ${strays}`);
 }
@@ -36,9 +37,9 @@ async function suite(t, engine) {
 }
 
 for (const engine of engines) {
-  test(`${engine}: every theme and mode is one surface at every full-screen size`, {timeout: 1500000}, async t => {
+  for (const [width, height] of SIZES) test(`${engine}: every theme and mode is one surface at ${width}x${height}`, {timeout: 600000}, async t => {
     const {server, browser} = await suite(t, engine);
-    for (const [width, height] of SIZES) for (const [mode, layout] of Object.entries(MODES)) {
+    for (const [mode, layout] of Object.entries(MODES)) {
       const {page, context, errors} = await openReader(browser, server.url, {width, height, preferences: layout});
       await settle(page, 600);
       await hideInk(page);
