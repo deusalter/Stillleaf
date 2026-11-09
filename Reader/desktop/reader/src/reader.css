@@ -96,22 +96,23 @@ input[type=range]::-moz-range-thumb{width:12px;height:12px;border:2px solid var(
 
 /* Native host owns these commands only after a successful versioned handshake. */
 .native-chrome .reader-bar,.native-chrome #previous,.native-chrome #next,.native-chrome #leave-focus{display:none!important}
-/* Under the native chrome the page runs the whole window, title band included, and its text never moves when the controls come and go:
+/* .native-chrome and the native-* policy classes sit on <body>; .immersive and .garden-on on <html>.
+   Under the native chrome the page runs the whole window, title band included, and its text never moves when the controls come and go:
    the same top and bottom bands in a window, in full screen and in focus reading. Measured from Apple Books (docs/READER_APPLE_BOOKS_PARITY.md). */
 .native-chrome{--reader-top:72px;--reader-bottom:84px}
 .native-chrome #reading-viewport,.native-chrome.immersive #reading-viewport{height:calc(100dvh - var(--reader-top) - var(--reader-bottom));margin:var(--reader-top) auto var(--reader-bottom)}
 .native-chrome .reading-footer{position:fixed;left:0;right:0;bottom:40px;height:16px;padding:0;display:block;text-align:center;font:600 11px/16px -apple-system,BlinkMacSystemFont,sans-serif;color:color-mix(in srgb,var(--ink) 55%,var(--paper));font-variant-numeric:tabular-nums;pointer-events:none}
-.native-chrome.immersive .reading-footer{display:block}
+.immersive .native-chrome .reading-footer{display:block}
 .native-chrome .footer-navigation{position:fixed;left:18px;bottom:36px;pointer-events:auto}
 .native-chrome #return-jump{font-size:11px}
 #page-number,#running-title{display:none}
-.native-chrome:not(.garden-on) #page-number{display:inline}
+:root:not(.garden-on) .native-chrome #page-number{display:inline}
 #page-total{display:none}
 .native-controlsVisible #page-total{display:inline}
-.native-chrome:not(.garden-on) #position-label,.native-chrome:not(.garden-on) #chapter-label{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
-.native-chrome.garden-on .reading-footer{height:40px;bottom:22px;display:grid;font:inherit;pointer-events:auto}
+:root:not(.garden-on) .native-chrome #position-label,:root:not(.garden-on) .native-chrome #chapter-label{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.garden-on .native-chrome .reading-footer{height:40px;bottom:22px;display:grid;font:inherit;pointer-events:auto}
 /* The dim running title stays in a window while the controls are hidden, where the toolbar's own title sits. Full screen shows none. */
-.native-chrome:not(.native-fullScreen):not(.native-controlsVisible):not(.immersive) #running-title{display:block;position:fixed;top:17px;left:80px;right:80px;height:18px;text-align:center;font:600 13px/18px -apple-system,BlinkMacSystemFont,sans-serif;color:color-mix(in srgb,var(--ink) 55%,var(--paper));white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none;z-index:1}
+:root:not(.immersive) .native-chrome:not(.native-fullScreen):not(.native-controlsVisible) #running-title{display:block;position:fixed;top:17px;left:80px;right:80px;height:18px;text-align:center;font:600 13px/18px -apple-system,BlinkMacSystemFont,sans-serif;color:color-mix(in srgb,var(--ink) 55%,var(--paper));white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none;z-index:1}
 .native-chrome .panel{top:12px;max-height:calc(100dvh - 24px)}
 .native-reduceMotion *, .native-reduceMotion *::before,.native-reduceMotion *::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
 .native-increaseContrast .panel,.native-increaseContrast .note-panel{border:2px solid var(--ink)}

@@ -1006,7 +1006,7 @@ function nativeDefinitions(){
  for(const option of result.find(x=>x.key==='theme').options){const id=JSON.parse(option.value),t=THEMES.find(x=>x.id===id);Object.assign(option,id==='system'?{background:day.background,text:day.link,alternate:night.background}:{background:t.background,text:t.text})}
  return nativeDefinitionCache=result;
 }
-const nativeChrome=nativeChromeAdapter({edition:()=>input?.editionId,ready:()=>Boolean(state&&navigator&&!opening),current:()=>clone(state?.preferences??{}),definitions:nativeDefinitions,
+const nativeChrome=nativeChromeAdapter({edition:()=>input?.editionId,ready:()=>Boolean(state&&navigator&&!opening),current:()=>{const {vinesChosen,...shown}=clone(state?.preferences??{});return shown},definitions:nativeDefinitions,
  status:()=>({effectiveAppearance:{backgroundColor:currentTheme().background,textColor:currentTheme().text},panelAppearance:{panelColor:currentTheme().panel,accentColor:currentTheme().link},bookmarked:Boolean(lastLocator&&state?.bookmarks.some(x=>samePlace(x.locator,lastLocator))),dialogOpen:Boolean(document.querySelector('dialog[open]'))}),
  visibility:(active,closing=false)=>{document.body.classList.toggle('native-chrome',active);if(state&&!closing)return setPreferences({})},
  perform:async(command,payload)=>{
