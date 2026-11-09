@@ -578,6 +578,11 @@ func runEPUBReaderSmoke(fixture: URL) async throws {
     }
     let locationURL = state.appendingPathComponent(imported.publication.id + ".json")
     reader.flushStateForTest()
+    // The renderer saves its position 120 ms after a move. The page turns above can cross into the next chapter and back
+    // (they do in two columns), so wait for the saved position to reach the page on screen before reading it.
+    let live = try await reader.testHref(), savedDeadline = Date().addingTimeInterval(3)
+    func savedHref() -> String? { ((try? JSONSerialization.jsonObject(with: Data(contentsOf: locationURL))) as? [String: Any]).flatMap { ($0["position"] as? [String: Any])?["href"] as? String } }
+    while savedHref() != live, Date() < savedDeadline { try await Task.sleep(nanoseconds: 50_000_000); reader.flushStateForTest() }
     guard FileManager.default.fileExists(atPath: locationURL.path),
           let saved = try JSONSerialization.jsonObject(with: Data(contentsOf: locationURL)) as? [String: Any],
           let locator = saved["position"] as? [String: Any],
@@ -625,12 +630,12 @@ func runEPUBReaderSmoke(fixture: URL) async throws {
     guard second.openedWithPageMapsForTest else { throw EPUBImportError.invalid("A reopened book did not receive its saved page maps.") }
     second.window?.setFrameOrigin(NSPoint(x: -20_000, y: -20_000)); second.window?.orderBack(nil)
     let restoreDeadline = Date().addingTimeInterval(20)
-    var restored = false
+    var restored = false, seen = "nothing"
     while Date() < restoreDeadline {
-        if let value = try? await second.testHref(), value == href { restored = true; break }
+        if let value = try? await second.testHref() { seen = value; if value == href { restored = true; break } }
         try await Task.sleep(nanoseconds: 100_000_000)
     }
-    guard restored else { throw EPUBImportError.invalid("Native reader did not restore saved chapter.") }
+    guard restored else { throw EPUBImportError.invalid("Native reader did not restore saved chapter: expected \(href), saved at close \((closedState?["position"] as? [String: Any])?["href"] as? String ?? "none"), reopened at \(seen).") }
     guard try await second.testNoteLength() == 65_536 else {
         throw EPUBImportError.invalid("Reopened reader shortened a durable note.")
     }
