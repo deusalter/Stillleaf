@@ -1,6 +1,7 @@
 // Renders the reader at full-screen sizes for every theme and mode and reports how many colours make up the surface
 // around the text. Writes PNGs and report.json; Books reference images never come through here.
 //   node scripts/render-reader-surface.mjs out=/tmp/x [dist=path] [engine=webkit] [sizes=1512x982,3840x2160] [themes=night,paper] [modes=single,facing] [png=all|first] [prefs='{"vines":"margins"}']
+//   [policy='{"fullScreen":true}'] sends the native display policy, as the Mac host does in full screen.
 // Needs `npm ci` and `npm run build` in Reader/desktop/reader first.
 import {mkdir, writeFile} from 'node:fs/promises';
 import path from 'node:path';
@@ -20,6 +21,7 @@ try {
       const list = themes.filter(t => t.startsWith('system') ? t === (scheme ? 'system-dark' : 'system-light') : !scheme);
       if (!list.length) continue;
       const {page, context} = await openReader(browser, server.url, {width, height, dark: scheme, preferences: {...MODES[mode], ...JSON.parse(o.prefs ?? '{}')}});
+      if (o.policy) await page.evaluate(policy => window.StillleafReader.nativeControl({version: 1, editionId: 'surface-check', id: 2, command: 'policy', payload: policy}), JSON.parse(o.policy));
       await settle(page, 700);
       for (const theme of list) {
         const id = theme.startsWith('system') ? 'system' : theme;
