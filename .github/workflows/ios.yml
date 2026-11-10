@@ -30,6 +30,12 @@ jobs:
       - name: Build for device and simulator, then run XCTest on an iPhone simulator
         run: iOS/scripts/ci-build-and-test.sh
       - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: Stillleaf-iOS-screenshots
+          path: .build/ios/screenshots
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v4
         if: ${{ failure() }}
         with:
           name: Stillleaf-iOS-test-results

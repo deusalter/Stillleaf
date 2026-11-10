@@ -11,7 +11,14 @@ final class AppRouter: ObservableObject {
         var id: String { rawValue }
     }
 
+    enum JournalMode: String, CaseIterable, Identifiable {
+        case calendar = "Calendar", finished = "Finished", reviews = "Reviews"
+        var id: String { rawValue }
+    }
+
     @Published var tab: Tab
+    /// Which part of the Journal tab is showing.
+    @Published var journalMode: JournalMode = .calendar
     /// The edition open in the full-screen reader.
     @Published var reading: Edition?
     @Published var sheet: Sheet?

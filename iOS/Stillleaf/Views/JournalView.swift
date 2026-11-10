@@ -3,27 +3,20 @@ import BooksCore
 
 /// The reading journal: a calendar of days and sessions, finished books by year, and private reviews.
 struct JournalView: View {
-    enum Mode: String, CaseIterable, Identifiable {
-        case calendar = "Calendar", finished = "Finished", reviews = "Reviews"
-        var id: String { rawValue }
-    }
-
-    @State private var mode: Mode
-
-    init(mode: Mode = .calendar) { _mode = State(initialValue: mode) }
+    @EnvironmentObject private var router: AppRouter
 
     var body: some View {
         NavigationStack {
             Group {
-                switch mode {
+                switch router.journalMode {
                 case .calendar: CalendarHistory()
                 case .finished: FinishedTimeline()
                 case .reviews: ReviewsList()
                 }
             }
             .safeAreaInset(edge: .top) {
-                Picker("View", selection: $mode) {
-                    ForEach(Mode.allCases) { Text($0.rawValue).tag($0) }
+                Picker("View", selection: $router.journalMode) {
+                    ForEach(AppRouter.JournalMode.allCases) { Text($0.rawValue).tag($0) }
                 }
                 .pickerStyle(.segmented)
                 .padding(.horizontal)

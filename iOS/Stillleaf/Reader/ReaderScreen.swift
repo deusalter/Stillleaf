@@ -5,7 +5,16 @@ struct ReaderScreen: View {
     let edition: Edition
     let journal: Journal
     let onClose: () -> Void
-    @StateObject private var chrome = ReaderChrome()
+    @StateObject private var chrome: ReaderChrome
+
+    @MainActor
+    init(edition: Edition, journal: Journal, chrome: ReaderChrome? = nil, onClose: @escaping () -> Void) {
+        self.edition = edition
+        self.journal = journal
+        self.onClose = onClose
+        let chrome = chrome ?? ReaderChrome()
+        _chrome = StateObject(wrappedValue: chrome)
+    }
 
     var body: some View {
         ReaderPage(edition: edition, journal: journal, chrome: chrome, onClose: onClose)

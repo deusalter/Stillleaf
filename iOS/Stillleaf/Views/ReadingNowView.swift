@@ -121,7 +121,7 @@ private struct TodayCard: View {
     var body: some View {
         let progress = journal.todayGoal
         let streak = journal.history.dailyGoalStreak
-        Button { router.tab = .journal } label: {
+        Button { router.journalMode = .calendar; router.tab = .journal } label: {
             VStack(spacing: 16) {
                 HStack(spacing: 18) {
                     ZStack {

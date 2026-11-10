@@ -120,10 +120,10 @@ struct ReaderContentsSheet: View {
 /// Search inside the open book, entirely on the device.
 struct ReaderSearchSheet: View {
     @ObservedObject var chrome: ReaderChrome
-    @State private var query = ""
 
     var body: some View {
         let results = chrome.search
+        let query = chrome.searchQuery
         NavigationStack {
             List {
                 if !results.rows.isEmpty {
@@ -160,7 +160,7 @@ struct ReaderSearchSheet: View {
             }
             .navigationTitle("Search Book")
             .navigationBarTitleDisplayMode(.inline)
-            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Words or phrase")
+            .searchable(text: $chrome.searchQuery, placement: .navigationBarDrawer(displayMode: .always), prompt: "Words or phrase")
             .onSubmit(of: .search) { chrome.find(query) }
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { chrome.sheet = nil } }

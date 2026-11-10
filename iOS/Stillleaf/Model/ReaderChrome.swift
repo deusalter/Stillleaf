@@ -160,6 +160,8 @@ final class ReaderChrome: ObservableObject {
     @Published private(set) var pageText: String?
     @Published private(set) var lists: [ListTab: ReaderList] = [:]
     @Published private(set) var search = ReaderList()
+    /// What the reader last searched this book for; kept while the book is open.
+    @Published var searchQuery = ""
     @Published var error: String?
 
     /// Sends one command to the renderer. Set by the reader's view controller.
