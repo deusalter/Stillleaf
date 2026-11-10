@@ -211,9 +211,10 @@ final class ScreenshotTests: XCTestCase {
             journal.readerMoved(ProgressObservation(bookID: id, fraction: fraction, location: location, source: "stillleaf-reader", reliable: true))
             journal.readerClosed(bookID: id)
         }
-        place(ids[0], 0.42, "Chapter 4")
-        place(ids[1], 0.18, "Chapter 1")
+        // The book placed last is the one read most recently: the hero of Reading Now.
         place(ids[2], 0.71, "Chapter 3")
+        place(ids[1], 0.18, "Chapter 1")
+        place(ids[0], 0.42, "Chapter 4")
 
         XCTAssertTrue(journal.markFinished(ids[5], at: evening(15)))
         XCTAssertTrue(journal.saveRating(4.5, for: ids[5]))
