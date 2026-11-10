@@ -883,16 +883,19 @@ async function searchBook(){
  if(found!==null&&generation===searchGeneration)$('search-status').textContent=searchSummary(found);
 }
 // Route Readium's existing edge taps through the same motion/evidence path.
+// A tap that turns no page and activates nothing is reported to a native host as `chrome-tap`: a touch host
+// shows or hides its controls on it, as Books does. Hosts that reveal controls another way ignore the event.
 function pageEdgeTap(event){
- if(state?.preferences.scroll)return false;
- if(event.interactiveElement||document.querySelector('dialog[open]'))return true;
+ const native=document.body.classList.contains('native-chrome'),busy=Boolean(event.interactiveElement||document.querySelector('dialog[open]'));
+ if(state?.preferences.scroll){if(native&&!busy&&![...$('reader').querySelectorAll('iframe')].some(f=>f.contentWindow?.getSelection()?.toString()))emit('chrome-tap');return false}
+ if(busy)return true;
  const frame=[...$('reader').querySelectorAll('iframe')].find(f=>getComputedStyle(f).visibility!=='hidden');
  if(!frame||frame.contentWindow.getSelection()?.toString())return true;
  const width=frame.clientWidth*devicePixelRatio;
  if(event.x<width/4||event.x>width*3/4){
   const rtl=input?.readingProgression==='rtl'||navigator?.readingProgression==='rtl';
   turn((event.x>width/2)!==rtl?'next':'previous');
- }
+ }else if(native)emit('chrome-tap');
  return true;
 }
 async function installNavigator(location,settings=readiumPreferences()){

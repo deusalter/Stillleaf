@@ -113,6 +113,13 @@ input[type=range]::-moz-range-thumb{width:12px;height:12px;border:2px solid var(
 .garden-on .native-chrome .reading-footer{height:40px;bottom:22px;display:grid;font:inherit;pointer-events:auto}
 /* The dim running title stays in a window while the controls are hidden, where the toolbar's own title sits. Full screen shows none. */
 :root:not(.immersive) .native-chrome:not(.native-fullScreen):not(.native-controlsVisible) #running-title{display:block;position:fixed;top:17px;left:80px;right:80px;height:18px;text-align:center;font:600 13px/18px -apple-system,BlinkMacSystemFont,sans-serif;color:color-mix(in srgb,var(--ink) 55%,var(--paper));white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none;z-index:1}
+/* A touch host (iPhone, iPad) keeps the web view inside the safe area and draws its own controls over the page,
+   so the bands are the hand-held ones: text close under the status bar, the page number just above the home indicator. */
+.native-chrome.native-touch{--reader-top:18px;--reader-bottom:50px}
+.native-chrome.native-touch .reading-footer{bottom:16px}
+.native-chrome.native-touch .footer-navigation{left:14px;bottom:8px}
+.native-chrome.native-touch #running-title{display:none!important}
+@media(min-width:700px){.native-chrome.native-touch{--reader-top:44px;--reader-bottom:68px}.native-chrome.native-touch .reading-footer{bottom:26px}}
 .native-chrome .panel{top:12px;max-height:calc(100dvh - 24px)}
 .native-reduceMotion *, .native-reduceMotion *::before,.native-reduceMotion *::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
 .native-increaseContrast .panel,.native-increaseContrast .note-panel{border:2px solid var(--ink)}
