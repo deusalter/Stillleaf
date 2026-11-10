@@ -19,8 +19,9 @@ renderer.
 
 | Capability | Mac | iOS v1 | Notes |
 | --- | --- | --- | --- |
-| Built-in EPUB reader (paged/continuous, appearance, contents, search, bookmarks, highlights, notes) | Yes, native AppKit panels | Yes, renderer's own web panels | Same `Reader/desktop/reader` bundle in `WKWebView` |
+| Built-in EPUB reader (paged/continuous, appearance, contents, search, bookmarks, highlights, notes) | Yes, native AppKit panels | Yes, native SwiftUI controls and sheets | Same `Reader/desktop/reader` bundle in `WKWebView`, driven through the same `nativeControl` protocol. The note editor and the selection bar stay the renderer's own. |
 | Page turns | Keys, trackpad, edge clicks | Edge taps (renderer) and horizontal swipes (native) | Swipes call the same `StillleafReader.next/previous` path |
+| Reader appearance for a new book | Renderer defaults | The appearance used last | Kept in `UserDefaults`; a phone with none saved starts one text size smaller |
 | Active reading time and page coverage from the built-in reader | Yes | Yes, foreground only | Rules below |
 | EPUB import | Open panel, drag and drop, Apple Books folders | Files picker, “Open in”/share sheet, AirDrop | Unpacked Apple Books folders are Mac-only |
 | Apple Books tracking and finished-book sync | Yes (Accessibility) | No | Not possible on iOS |
@@ -31,8 +32,8 @@ renderer.
 | Daily goal (pages or minutes), yearly books goal, streaks | Yes | Yes | Same `ReadingGoals` and `ReadingStatistics` |
 | Library, mark finished, reading dates, rating, review | Yes | Yes | Same audit events (`bookCompleted`, `bookRated`, `bookReviewed`) |
 | Timeline (finished books) | Yes | Yes | |
-| History | Day/Week/Month/Year atlas | Month calendar, then a day's sessions | Atlas views are AppKit-specific; day totals use the same core functions |
-| Reviews | Yes | Yes | |
+| History | Day/Week/Month/Year atlas | Journal tab: month calendar, then a day's sessions | Atlas views are AppKit-specific; day totals use the same core functions |
+| Reviews | Yes | Yes, in the Journal tab | |
 | Session corrections (adjust/split/reassign/exclude) | Yes | Delete only (v1) | Imported corrections are honoured in all totals |
 | Export/import one book's notes and reader settings | Yes | No (v1) | Reader state stays per device; `ReaderStateTransfer` is portable when needed |
 | Merge editions | Yes | Honoured when imported (v1) | No merge UI on iOS yet |
@@ -44,6 +45,47 @@ renderer.
 | Public cover lookup, Open Library search | Opt-in | No | The iOS app makes no network requests |
 | Menu bar, login item, Dock presence | Yes | Not applicable | |
 | Welcome tour | Yes | Short first-run screen | |
+
+## App structure
+
+The app is built around reading. Three tabs:
+
+- **Reading Now**: the current book (cover, progress, one Continue button), today's
+  goal with the streak and the last seven days as rings, the other books in
+  progress, and the yearly goal. With nothing to continue it offers the import
+  directly.
+- **Library**: every journal book as covers with progress, filtered by All,
+  Reading or Finished, with search. A book on the device opens on a tap.
+- **Journal**: Calendar (streak summary, month, a day's sessions), Finished
+  (by year) and Reviews.
+
+Every tab's toolbar has Add (Import EPUBs, Log Reading) and Settings. `AppRouter`
+owns the selected tab, the open book, the settings and log sheets and the file
+picker, so views do not present their own copies. An EPUB opened or shared into
+Stillleaf opens straight in the reader. Picked files land in the Library with a
+brief confirmation. Alerts are for problems only.
+
+## Reader controls
+
+The reader page is one surface with no toolbar. The app activates the renderer's
+native-chrome mode, as the Mac does, and sends the `touch` display policy, which
+gives the page hand-held bands and no running title.
+
+- A tap that turns no page and activates nothing arrives as a `chrome-tap` event
+  and shows or hides the controls. Edge taps and swipes turn pages and put them
+  away.
+- The controls are a close button, today's goal and streak, and a floating bar:
+  Contents, Search, Themes & Settings, Bookmark. While they are up the page shows
+  its total beside the page number.
+- Contents, Bookmarks, Highlights and Search are sheets. Rows come from the
+  renderer (`panel`, `find`) and choosing one sends its id back (`go`), so the app
+  never builds a position itself.
+- Themes & Settings is built from the renderer's own control definitions. Changes
+  show on the page behind the sheet at once; rapid changes are coalesced into the
+  latest values.
+- `ReaderChrome` (in `Model`, Foundation only) holds this state and is unit tested
+  against a stand-in renderer. `ReaderControls` and the sheets are SwiftUI.
+  `ReaderViewController` stays the `WKWebView` host.
 
 ## Shared code
 
@@ -184,17 +226,25 @@ records them. Position (`position` events) is saved independently of tracking.
   EPUBs, journal operations, Mac-format JSON/CSV/backup round trips, tracking
   rules (foreground only, pause on inactive, gap rejection), the bundled
   privacy manifest and renderer, and an end-to-end reader test. That test
-  opens a synthetic EPUB in a real `WKWebView`, waits for `ready`, turns pages
-  and checks position and page-coverage evidence.
+  opens a synthetic EPUB in a real `WKWebView`, waits for `ready`, checks that
+  the app has taken over the renderer's controls, turns pages and checks position
+  and page-coverage evidence.
+- `ScreenshotTests` fills a journal with generated books and walks every screen,
+  the reader and its sheets. `iOS/scripts/ci-build-and-test.sh` answers each
+  request with a real simulator screenshot, and the workflow uploads them as the
+  `Stillleaf-iOS-screenshots` artifact. This is how the UI is reviewed on a Mac
+  without Xcode.
 - Locally, with Command Line Tools only, `iOS/scripts/check-model-local.sh`
   compiles the platform-neutral iOS model against the macOS build of
   `BooksCore`/`BooksPlatform` and runs it. It also runs the existing
   `epub-import-smoke` suite through the portable ZIP extractor, so every
   hostile-archive case is checked against both extractors.
 
-## Open decision: sync between Mac and iPhone
+## Next project: sync between Mac and iPhone
 
-v1 ships local-only with manual export/import. Options for later:
+Wanted: stop reading on the Mac, pick up the phone and continue the same book.
+It is deliberately after the reading experience. v1 ships local-only with manual
+export/import. Options:
 
 | Option | Work | Running cost | Trade-offs |
 | --- | --- | --- | --- |

@@ -27,9 +27,9 @@ iOS/scripts/ci-build-and-test.sh
 | Path | Contents |
 | --- | --- |
 | `project.yml` | XcodeGen spec: app and test targets, the repository package dependency, the renderer build phase |
-| `Stillleaf/Model` | Platform-neutral model: `Journal` (store, tracking, import, edits, data), reader event validation, covers, wording |
-| `Stillleaf/Reader` | `WKWebView` host for the shared renderer, and its SwiftUI wrapper |
-| `Stillleaf/Views`, `Stillleaf/App` | SwiftUI tabs: Today, Library, History (calendar and timeline), Reviews, Settings |
+| `Stillleaf/Model` | Platform-neutral model: `Journal` (store, tracking, import, edits, data), `ReaderChrome` (the reader's controls and lists), reader event validation, covers, wording |
+| `Stillleaf/Reader` | `WKWebView` host for the shared renderer, the SwiftUI controls over the page, and the Contents, Search and Themes & Settings sheets |
+| `Stillleaf/Views`, `Stillleaf/App` | SwiftUI tabs (Reading Now, Library, Journal), Settings and Log Reading sheets, and `AppRouter` |
 | `Stillleaf/Resources` | Asset catalog (icon, accent, launch colour) and `PrivacyInfo.xcprivacy` |
 | `StillleafTests` | XCTest bundle run on a simulator, with a synthetic EPUB writer |
 | `scripts` | Project generation, CI driver, local model check, icon generator |
@@ -49,7 +49,8 @@ iOS/scripts/check-model-local.sh
 This compiles the model with the shared Mac files against the macOS build of
 `BooksCore`/`BooksPlatform`. It runs the model smoke with both ZIP readers, then
 runs the full EPUB import suite through the iOS (portable) ZIP reader. SwiftUI
-and UIKit code is verified only by the CI build.
+and UIKit code is verified only by the CI build, which also uploads a screenshot
+of every screen (`Stillleaf-iOS-screenshots`).
 
 ## Icon
 
