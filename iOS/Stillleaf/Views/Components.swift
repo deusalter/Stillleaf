@@ -28,16 +28,42 @@ struct GoalRing: View {
     var body: some View {
         ZStack {
             Circle().stroke(Color.accentColor.opacity(0.16), lineWidth: lineWidth)
-            Circle()
-                .trim(from: 0, to: max(0.001, min(1, fraction)))
-                .stroke(Color.accentColor, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
-                .rotationEffect(.degrees(-90))
-                .animation(.easeOut(duration: 0.6), value: fraction)
+            if fraction > 0 {
+                Circle()
+                    .trim(from: 0, to: max(0.02, min(1, fraction)))
+                    .stroke(Color.accentColor, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                    .animation(.easeOut(duration: 0.6), value: fraction)
+            }
         }
         .accessibilityElement()
         .accessibilityLabel("Daily goal")
         .accessibilityValue("\(Int((min(1, fraction) * 100).rounded())) percent")
     }
+}
+
+/// The one filled action on a screen. Its label keeps full contrast on the accent colour, which is a
+/// deep green in light mode and a pale one in dark mode.
+struct ProminentActionStyle: ButtonStyle {
+    @Environment(\.colorScheme) private var scheme
+    var maxWidth: CGFloat = 300
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.headline)
+            .foregroundStyle(Color.onAccent(scheme))
+            .padding(.vertical, 15)
+            .padding(.horizontal, 24)
+            .frame(maxWidth: maxWidth)
+            .background(Color.accentColor, in: Capsule())
+            .opacity(configuration.isPressed ? 0.75 : 1)
+            .contentShape(Capsule())
+    }
+}
+
+extension Color {
+    /// Text and symbols drawn on the accent colour.
+    static func onAccent(_ scheme: ColorScheme) -> Color { scheme == .dark ? .black : .white }
 }
 
 /// A book cover from the imported edition, or a quiet generated tile.

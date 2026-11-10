@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 import UIKit
 import WebKit
@@ -32,6 +33,7 @@ final class ReaderViewController: UIViewController, WKNavigationDelegate, UIGest
     private let spinner = UIActivityIndicatorView(style: .large)
     private var observers: [NSObjectProtocol] = []
     private var chromeRequest = 0
+    private var pageColourWatch: AnyCancellable?
     /// True when the book has no saved reader state: it starts with the appearance used last.
     private var firstOpen = false
 
@@ -94,6 +96,11 @@ final class ReaderViewController: UIViewController, WKNavigationDelegate, UIGest
              "reduceTransparency": UIAccessibility.isReduceTransparencyEnabled]
         }
         chrome.defaults = .standard
+        // A theme chosen in the sheet reaches here as the page's new colour.
+        pageColourWatch = chrome.$pageBackground.removeDuplicates().sink { [weak self] hex in
+            guard let self, let page = hex.flatMap(Self.colour(hex:)) else { return }
+            self.apply(page: page)
+        }
         // The renderer's default size suits a window on a desk; a hand-held page reads better a step smaller.
         if UIDevice.current.userInterfaceIdiom == .phone { chrome.firstOpenPreferences = ["fontSize": 1.0] }
     }
@@ -202,7 +209,10 @@ final class ReaderViewController: UIViewController, WKNavigationDelegate, UIGest
             matchPageColours()
             let fresh = firstOpen
             firstOpen = false
-            Task { await chrome.connect(firstOpen: fresh) }
+            Task {
+                await chrome.connect(firstOpen: fresh)
+                matchPageColours()
+            }
         case .closeRequest:
             Task { await requestClose() }
         case .failed:
@@ -295,6 +305,7 @@ final class ReaderViewController: UIViewController, WKNavigationDelegate, UIGest
             controller.removeAllUserScripts()
             controller.removeAllContentRuleLists()
         }
+        pageColourWatch = nil
         chrome.disconnect()
         chrome.transport = nil
         chrome.close = nil
@@ -326,7 +337,9 @@ final class ReaderViewController: UIViewController, WKNavigationDelegate, UIGest
     /// Horizontal swipes turn pages through the renderer's own page-turn path, so they
     /// produce the same position and coverage events as edge taps, keys and trackpads.
     @objc private func swiped(_ recognizer: UISwipeGestureRecognizer) {
-        guard isReady, !scrollMode, chrome.sheet == nil else { return }
+        // Saved state can start a book in continuous scrolling before any state event has arrived.
+        let scrolling = chrome.connected ? chrome.flag("scroll") : scrollMode
+        guard isReady, !scrolling, chrome.sheet == nil else { return }
         chrome.setControlsVisible(false)
         let rightToLeft = edition.publication.readingProgression == "rtl"
         let forward = (recognizer.direction == .left) != rightToLeft
@@ -337,23 +350,34 @@ final class ReaderViewController: UIViewController, WKNavigationDelegate, UIGest
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
                            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool { true }
 
-    /// The page is one surface: the areas outside the safe area take its colour, and the status bar stays legible on it.
+    /// Reads the page colour before the controls have connected; afterwards `chrome.pageBackground` carries it.
     private func matchPageColours() {
-        webView?.evaluateJavaScript("getComputedStyle(document.body).backgroundColor") { [weak self] value, _ in
-            guard let self, let page = (value as? String).flatMap(Self.colour) else { return }
-            self.view.backgroundColor = page
-            var white: CGFloat = 0
-            page.getWhite(&white, alpha: nil)
-            let style: UIStatusBarStyle = white < 0.5 ? .lightContent : .darkContent
-            if style != self.statusStyle { self.statusStyle = style; self.setNeedsStatusBarAppearanceUpdate() }
+        if let page = chrome.pageBackground.flatMap(Self.colour(hex:)) { apply(page: page); return }
+        webView?.evaluateJavaScript("getComputedStyle(document.documentElement).getPropertyValue('--paper').trim()") { [weak self] value, _ in
+            guard let self, let page = (value as? String).flatMap(Self.colour(hex:)) else { return }
+            self.apply(page: page)
         }
     }
 
-    /// Parses `rgb(r, g, b)` / `rgba(r, g, b, a)`; transparent colours are ignored.
-    static func colour(_ css: String) -> UIColor? {
-        let numbers = css.split(whereSeparator: { !"0123456789.".contains($0) }).compactMap { Double($0) }
-        guard numbers.count >= 3, (numbers.count < 4 || numbers[3] > 0.5) else { return nil }
-        return UIColor(red: numbers[0] / 255, green: numbers[1] / 255, blue: numbers[2] / 255, alpha: 1)
+    /// The page is one surface: the areas outside the safe area take its colour, and the status bar, the
+    /// controls and the home indicator follow a dark or light page whatever the system setting. The style
+    /// is set on the root of this presentation, so it ends with the reader.
+    private func apply(page: UIColor) {
+        view.backgroundColor = page
+        var white: CGFloat = 0
+        page.getWhite(&white, alpha: nil)
+        let dark = white < 0.5
+        var root: UIViewController = self
+        while let parent = root.parent { root = parent }
+        let style: UIUserInterfaceStyle = dark ? .dark : .light
+        if root.overrideUserInterfaceStyle != style { root.overrideUserInterfaceStyle = style }
+        let bar: UIStatusBarStyle = dark ? .lightContent : .darkContent
+        if bar != statusStyle { statusStyle = bar; setNeedsStatusBarAppearanceUpdate() }
+    }
+
+    static func colour(hex: String) -> UIColor? {
+        guard let rgb = ReaderChrome.rgb(hex) else { return nil }
+        return UIColor(red: rgb.red, green: rgb.green, blue: rgb.blue, alpha: 1)
     }
 
     // MARK: - JavaScript

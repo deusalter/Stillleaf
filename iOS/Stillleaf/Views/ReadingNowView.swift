@@ -71,13 +71,9 @@ private struct CurrentBook: View {
                 .accessibilityElement(children: .combine)
             }
             Button { router.open(edition) } label: {
-                Label(position == nil ? "Start Reading" : "Continue", systemImage: "book.fill")
-                    .font(.headline)
-                    .frame(maxWidth: 260)
-                    .padding(.vertical, 4)
+                Label(position == nil ? "Start Reading" : "Continue", systemImage: "book.fill").frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
+            .buttonStyle(ProminentActionStyle())
         }
         .frame(maxWidth: .infinity)
         .padding(.top, 6)
@@ -100,10 +96,9 @@ private struct EmptyShelf: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
             Button { router.importing = true } label: {
-                Label("Import EPUB", systemImage: "square.and.arrow.down").font(.headline).frame(maxWidth: 260).padding(.vertical, 4)
+                Label("Import EPUB", systemImage: "square.and.arrow.down").frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
+            .buttonStyle(ProminentActionStyle())
             if hasBooks {
                 Button("Go to Library") { router.tab = .library }
             }
@@ -209,7 +204,7 @@ private struct UpNext: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Also Reading").font(.title3.weight(.semibold))
+            Text("Up Next").font(.title3.weight(.semibold))
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(alignment: .top, spacing: 16) {
                     ForEach(books) { book in

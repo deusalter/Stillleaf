@@ -40,8 +40,7 @@ struct WelcomeView: View {
                 } label: {
                     Text("Start Reading").frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
+                .buttonStyle(ProminentActionStyle(maxWidth: .infinity))
                 Button("Skip") { done(); dismiss() }.frame(maxWidth: .infinity)
             }
             .padding(28)

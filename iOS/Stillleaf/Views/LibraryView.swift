@@ -105,6 +105,7 @@ struct LibraryView: View {
 /// A cover with its title and where the reader is in it.
 struct BookCard: View {
     @EnvironmentObject private var journal: Journal
+    @Environment(\.colorScheme) private var scheme
     let book: BookRecord
 
     var body: some View {
@@ -118,7 +119,7 @@ struct BookCard: View {
                         Image(systemName: "checkmark.circle.fill")
                             .font(.system(size: 20))
                             .symbolRenderingMode(.palette)
-                            .foregroundStyle(.white, Color.accentColor)
+                            .foregroundStyle(Color.onAccent(scheme), Color.accentColor)
                             .shadow(color: .black.opacity(0.25), radius: 2, y: 1)
                             .padding(6)
                     }

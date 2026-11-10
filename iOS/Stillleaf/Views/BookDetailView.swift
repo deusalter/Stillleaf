@@ -28,11 +28,20 @@ struct BookDetailView: View {
                         Text(book.title).font(.system(.title3, design: .serif).weight(.semibold))
                         if let author = book.author { Text(author).foregroundStyle(.secondary) }
                         if let rating = journal.rating(bookID: book.id) { StarRatingLabel(rating: rating) }
+                        if let fraction = journal.position(bookID: book.id)?.fraction, finished == nil {
+                            ProgressView(value: min(1, max(0, fraction))).padding(.top, 6)
+                            Text(ReadingText.percent(fraction) + " read").font(.caption).foregroundStyle(.secondary)
+                        }
                     }
                 }
                 .padding(.vertical, 4)
                 if let edition {
-                    Button { router.open(edition) } label: { Label(journal.position(bookID: book.id) == nil ? "Read" : "Continue Reading", systemImage: "book") }
+                    Button { router.open(edition) } label: {
+                        Label(journal.position(bookID: book.id) == nil ? "Read" : "Continue Reading", systemImage: "book.fill").frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(ProminentActionStyle(maxWidth: .infinity))
+                    .listRowSeparator(.hidden, edges: .top)
+                    .padding(.bottom, 4)
                 } else if book.source == "stillleaf-epub" {
                     Text("Import this EPUB again to read it on this device. Its history is kept.").font(.footnote).foregroundStyle(.secondary)
                 }

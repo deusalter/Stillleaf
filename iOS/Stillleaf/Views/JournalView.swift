@@ -7,21 +7,21 @@ struct JournalView: View {
 
     var body: some View {
         NavigationStack {
-            Group {
+            // One list: the switch sits under the title and scrolls with what it switches.
+            List {
+                Section {
+                    Picker("View", selection: $router.journalMode) {
+                        ForEach(AppRouter.JournalMode.allCases) { Text($0.rawValue).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+                }
                 switch router.journalMode {
                 case .calendar: CalendarHistory()
                 case .finished: FinishedTimeline()
                 case .reviews: ReviewsList()
                 }
-            }
-            .safeAreaInset(edge: .top) {
-                Picker("View", selection: $router.journalMode) {
-                    ForEach(AppRouter.JournalMode.allCases) { Text($0.rawValue).tag($0) }
-                }
-                .pickerStyle(.segmented)
-                .padding(.horizontal)
-                .padding(.bottom, 6)
-                .background(.bar)
             }
             .navigationTitle("Journal")
             .toolbar { AppToolbar() }
@@ -61,6 +61,7 @@ private struct JournalSummary: View {
 /// A month of daily goal progress, then the selected day's sessions.
 private struct CalendarHistory: View {
     @EnvironmentObject private var journal: Journal
+    @Environment(\.colorScheme) private var scheme
     @State private var month = Date()
     @State private var selected = Date()
     @State private var deleting: ReadingSessionGroup?
@@ -76,11 +77,17 @@ private struct CalendarHistory: View {
     var body: some View {
         let selectedKey = ReadingStatistics.dayKey(selected, timezoneID: journal.timezoneID)
         let sessions = journal.sessions(onDay: selectedKey)
-        List {
+        Group {
             Section { JournalSummary() }
             Section { monthGrid }
             Section {
                 daySummary(selectedKey)
+                    .confirmationDialog("Delete this session?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
+                                        titleVisibility: .visible, presenting: deleting) { session in
+                        Button("Delete Session", role: .destructive) { journal.deleteSession(session.id) }
+                    } message: { _ in
+                        Text("Its time and pages are removed from your history and goals.")
+                    }
                 ForEach(sessions) { session in
                     SessionRow(session: session)
                         .swipeActions {
@@ -93,12 +100,6 @@ private struct CalendarHistory: View {
                 if !sessions.isEmpty { Text("Swipe a session to delete it.") }
             }
         }
-        .confirmationDialog("Delete this session?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
-                            titleVisibility: .visible, presenting: deleting) { session in
-            Button("Delete Session", role: .destructive) { journal.deleteSession(session.id) }
-        } message: { _ in
-            Text("Its time and pages are removed from your history and goals.")
-        }
     }
 
     private var monthGrid: some View {
@@ -108,6 +109,7 @@ private struct CalendarHistory: View {
         let symbols = calendar.veryShortStandaloneWeekdaySymbols
         let ordered = Array(symbols[(calendar.firstWeekday - 1)...] + symbols[..<(calendar.firstWeekday - 1)])
         let today = calendar.startOfDay(for: Date())
+        let days = (0..<count).compactMap { calendar.date(byAdding: .day, value: $0, to: start) }
         return VStack(spacing: 10) {
             HStack {
                 Button { shift(-1) } label: { Image(systemName: "chevron.left") }.accessibilityLabel("Previous month")
@@ -119,13 +121,17 @@ private struct CalendarHistory: View {
                     .disabled(calendar.compare(start, to: today, toGranularity: .month) != .orderedAscending)
             }
             .buttonStyle(.borderless)
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 7), spacing: 8) {
+            HStack(spacing: 4) {
                 ForEach(Array(ordered.enumerated()), id: \.offset) { _, symbol in
-                    Text(symbol).font(.caption2).foregroundStyle(.secondary)
+                    Text(symbol).font(.caption2).foregroundStyle(.secondary).frame(maxWidth: .infinity)
                 }
+            }
+            .accessibilityHidden(true)
+            // Days are identified by date: identifiers shared with the weekday letters once left the
+            // first week of every month blank.
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 7), spacing: 8) {
                 ForEach(0..<leading, id: \.self) { _ in Color.clear.frame(height: 36) }
-                ForEach(0..<count, id: \.self) { offset in
-                    let day = calendar.date(byAdding: .day, value: offset, to: start) ?? start
+                ForEach(days, id: \.self) { day in
                     dayCell(day, isFuture: day > today)
                 }
             }
@@ -142,7 +148,7 @@ private struct CalendarHistory: View {
             Text("\(calendar.component(.day, from: day))")
                 .font(.callout.monospacedDigit())
                 .frame(maxWidth: .infinity, minHeight: 36)
-                .foregroundStyle(progress?.reached == true ? Color.white : isFuture ? Color.secondary : Color.primary)
+                .foregroundStyle(progress?.reached == true ? Color.onAccent(scheme) : isFuture ? Color.secondary : Color.primary)
                 .background {
                     Circle()
                         .fill(Color.accentColor.opacity(progress?.reached == true ? 1 : fraction > 0 ? 0.2 + 0.35 * fraction : 0))
@@ -204,20 +210,16 @@ private struct FinishedTimeline: View {
     var body: some View {
         let entries = journal.history.finishedBooks
         let years = Dictionary(grouping: entries) { entry in entry.finishedAt.map { Calendar.current.component(.year, from: $0) } ?? 0 }
-        List {
-            ForEach(years.keys.sorted(by: >), id: \.self) { year in
-                Section(year == 0 ? "Undated" : String(year)) {
-                    ForEach(years[year] ?? []) { entry in
-                        NavigationLink(value: entry.id) { TimelineRow(entry: entry) }
-                    }
+        ForEach(years.keys.sorted(by: >), id: \.self) { year in
+            Section(year == 0 ? "Undated" : String(year)) {
+                ForEach(years[year] ?? []) { entry in
+                    NavigationLink(value: entry.id) { TimelineRow(entry: entry) }
                 }
             }
         }
-        .overlay {
-            if entries.isEmpty {
-                ContentUnavailableView("No finished books yet", systemImage: "checkmark.circle",
-                                       description: Text("Mark a book as finished from the Library and it appears here with its date."))
-            }
+        if entries.isEmpty {
+            EmptyJournalRow(title: "No Finished Books Yet", symbol: "checkmark.circle",
+                            detail: "Mark a book as finished from the Library and it appears here with its date.")
         }
     }
 }
@@ -259,7 +261,8 @@ private struct ReviewsList: View {
 
     var body: some View {
         let reviewed = self.reviewed
-        List(reviewed) { book in
+        Section {
+            ForEach(reviewed) { book in
             NavigationLink(value: book.id) {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(alignment: .firstTextBaseline) {
@@ -273,12 +276,27 @@ private struct ReviewsList: View {
                 }
                 .padding(.vertical, 4)
             }
-        }
-        .overlay {
-            if reviewed.isEmpty {
-                ContentUnavailableView("No Reviews Yet", systemImage: "text.quote",
-                                       description: Text("Rate a book or write a few lines about it from its details. Reviews stay on this device."))
             }
+        }
+        if reviewed.isEmpty {
+            EmptyJournalRow(title: "No Reviews Yet", symbol: "text.quote",
+                            detail: "Rate a book or write a few lines about it from its details. Reviews stay on this device.")
+        }
+    }
+}
+
+/// "Nothing here yet", as a row of the journal's list.
+private struct EmptyJournalRow: View {
+    let title: String
+    let symbol: String
+    let detail: String
+
+    var body: some View {
+        Section {
+            ContentUnavailableView(title, systemImage: symbol, description: Text(detail))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 24)
+                .listRowBackground(Color.clear)
         }
     }
 }

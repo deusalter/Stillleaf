@@ -138,13 +138,24 @@ final class Journal: ObservableObject {
         }.first ?? editions.values.compactMap { booksByID[$0.bookID] }.sorted { $0.observedAt > $1.observedAt }.first
     }
 
-    /// Books that can be opened on this device and are not finished, most recently read first.
+    /// Books that can be opened on this device and are not finished: the one read most recently first,
+    /// then the others that have been started, then books not yet opened, newest import first.
     var readingNow: [BookRecord] {
         let summary = history.librarySummary
-        func recent(_ book: BookRecord) -> Date { summary.recent[book.id] ?? book.observedAt }
+        func lastRead(_ book: BookRecord) -> Date? {
+            [summary.recent[book.id], history.libraryPositions[canonicalID(book.id)]?.observedAt].compactMap { $0 }.max()
+        }
+        func byTitle(_ lhs: BookRecord, _ rhs: BookRecord) -> Bool { lhs.title.localizedStandardCompare(rhs.title) == .orderedAscending }
         return editions.values.compactMap { booksByID[$0.bookID] }
             .filter { !summary.finishedIDs.contains(canonicalID($0.id)) }
-            .sorted { recent($0) == recent($1) ? $0.title.localizedStandardCompare($1.title) == .orderedAscending : recent($0) > recent($1) }
+            .sorted { lhs, rhs in
+                switch (lastRead(lhs), lastRead(rhs)) {
+                case let (left?, right?): return left == right ? byTitle(lhs, rhs) : left > right
+                case (_?, nil): return true
+                case (nil, _?): return false
+                case (nil, nil): return lhs.observedAt == rhs.observedAt ? byTitle(lhs, rhs) : lhs.observedAt > rhs.observedAt
+                }
+            }
     }
 
     // MARK: - Reader and tracking

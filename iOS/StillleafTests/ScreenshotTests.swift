@@ -208,7 +208,7 @@ final class ScreenshotTests: XCTestCase {
 
         func place(_ id: String, _ fraction: Double, _ location: String) {
             journal.readerOpened(bookID: id)
-            journal.readerMoved(ProgressObservation(bookID: id, fraction: fraction, location: location, source: "stillleaf-reader"))
+            journal.readerMoved(ProgressObservation(bookID: id, fraction: fraction, location: location, source: "stillleaf-reader", reliable: true))
             journal.readerClosed(bookID: id)
         }
         place(ids[0], 0.42, "Chapter 4")
