@@ -39,6 +39,8 @@ final class Journal: ObservableObject {
     /// The book open in the reader, if any.
     @Published private(set) var readingBookID: String?
     @Published var notice: JournalNotice?
+    /// A short confirmation shown briefly at the bottom of the screen ("Added …").
+    @Published var toast: String?
 
     let paths: JournalPaths
     private let store: ReadingStore
@@ -59,6 +61,7 @@ final class Journal: ObservableObject {
 
     private var pendingImports: [URL] = []
     private var importing = false
+    private var importedIDs: [String] = []
 
     private let refreshQueue = DispatchQueue(label: "Stillleaf.history", qos: .userInitiated)
     private var refreshGeneration = 0
@@ -133,6 +136,15 @@ final class Journal: ObservableObject {
             guard self.editions[interval.bookID] != nil else { return nil }
             return self.booksByID[interval.bookID]
         }.first ?? editions.values.compactMap { booksByID[$0.bookID] }.sorted { $0.observedAt > $1.observedAt }.first
+    }
+
+    /// Books that can be opened on this device and are not finished, most recently read first.
+    var readingNow: [BookRecord] {
+        let summary = history.librarySummary
+        func recent(_ book: BookRecord) -> Date { summary.recent[book.id] ?? book.observedAt }
+        return editions.values.compactMap { booksByID[$0.bookID] }
+            .filter { !summary.finishedIDs.contains(canonicalID($0.id)) }
+            .sorted { recent($0) == recent($1) ? $0.title.localizedStandardCompare($1.title) == .orderedAscending : recent($0) > recent($1) }
     }
 
     // MARK: - Reader and tracking
@@ -253,12 +265,16 @@ final class Journal: ObservableObject {
 
     /// Imports EPUBs one at a time. Security-scoped URLs from the document picker are
     /// opened for the copy only; files the system placed in `Documents/Inbox` are removed.
-    /// Returns when the queue is empty, or at once if an import already running takes these too.
-    func importEPUBs(_ urls: [URL]) async {
+    /// Returns when the queue is empty, with the journal book IDs of the editions now on this device
+    /// (new or already there); or at once and empty if an import already running takes these too.
+    @discardableResult
+    func importEPUBs(_ urls: [URL]) async -> [String] {
         pendingImports.append(contentsOf: urls)
-        guard !importing else { return }
+        guard !importing else { return [] }
         importing = true
+        importedIDs = []
         await runImports()
+        return importedIDs
     }
 
     private func runImports() async {
@@ -281,6 +297,7 @@ final class Journal: ObservableObject {
             case .success(let edition):
                 do {
                     try register(edition)
+                    importedIDs.append("epub:" + edition.publication.id)
                     if edition.alreadyImported { duplicates += 1 } else { imported.append(edition.publication.title) }
                 } catch { failures.append("\(url.lastPathComponent): \(error.localizedDescription)") }
             case .failure(let error):
@@ -295,8 +312,11 @@ final class Journal: ObservableObject {
         else if imported.count > 1 { lines.append("Added \(imported.count) books.") }
         if duplicates > 0 { lines.append(duplicates == 1 ? "1 book was already in your library." : "\(duplicates) books were already in your library.") }
         if !failures.isEmpty { lines.append((failures.count == 1 ? "This file could not be imported:\n" : "These files could not be imported:\n") + failures.joined(separator: "\n")) }
-        if !failures.isEmpty || imported.isEmpty {
-            notice = JournalNotice(title: failures.isEmpty ? "Import" : "Import finished with problems", message: lines.joined(separator: "\n\n"))
+        // Success is a quiet confirmation; only a problem interrupts.
+        if !failures.isEmpty {
+            notice = JournalNotice(title: "Import finished with problems", message: lines.joined(separator: "\n\n"))
+        } else if let line = lines.first {
+            toast = line
         }
     }
 

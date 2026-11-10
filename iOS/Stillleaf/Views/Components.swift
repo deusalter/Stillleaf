@@ -126,23 +126,6 @@ struct RatingEditor: View {
     }
 }
 
-/// Opens an edition in the full-screen reader, from any tab.
-struct OpenBookAction {
-    let open: (Edition) -> Void
-    func callAsFunction(_ edition: Edition) { open(edition) }
-}
-
-private struct OpenBookKey: EnvironmentKey {
-    static let defaultValue = OpenBookAction { _ in }
-}
-
-extension EnvironmentValues {
-    var openBook: OpenBookAction {
-        get { self[OpenBookKey.self] }
-        set { self[OpenBookKey.self] = newValue }
-    }
-}
-
 /// A file or folder written by the journal, handed to the system exporter.
 struct ExportFile: FileDocument {
     static var readableContentTypes: [UTType] { [.data] }

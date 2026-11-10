@@ -1,7 +1,7 @@
 import SwiftUI
-import UniformTypeIdentifiers
 import BooksCore
 
+/// Every book in the journal as a shelf of covers. A book on this device opens on a tap.
 struct LibraryView: View {
     enum Shelf: String, CaseIterable, Identifiable {
         case all = "All", reading = "Reading", finished = "Finished"
@@ -9,12 +9,10 @@ struct LibraryView: View {
     }
 
     @EnvironmentObject private var journal: Journal
-    @Environment(\.openBook) private var open
+    @EnvironmentObject private var router: AppRouter
     @State private var path: [String] = []
     @State private var query = ""
     @State private var shelf: Shelf = .all
-    @State private var importing = false
-    @State private var logging = false
     @State private var deleting: BookRecord?
 
     private var books: [BookRecord] {
@@ -34,62 +32,50 @@ struct LibraryView: View {
     }
 
     var body: some View {
+        let books = self.books
+        let empty = journal.history.librarySummary.books.isEmpty
         NavigationStack(path: $path) {
             ScrollView {
-                Picker("Shelf", selection: $shelf) {
-                    ForEach(Shelf.allCases) { Text($0.rawValue).tag($0) }
+                if !empty {
+                    Picker("Shelf", selection: $shelf) {
+                        ForEach(Shelf.allCases) { Text($0.rawValue).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 4)
                 }
-                .pickerStyle(.segmented)
-                .padding(.horizontal)
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 104, maximum: 170), spacing: 18, alignment: .top)], spacing: 22) {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 100, maximum: 170), spacing: 20, alignment: .top)], spacing: 26) {
                     ForEach(books) { book in
                         Button { select(book) } label: { BookCard(book: book) }
                             .buttonStyle(.plain)
                             .contextMenu { menu(for: book) }
                     }
                 }
-                .padding()
+                .padding(.horizontal, 20)
+                .padding(.vertical, 16)
             }
             .overlay {
                 if books.isEmpty {
-                    if journal.history.librarySummary.books.isEmpty {
+                    if empty {
                         ContentUnavailableView {
-                            Label("No books yet", systemImage: "books.vertical")
+                            Label("No Books Yet", systemImage: "books.vertical")
                         } description: {
                             Text("Import DRM-free EPUBs from Files. You can also share an EPUB to Stillleaf from Mail, Safari or AirDrop.")
                         } actions: {
-                            Button("Import EPUBs") { importing = true }.buttonStyle(.borderedProminent)
+                            Button("Import EPUBs") { router.importing = true }.buttonStyle(.borderedProminent)
                         }
+                    } else if query.isEmpty {
+                        ContentUnavailableView(shelf == .finished ? "Nothing Finished Yet" : "Nothing in Progress", systemImage: "book.closed",
+                                               description: Text(shelf == .finished ? "Mark a book as finished and it appears here." : "Every book here is finished."))
                     } else {
                         ContentUnavailableView.search(text: query)
                     }
                 }
             }
-            .safeAreaInset(edge: .bottom) {
-                if let status = journal.importStatus {
-                    Label(status, systemImage: "arrow.down.doc")
-                        .font(.footnote)
-                        .padding(.horizontal, 14).padding(.vertical, 8)
-                        .background(.regularMaterial, in: Capsule())
-                        .padding(.bottom, 8)
-                }
-            }
             .navigationTitle("Library")
             .searchable(text: $query, prompt: "Title or author")
-            .toolbar {
-                ToolbarItemGroup(placement: .primaryAction) {
-                    Button { logging = true } label: { Label("Log Reading", systemImage: "plus") }
-                    Button { importing = true } label: { Label("Import EPUBs", systemImage: "square.and.arrow.down") }
-                }
-            }
+            .toolbar { AppToolbar() }
             .navigationDestination(for: String.self) { id in BookDetailView(bookID: id) }
-            .fileImporter(isPresented: $importing, allowedContentTypes: [.epub], allowsMultipleSelection: true) { result in
-                switch result {
-                case .success(let urls): Task { await journal.importEPUBs(urls) }
-                case .failure(let error): journal.notice = JournalNotice(title: "Import", message: error.localizedDescription)
-                }
-            }
-            .sheet(isPresented: $logging) { LogReadingView() }
             .confirmationDialog("Delete “\(deleting?.title ?? "")”?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
                                 titleVisibility: .visible, presenting: deleting) { book in
                 Button("Delete Book and History", role: .destructive) { journal.deleteBook(book.id) }
@@ -100,13 +86,13 @@ struct LibraryView: View {
     }
 
     private func select(_ book: BookRecord) {
-        if let edition = journal.edition(forBook: book.id) { open(edition) } else { path.append(book.id) }
+        if let edition = journal.edition(forBook: book.id) { router.open(edition) } else { path.append(book.id) }
     }
 
     @ViewBuilder
     private func menu(for book: BookRecord) -> some View {
         if let edition = journal.edition(forBook: book.id) {
-            Button { open(edition) } label: { Label("Read", systemImage: "book") }
+            Button { router.open(edition) } label: { Label("Read", systemImage: "book") }
         }
         Button { path.append(book.id) } label: { Label("Details", systemImage: "info.circle") }
         if journal.finished(bookID: book.id) == nil {
@@ -116,26 +102,42 @@ struct LibraryView: View {
     }
 }
 
+/// A cover with its title and where the reader is in it.
 struct BookCard: View {
     @EnvironmentObject private var journal: Journal
     let book: BookRecord
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            BookCover(book: book, coverURL: journal.edition(forBook: book.id)?.coverURL)
-            Text(book.title).font(.system(.subheadline, design: .serif).weight(.medium)).lineLimit(2)
-            Text(status).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+        let edition = journal.edition(forBook: book.id)
+        let finished = journal.finished(bookID: book.id) != nil
+        let fraction = journal.position(bookID: book.id)?.fraction
+        VStack(alignment: .leading, spacing: 7) {
+            BookCover(book: book, coverURL: edition?.coverURL)
+                .overlay(alignment: .topTrailing) {
+                    if finished {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 20))
+                            .symbolRenderingMode(.palette)
+                            .foregroundStyle(.white, Color.accentColor)
+                            .shadow(color: .black.opacity(0.25), radius: 2, y: 1)
+                            .padding(6)
+                    }
+                }
+            if let fraction, !finished {
+                ProgressView(value: min(1, max(0, fraction))).scaleEffect(x: 1, y: 0.7, anchor: .center)
+            }
+            Text(book.title).font(.system(.subheadline, design: .serif).weight(.medium)).lineLimit(2).multilineTextAlignment(.leading)
+            Text(status(finished: finished, fraction: fraction, onDevice: edition != nil))
+                .font(.caption).foregroundStyle(.secondary).lineLimit(1)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityHint(journal.edition(forBook: book.id) == nil ? "Shows details" : "Opens the book")
+        .accessibilityHint(edition == nil ? "Shows details" : "Opens the book")
     }
 
-    private var status: String {
-        if journal.finished(bookID: book.id) != nil { return "Finished" }
-        if let fraction = journal.position(bookID: book.id)?.fraction { return "\(Int((fraction * 100).rounded()))% read" }
-        if journal.edition(forBook: book.id) == nil {
-            return book.source == "stillleaf-epub" ? "EPUB not on this device" : (book.author ?? "Journal only")
-        }
+    private func status(finished: Bool, fraction: Double?, onDevice: Bool) -> String {
+        if finished { return "Finished" }
+        if let fraction { return ReadingText.percent(fraction) + " read" }
+        if !onDevice { return book.source == "stillleaf-epub" ? "Not on this device" : (book.author ?? "Journal only") }
         return book.author ?? "Not started"
     }
 }

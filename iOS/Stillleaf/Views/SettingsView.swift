@@ -4,6 +4,7 @@ import BooksCore
 
 struct SettingsView: View {
     @EnvironmentObject private var journal: Journal
+    @Environment(\.dismiss) private var dismiss
     let showWelcome: () -> Void
 
     var body: some View {
@@ -27,6 +28,10 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle("Settings")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+            }
         }
     }
 }
@@ -109,7 +114,7 @@ private struct ReaderSection: View {
         } header: {
             Text("Reader")
         } footer: {
-            Text("Living grows as you read and becomes Still with Reduce Motion or Low Power Mode. Typeface, page colour and layout are in the reader's Appearance panel.")
+            Text("Living grows as you read and becomes Still with Reduce Motion or Low Power Mode. Text size, theme and font are in the reader: tap the middle of a page, then the text button.")
         }
     }
 }

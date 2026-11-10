@@ -1,20 +1,24 @@
 import SwiftUI
 import BooksCore
 
-struct HistoryView: View {
+/// The reading journal: a calendar of days and sessions, finished books by year, and private reviews.
+struct JournalView: View {
     enum Mode: String, CaseIterable, Identifiable {
-        case calendar = "Calendar", timeline = "Timeline"
+        case calendar = "Calendar", finished = "Finished", reviews = "Reviews"
         var id: String { rawValue }
     }
 
-    @State private var mode: Mode = .calendar
+    @State private var mode: Mode
+
+    init(mode: Mode = .calendar) { _mode = State(initialValue: mode) }
 
     var body: some View {
         NavigationStack {
             Group {
                 switch mode {
                 case .calendar: CalendarHistory()
-                case .timeline: FinishedTimeline()
+                case .finished: FinishedTimeline()
+                case .reviews: ReviewsList()
                 }
             }
             .safeAreaInset(edge: .top) {
@@ -26,9 +30,38 @@ struct HistoryView: View {
                 .padding(.bottom, 6)
                 .background(.bar)
             }
-            .navigationTitle("History")
+            .navigationTitle("Journal")
+            .toolbar { AppToolbar() }
             .navigationDestination(for: String.self) { BookDetailView(bookID: $0) }
         }
+    }
+}
+
+/// Streaks and totals at a glance, above the calendar.
+private struct JournalSummary: View {
+    @EnvironmentObject private var journal: Journal
+
+    var body: some View {
+        let streak = journal.history.dailyGoalStreak
+        let week = journal.history.days.suffix(7).reduce(0) { $0 + $1.creditedSeconds }
+        HStack(spacing: 0) {
+            stat("\(streak.current)", "day streak", symbol: "flame.fill")
+            Divider().frame(height: 34)
+            stat("\(streak.longest)", "longest", symbol: "trophy.fill")
+            Divider().frame(height: 34)
+            stat(ReadingText.duration(week), "last 7 days", symbol: "clock.fill")
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func stat(_ value: String, _ caption: String, symbol: String) -> some View {
+        VStack(spacing: 3) {
+            Image(systemName: symbol).font(.footnote).foregroundStyle(Color.accentColor)
+            Text(value).font(.system(.headline, design: .rounded)).monospacedDigit().lineLimit(1).minimumScaleFactor(0.7)
+            Text(caption).font(.caption2).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -51,6 +84,7 @@ private struct CalendarHistory: View {
         let selectedKey = ReadingStatistics.dayKey(selected, timezoneID: journal.timezoneID)
         let sessions = journal.sessions(onDay: selectedKey)
         List {
+            Section { JournalSummary() }
             Section { monthGrid }
             Section {
                 daySummary(selectedKey)
@@ -213,6 +247,44 @@ private struct TimelineRow: View {
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
+/// Private written reviews and ratings. Nothing is posted anywhere.
+private struct ReviewsList: View {
+    @EnvironmentObject private var journal: Journal
+
+    private var reviewed: [BookRecord] {
+        let ids = Set(journal.history.bookReviewCache.keys).union(journal.history.bookRatings.keys)
+        return journal.history.librarySummary.books.filter { ids.contains($0.id) }.sorted { lhs, rhs in
+            let left = journal.history.bookReviewDates[lhs.id] ?? .distantPast, right = journal.history.bookReviewDates[rhs.id] ?? .distantPast
+            return left == right ? lhs.title.localizedStandardCompare(rhs.title) == .orderedAscending : left > right
+        }
+    }
+
+    var body: some View {
+        let reviewed = self.reviewed
+        List(reviewed) { book in
+            NavigationLink(value: book.id) {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(book.title).font(.system(.headline, design: .serif)).lineLimit(2)
+                        Spacer()
+                        if let rating = journal.rating(bookID: book.id) { StarRatingLabel(rating: rating) }
+                    }
+                    if let review = journal.review(bookID: book.id) {
+                        Text(review).font(.subheadline).foregroundStyle(.secondary).lineLimit(4)
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+        }
+        .overlay {
+            if reviewed.isEmpty {
+                ContentUnavailableView("No Reviews Yet", systemImage: "text.quote",
+                                       description: Text("Rate a book or write a few lines about it from its details. Reviews stay on this device."))
             }
         }
     }

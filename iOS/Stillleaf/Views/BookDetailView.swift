@@ -4,7 +4,7 @@ import BooksCore
 struct BookDetailView: View {
     @EnvironmentObject private var journal: Journal
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.openBook) private var open
+    @EnvironmentObject private var router: AppRouter
     let bookID: String
     @State private var confirmDelete = false
     @State private var confirmRemoveDownload = false
@@ -32,7 +32,7 @@ struct BookDetailView: View {
                 }
                 .padding(.vertical, 4)
                 if let edition {
-                    Button { open(edition) } label: { Label(journal.position(bookID: book.id) == nil ? "Read" : "Continue Reading", systemImage: "book") }
+                    Button { router.open(edition) } label: { Label(journal.position(bookID: book.id) == nil ? "Read" : "Continue Reading", systemImage: "book") }
                 } else if book.source == "stillleaf-epub" {
                     Text("Import this EPUB again to read it on this device. Its history is kept.").font(.footnote).foregroundStyle(.secondary)
                 }
