@@ -1,46 +1,32 @@
 import SwiftUI
-import UIKit
 
-/// Presents `ReaderViewController` full screen from SwiftUI.
-struct ReaderScreen: UIViewControllerRepresentable {
+/// The full-screen reader: the page, the controls a tap in the middle of it shows, and their sheets.
+struct ReaderScreen: View {
     let edition: Edition
     let journal: Journal
     let onClose: () -> Void
+    @StateObject private var chrome = ReaderChrome()
 
-    func makeUIViewController(context: Context) -> ReaderViewController {
-        ReaderViewController(edition: edition, journal: journal, onClose: onClose)
-    }
-
-    func updateUIViewController(_ controller: ReaderViewController, context: Context) {}
-
-    static func dismantleUIViewController(_ controller: ReaderViewController, coordinator: ()) {
-        controller.finish()
-    }
-}
-
-/// Reader settings that live outside per-book reader state.
-enum ReaderPreferences {
-    enum GardenMode: String, CaseIterable, Identifiable {
-        case animated, still, off
-        var id: String { rawValue }
-        var label: String {
-            switch self {
-            case .animated: return "Living"
-            case .still: return "Still"
-            case .off: return "Off"
+    var body: some View {
+        ReaderPage(edition: edition, journal: journal, chrome: chrome, onClose: onClose)
+            .ignoresSafeArea()
+            .overlay { ReaderControls(chrome: chrome, title: edition.publication.title) }
+            .sheet(item: $chrome.sheet) { sheet in
+                Group {
+                    switch sheet {
+                    case .contents: ReaderContentsSheet(chrome: chrome)
+                    case .search: ReaderSearchSheet(chrome: chrome)
+                    case .appearance: ReaderAppearanceSheet(chrome: chrome)
+                    }
+                }
+                // Sheets over a dark page are dark, whatever the system setting.
+                .preferredColorScheme(chrome.pageIsDark ? .dark : .light)
             }
-        }
-    }
-
-    static let gardenKey = "gardenMode"
-
-    static var gardenMode: GardenMode {
-        GardenMode(rawValue: UserDefaults.standard.string(forKey: gardenKey) ?? "") ?? .animated
-    }
-
-    /// As on the Mac: a living garden falls back to still under Reduce Motion or Low Power Mode.
-    static var effectiveGardenMode: GardenMode {
-        guard gardenMode == .animated else { return gardenMode }
-        return UIAccessibility.isReduceMotionEnabled || ProcessInfo.processInfo.isLowPowerModeEnabled ? .still : .animated
+            .alert("Reader", isPresented: Binding(get: { chrome.error != nil }, set: { if !$0 { chrome.error = nil } }),
+                   presenting: chrome.error) { _ in
+                Button("OK", role: .cancel) {}
+            } message: { message in
+                Text(message)
+            }
     }
 }

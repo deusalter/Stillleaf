@@ -28,6 +28,17 @@ enum ReadingText {
         }
     }
 
+    /// "12 of 20 pages", or the value alone when no goal is set.
+    static func goalSummary(_ progress: DailyGoalProgress) -> String {
+        guard let target = progress.target else { return goalValue(progress) }
+        switch progress.unit {
+        case .pages: return "\(Int(progress.value.rounded(.down))) of \(pages(Int(target)))"
+        case .minutes: return "\(Int(progress.value.rounded(.down))) of \(Int(target)) min"
+        }
+    }
+
+    static func percent(_ fraction: Double) -> String { "\(Int((min(1, max(0, fraction)) * 100).rounded()))%" }
+
     static func stars(_ rating: Double) -> String {
         rating == rating.rounded() ? "\(Int(rating)) ★" : "\(rating.formatted(.number.precision(.fractionLength(0...2)))) ★"
     }

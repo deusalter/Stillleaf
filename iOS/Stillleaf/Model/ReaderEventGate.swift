@@ -18,12 +18,17 @@ struct ReaderEventGate {
         /// A finished whole-book screen count (renderer JSON) for `ReaderPageMapStore`, which validates it.
         /// Layout only: never progress, evidence or reading state.
         case pageMap(Data)
+        /// The renderer's UI state for native controls (JSON): preferences, page colours, bookmark state.
+        case chrome(Data)
+        /// A tap on the page that turned no page and activated nothing: show or hide the controls.
+        case chromeTap
         case ignored
     }
 
     let publication: EPUBPublication
     let token: String
     private var lastSequence: UInt64 = 0
+    private var lastChromeSequence: UInt64 = 0
 
     init(publication: EPUBPublication, token: String) {
         self.publication = publication
@@ -47,6 +52,15 @@ struct ReaderEventGate {
                   let encoded = try? JSONSerialization.data(withJSONObject: state),
                   (try? ReaderStateValidation.validate(encoded, publication: publication)) != nil else { return .ignored }
             return .state(encoded)
+        case "chrome-tap": return .chromeTap
+        case "chrome":
+            // UI state only. A replayed or reordered message must not put older settings back on screen.
+            guard event["version"] as? Int == 1, let number = event["sequence"] as? NSNumber, number.doubleValue > 0,
+                  number.doubleValue <= 9_007_199_254_740_991, number.doubleValue.rounded() == number.doubleValue,
+                  number.uint64Value > lastChromeSequence, JSONSerialization.isValidJSONObject(event),
+                  let data = try? JSONSerialization.data(withJSONObject: event) else { return .ignored }
+            lastChromeSequence = number.uint64Value
+            return .chrome(data)
         case "pageMap":
             guard let map = event["pageMap"], JSONSerialization.isValidJSONObject([map]),
                   let data = try? JSONSerialization.data(withJSONObject: map) else { return .ignored }

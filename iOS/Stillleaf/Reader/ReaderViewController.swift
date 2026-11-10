@@ -1,3 +1,4 @@
+import SwiftUI
 import UIKit
 import WebKit
 @preconcurrency import BooksCore
@@ -5,10 +6,13 @@ import WebKit
 
 /// Hosts the shared renderer for one edition. Loading, the content rule list, the
 /// session URL scheme and event validation are the Mac reader's; this class adds
-/// UIKit presentation, swipes and the iOS lifecycle.
+/// UIKit presentation, swipes and the iOS lifecycle. The controls drawn over the
+/// page are SwiftUI (`ReaderControls`), driven by `ReaderChrome`.
 final class ReaderViewController: UIViewController, WKNavigationDelegate, UIGestureRecognizerDelegate {
     private let edition: Edition
     private let journal: Journal
+    /// The reader's controls and lists; SwiftUI draws them over this controller's page.
+    let chrome: ReaderChrome
     private let onClose: () -> Void
     private let token = UUID().uuidString
     private var gate: ReaderEventGate
@@ -26,15 +30,18 @@ final class ReaderViewController: UIViewController, WKNavigationDelegate, UIGest
     private var scrollMode = false
     private var statusStyle: UIStatusBarStyle = .default
     private let spinner = UIActivityIndicatorView(style: .large)
-    private let topFill = UIView()
     private var observers: [NSObjectProtocol] = []
+    private var chromeRequest = 0
+    /// True when the book has no saved reader state: it starts with the appearance used last.
+    private var firstOpen = false
 
     /// Called on the main actor for every accepted renderer event; tests observe the reader through it.
     var eventObserver: ((ReaderEventGate.Event) -> Void)?
 
-    init(edition: Edition, journal: Journal, onClose: @escaping () -> Void) {
+    init(edition: Edition, journal: Journal, chrome: ReaderChrome? = nil, onClose: @escaping () -> Void) {
         self.edition = edition
         self.journal = journal
+        self.chrome = chrome ?? ReaderChrome()
         self.onClose = onClose
         gate = ReaderEventGate(publication: edition.publication, token: token)
         stateStore = ReaderStateStore(directory: journal.paths.readerState)
@@ -53,25 +60,42 @@ final class ReaderViewController: UIViewController, WKNavigationDelegate, UIGest
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .systemBackground
-        topFill.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(topFill)
         spinner.translatesAutoresizingMaskIntoConstraints = false
         spinner.startAnimating()
         view.addSubview(spinner)
         NSLayoutConstraint.activate([
-            topFill.topAnchor.constraint(equalTo: view.topAnchor),
-            topFill.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            topFill.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            topFill.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             spinner.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             spinner.centerYAnchor.constraint(equalTo: view.centerYAnchor)
         ])
+        connectChrome()
         journal.readerOpened(bookID: edition.bookID)
         // The renderer saves on every change; this also covers the moment before suspension.
         observers.append(NotificationCenter.default.addObserver(forName: UIScene.willDeactivateNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor [weak self] in await self?.saveSnapshot() }
         })
+        for name in [UIAccessibility.reduceMotionStatusDidChangeNotification, UIAccessibility.darkerSystemColorsStatusDidChangeNotification,
+                     UIAccessibility.reduceTransparencyStatusDidChangeNotification] {
+            observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor [weak self] in self?.chrome.accessibilityChanged() }
+            })
+        }
         Task { await load() }
+    }
+
+    /// Gives the controls their way to reach the renderer and this controller.
+    private func connectChrome() {
+        chrome.transport = { [weak self] command, payload in
+            guard let self else { throw ReaderStateValidation.Failure.invalidState }
+            return try await self.sendNativeControl(command, payload: payload)
+        }
+        chrome.close = { [weak self] in Task { @MainActor [weak self] in await self?.requestClose() } }
+        chrome.accessibility = {
+            ["reduceMotion": UIAccessibility.isReduceMotionEnabled, "increaseContrast": UIAccessibility.isDarkerSystemColorsEnabled,
+             "reduceTransparency": UIAccessibility.isReduceTransparencyEnabled]
+        }
+        chrome.defaults = .standard
+        // The renderer's default size suits a window on a desk; a hand-held page reads better a step smaller.
+        if UIDevice.current.userInterfaceIdiom == .phone { chrome.firstOpenPreferences = ["fontSize": 1.0] }
     }
 
     // MARK: - Loading
@@ -80,10 +104,12 @@ final class ReaderViewController: UIViewController, WKNavigationDelegate, UIGest
         let edition = self.edition, stateDirectory = journal.paths.readerState
         let shells = [Bundle.main.resourceURL?.appendingPathComponent("Reader", isDirectory: true)].compactMap { $0 }
         do {
-            let launch = try await Task.detached(priority: .userInitiated) {
-                try ReaderLaunch.prepare(publication: edition.publication, directory: edition.directory,
-                                         shellCandidates: shells, stateDirectory: stateDirectory)
+            let (launch, fresh) = try await Task.detached(priority: .userInitiated) { () -> (ReaderLaunch, Bool) in
+                let saved = try? ReaderStateStore(directory: stateDirectory).load(publication: edition.publication)
+                return (try ReaderLaunch.prepare(publication: edition.publication, directory: edition.directory,
+                                                 shellCandidates: shells, stateDirectory: stateDirectory), saved == nil)
             }.value
+            firstOpen = fresh
             let configuration = try await ReaderWebViewPolicy.configuration(resources: launch.resources)
             configuration.userContentController.add(ReaderMessageProxy(owner: self), name: "readerEvents")
             let quotedToken = String(decoding: try JSONSerialization.data(withJSONObject: token, options: .fragmentsAllowed), as: UTF8.self)
@@ -91,7 +117,7 @@ final class ReaderViewController: UIViewController, WKNavigationDelegate, UIGest
                 "window.addEventListener('stillleaf-reader-event', e => window.webkit.messageHandlers.readerEvents.postMessage({token: \(quotedToken), event: e.detail}));",
                 injectionTime: .atDocumentStart, forMainFrameOnly: true))
             configuration.userContentController.addUserScript(WKUserScript(source:
-                "window.__stillleafGardenMode = \"\(ReaderPreferences.effectiveGardenMode.rawValue)\";", injectionTime: .atDocumentStart, forMainFrameOnly: true))
+                "window.__stillleafGardenMode = \"\(ReaderPreferences.effectiveGardenMode(reduceMotion: UIAccessibility.isReduceMotionEnabled).rawValue)\";", injectionTime: .atDocumentStart, forMainFrameOnly: true))
             configuration.dataDetectorTypes = []
             let webView = WKWebView(frame: view.bounds, configuration: configuration)
             webView.translatesAutoresizingMaskIntoConstraints = false
@@ -144,6 +170,8 @@ final class ReaderViewController: UIViewController, WKNavigationDelegate, UIGest
             // iOS reclaims web content memory under pressure. Reload from the last saved state.
             isReady = false
             didStart = false
+            firstOpen = false
+            chrome.disconnect()
             if let launch { webView.load(URLRequest(url: launch.resources.url(for: "index.html")!)) }
         }
     }
@@ -172,6 +200,9 @@ final class ReaderViewController: UIViewController, WKNavigationDelegate, UIGest
             spinner.stopAnimating()
             journal.readerBecameReady(bookID: edition.bookID)
             matchPageColours()
+            let fresh = firstOpen
+            firstOpen = false
+            Task { await chrome.connect(firstOpen: fresh) }
         case .closeRequest:
             Task { await requestClose() }
         case .failed:
@@ -190,6 +221,11 @@ final class ReaderViewController: UIViewController, WKNavigationDelegate, UIGest
             // Kept so a reopened book shows its exact page count at once; ReaderLaunch hands it back.
             let store = pageMapStore, publication = edition.publication
             stateWorker.async { store.record(data, publication: publication) }
+        case .chrome(let data):
+            if let value = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] { chrome.accept(value) }
+            matchPageColours()
+        case .chromeTap:
+            chrome.toggleControls()
         case .ignored:
             break
         }
@@ -259,6 +295,9 @@ final class ReaderViewController: UIViewController, WKNavigationDelegate, UIGest
             controller.removeAllUserScripts()
             controller.removeAllContentRuleLists()
         }
+        chrome.disconnect()
+        chrome.transport = nil
+        chrome.close = nil
         journal.readerClosed(bookID: edition.bookID)
     }
 
@@ -287,7 +326,8 @@ final class ReaderViewController: UIViewController, WKNavigationDelegate, UIGest
     /// Horizontal swipes turn pages through the renderer's own page-turn path, so they
     /// produce the same position and coverage events as edge taps, keys and trackpads.
     @objc private func swiped(_ recognizer: UISwipeGestureRecognizer) {
-        guard isReady, !scrollMode else { return }
+        guard isReady, !scrollMode, chrome.sheet == nil else { return }
+        chrome.setControlsVisible(false)
         let rightToLeft = edition.publication.readingProgression == "rtl"
         let forward = (recognizer.direction == .left) != rightToLeft
         let method = forward ? "next" : "previous"
@@ -297,20 +337,15 @@ final class ReaderViewController: UIViewController, WKNavigationDelegate, UIGest
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
                            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool { true }
 
-    /// Fills the status-bar area with the reader toolbar's colour and picks a legible status bar.
+    /// The page is one surface: the areas outside the safe area take its colour, and the status bar stays legible on it.
     private func matchPageColours() {
-        let script = "(() => { const s = e => e ? getComputedStyle(e).backgroundColor : ''; return [s(document.querySelector('.reader-bar')), s(document.body)] })()"
-        webView?.evaluateJavaScript(script) { [weak self] value, _ in
-            guard let self, let colours = value as? [String] else { return }
-            let bar = colours.first.flatMap(Self.colour), page = colours.last.flatMap(Self.colour)
-            if let page { self.view.backgroundColor = page }
-            if let fill = bar ?? page {
-                self.topFill.backgroundColor = fill
-                var white: CGFloat = 0
-                fill.getWhite(&white, alpha: nil)
-                let style: UIStatusBarStyle = white < 0.5 ? .lightContent : .darkContent
-                if style != self.statusStyle { self.statusStyle = style; self.setNeedsStatusBarAppearanceUpdate() }
-            }
+        webView?.evaluateJavaScript("getComputedStyle(document.body).backgroundColor") { [weak self] value, _ in
+            guard let self, let page = (value as? String).flatMap(Self.colour) else { return }
+            self.view.backgroundColor = page
+            var white: CGFloat = 0
+            page.getWhite(&white, alpha: nil)
+            let style: UIStatusBarStyle = white < 0.5 ? .lightContent : .darkContent
+            if style != self.statusStyle { self.statusStyle = style; self.setNeedsStatusBarAppearanceUpdate() }
         }
     }
 
@@ -333,13 +368,36 @@ final class ReaderViewController: UIViewController, WKNavigationDelegate, UIGest
         }
     }
 
-    func callAsync(_ body: String) async throws -> Any? {
+    func callAsync(_ body: String, arguments: [String: Any] = [:]) async throws -> Any? {
         guard let webView else { throw ReaderStateValidation.Failure.invalidState }
         return try await withCheckedThrowingContinuation { continuation in
-            webView.callAsyncJavaScript(body, arguments: [:], in: nil, in: .page) { result in
+            webView.callAsyncJavaScript(body, arguments: arguments, in: nil, in: .page) { result in
                 continuation.resume(with: result.map { Optional($0) })
             }
         }
+    }
+
+    /// One versioned command for the renderer's native controls. Request ids only ever increase, and a
+    /// response is accepted only for this request and this edition, as on the Mac.
+    private func sendNativeControl(_ command: String, payload: [String: Any]?) async throws -> [String: Any] {
+        guard isReady, !finished else { throw ReaderStateValidation.Failure.invalidState }
+        chromeRequest += 1
+        let request = chromeRequest
+        var envelope: [String: Any] = ["version": 1, "editionId": edition.publication.id, "id": request, "command": command]
+        if let payload { envelope["payload"] = payload }
+        let value: Any?
+        do {
+            value = try await callAsync("return await window.StillleafReader.nativeControl(request)", arguments: ["request": envelope])
+        } catch {
+            // WebKit wraps a rejected promise; the renderer's own sentence is in the exception message.
+            if let message = (error as NSError).userInfo["WKJavaScriptExceptionMessage"] as? String {
+                throw ReaderControlError(message: message.replacingOccurrences(of: "Error: ", with: ""))
+            }
+            throw error
+        }
+        guard let response = value as? [String: Any], (response["requestId"] as? NSNumber)?.intValue == request,
+              response["editionId"] as? String == edition.publication.id else { throw ReaderStateValidation.Failure.invalidState }
+        return response
     }
 }
 
@@ -349,5 +407,23 @@ private final class ReaderMessageProxy: NSObject, WKScriptMessageHandler {
     init(owner: ReaderViewController) { self.owner = owner }
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         Task { @MainActor [weak self] in self?.owner?.receive(message) }
+    }
+}
+
+/// Hosts `ReaderViewController` in SwiftUI.
+struct ReaderPage: UIViewControllerRepresentable {
+    let edition: Edition
+    let journal: Journal
+    let chrome: ReaderChrome
+    let onClose: () -> Void
+
+    func makeUIViewController(context: Context) -> ReaderViewController {
+        ReaderViewController(edition: edition, journal: journal, chrome: chrome, onClose: onClose)
+    }
+
+    func updateUIViewController(_ controller: ReaderViewController, context: Context) {}
+
+    static func dismantleUIViewController(_ controller: ReaderViewController, coordinator: ()) {
+        controller.finish()
     }
 }
