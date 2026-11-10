@@ -116,6 +116,7 @@ test('a regrow leaves the vine canvases alone unless their size changed, and a c
     }
   }});
   await page.evaluate(b => window.StillleafReader.open(b), book());
+  await page.evaluate(() => window.StillleafReader.setPreferences({vines: 'margins'}));
   await page.evaluate(() => window.StillleafReader.setPreferences({columns: 'one'}));
   const settle = async () => { await page.waitForFunction(() => { const g = window.StillleafReader.gardenDebug(true); return !g.animating && !g.frozen; }, null, {timeout: 20000}); };
   await page.waitForTimeout(600); await settle();

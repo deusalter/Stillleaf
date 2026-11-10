@@ -1,4 +1,4 @@
-/** The margin garden: ASCII vines in the empty window space around the page card, grown in step with
+/** The margin garden: ASCII vines in the empty window space around the text column, drawn on the page colour, grown in step with
  * chapter progress, a spine vine in the column gap of facing pages, and a progress vine along the footer
  * pill. Decorative only: every canvas is aria-hidden, takes no input and never affects layout.
  * See docs/specs/glass-vines.md and design/glass-vines/garden-and-reader-themes.html (the approved mockup).
@@ -13,7 +13,7 @@ import {createLiving, windAt, swayOf, REST, FRAME_MS} from './living.js';
 const FONT = 13, LINE = 16, FOOT_FONT = 12, FOOT_LINE = 14, MIN_MARGIN_CELLS = 7, BUDGET = 1500, STAGGER = 7, STAGGER_SPAN = 1800, FADE = 700, GHOST = 900, FREEZE = 300, SLEEP_AFTER = 2000;
 // Every chapter starts as a young garden (about the mockup at 18%: START_CELLS vines, or START_SHARE of a small garden)
 // and fills out to its full size by the chapter's end.
-const START_CELLS = 270, START_SHARE = 0.4, CARD_EDGE = 16, CLEAR_PAGE = 2, CLEAR_BARS = 1;
+const START_CELLS = 270, START_SHARE = 0.4, CLEAR_PAGE = 2, CLEAR_BARS = 1;
 const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 const overlaps = (a, b) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
 const MODES = ['animated', 'still', 'off'];
@@ -33,7 +33,7 @@ const depth = cell => cell.kind === 'bloom' ? 1 : cell.generation >= 2 ? 0.6 : c
  * @param {HTMLCanvasElement} options.spine overlay canvas covering the reading viewport
  * @param {HTMLCanvasElement} options.footer canvas inside the footer pill, along its progress track
  * @param {HTMLElement} options.percent the footer's percentage label
- * @param {HTMLElement} options.viewport the reading viewport (the page card)
+ * @param {HTMLElement} options.viewport the reading viewport (the text column)
  * @param {() => Element[]} options.chrome visible bars the garden must stay clear of
  * @param {() => {columns: number, gutter: number, scroll: boolean}} options.layout
  * @param {() => boolean} options.enabled the reader's own Vines preference
@@ -81,7 +81,7 @@ export function installGarden({canvas, spine, footer, percent, viewport, chrome,
     s.dirty = true;
   }
 
-  /** Vines around the page card, in margins at least seven cells wide, grown to this share of the chapter. */
+  /** Vines around the text column, in margins at least seven cells wide, grown to this share of the chapter. */
   function plantMargins(fraction) {
     const {cw, ch} = margins, columns = Math.ceil(innerWidth / cw), rows = Math.ceil(innerHeight / ch);
     const page = viewport.getBoundingClientRect();
@@ -178,7 +178,7 @@ export function installGarden({canvas, spine, footer, percent, viewport, chrome,
     for (const s of scenes) { s.field = null; s.born = new Map(); s.ghosts = []; s.track = []; s.dirty = s.busy = false; s.context.clearRect(0, 0, 1e5, 1e5); s.canvas.classList.remove('breathing', 'held'); }
     cancelAnimationFrame(frame); frame = 0;
     stopAmbient(); living.reset(); drawn.clear(); swayers = []; particleRects = [];
-    root.classList.remove('garden-card', 'garden-facing');
+    
   }
 
   function rebuild() {
@@ -186,13 +186,11 @@ export function installGarden({canvas, spine, footer, percent, viewport, chrome,
     if (frozen && active()) { deferred = true; return; }
     deferred = false;
     const now = performance.now(), on = active();
-    // The footer pill and its vine exist while the garden does; the card and its backdrop need room around the page.
+    // The footer's progress vine exists while the garden does. Vines grow straight on the page colour: there is no card or backdrop.
     root.classList.toggle('garden-on', on);
     if (!on) { wipe(); return; }
     measure();
     const page = viewport.getBoundingClientRect(), {columns, scroll} = layout();
-    root.classList.toggle('garden-card', page.left >= CARD_EDGE && innerWidth - page.right >= CARD_EDGE);
-    root.classList.toggle('garden-facing', columns === 2 && !scroll);
     size(margins, innerWidth, innerHeight);
     size(column, page.width, page.height);
     column.origin = {left: page.left, top: page.top};
@@ -494,7 +492,7 @@ export function installGarden({canvas, spine, footer, percent, viewport, chrome,
       const track = s => s.track.map(p => ({left: s.origin.left + p.x * s.cw, right: s.origin.left + (p.x + 1) * s.cw, top: s.origin.top + p.y * s.ch, bottom: s.origin.top + (p.y + 1) * s.ch}));
       return {cells: rects(margins), spine: rects(column), foot: rects(foot), footTrack: track(foot), progress, frozen, mode,
         gutter: layout().gutter, animating: frame !== 0, ticks, drawMs, slowestDraw, ghosts: scenes.reduce((n, s) => n + s.ghosts.length, 0),
-        card: root.classList.contains('garden-card'), on: root.classList.contains('garden-on'), palette, ambient};
+        on: root.classList.contains('garden-on'), palette, ambient};
     }
   };
 }

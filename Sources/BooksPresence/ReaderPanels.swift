@@ -94,19 +94,16 @@ struct ReaderLibraryPanelView: View {
     var body: some View {
         let palette = chrome.panelPalette
         let page = panels.page(panels.tab)
-        ReaderPanelFrame(title: panels.tab == .notes ? "Highlights and notes" : "Your place in the book", close: close, scrolls: false) {
+        // Each toolbar button opens its own list, as in Books; there is no switcher inside the panel. ⌘1, ⌘2 and ⌘3 still move between them.
+        ReaderPanelFrame(title: panels.tab == .notes ? "Highlights & Notes" : panels.tab.title, close: close, scrolls: false) {
             VStack(alignment: .leading, spacing: 8) {
-                ReaderSegmented(label: "Book navigation", options: ReaderPanelsModel.Tab.allCases.map { ($0.rawValue, $0.title) }, selection: panels.tab.rawValue) {
-                    if let tab = ReaderPanelsModel.Tab(rawValue: $0) { panels.select(tab) }
-                }
-                .padding(.horizontal, 16)
                 ZStack(alignment: .topLeading) {
                     if page.rows.isEmpty {
                         Text(page.loading ? "Loading…" : page.empty)
                             .font(.system(size: 13)).foregroundStyle(palette.secondary)
                             .padding(.horizontal, 22).padding(.top, 14)
                     } else {
-                        ReaderRowList(rows: page.rows, revision: page.revision, palette: palette, accessibilityTitle: panels.tab.title, width: 380,
+                        ReaderRowList(rows: page.rows, revision: page.revision, palette: palette, accessibilityTitle: panels.tab.title, width: ReaderPanelMetrics.width,
                                       open: { panels.open?($0) },
                                       remove: panels.tab == .contents ? nil : { panels.remove?($0) },
                                       edit: panels.tab == .notes ? { panels.edit?($0) } : nil)
@@ -143,15 +140,15 @@ struct ReaderSearchPanelView: View {
 
     var body: some View {
         let palette = chrome.panelPalette
-        ReaderPanelFrame(title: "Search this book", close: close, scrolls: false) {
+        ReaderPanelFrame(title: "Search", close: close, scrolls: false) {
             VStack(alignment: .leading, spacing: 8) {
                 ReaderSearchField(text: $panels.query, placeholder: "Words or phrase", onSubmit: { panels.openFirstResult() },
                                   onMoveDown: { panels.focusResults() }, onCancel: close)
-                    .frame(height: 28).padding(.horizontal, 16)
+                    .frame(height: 28).padding(.horizontal, 13).padding(.top, 10)
                 Text(panels.results.status).font(.system(size: 11)).foregroundStyle(palette.secondary)
                     .padding(.horizontal, 20).accessibilityLabel("Search status: \(panels.results.status)")
                 if !panels.results.rows.isEmpty {
-                    ReaderRowList(rows: panels.results.rows, revision: panels.results.revision, palette: palette, accessibilityTitle: "Search results", width: 380,
+                    ReaderRowList(rows: panels.results.rows, revision: panels.results.revision, palette: palette, accessibilityTitle: "Search results", width: ReaderPanelMetrics.width,
                                   focusOnLoad: false, focusToken: panels.focusToken, open: { panels.open?($0) })
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {

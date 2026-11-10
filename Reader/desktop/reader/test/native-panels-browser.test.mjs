@@ -75,7 +75,7 @@ test('native panels read rows from the renderer, send ids back, and cannot forge
   assert.equal(await page.evaluate(() => window.StillleafReader.exportState().bookmarks.length), 1);
   await assert.rejects(send('go', {kind: 'bookmark', id: 'missing'}), /not available/);
   const notes = (await send('panel', {name: 'notes'})).panel;
-  assert.deepEqual(notes.rows.map(r => [r.id, r.quote, r.note, r.color]), [['n1', 'The light fell across the open book.', 'Remember the light.', '#e4c778'], ['n2', 'She turned a page.', '', '#a7cbb0']]);
+  assert.deepEqual(notes.rows.map(r => [r.id, r.quote, r.note, r.color]), [['n1', 'The light fell across the open book.', 'Remember the light.', '#ead158'], ['n2', 'She turned a page.', '', '#a7da8c']]);
   await send('go', {kind: 'note', id: 'n2'});
   assert.equal(await href(), 'c3.html');
   const edited = await send('editNote', {id: 'n1'});

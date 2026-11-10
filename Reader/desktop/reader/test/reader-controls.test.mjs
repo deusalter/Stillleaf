@@ -286,9 +286,9 @@ test('the note editor is the same family: shared glass, a segmented highlight co
   const checked = await page.locator('.annotation-colors label:has(input:checked)').evaluate(node => getComputedStyle(node).backgroundColor);
   const other = await page.locator('.annotation-colors label:has(input:not(:checked))').first().evaluate(node => getComputedStyle(node).backgroundColor);
   assert.notEqual(checked, other, 'the chosen colour is marked');
-  assert.equal(await page.getByRole('radio', {name: 'Sage'}).isChecked(), true);
-  await page.getByText('Rose', {exact: true}).click();
-  assert.equal(await page.getByRole('radio', {name: 'Rose'}).isChecked(), true, 'the colour is still a real radio, chosen by clicking its label');
+  assert.equal(await page.getByRole('radio', {name: 'Green'}).isChecked(), true);
+  await page.getByRole('radio', {name: 'Pink'}).click();
+  assert.equal(await page.getByRole('radio', {name: 'Pink'}).isChecked(), true, 'the colour is still a real radio, chosen by clicking its dot');
   await page.keyboard.press('Tab');
   await page.screenshot({path: path.join(output, 'note-editor-paper.png')});
   const size = await page.locator('#delete-note').evaluate(node => parseFloat(getComputedStyle(node).fontSize));

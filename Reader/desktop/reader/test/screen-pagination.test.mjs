@@ -14,7 +14,7 @@ test('one screen per page survives facing switches, odd final spreads, and chapt
  await page.goto(`http://127.0.0.1:${server.address().port}/index.html`);await page.waitForFunction(()=>window.StillleafReader);
  await page.evaluate(()=>{window.turns=[];window.positions=[];window.addEventListener('stillleaf-reader-event',e=>{if(e.detail.type==='pageTurn')window.turns.push(e.detail);if(e.detail.type==='position')window.positions.push(e.detail.position)})});
  const book={editionId:'screen-units',title:'Screens',contentProgress:true,readingOrder:[0,1].map(i=>({href:`c${i}.html`,type:'text/html',title:`Chapter ${i+1}`})),resources:[0,1].map(i=>({href:`c${i}.html`,type:'text/html',dataBase64:Buffer.from(`<html><body>${Array.from({length:7},(_,j)=>`<p id="p${j}" style="${j<6?'break-after:column;':''}">${i}.${j} The ferry crossed slowly. ${'She turned the page and kept reading. '.repeat(8)}</p>`).join('')}</body></html>`).toString('base64')}))};
- await page.evaluate(b=>StillleafReader.open(b),book);await page.waitForTimeout(900);
+ await page.evaluate(b=>StillleafReader.open({...b,state:{schemaVersion:1,editionId:b.editionId,revision:0,position:null,preferences:{columns:'one',lineHeight:1.6},bookmarks:[],annotations:[]}}),book);await page.waitForTimeout(900);
  const position=()=>page.evaluate(()=>window.positions.at(-1));
  const clear=()=>page.evaluate(()=>window.turns.splice(0));
  const settled=()=>page.waitForTimeout(950);
@@ -54,10 +54,10 @@ test('one screen per page survives facing switches, odd final spreads, and chapt
  // Close a book with pending unseen chapters; its probe and generation must
  // disappear before resource URLs close or the next book receives its totals.
  const many={...book,readingOrder:Array.from({length:10},(_,i)=>({href:`many${i}.html`,type:'text/html'})),resources:Array.from({length:10},(_,i)=>({...book.resources[i%2],href:`many${i}.html`}))};
- await page.evaluate(b=>StillleafReader.open(b),many);
+ await page.evaluate(b=>StillleafReader.open({...b,state:{schemaVersion:1,editionId:b.editionId,revision:0,position:null,preferences:{columns:'one',lineHeight:1.6},bookmarks:[],annotations:[]}}),many);
  await page.waitForFunction(()=>document.querySelector('.pagination-probe'));
  await page.evaluate(()=>StillleafReader.close());assert.equal(await page.locator('.pagination-probe').count(),0);
- await page.evaluate(b=>StillleafReader.open(b),nextBook);
+ await page.evaluate(b=>StillleafReader.open({...b,state:{schemaVersion:1,editionId:b.editionId,revision:0,position:null,preferences:{columns:'one',lineHeight:1.6},bookmarks:[],annotations:[]}}),nextBook);
  await page.waitForFunction(()=>document.querySelector('#position-label').textContent==='Page 1 of 7');
  await page.waitForTimeout(300);assert.equal(await page.locator('.pagination-probe').count(),0);
 });

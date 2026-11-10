@@ -12,12 +12,16 @@
  --row-selected:color-mix(in srgb,var(--accent) 16%,transparent);
  --text-secondary:color-mix(in srgb,var(--ink) 90%,var(--panel));
  --field-fill:color-mix(in srgb,var(--paper) 60%,transparent);
- --panel-radius:16px;
+ --panel-radius:18px;
+ --panel-width:312px;
+ /* Fill behind a panel's larger controls: measured #DEDEDF on a light panel, #303033 on a dark one. */
+ --control-fill:color-mix(in srgb,var(--ink) 12%,var(--panel));
  --control-radius:10px;
 }
 :root[data-theme=dark],:root[data-theme=quiet],:root[data-theme=night],:root[data-theme=dusk],:root[data-theme=midnight]{--glass-highlight:color-mix(in srgb,#fff 14%,transparent)}
 
 /* Surface */
+.panel{width:var(--panel-width)}
 .panel,.note-panel{background:var(--glass-fill);-webkit-backdrop-filter:var(--glass-blur);backdrop-filter:var(--glass-blur);border:1px solid var(--glass-rim);border-radius:var(--panel-radius);box-shadow:inset 0 1px 0 var(--glass-highlight),0 18px 48px #0000001f,0 2px 6px #0000001a;color:var(--ink)}
 dialog::backdrop{background:transparent}
 .panel[open]{display:flex;flex-direction:column}
@@ -26,8 +30,9 @@ dialog::backdrop{background:transparent}
 @supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.panel,.note-panel{background:var(--panel)}}
 
 /* Header */
-.panel-heading{padding:18px 16px 12px 20px;flex:none}
-.panel-heading h2{font-size:15px;font-weight:600;letter-spacing:-.01em;margin:0}
+.panel-heading{position:relative;padding:12px 40px 10px;flex:none;justify-content:center;border-bottom:1px solid var(--line);margin-inline:13px;padding-inline:27px}
+.panel-heading h2{font-size:13px;font-weight:600;margin:0;color:var(--text-secondary);text-align:center}
+.panel-heading .close-button{position:absolute;right:-8px;top:6px}
 .close-button{width:30px;height:30px;border-radius:50%;color:var(--text-secondary);display:inline-flex;align-items:center;justify-content:center;padding:0;flex:none}
 .close-button:hover{background:var(--row-hover);color:var(--ink)}
 .panel-body{flex:1 1 auto;min-height:0;max-height:none;padding:4px 12px 14px;overflow:auto}
@@ -66,22 +71,22 @@ dialog::backdrop{background:transparent}
 .secondary-button{border:1px solid var(--glass-rim);border-radius:var(--control-radius);padding:8px 14px;background:transparent;color:var(--ink);font-size:12px}
 .secondary-button:hover{background:var(--row-hover)}
 .primary-button{border-radius:var(--control-radius)}
-.note-panel .panel-heading{padding:18px 0 8px}
+.note-panel .panel-heading{padding:12px 0 10px;margin:0}
 
 /* Appearance */
-#appearance-panel{width:400px}
-.appearance-body{padding:4px 22px 8px}
+#appearance-panel{width:var(--panel-width)}
+.appearance-body{padding:12px 13px 8px}
 .appearance-section{padding:2px 0 22px;margin:0 0 22px;border-bottom:1px solid var(--line)}
 .appearance-section>h3{margin:0 0 16px;font-size:11px;font-weight:650;letter-spacing:.07em;text-transform:uppercase;color:var(--text-secondary)}
 .appearance-section .control-heading,.advanced-appearance .control-heading{margin:0 0 10px;font-size:12px;font-weight:500}
 .appearance-section .range-label,.advanced-appearance .range-label{margin:0 0 20px}
 .appearance-section>:last-child,.advanced-appearance>:last-child{margin-bottom:0}
-.theme-options{grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:0}
+.theme-options{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:0}
 .theme-options button{padding:5px 0 7px;border-radius:12px;color:var(--text-secondary);font-size:10px}
 .theme-options button:hover{background:var(--row-hover)}
 .theme-options button[aria-pressed=true]{color:var(--ink);font-weight:600}
-.swatch{width:100%;max-width:76px;height:40px;border-radius:12px;border:1px solid var(--glass-rim)}
-.theme-options button[aria-pressed=true] .swatch{outline:2px solid var(--accent);outline-offset:3px}
+.swatch{width:100%;height:72px;border-radius:14px;border:1px solid var(--glass-rim)}
+.theme-options button[aria-pressed=true] .swatch{outline:2px solid var(--ink);outline-offset:-2px}
 .font-options{gap:8px;margin:0 0 20px}
 .font-option,.mode-option{border:1px solid var(--glass-rim);border-radius:var(--control-radius);background:transparent;color:var(--ink)}
 .font-option{padding:10px 12px}

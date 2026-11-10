@@ -112,37 +112,87 @@ struct ReaderControlDefinition: Decodable, Identifiable {
 struct ReaderAppearanceView: View {
     @ObservedObject var model: ReaderChromeModel
     let close: () -> Void
-    @State private var advancedOpen: Bool
-    init(model: ReaderChromeModel, close: @escaping () -> Void, initiallyOpen: Bool = false) {
-        self.model = model; self.close = close
-        _advancedOpen = State(initialValue: initiallyOpen)
+    /// Told when Customize opens or closes, so the panel can grow to hold it.
+    var customizing: ((Bool) -> Void)?
+    @State private var customizeOpen: Bool
+    init(model: ReaderChromeModel, close: @escaping () -> Void, initiallyOpen: Bool = false, customizing: ((Bool) -> Void)? = nil) {
+        self.model = model; self.close = close; self.customizing = customizing
+        _customizeOpen = State(initialValue: initiallyOpen)
     }
     private var palette: ReaderPanelPalette { model.panelPalette }
+    /// The themes on the panel's face; the rest of the saved themes wait under Customize.
+    private static let faceThemes = ["system", "original", "night", "quiet", "paper", "sepia", "calm", "focus", "dark"]
 
     var body: some View {
         let sections = ReaderControlLayout.sections(for: model.definitions.map(\.key))
-        ReaderPanelFrame(title: "Appearance", close: close) {
-            ForEach(sections.filter { $0.group != .advanced }, id: \.group) { section in
-                ReaderPanelSection(title: section.group.title) { controls(section.keys) }
-            }
-            if let advanced = sections.first(where: { $0.group == .advanced }) {
-                ReaderDisclosure(title: ReaderControlGroup.advanced.title, expanded: $advancedOpen) { controls(advanced.keys) }
-            }
-        } footer: {
-            HStack(spacing: 14) {
-                Group {
-                    if let error = model.error { Text(error).foregroundStyle(.red) }
-                    else { Text("Saved for this book. Text stays at your current place.") }
+        let themes = model.definitions.first { $0.key == "theme" }
+        let encodedFace = Set(Self.faceThemes.map { "\"\($0)\"" })
+        ReaderPanelFrame(title: "Themes & Settings", close: close) {
+            VStack(alignment: .leading, spacing: 12) {
+                sizeAndNight
+                if let themes {
+                    ReaderSwatchGrid(label: themes.label, options: (themes.options ?? []).filter { encodedFace.contains($0.value) }, selection: model.encoded("theme")) { select("theme", $0) }
                 }
-                .font(.system(size: 11)).foregroundStyle(palette.secondary).fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 0)
-                Button("Reset appearance") { model.reset?() }
-                    .buttonStyle(ReaderSecondaryButtonStyle())
+                Button { customizeOpen.toggle(); customizing?(customizeOpen) } label: {
+                    HStack(spacing: 7) {
+                        Image(systemName: "gearshape").font(.system(size: 13, weight: .medium))
+                        Text("Customize").font(.system(size: 13, weight: .semibold))
+                    }
+                    .frame(maxWidth: .infinity, minHeight: ReaderPanelMetrics.controlHeight)
+                    .background(Capsule().fill(palette.control)).contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Customize").accessibilityValue(customizeOpen ? "expanded" : "collapsed")
+                if customizeOpen {
+                    if let themes {
+                        ReaderPanelSection(title: "More themes") {
+                            ReaderSwatchGrid(label: "More themes", options: (themes.options ?? []).filter { !encodedFace.contains($0.value) }, selection: model.encoded("theme")) { select("theme", $0) }
+                        }
+                    }
+                    ForEach(sections.filter { $0.group != .advanced && $0.group != .theme }, id: \.group) { section in
+                        ReaderPanelSection(title: section.group.title) { controls(section.keys) }
+                    }
+                    if let advanced = sections.first(where: { $0.group == .advanced }) {
+                        ReaderPanelSection(title: ReaderControlGroup.advanced.title, showsDivider: false) { controls(advanced.keys) }
+                    }
+                    VStack(alignment: .leading, spacing: 8) {
+                        Group {
+                            if let error = model.error { Text(error).foregroundStyle(.red) }
+                            else { Text("Saved for this book. Text stays at your current place.") }
+                        }
+                        .font(.system(size: 11)).foregroundStyle(palette.secondary).fixedSize(horizontal: false, vertical: true)
+                        Button("Reset appearance") { model.reset?() }.buttonStyle(ReaderSecondaryButtonStyle())
+                    }
+                } else if let error = model.error {
+                    Text(error).font(.system(size: 11)).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
         .environment(\.readerPalette, palette)
         .disabled(model.resetting)
         .readingMotionAccessibility()
+    }
+
+    /// Text size in the steps of Apple Books' two A buttons, and a shortcut between a light page and Night.
+    private var sizeAndNight: some View {
+        let size = model.preferences["fontSize"] as? Double ?? 1.2
+        func step(_ delta: Double) { model.change?("fontSize", min(3, max(0.5, ((size + delta) * 20).rounded() / 20))) }
+        let shape = Capsule()
+        return HStack(spacing: 8) {
+            HStack(spacing: 0) {
+                Button { step(-0.05) } label: { Text("A").font(.system(size: 12, weight: .semibold)).frame(maxWidth: .infinity, minHeight: ReaderPanelMetrics.controlHeight).contentShape(Rectangle()) }
+                    .buttonStyle(.plain).accessibilityLabel("Smaller text")
+                Rectangle().fill(palette.rim).frame(width: 1, height: 26)
+                Button { step(0.05) } label: { Text("A").font(.system(size: 17, weight: .semibold)).frame(maxWidth: .infinity, minHeight: ReaderPanelMetrics.controlHeight).contentShape(Rectangle()) }
+                    .buttonStyle(.plain).accessibilityLabel("Larger text")
+            }
+            .background(shape.fill(palette.control))
+            Button { select("theme", palette.dark ? "\"original\"" : "\"night\"") } label: {
+                Image(systemName: palette.dark ? "sun.max" : "moon").font(.system(size: 14, weight: .medium))
+                    .frame(width: 76, height: ReaderPanelMetrics.controlHeight).background(shape.fill(palette.control)).contentShape(shape)
+            }
+            .buttonStyle(.plain).accessibilityLabel(palette.dark ? "Use a light page" : "Use the Night page")
+        }
     }
 
     @ViewBuilder private func controls(_ keys: [String]) -> some View {
@@ -231,7 +281,7 @@ struct ReaderAppearanceView: View {
     }
 }
 
-/// Page themes as swatches, each drawn in its own colours like the web panel.
+/// Page themes as tiles, each drawn in its own colours with its name inside, three to a row like Apple Books.
 private struct ReaderSwatchGrid: View {
     let label: String
     let options: [ReaderControlDefinition.Option]
@@ -240,19 +290,20 @@ private struct ReaderSwatchGrid: View {
     @Environment(\.readerPalette) private var palette
 
     var body: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8, alignment: .top), count: 4), spacing: 8) {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8, alignment: .top), count: 3), spacing: 8) {
             ForEach(options) { option in
                 let on = option.value == selection
+                let shape = RoundedRectangle(cornerRadius: ReaderPanelMetrics.tileRadius, style: .continuous)
                 Button { select(option.value) } label: {
-                    VStack(spacing: 6) {
-                        swatch(option).frame(height: 40)
-                            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(palette.rim, lineWidth: 1))
-                            .overlay { if on { RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(palette.accent, lineWidth: 2).padding(-3) } }
-                            .padding(3)
-                        Text(option.label).font(.system(size: 10, weight: on ? .semibold : .regular)).lineLimit(1)
-                            .foregroundStyle(on ? palette.ink : palette.secondary)
+                    VStack(spacing: 2) {
+                        Text("Aa").font(.custom("New York", size: 18))
+                        Text(option.label).font(.system(size: 10.5, weight: on ? .semibold : .regular)).lineLimit(1).minimumScaleFactor(0.8)
                     }
-                    .padding(.vertical, 4).contentShape(Rectangle())
+                    .foregroundStyle(Self.color(option.text))
+                    .frame(maxWidth: .infinity).frame(height: ReaderPanelMetrics.tileHeight)
+                    .background(swatch(option, shape))
+                    .overlay(shape.strokeBorder(on ? palette.ink : palette.rim, lineWidth: on ? 2 : 1))
+                    .contentShape(shape)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(option.label)
@@ -263,17 +314,9 @@ private struct ReaderSwatchGrid: View {
         .accessibilityLabel(label)
     }
 
-    @ViewBuilder private func swatch(_ option: ReaderControlDefinition.Option) -> some View {
-        let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
-        let page = Self.color(option.background), second = option.alternate.map(Self.color)
-        ZStack {
-            if let second {
-                HStack(spacing: 0) { page; second }.clipShape(shape)
-            } else {
-                shape.fill(page)
-            }
-            Text("Aa").font(.custom("Georgia", size: 15)).foregroundStyle(Self.color(option.text))
-        }
+    @ViewBuilder private func swatch(_ option: ReaderControlDefinition.Option, _ shape: RoundedRectangle) -> some View {
+        let page = Self.color(option.background)
+        if let second = option.alternate.map(Self.color) { HStack(spacing: 0) { page; second }.clipShape(shape) } else { shape.fill(page) }
     }
 
     private static func color(_ hex: String?) -> Color {
@@ -362,30 +405,46 @@ private struct ReaderSecondaryButtonStyle: ButtonStyle {
     private var displayObserver: NSObjectProtocol?
     var send: ((String, [String: Any]?) async throws -> [String: Any])?
     var returnFocus: (() -> Void)?
-    private let items: [(String, String, String)] = [
-        ("contents", "Contents", "list.bullet"), ("search", "Search book", "magnifyingglass"),
-        ("notes", "Highlights and notes", "text.badge.star"), ("previous", "Previous", "chevron.left"),
-        ("next", "Next", "chevron.right"), ("bookmark", "Add bookmark", "bookmark"),
-        ("focus", "Focus reading", "arrow.up.left.and.arrow.down.right"), ("appearance", "Appearance", "textformat.size")
-    ]
+    /// The toolbar, laid out as in Apple Books: a group for finding your place, the title, a group for how it reads, and the bookmark on its own.
+    private let leftGroup: [ToolbarSpec] = [("contents", "Contents", "list.bullet"), ("bookmarks", "Bookmarks", "bookmark.square"), ("notes", "Highlights and notes", "note.text")]
+    private let rightGroup: [ToolbarSpec] = [("appearance", "Themes and settings", "textformat.size"), ("search", "Search book", "magnifyingglass")]
+    private let bookmarkItem: ToolbarSpec = ("bookmark", "Bookmark this page", "bookmark")
+    private typealias ToolbarSpec = (String, String, String)
+    private var buttons: [String: NSButton] = [:]
+    private var capsules: [ReaderToolbarCapsule] = []
+    private let titleField = NSTextField(labelWithString: "")
+    let visibility: ReaderChromeVisibility
+    private var fullScreen = false
     init(window: NSWindow) {
         self.window = window
+        visibility = ReaderChromeVisibility(window: window)
         super.init()
+        visibility.changed = { [weak self] _ in self?.sendPolicy() }
+        titleField.stringValue = window.title
+        titleField.font = .systemFont(ofSize: 13, weight: .semibold); titleField.lineBreakMode = .byTruncatingTail
+        titleField.alignment = .center
         toolbar.delegate = self; toolbar.displayMode = .iconOnly; toolbar.allowsUserCustomization = false
+        toolbar.centeredItemIdentifier = .init("title")
+        window.titleVisibility = .hidden
         window.toolbar = toolbar; window.toolbarStyle = .unified; toolbar.isVisible = false
-        appearance.install(ReaderAppearanceView(model: model, close: { [weak self] in self?.appearance.close() }), size: NSSize(width: 380, height: 640))
+        appearance.install(ReaderAppearanceView(model: model, close: { [weak self] in self?.appearance.close() },
+                                                customizing: { [weak self] open in self?.appearance.setHeight(open ? ReaderPanelMetrics.customizeHeight : ReaderPanelMetrics.appearanceHeight) }),
+                           size: NSSize(width: ReaderPanelMetrics.width, height: ReaderPanelMetrics.appearanceHeight))
         appearance.didShow = { [weak self] in self?.appearanceShows += 1 }
         appearance.didClose = { [weak self] in self?.appearanceCloses += 1; self?.returnFocus?() }
         appearance.anchorHit = { [weak self] event in self?.hitsButton("appearance", event) ?? false }
-        appearance.setTitle("Appearance")
-        library.install(ReaderLibraryPanelView(chrome: model, panels: panels, close: { [weak self] in self?.library.close() }), size: NSSize(width: 380, height: 560))
+        appearance.setTitle("Themes and settings")
+        appearance.didChange = { [weak self] in self?.updateHold() }
+        library.didChange = { [weak self] in self?.updateHold() }
+        searchPopup.didChange = { [weak self] in self?.updateHold() }
+        library.install(ReaderLibraryPanelView(chrome: model, panels: panels, close: { [weak self] in self?.library.close() }), size: NSSize(width: ReaderPanelMetrics.width, height: ReaderPanelMetrics.listHeight))
         library.setTitle("Contents and saved passages")
         library.didClose = { [weak self] in self?.panelClosed() }
         library.anchorHit = { [weak self] event in
             guard let self else { return false }
-            return hitsButton(panels.tab == .notes ? "notes" : "contents", event)
+            return hitsButton(panels.tab == .notes ? "notes" : panels.tab == .bookmarks ? "bookmarks" : "contents", event)
         }
-        searchPopup.install(ReaderSearchPanelView(chrome: model, panels: panels, close: { [weak self] in self?.searchPopup.close() }), size: NSSize(width: 380, height: 560))
+        searchPopup.install(ReaderSearchPanelView(chrome: model, panels: panels, close: { [weak self] in self?.searchPopup.close() }), size: NSSize(width: ReaderPanelMetrics.width, height: ReaderPanelMetrics.searchHeight))
         searchPopup.setTitle("Search this book")
         searchPopup.didClose = { [weak self] in self?.panelClosed() }
         searchPopup.anchorHit = { [weak self] event in self?.hitsButton("search", event) ?? false }
@@ -424,12 +483,9 @@ private struct ReaderSecondaryButtonStyle: ButtonStyle {
         model.accept(value); dialogOpen = value["dialogOpen"] as? Bool ?? false
         popups.forEach { $0.setDark(model.panelPalette.dark) }
         bookmarked = value["bookmarked"] as? Bool ?? false
-        for item in toolbar.items {
-            if let button = item.view as? NSButton {
-                if item.itemIdentifier.rawValue == "bookmark" { button.state = bookmarked ? .on : .off }
-                if item.itemIdentifier.rawValue == "focus" { button.state = model.preferences["immersive"] as? Bool == true ? .on : .off }
-            }
-        }
+        buttons["bookmark"]?.state = bookmarked ? .on : .off
+        applyToolbarPalette()
+        updateHold()
         updateEnabled()
     }
     func disconnect() { connectionGeneration += 1; active = false; resetTask?.cancel(); preferenceTask?.cancel(); pending.removeAll(); pendingCommands.removeAll(); findTask?.cancel(); closePanels(); dismissCommandError(); updateEnabled() }
@@ -520,12 +576,13 @@ private struct ReaderSecondaryButtonStyle: ButtonStyle {
     func openLibrary(_ tab: ReaderPanelsModel.Tab) {
         guard canAcceptCommands, let window, send != nil else { return }
         if library.isShown, panels.tab == tab { library.close(); return }
+        library.setHeight(tab == .notes ? ReaderPanelMetrics.searchHeight : ReaderPanelMetrics.listHeight)
         if library.consumeReopenSuppression() { return }
         closePanels(except: library)
         panels.error = nil
         panels.tab = tab
         library.setDark(model.panelPalette.dark)
-        if !library.isShown { library.show(over: window, below: anchorRect(tab == .notes ? "notes" : "contents")) }
+        if !library.isShown { library.show(over: window, below: anchorRect(tab == .notes ? "notes" : tab == .bookmarks ? "bookmarks" : "contents")) }
         loadPanel(tab)
     }
 
@@ -552,9 +609,7 @@ private struct ReaderSecondaryButtonStyle: ButtonStyle {
         if keepFocusOnClose { keepFocusOnClose = false } else { returnFocus?() }
     }
 
-    private func toolbarButton(_ name: String) -> NSView? {
-        toolbar.items.first(where: { $0.itemIdentifier.rawValue == name })?.view
-    }
+    private func toolbarButton(_ name: String) -> NSView? { buttons[name] }
 
     /// The toolbar button's rectangle on screen, or nil when it is hidden in the toolbar's overflow menu.
     private func anchorRect(_ name: String) -> NSRect? {
@@ -668,55 +723,79 @@ private struct ReaderSecondaryButtonStyle: ButtonStyle {
         guard active, let send else { return }
         let workspace = NSWorkspace.shared
         popups.forEach { $0.animates = !workspace.accessibilityDisplayShouldReduceMotion }
-        let policy = ["reduceMotion": workspace.accessibilityDisplayShouldReduceMotion, "reduceTransparency": workspace.accessibilityDisplayShouldReduceTransparency, "increaseContrast": workspace.accessibilityDisplayShouldIncreaseContrast]
+        let policy = ["reduceMotion": workspace.accessibilityDisplayShouldReduceMotion, "reduceTransparency": workspace.accessibilityDisplayShouldReduceTransparency, "increaseContrast": workspace.accessibilityDisplayShouldIncreaseContrast,
+                      "controlsVisible": visibility.visible, "fullScreen": fullScreen]
         Task { _ = try? await send("policy", policy) }
     }
     private func updateEnabled() {
         toolbar.isVisible = active && model.preferences["immersive"] as? Bool != true
-        for item in toolbar.items {
-            let enabled = canAcceptCommands && !pendingCommands.contains(item.itemIdentifier.rawValue)
-            item.isEnabled = enabled; (item.view as? NSButton)?.isEnabled = enabled
-        }
+        for (name, button) in buttons { button.isEnabled = canAcceptCommands && !pendingCommands.contains(name) }
     }
-    func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] { items.map { .init($0.0) } + [.flexibleSpace] }
-    func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] { [.init("contents"), .init("search"), .init("notes"), .flexibleSpace, .init("previous"), .init("next"), .init("bookmark"), .init("focus"), .init("appearance")] }
+    /// The controls stay while a panel or the note editor is open.
+    private func updateHold() { visibility.hold = dialogOpen || popups.contains { $0.isShown } }
+    func setFullScreen(_ value: Bool) { fullScreen = value; visibility.fullScreen = value; sendPolicy() }
+    /// Icons and capsules follow the page, so a Night page gets light icons on a barely lighter capsule.
+    private func applyToolbarPalette() {
+        let palette = model.panelPalette
+        titleField.textColor = palette.nsInk
+        for button in buttons.values { button.contentTintColor = palette.nsInk }
+        for capsule in capsules { capsule.apply(palette) }
+    }
+    func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] { toolbarDefaultItemIdentifiers(toolbar) }
+    func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] { [.init("group.left"), .flexibleSpace, .init("title"), .flexibleSpace, .init("group.right"), .init("group.bookmark")] }
     func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier id: NSToolbarItem.Identifier, willBeInsertedIntoToolbar: Bool) -> NSToolbarItem? {
-        guard let spec = items.first(where: { $0.0 == id.rawValue }) else { return nil }
-        let item = NSToolbarItem(itemIdentifier: id); item.label = spec.1; item.paletteLabel = spec.1; item.toolTip = spec.1
+        let item = NSToolbarItem(itemIdentifier: id)
+        switch id.rawValue {
+        case "title":
+            item.label = "Title"; item.paletteLabel = "Title"; item.view = titleField
+        case "group.left": capsule(leftGroup, in: item)
+        case "group.right": capsule(rightGroup, in: item)
+        case "group.bookmark": capsule([bookmarkItem], in: item)
+        default: return nil
+        }
+        applyToolbarPalette()
+        return item
+    }
+    private func capsule(_ specs: [ToolbarSpec], in item: NSToolbarItem) {
+        let row = specs.map(button(for:))
+        let view = ReaderToolbarCapsule(row)
+        capsules.append(view)
+        item.label = specs.map(\.1).joined(separator: ", "); item.paletteLabel = item.label
+        item.view = view
+    }
+    private func button(for spec: ToolbarSpec) -> NSButton {
+        if let existing = buttons[spec.0] { return existing }
         let image = NSImage(systemSymbolName: spec.2, accessibilityDescription: spec.1) ?? NSImage()
         let button = NSButton(image: image, target: self, action: #selector(invokeButton(_:)))
         button.identifier = NSUserInterfaceItemIdentifier(spec.0); button.toolTip = spec.1; button.setAccessibilityLabel(spec.1)
-        button.bezelStyle = .texturedRounded
-        if ["bookmark", "focus"].contains(spec.0) { button.setButtonType(.toggle) }
-        item.view = button
-        let menu = NSMenuItem(title: spec.1, action: #selector(invokeMenu(_:)), keyEquivalent: "")
-        menu.target = self; menu.representedObject = spec.0; item.menuFormRepresentation = menu
+        button.isBordered = false; button.imagePosition = .imageOnly
+        button.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 15, weight: .regular)
+        if spec.0 == "bookmark" {
+            // A bookmarked page shows a solid bookmark, as in Books.
+            button.setButtonType(.toggle)
+            button.alternateImage = NSImage(systemSymbolName: "bookmark.fill", accessibilityDescription: spec.1)
+        }
         button.isEnabled = active && !closing && !dialogOpen
-        return item
+        buttons[spec.0] = button
+        return button
     }
     @objc private func invokeButton(_ sender: NSButton) { invoke(sender.identifier?.rawValue ?? "") }
     func validateMenuItem(_ item: NSMenuItem) -> Bool { canAcceptCommands && !pendingCommands.contains(item.representedObject as? String ?? "") }
     @objc private func invokeMenu(_ sender: NSMenuItem) { invoke(sender.representedObject as? String ?? "") }
     private func invoke(_ name: String) {
         // A toggle reflects acknowledged reader state rather than an optimistic click.
-        for item in toolbar.items {
-            if let button = item.view as? NSButton {
-                if item.itemIdentifier.rawValue == "bookmark" { button.state = bookmarked ? .on : .off }
-                if item.itemIdentifier.rawValue == "focus" { button.state = model.preferences["immersive"] as? Bool == true ? .on : .off }
-            }
-        }
+        buttons["bookmark"]?.state = bookmarked ? .on : .off
         switch name {
         case "appearance": openAppearance()
         case "contents": openLibrary(.contents)
+        case "bookmarks": openLibrary(.bookmarks)
         case "notes": openLibrary(.notes)
         case "search": openSearch()
         default: closePanels(); command(name)
         }
     }
     func testPendingFeedback() async throws {
-        guard let original = send,
-              let item = toolbar.items.first(where: { $0.itemIdentifier.rawValue == "bookmark" }),
-              let button = item.view as? NSButton else { throw NSError(domain: "Stillleaf.ReaderControls", code: 9) }
+        guard let original = send, let button = buttons["bookmark"] else { throw NSError(domain: "Stillleaf.ReaderControls", code: 9) }
         model.reset?()
         try await flush()
         guard canAcceptCommands, button.isEnabled else { throw NSError(domain: "Stillleaf.ReaderControls", code: 14) }
@@ -752,7 +831,7 @@ private struct ReaderSecondaryButtonStyle: ButtonStyle {
         print("native-reader-feedback: Reset re-enabled toolbar; immediate pending, duplicate suppression, acknowledged selection and explicit failure retry passed")
     }
     func benchmarkFeedback(output: URL) async throws {
-        guard let item = toolbar.items.first(where: { $0.itemIdentifier.rawValue == "bookmark" }), let button = item.view as? NSButton else { throw NSError(domain: "Stillleaf.Benchmark", code: 3) }
+        guard let button = buttons["bookmark"] else { throw NSError(domain: "Stillleaf.Benchmark", code: 3) }
         var bookmark: [Double] = [], acknowledged: [Double] = [], panel: [Double] = [], framework: [Double] = [], dispatchCPU: [Double] = [], frameworkCPU: [Double] = []
         for sample in -2..<20 {
             let previous = button.state, start = ProcessInfo.processInfo.systemUptime
@@ -900,10 +979,47 @@ private struct ReaderSecondaryButtonStyle: ButtonStyle {
         appearance.close()
     }
     func testClick(_ name: String) throws {
-        guard let item = toolbar.items.first(where: { $0.itemIdentifier.rawValue == name }), let button = item.view as? NSButton, button.isEnabled else {
+        guard let button = buttons[name], button.isEnabled else {
             throw NSError(domain: "Stillleaf.ReaderControls", code: 2, userInfo: [NSLocalizedDescriptionKey: "Native toolbar command is not available: \(name)"])
         }
         button.performClick(nil)
     }
     deinit { if let displayObserver { NSWorkspace.shared.notificationCenter.removeObserver(displayObserver) } }
+}
+
+/// A group of toolbar buttons on one capsule, sized as in Apple Books: 35 pt tall, about 37 pt a button. The capsule is
+/// its own view rather than a system group so it reads the same on every SDK this app is built with.
+@MainActor final class ReaderToolbarCapsule: NSView {
+    private static let height: CGFloat = 35, buttonWidth: CGFloat = 37
+    private let row: [NSButton]
+    init(_ buttons: [NSButton]) {
+        row = buttons
+        super.init(frame: NSRect(x: 0, y: 0, width: CGFloat(buttons.count) * Self.buttonWidth, height: Self.height))
+        wantsLayer = true
+        layer?.cornerCurve = .continuous
+        translatesAutoresizingMaskIntoConstraints = false
+        // Fixed, so the toolbar centres the capsule in its band instead of stretching it.
+        NSLayoutConstraint.activate([widthAnchor.constraint(equalToConstant: frame.width), heightAnchor.constraint(equalToConstant: frame.height)])
+        buttons.forEach(addSubview)
+    }
+    required init?(coder: NSCoder) { fatalError() }
+    override var intrinsicContentSize: NSSize { NSSize(width: CGFloat(row.count) * Self.buttonWidth, height: Self.height) }
+
+    override func layout() {
+        super.layout()
+        layer?.cornerRadius = bounds.height / 2
+        let width = bounds.width / CGFloat(max(1, row.count))
+        for (index, button) in row.enumerated() { button.frame = NSRect(x: CGFloat(index) * width, y: 0, width: width, height: bounds.height) }
+    }
+
+    func apply(_ palette: ReaderPanelPalette) {
+        // Measured: #131313 on a black page; on a white page the same white with a soft shadow.
+        if palette.dark {
+            layer?.backgroundColor = palette.nsInk.withAlphaComponent(0.08).cgColor
+            layer?.shadowOpacity = 0
+        } else {
+            layer?.backgroundColor = palette.nsPanel.cgColor
+            layer?.shadowColor = NSColor.black.cgColor; layer?.shadowOpacity = 0.1; layer?.shadowRadius = 8; layer?.shadowOffset = NSSize(width: 0, height: -1)
+        }
+    }
 }

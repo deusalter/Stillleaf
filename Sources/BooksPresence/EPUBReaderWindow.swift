@@ -156,11 +156,12 @@ private final class EPUBReaderWindow: NSObject, NSWindowDelegate, WKNavigationDe
         // The garden's first frame must already honour Off and Still; sendGardenMode() only carries later changes.
         configuration.userContentController.addUserScript(WKUserScript(source:
             "window.__stillleafGardenMode = \"\(Self.currentGardenMode())\";", injectionTime: .atDocumentStart, forMainFrameOnly: true))
-        webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 1000, height: 800), configuration: configuration)
+        // Apple Books opens a reader at 1024 x 768.
+        webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 1024, height: 768), configuration: configuration)
         Self.liveObjects.add(self); Self.liveObjects.add(webView)
         guardDelegate = ReaderNavigationGuard(resources: map)
         webView.navigationDelegate = self
-        let window = NSWindow(contentRect: webView.frame, styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+        let window = ReaderWindow(contentRect: webView.frame, styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
         window.title = publication.title
         ReaderTitlebar.configure(window)
         window.minSize = NSSize(width: 520, height: 440)
@@ -169,8 +170,11 @@ private final class EPUBReaderWindow: NSObject, NSWindowDelegate, WKNavigationDe
         window.contentView = webView; window.isReleasedWhenClosed = false
         window.delegate = self; window.center(); self.window = window
         chrome = NativeReaderChrome(window: window)
-        pageSubscription = chrome.model.$effectiveAppearance.sink { [weak window] page in
+        chrome.visibility.track(webView)
+        pageSubscription = chrome.model.$effectiveAppearance.sink { [weak window, weak webView] page in
             if let window { ReaderTitlebar.follow(page: page, in: window) }
+            // Past the page's edge, a rubber-band scroll shows the same colour.
+            if let color = ReaderTitlebar.color(hex: page["backgroundColor"] as? String) { webView?.underPageBackgroundColor = color }
         }
         chrome.send = { [weak self] command, payload in
             guard let self else { throw ReaderStateValidation.Failure.invalidState }
@@ -182,6 +186,12 @@ private final class EPUBReaderWindow: NSObject, NSWindowDelegate, WKNavigationDe
 
     func show() { AppPresence.willPresentWindow(); window?.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true) }
     func windowDidBecomeKey(_ notification: Notification) { focused?() }
+    /// Full screen is the page alone: the toolbar and menu bar slide in over it only when the pointer reaches the top.
+    func window(_ window: NSWindow, willUseFullScreenPresentationOptions proposedOptions: NSApplication.PresentationOptions = []) -> NSApplication.PresentationOptions {
+        [.fullScreen, .autoHideMenuBar, .autoHideToolbar]
+    }
+    func windowDidEnterFullScreen(_ notification: Notification) { chrome.setFullScreen(true) }
+    func windowDidExitFullScreen(_ notification: Notification) { chrome.setFullScreen(false) }
     func windowDidResignKey(_ notification: Notification) { flushPositionUpdate(final: true) }
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         Task { await requestClose() }
@@ -568,6 +578,11 @@ func runEPUBReaderSmoke(fixture: URL) async throws {
     }
     let locationURL = state.appendingPathComponent(imported.publication.id + ".json")
     reader.flushStateForTest()
+    // The renderer saves its position 120 ms after a move. The page turns above can cross into the next chapter and back
+    // (they do in two columns), so wait for the saved position to reach the page on screen before reading it.
+    let live = try await reader.testHref(), savedDeadline = Date().addingTimeInterval(3)
+    func savedHref() -> String? { ((try? JSONSerialization.jsonObject(with: Data(contentsOf: locationURL))) as? [String: Any]).flatMap { ($0["position"] as? [String: Any])?["href"] as? String } }
+    while savedHref() != live, Date() < savedDeadline { try await Task.sleep(nanoseconds: 50_000_000); reader.flushStateForTest() }
     guard FileManager.default.fileExists(atPath: locationURL.path),
           let saved = try JSONSerialization.jsonObject(with: Data(contentsOf: locationURL)) as? [String: Any],
           let locator = saved["position"] as? [String: Any],
@@ -615,12 +630,12 @@ func runEPUBReaderSmoke(fixture: URL) async throws {
     guard second.openedWithPageMapsForTest else { throw EPUBImportError.invalid("A reopened book did not receive its saved page maps.") }
     second.window?.setFrameOrigin(NSPoint(x: -20_000, y: -20_000)); second.window?.orderBack(nil)
     let restoreDeadline = Date().addingTimeInterval(20)
-    var restored = false
+    var restored = false, seen = "nothing"
     while Date() < restoreDeadline {
-        if let value = try? await second.testHref(), value == href { restored = true; break }
+        if let value = try? await second.testHref() { seen = value; if value == href { restored = true; break } }
         try await Task.sleep(nanoseconds: 100_000_000)
     }
-    guard restored else { throw EPUBImportError.invalid("Native reader did not restore saved chapter.") }
+    guard restored else { throw EPUBImportError.invalid("Native reader did not restore saved chapter: expected \(href), saved at close \((closedState?["position"] as? [String: Any])?["href"] as? String ?? "none"), reopened at \(seen).") }
     guard try await second.testNoteLength() == 65_536 else {
         throw EPUBImportError.invalid("Reopened reader shortened a durable note.")
     }

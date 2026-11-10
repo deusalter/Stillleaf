@@ -19,7 +19,6 @@ import {syncTypographyChoices} from './appearance-choices';
 import {fontCSS,installFont,contrast} from './bundled-fonts';
 import {DEFAULT_PREFERENCES,preferences,restoreState,selectorFor,rangePoint} from './state';
 import {installGarden} from './garden';
-import {backdropColor,cardColors} from './vines';
 import {THEMES,FONTS,MARGINS,resolveTheme,fontStack,fontAvailable,marginMetrics,averageCharacterWidth} from './appearance';
 
 const $=id=>document.getElementById(id);
@@ -30,9 +29,10 @@ const navigationCompletion=new NavigationCompletion();
 const pageTurnGesture={distance:0,sign:0,latched:false,last:0};
 const clone=value=>JSON.parse(JSON.stringify(value));
 const media=matchMedia('(prefers-color-scheme: dark)');
-const widePage=matchMedia('(min-width:1100px)');
+const widePage=matchMedia('(min-width:960px)');
 const effectiveColumns=()=>state?.preferences.columns==='two'&&widePage.matches&&!state.preferences.scroll?2:1;
-const colors={gold:'#e4c778',sage:'#a7cbb0',rose:'#d7a9b4'};
+// The five highlight colours of Apple Books' selection menu, measured. Stored ids never change.
+const colors={gold:'#ead158',sage:'#a7da8c',blue:'#9cb8f9',rose:'#f1a0b4',purple:'#c1b0f6'};
 let navigator,pool,input,state,lastLocator,selection,editingNote,activeTab='contents',searchGeneration=0,searchTimer,stateTimer,noticeTimer,lastFocus,opening=false;
 let lifecycle=0;let preferenceQueue=Promise.resolve(),preferenceRevision=0,preferenceRestore=false;let jumpHistory=[];let stableAnchor=null,reflowCount=0,resizeTimer,resizing=false;
 const frames=new WeakSet();let headingCache=new Map();
@@ -286,6 +286,10 @@ function updatePosition(light=false){
 function showBookPages(book,heading){
  const label=book?pageLabel(book):'',status=book?(book.exact?'exact':'estimate'):'',footer=$('position-label');
  if(footer.textContent!==label)footer.textContent=label;
+ // Under the native chrome the footer reads like Books: the page alone, and "of N" while the controls are showing.
+ const first=book?String(book.first):'',total=book?` of ${book.total}`:'';
+ if($('page-first').textContent!==first)$('page-first').textContent=first;
+ if($('page-total').textContent!==total)$('page-total').textContent=total;
  if(footer.dataset.pages!==status)footer.dataset.pages=status;
  footer.title=book?heading+' · One page is one full reading screen. Whole-book counts update with layout'+(book.exact?'.':', and settle as the rest of the book is measured.'):'';
 }
@@ -406,13 +410,23 @@ function currentTheme(){
 }
 function theme(){return currentTheme().id}
 const compactWindow=()=>innerWidth<640;
+/** Facing pages under the native chrome keep the proportions measured from Apple Books at 1280 wide: an outer margin of 6.05% of the
+ *  window and 85 pt between the columns. Readium pads every column by one gutter, so the viewport narrows to make up the outer margin. */
+function facingProportions(){
+ const p=state.preferences;
+ if(p.sideMargin!=null||p.margins!=='normal'||effectiveColumns()!==2||!document.body.classList.contains('native-chrome'))return null;
+ const shown=Math.min(56,Math.max(24,Math.round(innerWidth*.033)));
+ // Readium applies the type size as a zoom on the page, gutter included, so the gutter it is given is the one wanted over that zoom.
+ return {gutter:shown/p.fontSize,shown,outer:Math.min(100,Math.max(shown,Math.round(innerWidth*.0605)))};
+}
 function readingMargins(){
- const p=state.preferences,m=marginMetrics(p.margins,compactWindow());
+ const p=state.preferences,m=marginMetrics(p.margins,compactWindow()),facing=facingProportions();
+ if(facing)return {...m,gutter:facing.gutter};
  return {...m,gutter:p.sideMargin==null?m.gutter:Math.min(p.sideMargin,Math.max(0,(innerWidth/effectiveColumns()-240)/2))};
 }
 function readiumPreferences(){
  const p=state.preferences,t=currentTheme(),{gutter}=readingMargins();
- return {fontSize:p.fontSize,fontFamily:fontStack(p.fontFamily),fontWeight:p.fontWeight,textAlign:p.textAlign==='publisher'?null:p.textAlign,hyphens:p.hyphens,letterSpacing:p.letterSpacing,wordSpacing:p.wordSpacing,scroll:p.scroll,scrollPaddingTop:0,scrollPaddingBottom:0,scrollPaddingLeft:gutter,scrollPaddingRight:gutter,lineHeight:p.lineHeight,optimalLineLength:p.measure,maximalLineLength:p.measure+5,minimalLineLength:Math.min(effectiveColumns()===2?Math.min(20,p.measure):Math.min(p.measure,Math.max(20,p.measure-15)),Math.max(1,Math.floor((readingWidth()/effectiveColumns()-2*gutter)/(16*p.fontSize*.55)))),pageGutter:gutter,columnCount:effectiveColumns(),backgroundColor:t.background,textColor:t.text,linkColor:t.link,selectionBackgroundColor:t.selection,darkenFilter:t.dimImages===true};
+ return {fontSize:p.fontSize,fontFamily:fontStack(p.fontFamily),fontWeight:p.fontWeight,textAlign:p.textAlign==='publisher'?null:p.textAlign,hyphens:p.hyphens,letterSpacing:p.letterSpacing,wordSpacing:p.wordSpacing,scroll:p.scroll,scrollPaddingTop:0,scrollPaddingBottom:0,scrollPaddingLeft:gutter,scrollPaddingRight:gutter,lineHeight:p.lineHeight,optimalLineLength:p.measure,maximalLineLength:facingProportions()?Math.max(p.measure+5,120):p.measure+5,minimalLineLength:Math.min(effectiveColumns()===2?Math.min(20,p.measure):Math.min(p.measure,Math.max(20,p.measure-15)),Math.max(1,Math.floor((readingWidth()/effectiveColumns()-2*gutter)/(16*p.fontSize*.55)))),pageGutter:gutter,columnCount:effectiveColumns(),backgroundColor:t.background,textColor:t.text,linkColor:t.link,selectionBackgroundColor:t.selection,darkenFilter:t.dimImages===true};
 }
 /** The preferences that can move a line. Colours and image dimming cannot, so they never invalidate page counts. */
 function layoutPreferences(){const {backgroundColor,textColor,linkColor,selectionBackgroundColor,darkenFilter,...layout}=readiumPreferences();return layout}
@@ -421,17 +435,17 @@ function layoutPreferences(){const {backgroundColor,textColor,linkColor,selectio
 function readingWidth(){
  const p=state.preferences,{gutter}=readingMargins(),size=16*p.fontSize,stack=fontStack(p.fontFamily);
  const perCharacter=(stack&&averageCharacterWidth(stack,size))||size*.48;
- return Math.min(innerWidth*p.contentWidth/100,(p.measure*perCharacter+2*gutter)*effectiveColumns());
+ const facing=facingProportions(),room=facing?innerWidth-2*(facing.outer-facing.shown):innerWidth;
+ return Math.min(room*p.contentWidth/100,(p.measure*perCharacter+2*gutter)*effectiveColumns());
 }
 function applyChromeTheme(t){
  const root=document.documentElement.style;root.colorScheme=t.scheme;
- const card=cardColors(t.background,t.text);
- for(const [name,value]of [['chrome',t.chrome],['paper',t.background],['ink',t.text],['muted',t.muted],['accent',t.link],['line',t.text+(t.scheme==='dark'?'20':'1c')],['hover',t.scheme==='dark'?'#ffffff0d':t.text+'0f'],['panel',t.panel],['backdrop',backdropColor(t.background,t.text)],['card-fold',card.fold],['card-rule',card.rule],['card-shadow',card.shadow]])root.setProperty('--'+name,value);
+ for(const [name,value]of [['chrome',t.chrome],['paper',t.background],['ink',t.text],['muted',t.muted],['accent',t.link],['line',t.text+(t.scheme==='dark'?'20':'1c')],['hover',t.scheme==='dark'?'#ffffff0d':t.text+'0f'],['panel',t.panel],['backdrop',t.background]])root.setProperty('--'+name,value);
 }
 function renderVinesControl(){
  const vines=$('vines');
  if(!vines.childElementCount)for(const [id,label]of [['margins','Margins'],['off','Off']]){const b=document.createElement('button');b.dataset.vines=id;b.setAttribute('role','radio');b.textContent=label;b.onclick=()=>void setPreferences({vines:id});vines.append(b)}
- for(const b of vines.children){const on=b.dataset.vines===(state?.preferences.vines??'margins');b.setAttribute('aria-checked',String(on));b.tabIndex=on?0:-1}
+ for(const b of vines.children){const on=b.dataset.vines===(state?.preferences.vines??'off');b.setAttribute('aria-checked',String(on));b.tabIndex=on?0:-1}
 }
 function renderAppearanceControls(){
  renderVinesControl();
@@ -512,6 +526,7 @@ function destroyNavigator(current){
 async function setPreferences(value,retained){
  const requestedLifecycle=lifecycle;
  pageSlide.invalidate();
+ if(Object.hasOwn(value,'vines'))value={...value,vinesChosen:value.vines==='margins'};
  await navigation;
  if(!state||requestedLifecycle!==lifecycle)return;
  screenIndex?.cancel();
@@ -915,7 +930,7 @@ async function open(value){
   for(const link of value.readingOrder)if(!['application/xhtml+xml','text/html'].includes(link.type))throw Error('This book contains illustrated or fixed-image pages that this reader does not support yet.');
   pool=new PublicationResources(value.resources);state=restoreState(value.state,value.editionId,validLocator);
   const override=validLocator(value.locator);if(override)state.position=override;
-  $('reader').replaceChildren();$('book-title').textContent=value.title??'Untitled';$('book-author').textContent=value.creators?.join(', ')??'';document.title=(value.title??'Book')+' · Stillleaf';$('back').hidden=!value.canReturnToLibrary;
+  $('reader').replaceChildren();$('book-title').textContent=value.title??'Untitled';$('running-title').textContent=value.title??'Untitled';$('book-author').textContent=value.creators?.join(', ')??'';document.title=(value.title??'Book')+' · Stillleaf';$('back').hidden=!value.canReturnToLibrary;
   syncAppearance();await prepareFont(state.preferences.fontFamily,lifecycle);
   const owner=pool,book=input;
   shownPages.reset();
@@ -944,8 +959,16 @@ async function close(){
 // and the host sends them back instead of locators, so it can only open places the book really has.
 let hostOutline=new Map(),hostResults=new Map();
 const unavailable=()=>Error('That item is not available.');
+/** Each contents row shows the page its chapter starts on, in the same whole-book count as the footer. */
+function numberRows(rows,targets){
+ const chapter=Math.max(0,input.readingOrder.findIndex(link=>link.href===lastLocator?.href)),counts=screenIndex?bookEstimate(chapter,null).counts:null;
+ if(!counts)return;
+ const starts=new Map();let page=1;input.readingOrder.forEach((link,index)=>{starts.set(link.href,page);page+=counts[index]??1});
+ const walk=list=>{for(const row of list){const href=targets.get(row.id)?.href;if(starts.has(href))row.page=starts.get(href);if(row.children)walk(row.children)}};
+ walk(rows);
+}
 function hostPanel(name){
- if(name==='outline'){const {rows,targets}=outlinePayload(outlineEntries(),{isCurrent:locator=>locator.href===lastLocator?.href});hostOutline=targets;return {name,rows,empty:'This book has no table of contents.'}}
+ if(name==='outline'){const {rows,targets}=outlinePayload(outlineEntries(),{isCurrent:locator=>locator.href===lastLocator?.href});hostOutline=targets;numberRows(rows,targets);return {name,rows,empty:'This book has no table of contents.'}}
  if(name==='bookmarks')return {name,rows:bookmarkRows(state.bookmarks),empty:'Keep a place to return to. Use the bookmark button while you read.'};
  return {name,rows:noteRows(state.annotations,colors),empty:'Select a passage in the book to highlight it or leave yourself a note.'};
 }
@@ -983,7 +1006,7 @@ function nativeDefinitions(){
  for(const option of result.find(x=>x.key==='theme').options){const id=JSON.parse(option.value),t=THEMES.find(x=>x.id===id);Object.assign(option,id==='system'?{background:day.background,text:day.link,alternate:night.background}:{background:t.background,text:t.text})}
  return nativeDefinitionCache=result;
 }
-const nativeChrome=nativeChromeAdapter({edition:()=>input?.editionId,ready:()=>Boolean(state&&navigator&&!opening),current:()=>clone(state?.preferences??{}),definitions:nativeDefinitions,
+const nativeChrome=nativeChromeAdapter({edition:()=>input?.editionId,ready:()=>Boolean(state&&navigator&&!opening),current:()=>{const {vinesChosen,...shown}=clone(state?.preferences??{});return shown},definitions:nativeDefinitions,
  status:()=>({effectiveAppearance:{backgroundColor:currentTheme().background,textColor:currentTheme().text},panelAppearance:{panelColor:currentTheme().panel,accentColor:currentTheme().link},bookmarked:Boolean(lastLocator&&state?.bookmarks.some(x=>samePlace(x.locator,lastLocator))),dialogOpen:Boolean(document.querySelector('dialog[open]'))}),
  visibility:(active,closing=false)=>{document.body.classList.toggle('native-chrome',active);if(state&&!closing)return setPreferences({})},
  perform:async(command,payload)=>{
