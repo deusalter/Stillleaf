@@ -81,6 +81,10 @@ final class ReaderViewController: UIViewController, WKNavigationDelegate, UIGest
                 Task { @MainActor [weak self] in self?.chrome.accessibilityChanged() }
             })
         }
+        // WebKit pans the page to keep the note field above the keyboard and can leave it panned afterwards.
+        observers.append(NotificationCenter.default.addObserver(forName: UIResponder.keyboardDidHideNotification, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.webView?.scrollView.setContentOffset(.zero, animated: true) }
+        })
         Task { await load() }
     }
 
@@ -344,7 +348,11 @@ final class ReaderViewController: UIViewController, WKNavigationDelegate, UIGest
         let rightToLeft = edition.publication.readingProgression == "rtl"
         let forward = (recognizer.direction == .left) != rightToLeft
         let method = forward ? "next" : "previous"
-        webView?.evaluateJavaScript("(() => { if (!document.querySelector('dialog[open]')) window.StillleafReader.\(method)(); return true })()")
+        // Dragging a selection handle sideways is not a page turn.
+        webView?.evaluateJavaScript("""
+            (() => { const selecting = [...document.querySelectorAll('#reader iframe')].some(f => f.contentWindow?.getSelection()?.toString()); \
+            if (!selecting && !document.querySelector('dialog[open]')) window.StillleafReader.\(method)(); return true })()
+            """)
     }
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,

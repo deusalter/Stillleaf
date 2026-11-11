@@ -9,37 +9,45 @@ struct ReaderControls: View {
     let title: String
 
     var body: some View {
-        VStack(spacing: 0) {
-            if chrome.controlsVisible {
-                HStack(spacing: 12) {
-                    TodayBadge()
-                    Spacer(minLength: 0)
-                    Button { chrome.close?() } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 16, weight: .semibold))
-                            .frame(width: 44, height: 44)
-                            .background(.regularMaterial, in: Circle())
+        GeometryReader { proxy in
+            VStack(spacing: 0) {
+                if chrome.controlsVisible {
+                    HStack(spacing: 12) {
+                        TodayBadge()
+                        Spacer(minLength: 0)
+                        Button { chrome.close?() } label: {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 16, weight: .semibold))
+                                .frame(width: 44, height: 44)
+                                .background(.regularMaterial, in: Circle())
+                        }
+                        .accessibilityLabel("Close Book")
+                        .accessibilityHint(title)
                     }
-                    .accessibilityLabel("Close Book")
-                    .accessibilityHint(title)
-                }
-                .transition(.opacity)
-                Spacer(minLength: 0)
-                toolbar
-                    .padding(.bottom, 38)
                     .transition(.opacity)
+                    Spacer(minLength: 0)
+                    // The renderer keeps a band under the text for the page number (50 pt in the hand, 68 pt on
+                    // wider pages). The toolbar sits inside it on the trailing side and the page number moves to
+                    // the leading side, so showing the controls never covers a line.
+                    HStack(spacing: 0) {
+                        Spacer(minLength: 0)
+                        toolbar
+                    }
+                    .padding(.bottom, proxy.size.width >= 700 ? 10 : 1)
+                    .transition(.opacity)
+                }
             }
+            .padding(.horizontal, 16)
+            .padding(.top, 6)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 6)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .foregroundStyle(.primary)
         .environment(\.colorScheme, chrome.pageIsDark ? .dark : .light)
         .animation(.easeOut(duration: 0.16), value: chrome.controlsVisible)
         .allowsHitTesting(chrome.controlsVisible)
     }
 
-    /// Contents, search, appearance and bookmark, one tap each, floating above the page number.
+    /// Contents, search, appearance and bookmark, one tap each, beside the page number.
     private var toolbar: some View {
         HStack(spacing: 4) {
             tool("list.bullet", "Contents") { chrome.open(.contents) }
@@ -49,8 +57,8 @@ struct ReaderControls: View {
                 chrome.toggleBookmark()
             }
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
         .background(.regularMaterial, in: Capsule())
         .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
     }
@@ -59,7 +67,7 @@ struct ReaderControls: View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: 18, weight: .medium))
-                .frame(width: 52, height: 44)
+                .frame(width: 48, height: 44)
                 .contentShape(Rectangle())
         }
         .accessibilityLabel(label)
