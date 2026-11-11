@@ -30,6 +30,9 @@ renderer.
 | Live manual reading timer | Yes | No | It would need background execution; log the session afterwards |
 | Local audiobooks | Yes | No (v1) | Would need the background-audio mode |
 | Daily goal (pages or minutes), yearly books goal, streaks | Yes | Yes | Same `ReadingGoals` and `ReadingStatistics` |
+| Daily reading reminder | No | Yes, opt-in | Local notifications only (`ReadingReminder`, `ReminderScheduler`): one at the chosen time on days whose goal is still open, planned a week ahead and replanned whenever the app is used |
+| Offer to finish a book at its end | No | Yes | `Journal.finishOffer`; nothing is recorded without the reader's tap |
+| Facing pages | Wide windows | iPad in landscape | Same `columns` preference; an iPad starts books with it on |
 | Library, mark finished, reading dates, rating, review | Yes | Yes | Same audit events (`bookCompleted`, `bookRated`, `bookReviewed`) |
 | Timeline (finished books) | Yes | Yes | |
 | History | Day/Week/Month/Year atlas | Journal tab: month calendar, then a day's sessions | Atlas views are AppKit-specific; day totals use the same core functions |
@@ -95,6 +98,10 @@ gives the page hand-held bands and no running title.
   1.5% of the book, offers to mark it finished (`Journal.finishOffer`,
   `FinishOfferView`), then to rate it. Nothing is recorded without the reader's
   tap. A declined book is offered again only after its reader gets further.
+- With VoiceOver or Switch Control running there is no "tap the middle of the
+  page", so the controls stay on screen whenever no sheet or note editor is in
+  front, and the bar gains Previous Page and Next Page. Each new page is
+  announced with `UIAccessibility.pageScrolled`.
 - `ReaderChrome` (in `Model`, Foundation only) holds this state and is unit tested
   against a stand-in renderer. `ReaderControls` and the sheets are SwiftUI.
   `ReaderViewController` stays the `WKWebView` host.
@@ -221,7 +228,10 @@ records them. Position (`position` events) is saved independently of tracking.
 - [ ] Apple Developer Program membership, team ID and bundle ID registration
       (user).
 - [ ] Privacy policy URL and support URL (needs the website domain).
-- [ ] Screenshots: 6.9″ iPhone, plus 13″ iPad while iPad is supported.
+- [x] Screenshots: CI captures every screen on the largest iPhone (6.9″) and
+      the 13″ iPad, the sizes App Store Connect asks for, in the
+      `Stillleaf-iOS-screenshots` artifact. Choosing which to upload, and any
+      captions, is the user's.
 - [ ] Age rating questionnaire (expected 4+), category Books, and the App Store
       description without Apple Books or Discord claims.
 - [x] Open-source notices for the bundled renderer (Readium BSD-3, DOMPurify,
@@ -243,8 +253,10 @@ records them. Position (`position` events) is saved independently of tracking.
   and page-coverage evidence.
 - `ScreenshotTests` fills a journal with generated books and walks every screen,
   the reader and its sheets, a highlight and its note, three screens at an
-  accessibility text size and the finish offer. It runs on an iPhone and again
-  on an 11-inch iPad, whose pictures are named `ipad-<name>`. `iOS/scripts/ci-build-and-test.sh` answers each
+  accessibility text size, the finish offer, continuous scrolling, landscape
+  and the controls as VoiceOver gets them. It runs on the largest iPhone, again
+  on the 13-inch iPad (`ipad-<name>`) and, when the runner can provide one, on
+  an iPhone SE (`small-<name>`). `iOS/scripts/ci-build-and-test.sh` answers each
   request with a real simulator screenshot, and the workflow uploads them as the
   `Stillleaf-iOS-screenshots` artifact. This is how the UI is reviewed on a Mac
   without Xcode.
