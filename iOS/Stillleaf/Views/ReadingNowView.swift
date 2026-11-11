@@ -10,22 +10,27 @@ struct ReadingNowView: View {
     var body: some View {
         let shelf = journal.readingNow
         NavigationStack {
-            ScrollView {
-                VStack(spacing: 28) {
-                    if let book = shelf.first, let edition = journal.edition(forBook: book.id) {
-                        CurrentBook(book: book, edition: edition)
-                    } else {
-                        EmptyShelf(hasBooks: !journal.editions.isEmpty)
+            GeometryReader { proxy in
+                // The whole screen, bars included: it does not change as the large title collapses, so the cover holds its size while scrolling.
+                let insets = proxy.safeAreaInsets
+                let screen = CGSize(width: proxy.size.width + insets.leading + insets.trailing, height: proxy.size.height + insets.top + insets.bottom)
+                ScrollView {
+                    VStack(spacing: 28) {
+                        if let book = shelf.first, let edition = journal.edition(forBook: book.id) {
+                            CurrentBook(book: book, edition: edition, screen: screen)
+                        } else {
+                            EmptyShelf(hasBooks: !journal.editions.isEmpty)
+                        }
+                        TodayCard()
+                        if shelf.count > 1 { UpNext(books: Array(shelf.dropFirst())) }
+                        if let target = journal.history.annualBookGoal { YearCard(target: target, finished: journal.history.annualBooksFinished) }
                     }
-                    TodayCard()
-                    if shelf.count > 1 { UpNext(books: Array(shelf.dropFirst())) }
-                    if let target = journal.history.annualBookGoal { YearCard(target: target, finished: journal.history.annualBooksFinished) }
+                    .padding(.horizontal, 20)
+                    .padding(.top, 8)
+                    .padding(.bottom, 32)
+                    .frame(maxWidth: 640)
+                    .frame(maxWidth: .infinity)
                 }
-                .padding(.horizontal, 20)
-                .padding(.top, 8)
-                .padding(.bottom, 32)
-                .frame(maxWidth: 640)
-                .frame(maxWidth: .infinity)
             }
             .navigationTitle("Reading Now")
             .toolbar { AppToolbar() }
@@ -33,50 +38,86 @@ struct ReadingNowView: View {
     }
 }
 
-/// The current book: its cover, where the reader is in it, and one button back to the page.
+/// The current book: its cover, where the reader is in it, and one button back to the page. The cover is
+/// sized to the screen so the button is in view without scrolling, on a small phone and on a phone on its side.
 private struct CurrentBook: View {
     @EnvironmentObject private var journal: Journal
     @EnvironmentObject private var router: AppRouter
     let book: BookRecord
     let edition: Edition
+    let screen: CGSize
 
     var body: some View {
-        let position = journal.position(bookID: book.id)
-        VStack(spacing: 18) {
-            Button { router.open(edition) } label: {
-                BookCover(book: book, coverURL: edition.coverURL, maxPixels: 720)
-                    .frame(maxWidth: 200)
-                    .shadow(color: .black.opacity(0.22), radius: 18, y: 10)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Open \(book.title)")
-            VStack(spacing: 5) {
-                Text(book.title)
-                    .font(.system(.title2, design: .serif).weight(.semibold))
-                    .multilineTextAlignment(.center)
-                    .lineLimit(3)
-                if let author = book.author {
-                    Text(author).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+        if screen.height < 500, screen.width > screen.height {
+            // A phone on its side: the cover beside the words, as tall as the bars allow.
+            HStack(alignment: .center, spacing: 28) {
+                cover(width: max(100, screen.height - 150) * 2 / 3)
+                VStack(alignment: .leading, spacing: 14) {
+                    titles(.leading)
+                    progress
+                    action
                 }
+                .frame(maxWidth: 320, alignment: .leading)
             }
-            if let fraction = position?.fraction {
-                VStack(spacing: 7) {
-                    ProgressView(value: min(1, max(0, fraction)))
-                        .frame(maxWidth: 220)
-                    Text(ReadingText.place(fraction: fraction, location: position?.location))
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-                .accessibilityElement(children: .combine)
+            .frame(maxWidth: .infinity)
+            .padding(.top, 6)
+        } else {
+            VStack(spacing: 18) {
+                // What is left once the bars, the words and the button have their room, as a 2:3 cover.
+                cover(width: min(200, max(110, (screen.height - 440) * 2 / 3)))
+                titles(.center)
+                progress
+                action
             }
-            Button { router.open(edition) } label: {
-                Label(position == nil ? "Start Reading" : "Continue", systemImage: "book.fill").frame(maxWidth: .infinity)
-            }
-            .buttonStyle(ProminentActionStyle())
+            .frame(maxWidth: .infinity)
+            .padding(.top, 6)
         }
-        .frame(maxWidth: .infinity)
-        .padding(.top, 6)
+    }
+
+    private var position: ProgressObservation? { journal.position(bookID: book.id) }
+
+    private func cover(width: CGFloat) -> some View {
+        Button { router.open(edition) } label: {
+            BookCover(book: book, coverURL: edition.coverURL, maxPixels: 720)
+                .frame(width: width)
+                .shadow(color: .black.opacity(0.22), radius: 18, y: 10)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Open \(book.title)")
+    }
+
+    private func titles(_ alignment: HorizontalAlignment) -> some View {
+        VStack(alignment: alignment, spacing: 5) {
+            Text(book.title)
+                .font(.system(.title2, design: .serif).weight(.semibold))
+                .multilineTextAlignment(alignment == .center ? .center : .leading)
+                .lineLimit(3)
+            if let author = book.author {
+                Text(author).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var progress: some View {
+        if let fraction = position?.fraction {
+            VStack(spacing: 7) {
+                ProgressView(value: min(1, max(0, fraction)))
+                    .frame(maxWidth: 220)
+                Text(ReadingText.place(fraction: fraction, location: position?.location))
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            .accessibilityElement(children: .combine)
+        }
+    }
+
+    private var action: some View {
+        Button { router.open(edition) } label: {
+            Label(position == nil ? "Start Reading" : "Continue", systemImage: "book.fill").frame(maxWidth: .infinity)
+        }
+        .buttonStyle(ProminentActionStyle())
     }
 }
 

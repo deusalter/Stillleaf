@@ -238,11 +238,24 @@ final class ScreenshotTests: XCTestCase {
         XCTFail("Timed out waiting for \(what)")
     }
 
-    /// Turns the simulator. Where a rotation is refused the pictures that follow are simply upright.
+    /// Turns the simulator and waits until the scene has followed. A geometry request is sometimes refused in a
+    /// test host, so the device orientation is then set directly, which only a test may do. Where neither
+    /// works the pictures that follow are simply upright.
     private func rotate(_ orientations: UIInterfaceOrientationMask) async throws {
-        window.windowScene?.requestGeometryUpdate(.iOS(interfaceOrientations: orientations)) { _ in }
-        window.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
-        try await Task.sleep(nanoseconds: 2_000_000_000)
+        guard let scene = window.windowScene else { return }
+        let sideways = orientations.contains(.landscapeRight) || orientations.contains(.landscapeLeft)
+        func settled() -> Bool { scene.interfaceOrientation.isLandscape == sideways }
+        for attempt in 0..<3 where !settled() {
+            if attempt == 0 {
+                scene.requestGeometryUpdate(.iOS(interfaceOrientations: orientations)) { error in print("Rotation refused: \(error)") }
+            } else {
+                let device: UIDeviceOrientation = sideways ? .landscapeLeft : .portrait
+                UIDevice.current.setValue(device.rawValue, forKey: "orientation")
+            }
+            window.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
+            for _ in 0..<20 where !settled() { try await Task.sleep(nanoseconds: 100_000_000) }
+        }
+        try await Task.sleep(nanoseconds: 1_200_000_000)
     }
 
     /// `ipad-` on an iPad and `small-` on a phone as narrow as the iPhone SE, so one folder holds every device.
