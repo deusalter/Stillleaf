@@ -29,8 +29,10 @@ const navigationCompletion=new NavigationCompletion();
 const pageTurnGesture={distance:0,sign:0,latched:false,last:0};
 const clone=value=>JSON.parse(JSON.stringify(value));
 const media=matchMedia('(prefers-color-scheme: dark)');
-const widePage=matchMedia('(min-width:960px)');
-const effectiveColumns=()=>state?.preferences.columns==='two'&&widePage.matches&&!state.preferences.scroll?2:1;
+const widePage=matchMedia('(min-width:960px)'),sideways=matchMedia('(orientation:landscape)');
+// Facing pages need a wide page. A hand-held one must also be on its side: an upright 13-inch iPad is wide enough to count, and two columns there are narrow strips.
+const facingFits=()=>widePage.matches&&(!document.body.classList.contains('native-touch')||sideways.matches);
+const effectiveColumns=()=>state?.preferences.columns==='two'&&facingFits()&&!state.preferences.scroll?2:1;
 // The five highlight colours of Apple Books' selection menu, measured. Stored ids never change.
 const colors={gold:'#ead158',sage:'#a7da8c',blue:'#9cb8f9',rose:'#f1a0b4',purple:'#c1b0f6'};
 let navigator,pool,input,state,lastLocator,selection,editingNote,activeTab='contents',searchGeneration=0,searchTimer,stateTimer,noticeTimer,lastFocus,opening=false;
@@ -72,10 +74,10 @@ const nextFrame=()=>new Promise(resolve=>{const timer=setTimeout(resolve,50);req
 let paginationLayoutCache=null;
 function paginationLayout(){
  const width=$('reading-viewport').clientWidth,height=$('reader').clientHeight,c=paginationLayoutCache;
- if(c&&c.input===input&&c.preferences===state.preferences&&c.width===width&&c.height===height&&c.inner===innerWidth&&c.dark===media.matches&&c.wide===widePage.matches&&c.fonts===document.fonts.status+document.fonts.size)return c.key;
+ if(c&&c.input===input&&c.preferences===state.preferences&&c.width===width&&c.height===height&&c.inner===innerWidth&&c.dark===media.matches&&c.wide===facingFits()&&c.fonts===document.fonts.status+document.fonts.size)return c.key;
  const key=JSON.stringify({edition:input.editionId,width,height,
   continuous:Boolean(input.experimentalContinuous&&state.preferences.scroll),settings:layoutPreferences(),renderer:'screen-v2'});
- paginationLayoutCache={input,preferences:state.preferences,width,height,inner:innerWidth,dark:media.matches,wide:widePage.matches,fonts:document.fonts.status+document.fonts.size,key};
+ paginationLayoutCache={input,preferences:state.preferences,width,height,inner:innerWidth,dark:media.matches,wide:facingFits(),fonts:document.fonts.status+document.fonts.size,key};
  return key;
 }
 function assetsSettled(doc){return doc?.body&&doc.fonts.status!=='loading'&&[...doc.images].every(image=>image.complete)}
@@ -490,7 +492,7 @@ function syncAppearance(){
  for(const button of document.querySelectorAll('[data-theme]'))button.setAttribute('aria-pressed',String(button.dataset.theme===state.preferences.theme));
  {const mode=state.preferences.scroll?'continuous':state.preferences.columns==='two'?'facing':'single';for(const b of $('reading-mode').querySelectorAll('[role=radio]')){const on=b.dataset.mode===mode;b.setAttribute('aria-checked',String(on));b.tabIndex=on?0:-1}}syncTypographyChoices(state.preferences);
  $('previous').title=state.preferences.scroll?'Previous section':'Previous page';$('next').title=state.preferences.scroll?'Next section':'Next page';
- $('columns-note').textContent=state.preferences.scroll||state.preferences.columns!=='two'?'':widePage.matches?'A narrow window shows one page at a time.':'Widen the window to see both pages.';
+ $('columns-note').textContent=state.preferences.scroll||state.preferences.columns!=='two'?'':facingFits()?'A narrow window shows one page at a time.':'Widen the window to see both pages.';
  for(const [id,key]of [['letter-spacing','letterSpacing'],['word-spacing','wordSpacing']]){$(id).value=state.preferences[key];$(id+'-value').textContent=Math.round(state.preferences[key]*100)+'%';}
  for(const [id,key]of [['font-size','fontSize'],['line-height','lineHeight'],['measure','measure']])$(id).value=state.preferences[key];
  $('font-size-value').textContent=Math.round(state.preferences.fontSize*100)+'%';$('line-height-value').textContent=state.preferences.lineHeight.toFixed(2).replace(/0$/,'');$('measure-value').textContent='About '+Math.round(state.preferences.measure)+' characters';
@@ -922,7 +924,9 @@ async function installNavigator(location,settings=readiumPreferences()){
   const listeners={
    chapterInvalidated:index=>screenIndex?.invalidate(index),
    click:pageEdgeTap,tap:pageEdgeTap,
-   positionChanged:locator=>{if(generation!==lifecycle||!state)return;lastLocator=locator.serialize();garden.progress(lastLocator);warmSlide();retryDeferredAnnotations();if(opening&&state.position){positionMoved();return;}state.position=clone(lastLocator);positionMoved();changed(false);emit('relocated',{locator:lastLocator,cause:'unknown',eligibleForProgress:false})},
+   // Readium announces a frame only when it loads as the current one. A chapter it preloaded and then showed is never announced
+   // (seen with facing pages), which would leave that chapter without this reader's own listeners: adopt whatever is showing.
+   positionChanged:locator=>{if(generation!==lifecycle||!state)return;for(const manager of navigator?._cframes??[]){const wnd=manager?.iframe?.contentWindow;if(wnd?.document?.body&&!frames.has(wnd)&&getComputedStyle(manager.iframe).visibility!=='hidden')listeners.frameLoaded(wnd)}lastLocator=locator.serialize();garden.progress(lastLocator);warmSlide();retryDeferredAnnotations();if(opening&&state.position){positionMoved();return;}state.position=clone(lastLocator);positionMoved();changed(false);emit('relocated',{locator:lastLocator,cause:'unknown',eligibleForProgress:false})},
    frameUnloaded:wnd=>{pageLayoutObservers.get(wnd)?.();pageLayoutObservers.delete(wnd);frames.delete(wnd);frameWheel.delete(wnd)},
    readerScrolled:(delta,height)=>{if(generation===lifecycle)trackContinuousScroll(delta,height)},
    readerAnchorChanged:locator=>{if(generation===lifecycle&&performance.now()>=quietUntil&&!reflowCount&&!resizing)stableAnchor=clone(locator)},
@@ -1049,7 +1053,12 @@ const nativeChrome=nativeChromeAdapter({edition:()=>input?.editionId,ready:()=>B
   if(command==='search')showDialog('search-panel','search-query');
   if(command==='bookmark')addBookmark();
   if(command==='focus')return setPreferences({immersive:!state.preferences.immersive});
-  if(command==='policy')for(const [key,value]of Object.entries(payload)){document.body.classList.toggle('native-'+key,value);if(key==='reduceMotion'&&value)pageSlide.invalidate()}
+  if(command==='policy'){
+   const columns=effectiveColumns();
+   for(const [key,value]of Object.entries(payload)){document.body.classList.toggle('native-'+key,value);if(key==='reduceMotion'&&value)pageSlide.invalidate()}
+   // Learning that the host is hand-held can take facing pages away (an upright iPad): lay the book out again.
+   if(effectiveColumns()!==columns)return setPreferences({});
+  }
  }});
 const api={nativeControl:request=>nativeChrome.dispatch(request),setGardenMode:mode=>garden.setMode(mode),
  ...(window.__stillleafGardenDebug||new URLSearchParams(location.search).has('debug-garden')?{gardenDebug:light=>garden.debug(light),slideDebug:()=>pageSlide.debug(),slideInvalidate:()=>pageSlide.invalidate()}:{}),open,close,prepareClose,hasPendingDraft,returnFromJump,next:()=>turn('next'),previous:()=>turn('previous'),go,setPreferences,bookmark:()=>lastLocator?clone(lastLocator):null,restore:go,exportState:()=>{if(hasPendingDraft())persistNote();if(navigator?.kind==='continuous')navigator.report();return snapshot()},addBookmark,annotate};
