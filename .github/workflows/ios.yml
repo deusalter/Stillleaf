@@ -1,7 +1,7 @@
 name: iOS app
 on:
   push:
-    branches: ['ios/**', 'release/**']
+    branches: ['ios/**', 'release/**', 'sync/**']
   pull_request:
   workflow_dispatch:
 permissions:

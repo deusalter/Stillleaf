@@ -19,6 +19,8 @@ for suite in history-background history-performance audiobook progress-coverage 
 done
 "$SWIFTC" -sdk "$(xcrun --sdk macosx --show-sdk-path)" -target "$(uname -m)-apple-macosx13.0" -I "$OUT" -I Sources/CSQLite -L "$OUT" -lBooksCore Sources/BooksPresence/BookMergeResolver.swift Sources/BooksPresence/LibraryProgressLabel.swift scripts/library-progress-smoke.swift -o "$OUT/library-progress-smoke" -Xlinker -rpath -Xlinker @executable_path
 "$OUT/library-progress-smoke"
+"$SWIFTC" -parse-as-library -sdk "$(xcrun --sdk macosx --show-sdk-path)" -target "$(uname -m)-apple-macosx13.0" -I "$OUT" -I Sources/CSQLite -L "$OUT" -lBooksCore -lBooksPlatform Tests/BooksPlatformTests/FolderSyncScenario.swift scripts/sync-smoke.swift -o "$OUT/sync-smoke" -Xlinker -rpath -Xlinker "$(cd "$OUT" && pwd)"
+"$OUT/sync-smoke"
 "$SWIFTC" -parse-as-library -sdk "$(xcrun --sdk macosx --show-sdk-path)" -target "$(uname -m)-apple-macosx13.0" -I "$OUT" -I Sources/CSQLite -L "$OUT" -lBooksCore -lBooksPlatform Sources/BooksPresence/BookSearchController.swift scripts/book-search-smoke.swift -o "$OUT/book-search-smoke" -Xlinker -rpath -Xlinker @executable_path
 "$OUT/book-search-smoke"
 "$SWIFTC" -parse-as-library -sdk "$(xcrun --sdk macosx --show-sdk-path)" -target "$(uname -m)-apple-macosx13.0" -I "$OUT" -I Sources/CSQLite -L "$OUT" -lBooksCore Sources/BooksPresence/ManualEntryDraft.swift scripts/manual-entry-draft-smoke.swift -o "$OUT/manual-entry-draft-smoke" -Xlinker -rpath -Xlinker @executable_path

@@ -2,7 +2,7 @@ name: macOS checks
 on:
   push:
     # Release candidates and Mac work in progress are integrated without a pull request (no auto-merge), so they are checked on push.
-    branches: [main, 'release/**', 'mac/**']
+    branches: [main, 'release/**', 'mac/**', 'sync/**']
   pull_request:
   workflow_dispatch:
 permissions:

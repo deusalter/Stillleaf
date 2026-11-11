@@ -332,6 +332,111 @@ public final class ReadingStore {
         intervalIDCache = Set((merged.intervals + merged.corrections.flatMap(\.replacements)).map(\.id))
     }
 
+    // MARK: - Sync
+
+    /// Reads a journal file another device published for sync (the same format `exportJSON` writes).
+    public func decodeArchive(_ data: Data) throws -> HistoryArchive {
+        let archive = try decoder.decode(HistoryArchive.self, from: data)
+        guard archive.version == Self.schemaVersion else { throw ReadingStoreError.invalidData("unsupported archive version \(archive.version)") }
+        try Self.validate(archive)
+        return archive
+    }
+
+    /// The journal in the JSON export format, for publishing to sync. Nil when `previous` already holds the
+    /// same rows, so a device with nothing new does not rewrite its file.
+    public func encodedArchive(unlessSameAs previous: Data? = nil) throws -> Data? {
+        let snapshot = try archive()
+        if let previous, var old = try? decoder.decode(HistoryArchive.self, from: previous) {
+            old.exportedAt = snapshot.exportedAt
+            if old == snapshot { return nil }
+        }
+        return try encode(snapshot)
+    }
+
+    /// Merges another device's journal for sync. `importJSON` refuses an archive that conflicts with this
+    /// journal; this takes everything that fits and leaves the rest out:
+    /// - anything `tombstones` cover is ignored, so a deletion made here is not undone;
+    /// - a book already here keeps this device's record (cover and audio file paths belong to a device);
+    /// - a session that overlaps reading already recorded here is left out whole;
+    /// - an edit to a session this device has edited differently is left out.
+    @discardableResult
+    public func mergeSynced(_ incoming: HistoryArchive, tombstones: SyncTombstones = SyncTombstones()) throws -> SyncMergeReport {
+        guard incoming.version == Self.schemaVersion else { throw ReadingStoreError.invalidData("unsupported archive version \(incoming.version)") }
+        var report = SyncMergeReport()
+        let existing = try archive()
+        var candidate = tombstones.filtering(incoming)
+
+        // Only rows this journal does not have yet. An id it already has keeps the local row.
+        let localBooks = Set(existing.books.map(\.id))
+        candidate.books = candidate.books.filter { !localBooks.contains($0.id) }.map { book in
+            var book = book
+            book.coverPath = nil; book.coverSource = nil; book.audioFileName = nil
+            return book
+        }
+        func fresh<T>(_ rows: [T], _ local: [T], _ id: KeyPath<T, String>) -> [T] {
+            let known = Set(local.map { $0[keyPath: id] })
+            return rows.filter { !known.contains($0[keyPath: id]) }
+        }
+        let knownIntervals = Set((existing.intervals + existing.corrections.flatMap(\.replacements)).map(\.id))
+        candidate.intervals = candidate.intervals.filter { !knownIntervals.contains($0.id) }
+        candidate.corrections = fresh(candidate.corrections, existing.corrections, \.id)
+        candidate.goals = fresh(candidate.goals, existing.goals, \.id)
+        candidate.events = fresh(candidate.events, existing.events, \.id)
+        candidate.progress = fresh(candidate.progress, existing.progress, \.id)
+        candidate.merges = fresh(candidate.merges, existing.merges, \.id)
+
+        // Leave out what cannot sit beside the local journal, a little at a time, until the rest fits.
+        var rounds = 0
+        while true {
+            rounds += 1
+            guard rounds <= 64 else { throw ReadingStoreError.conflict("the other device's journal could not be reconciled with this one") }
+            let merged = try Self.merged(existing, candidate)
+            let effective: [ReadingInterval]
+            do { effective = try Self.effectiveIntervals(in: merged).filter { !Self.isPageMarker($0) } }
+            catch {
+                // Both devices edited the same session. This device's edit stands.
+                guard !candidate.corrections.isEmpty else { throw error }
+                report.skippedCorrections += candidate.corrections.count
+                candidate.corrections = []
+                continue
+            }
+            var clashing = Set<String>()
+            for pair in zip(effective, effective.dropFirst()) where pair.0.end > pair.1.start {
+                // The newcomer gives way; of two newcomers, the later one.
+                let newcomer = knownIntervals.contains(pair.1.id) ? pair.0 : pair.1
+                if !knownIntervals.contains(newcomer.id) { clashing.insert(newcomer.sessionID) }
+            }
+            guard !clashing.isEmpty else { break }
+            report.skippedSessions += clashing.sorted()
+            var leftOut = SyncTombstones()
+            for session in clashing { leftOut.deleteSession(session, at: .distantFuture) }
+            candidate = leftOut.filtering(candidate)
+        }
+
+        // Page events need the session interval they were recorded in, and typed rows need their book.
+        let afterSkips = try Self.merged(existing, candidate)
+        let books = Set(afterSkips.books.map(\.id))
+        let sources = Self.pageSourceIndex(afterSkips.intervals + afterSkips.corrections.flatMap(\.replacements))
+        candidate.events.removeAll { event in
+            let typed = event.pageTurn != nil || event.pageAdjustment != nil || event.completion != nil || event.rating != nil || event.review != nil
+            if typed, event.bookID.map(books.contains) != true { return true }
+            return (event.pageTurn != nil || event.pageAdjustment != nil) && !Self.pageEventHasSourceInterval(event, in: sources)
+        }
+        candidate.progress.removeAll { !books.contains($0.bookID) }
+        candidate.merges.removeAll { !books.contains($0.sourceID) || !books.contains($0.targetID) }
+
+        let merged = try Self.merged(existing, candidate)
+        try Self.validate(merged)
+        try transaction { try insertArchive(candidate, allowIdentical: true) }
+        indexPageSources(merged.intervals + merged.corrections.flatMap(\.replacements))
+        effectiveCache = try Self.effectiveIntervals(in: merged)
+        intervalIDCache = Set((merged.intervals + merged.corrections.flatMap(\.replacements)).map(\.id))
+        report.addedIntervals = candidate.intervals.count + candidate.corrections.reduce(0) { $0 + $1.replacements.count }
+        report.addedBooks = candidate.books.count
+        report.addedEvents = candidate.events.count + candidate.progress.count + candidate.goals.count + candidate.merges.count
+        return report
+    }
+
     public func exportCSV(to directory: URL) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         for name in ["intervals.csv", "effective_intervals.csv", "books.csv", "goals.csv", "corrections.csv", "events.csv", "progress.csv"] {
