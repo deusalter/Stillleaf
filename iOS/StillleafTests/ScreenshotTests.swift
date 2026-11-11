@@ -9,7 +9,7 @@ import BooksCore
 /// `STILLLEAF_SCREENSHOTS`, or `/tmp/stillleaf-ios-screenshots` (the simulator shares the host's files).
 /// For each screen the test writes `<name>.request` and iOS/scripts/ci-build-and-test.sh answers with a real
 /// simulator screenshot, so the web page, sheets and system bars are all in the picture. With no host
-/// listening it draws the window itself. On an iPad the pictures are named `ipad-<name>`.
+/// listening it draws the window itself. Pictures from an iPad are named `ipad-<name>`, from a small phone `small-<name>`.
 @MainActor
 final class ScreenshotTests: XCTestCase {
     private var folder: URL!
@@ -115,6 +115,32 @@ final class ScreenshotTests: XCTestCase {
         try await waitUntil("the note editor to close", timeout: 10) { !chrome.dialogOpen }
         try await capture("25-reader-highlighted", settle: 0.8)
 
+        // Continuous scrolling, then back to pages.
+        chrome.set("scroll", true)
+        try await waitUntil("scrolling to take effect", timeout: 20) { chrome.flag("scroll") }
+        try await capture("31-reader-scroll", settle: 3)
+        chrome.toggleControls()
+        try await capture("32-reader-scroll-controls")
+        chrome.toggleControls()
+        chrome.set("scroll", false)
+        try await Task.sleep(nanoseconds: 2_500_000_000)
+
+        // On its side: one page on a phone, two facing pages on an iPad.
+        try await rotate(.landscapeRight)
+        try await capture("33-reader-landscape", settle: 2.5)
+        chrome.toggleControls()
+        try await capture("34-reader-landscape-controls")
+        chrome.toggleControls()
+        try await rotate(.portrait)
+
+        // What VoiceOver and Switch Control get: the controls stay up, with page buttons.
+        chrome.keepsControls = { true }
+        chrome.accessibilityChanged()
+        try await capture("36-reader-voiceover-controls")
+        chrome.keepsControls = { false }
+        chrome.accessibilityChanged()
+        chrome.toggleControls()
+
         chrome.open(.contents)
         try await waitUntil("the contents rows", timeout: 20) { !(chrome.lists[.outline]?.rows.isEmpty ?? true) }
         try await capture("14-reader-contents", settle: 1.4)
@@ -139,6 +165,14 @@ final class ScreenshotTests: XCTestCase {
         try await Task.sleep(nanoseconds: 900_000_000)
         chrome.close?()
         try await waitUntil("the reader to close", timeout: 30) { closed }
+
+        let sideways = AppRouter()
+        show(RootView(router: sideways).environmentObject(journal))
+        try await rotate(.landscapeRight)
+        try await capture("35-reading-now-landscape", settle: 1.5)
+        sideways.tab = .library
+        try await capture("37-library-landscape")
+        try await rotate(.portrait)
 
         // Larger accessibility text: nothing should clip or overlap.
         let large = AppRouter()
@@ -204,8 +238,22 @@ final class ScreenshotTests: XCTestCase {
         XCTFail("Timed out waiting for \(what)")
     }
 
+    /// Turns the simulator. Where a rotation is refused the pictures that follow are simply upright.
+    private func rotate(_ orientations: UIInterfaceOrientationMask) async throws {
+        window.windowScene?.requestGeometryUpdate(.iOS(interfaceOrientations: orientations)) { _ in }
+        window.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
+        try await Task.sleep(nanoseconds: 2_000_000_000)
+    }
+
+    /// `ipad-` on an iPad and `small-` on a phone as narrow as the iPhone SE, so one folder holds every device.
+    private var devicePrefix: String {
+        if UIDevice.current.userInterfaceIdiom == .pad { return "ipad-" }
+        let size = window.windowScene?.screen.bounds.size ?? .zero
+        return min(size.width, size.height) <= 375 ? "small-" : ""
+    }
+
     private func capture(_ shot: String, settle: Double = 1) async throws {
-        let name = (UIDevice.current.userInterfaceIdiom == .pad ? "ipad-" : "") + shot
+        let name = devicePrefix + shot
         try await Task.sleep(nanoseconds: UInt64(settle * 1_000_000_000))
         let image = folder.appendingPathComponent(name + ".png")
         if hostCaptures {

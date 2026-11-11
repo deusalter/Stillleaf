@@ -35,7 +35,9 @@ print(best[3])
 print("Simulator: %s (iOS %s)" % (best[2], version_text), file=sys.stderr)
 ' "$1" "${2:-}"
 }
-DEVICE=$(pick_simulator iPhone)
+# The largest iPhone and the 13-inch iPad are the sizes App Store Connect asks screenshots for, so the
+# pictures taken on them can be uploaded as they are.
+DEVICE=$(pick_simulator iPhone "Pro Max")
 
 COMMON=(-project iOS/Stillleaf.xcodeproj -scheme Stillleaf -derivedDataPath "$OUT/derived" CODE_SIGNING_ALLOWED=NO)
 
@@ -84,8 +86,23 @@ run_tests "$DEVICE" "$OUT/Stillleaf.xcresult" || STATUS=$?
 
 # The same screens on an iPad, whose pictures are named ipad-<name>. Only the capture runs there; the
 # other tests have already run on the iPhone. A runner with no iPad simulator skips this.
-if TABLET=$(pick_simulator iPad 11-inch); then
+if TABLET=$(pick_simulator iPad 13-inch); then
   run_tests "$TABLET" "$OUT/Stillleaf-iPad.xcresult" -only-testing:StillleafTests/ScreenshotTests || STATUS=$?
+fi
+
+# And on the smallest iPhone that runs this iOS, which has a home button and no bottom safe area: small-<name>.
+# The runner may have no such simulator; one is made when the runtime allows it, and otherwise this is skipped.
+SMALL=$(pick_simulator "iPhone SE" 2>/dev/null) || {
+  RUNTIME=$(xcrun simctl list runtimes available --json | python3 -c '
+import json, sys
+runtimes = [r for r in json.load(sys.stdin)["runtimes"] if r.get("platform") == "iOS" or r["identifier"].rsplit(".", 1)[-1].startswith("iOS")]
+print(max(runtimes, key=lambda r: tuple(int(p) for p in r["version"].split(".") if p.isdigit()))["identifier"] if runtimes else "")' || true)
+  SMALL=$(xcrun simctl create "Stillleaf small" "iPhone SE (3rd generation)" "$RUNTIME" 2>/dev/null) || SMALL=""
+}
+if [ -n "$SMALL" ]; then
+  run_tests "$SMALL" "$OUT/Stillleaf-small.xcresult" -only-testing:StillleafTests/ScreenshotTests || STATUS=$?
+else
+  echo "No iPhone SE simulator: small-phone pictures skipped"
 fi
 echo "Screenshots: $(ls "$OUT/screenshots" | wc -l | tr -d ' ') in $OUT/screenshots"
 exit "$STATUS"

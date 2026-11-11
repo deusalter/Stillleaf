@@ -76,7 +76,7 @@ struct ReaderControls: View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: 18, weight: .medium))
-                .frame(width: 48, height: 44)
+                .frame(width: chrome.pinned ? 44 : 48, height: 44)
                 .contentShape(Rectangle())
         }
         .accessibilityLabel(label)
