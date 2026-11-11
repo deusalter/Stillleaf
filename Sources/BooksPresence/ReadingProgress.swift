@@ -200,7 +200,7 @@ struct MenuReadingGoal: View {
                     Text(daily.target == nil ? daily.targetText : "\(daily.targetText) daily goal")
                         .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
                         .fixedSize(horizontal: false, vertical: true)
-                    Label(daily.unit == .pages ? ReadingFormat.duration(model.today.creditedSeconds) : "\(model.todayPages) pages",
+                    Label(daily.unit == .pages ? ReadingFormat.duration(model.today.creditedSeconds) : ReadingFormat.pages(model.todayPages),
                           systemImage: daily.unit == .pages ? "clock" : "book")
                         .font(.caption.weight(.medium)).foregroundStyle(ReadingPalette.secondaryInk)
                 }

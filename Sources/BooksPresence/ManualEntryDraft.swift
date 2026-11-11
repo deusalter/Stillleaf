@@ -194,7 +194,7 @@ struct ManualEntryDraft: Equatable {
         if includesPages {
             let result = pages()
             guard let value = result.value, result.issue == nil, value.count > 0 else { return nil }
-            var text = "\(value.count) \(value.count == 1 ? "page" : "pages")"
+            var text = ReadingFormat.pages(value.count)
             if case let .range(from, to) = value { text += " (p. \(from)–\(to))" }
             parts.append(text)
         }

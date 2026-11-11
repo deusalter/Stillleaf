@@ -160,14 +160,14 @@ private struct AtlasSessionCard: View {
                 .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
             AtlasBookLabel(booksByID: booksByID, id: session.bookID)
             HStack(spacing: 12) {
-                if pages > 0 { Text("\(pages) pages").font(.callout.weight(.medium)) }
+                if pages > 0 { Text(ReadingFormat.pages(pages)).font(.callout.weight(.medium)) }
                 Text("\(ReadingFormat.duration(credited)) \(listening ? "listening" : "recorded")").font(.caption)
             }
             if let position = presentation.position {
                 Text("Position \(position.description)").font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
             }
             let manual = presentation.manualPages
-            if manual > 0 { Text("Includes \(manual) manually added pages").font(.caption).foregroundStyle(ReadingPalette.secondaryInk) }
+            if manual > 0 { Text("Includes \(manual.formatted()) manually added \(ReadingFormat.pageWord(manual))").font(.caption).foregroundStyle(ReadingPalette.secondaryInk) }
             DisclosureGroup("Session details") {
                 VStack(alignment: .leading, spacing: 10) {
                     ForEach(parts) { slice in

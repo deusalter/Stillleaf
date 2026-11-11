@@ -101,7 +101,7 @@ struct TodayView: View {
                         } else {
                             HStack(spacing: 6) {
                                 Image(systemName: "bookmark")
-                                Text("\(model.pages(forBookID: book.id)) pages in your journal")
+                                Text("\(ReadingFormat.pages(model.pages(forBookID: book.id))) in your journal")
                             }.font(.callout).foregroundStyle(ReadingPalette.secondaryInk).padding(.top, 2)
                         }
                         readingActions(for: book).padding(.top, 10)

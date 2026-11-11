@@ -2,21 +2,26 @@ import SwiftUI
 import BooksCore
 
 extension DailyGoalProgress {
-    var unitTitle: String { unit == .pages ? "pages" : "minutes" }
+    /// The unit as a noun for a count of it: "1 page", "2 minutes".
+    func unitNoun(_ count: Double) -> String {
+        let one = Int(count) == 1
+        return unit == .pages ? (one ? "page" : "pages") : (one ? "minute" : "minutes")
+    }
     var displayValue: String { value > 0 && value < 1 ? "<1" : Int(value).formatted() }
-    var todayLabel: String { unit == .pages ? (value == 1 ? "page today" : "pages today") : "minutes today" }
-    var targetText: String { target.map { "\(Int($0)) \(unitTitle)" } ?? "No goal set" }
-    var summary: String { target.map { "\(displayValue) / \(Int($0)) \(unitTitle)" } ?? "\(displayValue) \(unitTitle) · no goal" }
+    var todayLabel: String { "\(unitNoun(value)) today" }
+    var targetText: String { target.map { "\(Int($0)) \(unitNoun($0))" } ?? "No goal set" }
+    var summary: String { target.map { "\(displayValue) / \(Int($0)) \(unitNoun($0))" } ?? "\(displayValue) \(unitNoun(value)) · no goal" }
     var goalDetail: String {
         guard let target else { return "Choose your daily goal in Settings." }
-        if value > target { return "\(Int(value - target)) \(unitTitle) beyond your daily goal." }
+        if value > target { return "\(Int(value - target)) \(unitNoun(value - target)) beyond your daily goal." }
         return reached ? "You reached your \(targetText) goal." : "Your daily goal is \(targetText)."
     }
     var goalTitle: String {
         guard let target else { return "A little reading, every day." }
         if reached { return "A good day for reading." }
         if value == 0 { return "Your next chapter awaits." }
-        return "\(Int(ceil(max(0, target - value)))) \(unitTitle) to your goal."
+        let left = ceil(max(0, target - value))
+        return "\(Int(left)) \(unitNoun(left)) to your goal."
     }
 }
 

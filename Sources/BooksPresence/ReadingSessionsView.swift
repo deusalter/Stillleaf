@@ -68,7 +68,7 @@ struct IntervalSummary: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             Text(book?.title ?? "Unknown book").font(.headline).lineLimit(2)
-            Text("\(pageTurns) pages")
+            Text(ReadingFormat.pages(pageTurns))
                 .font(.callout).monospacedDigit()
             Text("\(ReadingFormat.date(interval.start)) · \(ReadingFormat.duration(interval.duration))")
                 .font(.caption).monospacedDigit().foregroundStyle(ReadingPalette.secondaryInk)
@@ -122,7 +122,7 @@ struct ReadingSessionEditor: View {
                             case .excluded: return "Exclude"
                             }
                         }
-                        Text("\(model.pages(forSessionID: interval.sessionID)) pages saved for this session. Changing its time does not add pages.")
+                        Text("\(ReadingFormat.pages(model.pages(forSessionID: interval.sessionID))) saved for this session. Changing its time does not add pages.")
                             .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
                         if end <= start || end > Date() {
                             Text("Choose a finish time after the start and no later than now.")

@@ -1,6 +1,12 @@
 import Foundation
 
 enum ReadingFormat {
+    /// "1 page", "8 pages", "1,204 pages".
+    static func pages(_ count: Int) -> String { "\(count.formatted()) \(pageWord(count))" }
+
+    /// The noun alone, for a count that is set in its own type beside it.
+    static func pageWord(_ count: Int) -> String { count == 1 ? "page" : "pages" }
+
     static func observedPages(_ value: Int) -> String {
         "\(value) observed \(value == 1 ? "page" : "pages")"
     }
@@ -23,6 +29,8 @@ enum ReadingFormat {
         let hours = rounded / 3600
         let minutes = (rounded % 3600) / 60
         if hours > 0 { return "\(hours)h \(minutes)m" }
+        // No time at all reads as minutes, the unit every total uses; seconds are for a session just begun.
+        if rounded == 0 { return "0m" }
         if rounded < 60 { return "\(rounded)s" }
         return "\(minutes)m"
     }

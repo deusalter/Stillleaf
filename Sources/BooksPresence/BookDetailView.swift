@@ -208,7 +208,7 @@ struct BookDetailView: View {
                 }
                 let corrected = model.manualPages(forBookID: currentBook.id)
                 if corrected > 0 {
-                    Text("Includes \(corrected) manually added pages. Pace uses automatic observations only.")
+                    Text("Includes \(corrected.formatted()) manually added \(ReadingFormat.pageWord(corrected)). Pace uses automatic observations only.")
                         .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
                 }
             }

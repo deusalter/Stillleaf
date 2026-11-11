@@ -120,7 +120,7 @@ struct ManualBookPicker: View {
 
     static func detail(_ book: OutsideBook) -> String? {
         let parts = [book.author, book.firstPublishYear.map(String.init),
-                     book.pageCount.map { "\($0.formatted()) pages" }].compactMap { $0 }
+                     book.pageCount.map(ReadingFormat.pages)].compactMap { $0 }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 

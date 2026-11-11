@@ -72,11 +72,11 @@ struct AtlasWeekView: View {
                 Text("\(navigation.calendar.component(.day, from: day.date))").font(.caption2).foregroundStyle(ReadingPalette.secondaryInk)
                 VStack(spacing: 3) {
                     Text(future ? "—" : pages.formatted()).font(.callout.weight(.medium))
-                    Text("pages").font(.caption2).foregroundStyle(ReadingPalette.secondaryInk)
+                    Text(ReadingFormat.pageWord(pages)).font(.caption2).foregroundStyle(ReadingPalette.secondaryInk)
                 }.padding(.top, 5)
             }.frame(maxWidth: .infinity).contentShape(Rectangle()).opacity(future ? 0.35 : 1)
         }.buttonStyle(.plain).disabled(future)
-            .accessibilityLabel("\(DateText.string(day.date, zone: navigation.timezoneID, pattern: "EEEE, MMMM d")), \(ReadingFormat.duration(day.creditedSeconds)) recorded, \(pages) pages. Open day.")
+            .accessibilityLabel("\(DateText.string(day.date, zone: navigation.timezoneID, pattern: "EEEE, MMMM d")), \(ReadingFormat.duration(day.creditedSeconds)) recorded, \(ReadingFormat.pages(pages)). Open day.")
             .help(entries.isEmpty ? "Open day" : detail(entries))
     }
     private func detail(_ entries: [AtlasBookTime]) -> String {
@@ -90,7 +90,7 @@ struct AtlasWeekView: View {
                 let seconds = presentation.secondsByBook[id] ?? 0
                 let pages = presentation.pagesByBook[id] ?? 0
                 AtlasBookLabel(booksByID: presentation.booksByID, id: id,
-                    detail: (pages > 0 ? "\(pages) pages\n" : "") + "\(ReadingFormat.duration(seconds)) recorded", small: true)
+                    detail: (pages > 0 ? ReadingFormat.pages(pages) + "\n" : "") + "\(ReadingFormat.duration(seconds)) recorded", small: true)
             }
         }.frame(maxWidth: .infinity, alignment: .leading).modifier(OptionalPanel(show: !bookIDs.isEmpty))
     }
@@ -208,7 +208,7 @@ struct AtlasMonthView: View {
             // the same destination as the detail pane's "Open day" button.
             .simultaneousGesture(TapGesture(count: 2).onEnded { openDay(date, today: today) })
             .modifier(AtlasReturnOpensDay(open: { openDay(date, today: today) }))
-            .accessibilityLabel("\(DateText.string(date, zone: navigation.timezoneID, pattern: "EEEE, MMMM d")), \(ReadingFormat.duration(seconds)) recorded, \(pages) pages. \(names).")
+            .accessibilityLabel("\(DateText.string(date, zone: navigation.timezoneID, pattern: "EEEE, MMMM d")), \(ReadingFormat.duration(seconds)) recorded, \(ReadingFormat.pages(pages)). \(names).")
             .accessibilityActions { if !future { Button("Open day") { openDay(date, today: today) } } }
             .accessibilityAddTraits(isSelected ? .isSelected : []).help(names.isEmpty ? "No credited time" : names)
     }
@@ -232,7 +232,7 @@ struct AtlasMonthView: View {
                 let pages = selectedDay?.pagesByBook[id] ?? 0
                 let time = selectedDay?.day.books.first { $0.bookID == id }
                 VStack(alignment: .leading, spacing: 12) {
-                    AtlasBookLabel(booksByID: presentation.booksByID, id: id, detail: (pages > 0 ? "\(pages) pages\n" : "") + "\(ReadingFormat.duration(time?.creditedSeconds ?? 0)) recorded", small: true)
+                    AtlasBookLabel(booksByID: presentation.booksByID, id: id, detail: (pages > 0 ? ReadingFormat.pages(pages) + "\n" : "") + "\(ReadingFormat.duration(time?.creditedSeconds ?? 0)) recorded", small: true)
                     if let position = selectedDay?.positionsByBook[id] {
                         Text("Recorded position\n\(position.description)").font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
                     }
