@@ -50,7 +50,10 @@ struct RootView: View {
         }
         .onChange(of: scenePhase) { _, phase in
             journal.sceneActivityChanged(active: phase == .active)
+            ReminderScheduler.refresh(journal: journal)
         }
+        // Reaching today's goal withdraws today's reminder.
+        .onChange(of: journal.todayGoal.reached) { _, _ in ReminderScheduler.refresh(journal: journal) }
         .onOpenURL { url in
             // EPUBs shared from Files, Mail, Safari or AirDrop arrive here as copies. One book opens straight away.
             guard url.isFileURL else { return }

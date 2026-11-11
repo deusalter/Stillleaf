@@ -12,6 +12,7 @@ struct SettingsView: View {
             Form {
                 ReadingSection()
                 GoalsSection()
+                ReminderSection()
                 ReaderSection()
                 Section("Calendar") {
                     NavigationLink {
@@ -100,6 +101,60 @@ private struct GoalsSection: View {
         }
         yearly = journal.history.annualBookGoal != nil
         annual = journal.history.annualBookGoal ?? annual
+    }
+}
+
+/// The optional daily reminder. Off until the reader turns it on, which is also when iOS asks for permission.
+private struct ReminderSection: View {
+    @EnvironmentObject private var journal: Journal
+    @Environment(\.openURL) private var openURL
+    @AppStorage(ReadingReminder.enabledKey) private var enabled = false
+    @AppStorage(ReadingReminder.minutesKey) private var minutes = ReadingReminder.defaultMinutes
+    @State private var denied = false
+
+    var body: some View {
+        Section {
+            Toggle("Daily reminder", isOn: Binding(get: { enabled }, set: { turn($0) }))
+            if enabled {
+                DatePicker("Time", selection: time, displayedComponents: .hourAndMinute)
+            }
+        } header: {
+            Text("Reminder")
+        } footer: {
+            Text("One notification at this time on days when your goal is still open. It is made on this device; nothing is sent anywhere.")
+        }
+        .alert("Notifications are off for Stillleaf", isPresented: $denied) {
+            Button("Open Settings") { if let url = URL(string: "app-settings:") { openURL(url) } }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Allow notifications in Settings to get a daily reminder.")
+        }
+    }
+
+    private var time: Binding<Date> {
+        Binding(get: {
+            Calendar.current.date(bySettingHour: minutes / 60, minute: minutes % 60, second: 0, of: Date()) ?? Date()
+        }, set: { date in
+            let parts = Calendar.current.dateComponents([.hour, .minute], from: date)
+            minutes = (parts.hour ?? 20) * 60 + (parts.minute ?? 0)
+            ReminderScheduler.refresh(journal: journal)
+        })
+    }
+
+    private func turn(_ on: Bool) {
+        guard on else {
+            enabled = false
+            ReminderScheduler.cancel()
+            return
+        }
+        Task {
+            if await ReminderScheduler.requestPermission() {
+                enabled = true
+                ReminderScheduler.refresh(journal: journal)
+            } else {
+                denied = true
+            }
+        }
     }
 }
 
