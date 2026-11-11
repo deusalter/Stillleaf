@@ -619,7 +619,8 @@ function applyAnnotations(){
  const decorations=state.annotations.filter(item=>input.readingOrder.some(link=>link.href===item.locator.href)).flatMap(item=>{
   const locator=navigator?.kind==='continuous'?clone(item.locator):decorationLocator(item);
   if(!locator){deferredAnnotationHrefs.add(item.locator.href);return []}
-  return [{id:item.id,locator,style:{type:DecorationStyleType.Highlight,tint:colors[item.color]??colors.gold,isActive:true}}];
+  // The colour is the one its reader chose, as in the continuous view: Readium would otherwise darken it until it contrasts with the page.
+ return [{id:item.id,locator,style:{type:DecorationStyleType.Highlight,tint:colors[item.color]??colors.gold,enforceContrast:false,isActive:true}}];
  });
  navigator?.applyDecorations(decorations,'personal');
 }
@@ -1083,6 +1084,8 @@ for(const b of document.querySelectorAll('[data-highlight-color]'))b.onclick=()=
  try{annotate({...selection,color:b.dataset.highlightColor});dismissSelection();notice('Passage highlighted.')}catch(error){notice(error.message)}
 };
 $('remove-selection').onclick=()=>{if(selection?.id)removeAnnotation(selection.id)};
+// A touch keyboard covers the lower part of the page without resizing it. The visual viewport says what is left, so the note editor can stay above the keys.
+if(window.visualViewport){const fit=()=>{document.documentElement.style.setProperty('--visible-height',visualViewport.height+'px');document.body.classList.toggle('keyboard-up',visualViewport.height<innerHeight-120)};visualViewport.addEventListener('resize',fit);fit()}
 $('note-text').oninput=()=>{clearTimeout(noteSaveTimer);$('note-status').textContent='Saving…';noteSaveTimer=setTimeout(persistNote,180)};
 for(const radio of document.querySelectorAll('input[name="note-color"]'))radio.onchange=persistNote;
 $('note-selection').onclick=()=>editNote();$('dismiss-selection').onclick=dismissSelection;

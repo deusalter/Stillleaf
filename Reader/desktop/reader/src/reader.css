@@ -137,6 +137,12 @@ input[type=range]::-moz-range-thumb{width:12px;height:12px;border:2px solid var(
 .native-touch .note-panel .primary-button,.native-touch .note-panel .quiet-danger{min-height:44px;font-size:15px}
 .native-touch .note-panel .primary-button{padding-inline:24px}
 @media(max-width:699px){.native-touch .note-panel{margin-top:12px}}
+.native-touch .note-panel{max-height:calc(var(--visible-height,100dvh) - 24px)}
+.native-touch.keyboard-up .note-panel{margin-top:12px}
+.native-touch.keyboard-up .note-panel blockquote{max-height:3.2em;overflow:hidden}
+.native-touch.keyboard-up .note-panel textarea{min-height:0;height:84px}
+.native-touch.keyboard-up .note-panel legend,.native-touch.keyboard-up #note-status{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.native-touch.keyboard-up .note-actions{margin-top:10px}
 .native-chrome .panel{top:12px;max-height:calc(100dvh - 24px)}
 .native-reduceMotion *, .native-reduceMotion *::before,.native-reduceMotion *::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
 .native-increaseContrast .panel,.native-increaseContrast .note-panel{border:2px solid var(--ink)}
