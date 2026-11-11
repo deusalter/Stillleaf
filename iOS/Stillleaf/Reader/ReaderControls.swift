@@ -32,7 +32,8 @@ struct ReaderControls: View {
                     // the leading side, so showing the controls never covers a line.
                     HStack(spacing: 0) {
                         Spacer(minLength: 0)
-                        toolbar
+                        // Six buttons on a narrow phone would reach the page number: each gives up a little width.
+                        toolbar(buttonWidth: chrome.pinned ? (proxy.size.width < 400 ? 40 : 44) : 48)
                     }
                     .padding(.bottom, proxy.size.width >= 700 ? 10 : 1)
                     .transition(.opacity)
@@ -49,17 +50,17 @@ struct ReaderControls: View {
     }
 
     /// Contents, search, appearance and bookmark, one tap each, beside the page number.
-    private var toolbar: some View {
+    private func toolbar(buttonWidth: CGFloat) -> some View {
         HStack(spacing: 4) {
             if chrome.pinned {
                 // VoiceOver and Switch Control cannot tap a page edge: they get page buttons.
-                tool("chevron.left", "Previous Page") { chrome.turn(forward: false) }
-                tool("chevron.right", "Next Page") { chrome.turn(forward: true) }
+                tool("chevron.left", "Previous Page", buttonWidth) { chrome.turn(forward: false) }
+                tool("chevron.right", "Next Page", buttonWidth) { chrome.turn(forward: true) }
             }
-            tool("list.bullet", "Contents") { chrome.open(.contents) }
-            tool("magnifyingglass", "Search Book") { chrome.open(.search) }
-            tool("textformat.size", "Themes and Settings") { chrome.open(.appearance) }
-            tool(chrome.bookmarked ? "bookmark.fill" : "bookmark", chrome.bookmarked ? "Remove Bookmark" : "Bookmark This Page") {
+            tool("list.bullet", "Contents", buttonWidth) { chrome.open(.contents) }
+            tool("magnifyingglass", "Search Book", buttonWidth) { chrome.open(.search) }
+            tool("textformat.size", "Themes and Settings", buttonWidth) { chrome.open(.appearance) }
+            tool(chrome.bookmarked ? "bookmark.fill" : "bookmark", chrome.bookmarked ? "Remove Bookmark" : "Bookmark This Page", buttonWidth) {
                 bookmarkTaps += 1
                 chrome.toggleBookmark()
             }
@@ -72,11 +73,11 @@ struct ReaderControls: View {
         .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
     }
 
-    private func tool(_ symbol: String, _ label: String, action: @escaping () -> Void) -> some View {
+    private func tool(_ symbol: String, _ label: String, _ width: CGFloat, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: 18, weight: .medium))
-                .frame(width: chrome.pinned ? 44 : 48, height: 44)
+                .frame(width: width, height: 44)
                 .contentShape(Rectangle())
         }
         .accessibilityLabel(label)
