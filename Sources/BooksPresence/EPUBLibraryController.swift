@@ -100,6 +100,32 @@ final class EPUBLibraryController: ObservableObject {
         }
     }
 
+    /// Imports books that arrived through sync. Unlike `enqueue` this leaves no receipt in the import queue
+    /// and never brings the Library forward: the reader did not ask for anything.
+    func importSynced(_ urls: [URL], completion: @escaping (_ imported: [String]) -> Void) {
+        let importer = self.importer
+        worker.async { [weak self] in
+            let results = urls.map { url in Result { try importer.importPublication(from: url) } }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                var imported: [String] = []
+                for case .success(let result) in results {
+                    guard (try? self.register?(result.publication, result.directory)) != nil else { continue }
+                    self.publications[result.publication.id] = result.publication
+                    imported.append(result.publication.id)
+                }
+                completion(imported)
+            }
+        }
+    }
+
+    /// Removes an edition at once, for a book deleted on another device. The caller has checked that no reader
+    /// has it open and no other file operation holds it.
+    func removeNow(publicationID: String) throws {
+        _ = try EPUBAssetRemoval(directory: directory).remove(publicationID: publicationID, keepingOriginalAt: nil)
+        publications.removeValue(forKey: publicationID)
+    }
+
     func cancelPending() { queue.cancelPending() }
     /// Delete-all moved the Publications folder away; nothing imported remains to list.
     func forgetAll() { publications.removeAll(); recoveryError = nil }

@@ -160,7 +160,7 @@ same file imported on Mac and iPhone is the same journal book. Manual books are
 paths change across reinstall and restore. Covers are read from the
 publication's own cover image when drawn.
 
-**v1 is local-only.** JSON export is the complete versioned archive the Mac
+**Local unless sync is turned on** ([SYNC.md](SYNC.md)). JSON export is the complete versioned archive the Mac
 imports (duplicate-safe). JSON from the Mac imports on iOS: its books and
 history appear, and its EPUBs become readable once the same files are imported.
 CSV export writes the Mac's table set into a folder. SQLite backups are the
@@ -269,22 +269,17 @@ records them. Position (`position` events) is saved independently of tracking.
   `epub-import-smoke` suite through the portable ZIP extractor, so every
   hostile-archive case is checked against both extractors.
 
-## Next project: sync between Mac and iPhone
+## Sync with the Mac
 
-Wanted: stop reading on the Mac, pick up the phone and continue the same book.
-It is deliberately after the reading experience. v1 ships local-only with manual
-export/import. Options:
+Built: stop reading on the Mac, pick up the phone and continue the same book.
+Sync goes through a folder the reader chooses (in iCloud Drive, say), with no
+server and no account, and it syncs book files as well as the journal, the place
+in each book, bookmarks and highlights. Design, rules and limits are in
+[SYNC.md](SYNC.md). It has not been tried between real devices yet.
 
-| Option | Work | Running cost | Trade-offs |
-| --- | --- | --- | --- |
-| A. Manual JSON export/import (v1) | Done | None | Explicit and private; the user moves files |
-| B. iCloud Drive snapshot files | ~1–2 weeks | None for you; uses the user's iCloud storage | Both apps write archives to a shared ubiquity container and merge with the existing duplicate-safe import. Coarse, last-writer timing, but simple. |
-| **C. CloudKit private database via `CKSyncEngine` (recommended)** | ~3–5 weeks | None for you (private database counts against the user's iCloud quota); needs the paid Developer Program on both apps | Records map cleanly because history is append-only with UUIDs. Needs tombstones for deletions and a cross-device overlap policy (`ReadingStore` rejects overlapping intervals). The Mac app needs an iCloud-provisioned Developer ID profile. `CKSyncEngine` requires macOS 14, so the Mac minimum would rise from 13. |
-
-Recommendation: ship v1 local-only, then build **C** for journal data and
-reader state. Leave EPUB files per-device at first: identical files share IDs,
-so history lines up without uploading books. Book-file sync via `CKAsset`
-can follow if users ask.
+CloudKit remains the alternative for near-instant sync with nothing to choose.
+It needs the paid Apple Developer Program and macOS 14 on the Mac, and would
+reuse the same merge rules with a different transport.
 
 ## Other decisions for the user
 

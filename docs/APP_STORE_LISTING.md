@@ -39,8 +39,9 @@ TRACK
 • An optional daily reminder, on days when your goal is still open.
 
 YOURS
-• No account. No network requests. No analytics.
+• No account. No Stillleaf servers. No analytics.
 • Export your journal as JSON or CSV, or back it up whole, whenever you like.
+• Optional sync with Stillleaf for Mac through a folder you choose, such as one in iCloud Drive: your books, your place, your highlights and your history, in your own storage.
 • The same journal format as Stillleaf for Mac.
 
 Stillleaf opens DRM-free EPUB 2 and EPUB 3 books. It cannot open books protected

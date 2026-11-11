@@ -10,7 +10,7 @@ the app reads, stores or sends must update this page in the same pull request.
 
 ## What stays on your Mac
 
-All data lives in your user account. Nothing is uploaded or synced by Stillleaf.
+All data lives in your user account. Nothing is uploaded by Stillleaf. If you turn on sync (off by default), Stillleaf copies your journal, books, places and highlights into a folder you choose, such as one in iCloud Drive, and reads what your other devices put there; see [Sync](SYNC.md). Whatever syncs that folder moves the files. Stillleaf itself sends nothing anywhere.
 
 | Data | Location |
 |---|---|
@@ -67,7 +67,7 @@ are not opened, and fonts are bundled. Reading an imported book never touches th
 ## What Stillleaf never does
 
 - No analytics, telemetry, advertising identifiers or third-party SDKs.
-- No accounts and no cloud sync. Stillleaf runs no servers that store your data.
+- No accounts. Stillleaf runs no servers that store your data. Optional sync between your own devices goes through a folder you choose, in your own storage.
 - No crash reports sent to the developer. macOS may share crash reports with Apple according to
   your System Settings → Privacy & Security → Analytics choices. Apple does not forward those to
   developers of apps distributed outside the App Store.

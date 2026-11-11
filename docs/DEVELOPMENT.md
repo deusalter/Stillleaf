@@ -58,12 +58,13 @@ Run `scripts/install-git-hooks.sh` once per clone. Branch names follow `<area>/<
 | Windows prototype | `npm --prefix prototypes/windows-journal test` | Yes |
 | Website | `npm --prefix website ci && npm --prefix website test && npm --prefix website run build` | Yes |
 | iOS model and shared code | `iOS/scripts/check-model-local.sh` (Command Line Tools) | Simulator XCTest and device build instead, `ios.yml` |
+| Sync between devices ([design](SYNC.md)) | `scripts/check-local.sh` runs `sync-smoke`: two devices through one folder | Yes, the same scenario as `FolderSyncTests`, plus `JournalSyncTests` on iOS |
 | Update feed contract | `scripts/release/test-update-feed-contract.py`, plus the website test and `UpdateCheckerTests` | Yes |
 | Unsigned universal release | `scripts/release/build-release.sh` with no signing identity | When release scripts change, `release.yml` |
 
 Most smoke suites only run locally, so run `scripts/check-local.sh` before packaging or merging native changes.
 
-macOS checks and Project checks run on pull requests and on pushes to `main`, `release/**` and `mac/**`; the iOS workflow runs on `ios/**` and `release/**` pushes. A ready pull request can be merged automatically on this Mac, so push one of those branches without a pull request to get CI on work that must not merge yet.
+macOS checks and Project checks run on pull requests and on pushes to `main`, `release/**`, `mac/**` and `sync/**`; the iOS workflow runs on `ios/**`, `release/**` and `sync/**` pushes. A ready pull request can be merged automatically on this Mac, so push one of those branches without a pull request to get CI on work that must not merge yet.
 
 Performance probes (`--measure-idle`, `--measure-launch`, `--measure-reader`) and the latest before/after numbers are in [the pre-launch performance pass](LAUNCH_PERFORMANCE.md).
 

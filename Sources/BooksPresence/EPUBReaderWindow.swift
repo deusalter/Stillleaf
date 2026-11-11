@@ -30,6 +30,8 @@ final class EPUBReaderWindows {
         owner.chrome.performControl(command)
     }
     var focusedPublicationID: String? { focusedReader?.publication.id }
+    /// Editions with a reader open or opening. Sync leaves their saved state alone: the reader would write over it.
+    var openPublicationIDs: Set<String> { Set(windows.keys).union(opening.keys) }
     var focusedProgress: ProgressObservation? { focusedReader?.progress }
     init(stateDirectory: URL) { self.stateDirectory = stateDirectory }
     func open(_ publication: EPUBPublication, directory: URL, present: Bool = true) async throws {
