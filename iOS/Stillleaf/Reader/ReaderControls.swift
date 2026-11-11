@@ -37,7 +37,7 @@ struct ReaderControls: View {
                     }
                     // On a device with a home indicator both drop a little into the room under the band, so the
                     // bar sits between the text and the screen's edge instead of against the last line.
-                    .padding(.bottom, (proxy.size.width >= 700 ? 10 : 1) - ReaderChrome.footerDrop(bottomInset: proxy.safeAreaInsets.bottom))
+                    .padding(.bottom, (proxy.size.width >= 700 ? 10 : 1) - ReaderChrome.footerDrop(bottomInset: proxy.safeAreaInsets.bottom, width: proxy.size.width))
                     .transition(.opacity)
                 }
             }

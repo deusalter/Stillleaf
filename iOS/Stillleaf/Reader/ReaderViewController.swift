@@ -33,6 +33,7 @@ final class ReaderViewController: UIViewController, WKNavigationDelegate, UIGest
     private let spinner = UIActivityIndicatorView(style: .large)
     private var observers: [NSObjectProtocol] = []
     private var chromeRequest = 0
+    private var footerDrop: Double?
     private var pageColourWatch: AnyCancellable?
     /// True when the book has no saved reader state: it starts with the appearance used last.
     private var firstOpen = false
@@ -188,6 +189,7 @@ final class ReaderViewController: UIViewController, WKNavigationDelegate, UIGest
             isReady = false
             didStart = false
             firstOpen = false
+            footerDrop = nil
             chrome.disconnect()
             if let launch { webView.load(URLRequest(url: launch.resources.url(for: "index.html")!)) }
         }
@@ -374,12 +376,20 @@ final class ReaderViewController: UIViewController, WKNavigationDelegate, UIGest
         sendFooterDrop()
     }
 
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        sendFooterDrop()
+    }
+
     /// Tells the page how far its footer may drop toward the home indicator (`ReaderChrome.footerDrop`), which
     /// the toolbar drawn over it follows too.
     private func sendFooterDrop() {
-        guard isReady else { return }
-        let drop = ReaderChrome.footerDrop(bottomInset: view.safeAreaInsets.bottom)
-        webView?.evaluateJavaScript("document.documentElement.style.setProperty('--touch-lower', '\(drop)px'); true")
+        guard isReady, let webView else { return }
+        let drop = ReaderChrome.footerDrop(bottomInset: view.safeAreaInsets.bottom, width: webView.bounds.width)
+        // The insets are reported several times through a rotation; the page only needs to hear of a new value.
+        guard drop != footerDrop else { return }
+        footerDrop = drop
+        webView.evaluateJavaScript("document.documentElement.style.setProperty('--touch-lower', '\(drop)px'); true")
     }
 
     /// Reads the page colour before the controls have connected; afterwards `chrome.pageBackground` carries it.
