@@ -144,6 +144,10 @@ final class ReaderChrome: ObservableObject {
         }
     }
 
+    /// How far the page number and the toolbar drop below the web view's footer line on a device with a home
+    /// indicator, in points: half of the unused room under the web view, and never out of the band.
+    nonisolated static func footerDrop(bottomInset: Double) -> Double { min(16, max(0, bottomInset) / 2) }
+
     /// True once the renderer has handed its controls to this host.
     @Published private(set) var connected = false
     @Published private(set) var controlsVisible = false

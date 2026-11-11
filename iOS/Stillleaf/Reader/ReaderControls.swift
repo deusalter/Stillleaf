@@ -35,7 +35,9 @@ struct ReaderControls: View {
                         // Six buttons on a narrow phone would reach the page number: each gives up a little width.
                         toolbar(buttonWidth: chrome.pinned ? (proxy.size.width < 400 ? 40 : 44) : 48)
                     }
-                    .padding(.bottom, proxy.size.width >= 700 ? 10 : 1)
+                    // On a device with a home indicator both drop a little into the room under the band, so the
+                    // bar sits between the text and the screen's edge instead of against the last line.
+                    .padding(.bottom, (proxy.size.width >= 700 ? 10 : 1) - ReaderChrome.footerDrop(bottomInset: proxy.safeAreaInsets.bottom))
                     .transition(.opacity)
                 }
             }

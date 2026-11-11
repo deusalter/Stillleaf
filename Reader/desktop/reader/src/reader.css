@@ -116,14 +116,16 @@ input[type=range]::-moz-range-thumb{width:12px;height:12px;border:2px solid var(
 /* A touch host (iPhone, iPad) keeps the web view inside the safe area and draws its own controls over the page,
    so the bands are the hand-held ones: room for the close button above the text, the page number just above the home indicator. */
 .native-chrome.native-touch{--reader-top:56px;--reader-bottom:50px}
-.native-chrome.native-touch .reading-footer{bottom:16px}
-.native-chrome.native-touch .footer-navigation{left:14px;bottom:8px}
+/* A device with a home indicator has unused room under the web view. The host says how far the footer may drop into the
+   foot of the band (--touch-lower), so the page number and the host's toolbar sit balanced between the text and the screen's edge. */
+.native-chrome.native-touch .reading-footer{bottom:calc(16px - var(--touch-lower,0px))}
+.native-chrome.native-touch .footer-navigation{left:14px;bottom:max(0px,calc(8px - var(--touch-lower,0px)))}
 .native-chrome.native-touch #running-title{display:none!important}
-@media(min-width:700px){.native-chrome.native-touch{--reader-top:56px;--reader-bottom:68px}.native-chrome.native-touch .reading-footer{bottom:26px}}
+@media(min-width:700px){.native-chrome.native-touch{--reader-top:56px;--reader-bottom:68px}.native-chrome.native-touch .reading-footer{bottom:calc(26px - var(--touch-lower,0px))}}
 /* With the hand-held controls up, the toolbar takes the trailing side of the bottom band and the page number the leading side, so neither covers text. */
-.native-chrome.native-touch.native-controlsVisible .reading-footer{text-align:left;padding-left:24px;bottom:18px}
+.native-chrome.native-touch.native-controlsVisible .reading-footer{text-align:left;padding-left:24px;bottom:calc(18px - var(--touch-lower,0px))}
 .native-chrome.native-touch.native-controlsVisible .reading-footer:has(#return-jump:not([hidden])){padding-left:104px}
-@media(min-width:700px){.native-chrome.native-touch.native-controlsVisible .reading-footer{bottom:26px;padding-left:28px}}
+@media(min-width:700px){.native-chrome.native-touch.native-controlsVisible .reading-footer{bottom:calc(26px - var(--touch-lower,0px));padding-left:28px}}
 /* Fingers need larger targets than a pointer, and iOS shows its own Copy and Look Up menu above a selection: the highlight colours go below it (annotation-ui.js). */
 .native-touch #selection-tools{gap:2px;padding:4px 6px;border-radius:14px}
 .native-touch #selection-tools button{min-height:44px;padding:8px 10px;font-size:15px}

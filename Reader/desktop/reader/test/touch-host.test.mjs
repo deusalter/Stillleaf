@@ -30,6 +30,11 @@ test('touch host: bands, page number beside the toolbar, handle selections and d
     assert.equal(aside.left, 24, 'the page number moves to the leading side under the controls');
     assert.ok(aside.right < 393 / 2 - 40, 'and leaves the trailing half of the band to the host toolbar');
     assert.deepEqual(await rect(page, '#reading-viewport'), viewport, 'showing the controls moves no text');
+    // A host with a home indicator lets the footer drop toward it; the text stays where it is.
+    await page.evaluate(() => document.documentElement.style.setProperty('--touch-lower', '12px'));
+    assert.equal((await rect(page, '#page-number')).bottom - aside.bottom, 12, 'the page number drops by what the host allows');
+    assert.deepEqual(await rect(page, '#reading-viewport'), viewport);
+    await page.evaluate(() => document.documentElement.style.removeProperty('--touch-lower'));
     await policy(false);
 
     // A selection made with the system's handles arrives as selectionchange alone.

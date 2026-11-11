@@ -214,6 +214,7 @@ final class ReaderViewController: UIViewController, WKNavigationDelegate, UIGest
             Task { await startWhenAvailable() }
         case .ready:
             isReady = true
+            sendFooterDrop()
             spinner.stopAnimating()
             journal.readerBecameReady(bookID: edition.bookID)
             matchPageColours()
@@ -367,6 +368,19 @@ final class ReaderViewController: UIViewController, WKNavigationDelegate, UIGest
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
                            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool { true }
+
+    override func viewSafeAreaInsetsDidChange() {
+        super.viewSafeAreaInsetsDidChange()
+        sendFooterDrop()
+    }
+
+    /// Tells the page how far its footer may drop toward the home indicator (`ReaderChrome.footerDrop`), which
+    /// the toolbar drawn over it follows too.
+    private func sendFooterDrop() {
+        guard isReady else { return }
+        let drop = ReaderChrome.footerDrop(bottomInset: view.safeAreaInsets.bottom)
+        webView?.evaluateJavaScript("document.documentElement.style.setProperty('--touch-lower', '\(drop)px'); true")
+    }
 
     /// Reads the page colour before the controls have connected; afterwards `chrome.pageBackground` carries it.
     private func matchPageColours() {
