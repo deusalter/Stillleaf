@@ -148,7 +148,10 @@ final class ReaderChrome: ObservableObject {
     @Published private(set) var connected = false
     @Published private(set) var controlsVisible = false
     @Published var sheet: Sheet? {
-        didSet { if sheet != nil, controlsVisible { setControlsVisible(false) } }
+        didSet {
+            if sheet != nil, controlsVisible { setControlsVisible(false) }
+            if sheet == nil { showPinnedControls() }
+        }
     }
     @Published private(set) var preferences: [String: Any] = [:]
     @Published private(set) var controls: [ReaderControl] = []
@@ -170,6 +173,8 @@ final class ReaderChrome: ObservableObject {
     var close: (() -> Void)?
     /// Accessibility settings the page should follow (`reduceMotion`, `increaseContrast`, …).
     var accessibility: () -> [String: Bool] = { [:] }
+    /// True while VoiceOver or Switch Control is running: the controls then stay on screen.
+    var keepsControls: () -> Bool = { false }
     /// Where the appearance chosen last is kept, so a book opened for the first time starts with it.
     var defaults: UserDefaults?
     /// Appearance applied when a book has no saved reader state of its own.
@@ -178,7 +183,7 @@ final class ReaderChrome: ObservableObject {
     static let defaultsKey = "readerAppearanceDefaults"
     /// The settings that follow the reader from book to book. Position, notes and custom gutters stay per book.
     static let carriedKeys = ["theme", "fontFamily", "fontSize", "lineHeight", "scroll", "margins", "fontWeight",
-                              "textAlign", "hyphens", "backgroundColor", "textColor"]
+                              "textAlign", "hyphens", "backgroundColor", "textColor", "columns"]
 
     private var pending: [String: Any] = [:]
     private var flushing = false
@@ -195,6 +200,7 @@ final class ReaderChrome: ObservableObject {
             accept(try await transport("activate", nil))
             connected = true
             sendPolicy()
+            showPinnedControls()
             if firstOpen {
                 let start = Self.storedDefaults(in: defaults).merging(firstOpenPreferences) { stored, _ in stored }
                     .filter { key, value in !Self.same(preferences[key], value) }
@@ -230,6 +236,7 @@ final class ReaderChrome: ObservableObject {
         if let open = value["dialogOpen"] as? Bool, open != dialogOpen {
             dialogOpen = open
             if open, controlsVisible { setControlsVisible(false) }
+            if !open { showPinnedControls() }
         }
         if let raw = value["definitions"] as? NSArray, definitionsSeen.map({ !raw.isEqual($0) }) ?? true,
            let data = try? JSONSerialization.data(withJSONObject: raw),
@@ -259,10 +266,25 @@ final class ReaderChrome: ObservableObject {
         setControlsVisible(!controlsVisible)
     }
 
+    /// With VoiceOver or Switch Control there is no "tap the middle of the page", so the controls stay up
+    /// whenever no sheet or note editor is in front.
     func setControlsVisible(_ visible: Bool) {
+        let visible = visible || (pinned && sheet == nil && !dialogOpen)
         guard controlsVisible != visible else { return }
         controlsVisible = visible
         sendPolicy()
+    }
+
+    /// True while an assistive technology needs the controls kept on screen.
+    var pinned: Bool { keepsControls() }
+
+    private func showPinnedControls() {
+        if connected, pinned, sheet == nil, !dialogOpen { setControlsVisible(true) }
+    }
+
+    /// The next or previous page, for the page buttons shown while the controls are pinned.
+    func turn(forward: Bool) {
+        run { transport in self.accept(try await transport(forward ? "next" : "previous", nil)) }
     }
 
     func open(_ sheet: Sheet) {
@@ -284,7 +306,11 @@ final class ReaderChrome: ObservableObject {
         Task { _ = try? await transport("policy", policy) }
     }
 
-    func accessibilityChanged() { sendPolicy() }
+    func accessibilityChanged() {
+        objectWillChange.send()
+        sendPolicy()
+        showPinnedControls()
+    }
 
     // MARK: - Lists
 

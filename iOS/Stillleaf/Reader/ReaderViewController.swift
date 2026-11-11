@@ -76,7 +76,8 @@ final class ReaderViewController: UIViewController, WKNavigationDelegate, UIGest
             Task { @MainActor [weak self] in await self?.saveSnapshot() }
         })
         for name in [UIAccessibility.reduceMotionStatusDidChangeNotification, UIAccessibility.darkerSystemColorsStatusDidChangeNotification,
-                     UIAccessibility.reduceTransparencyStatusDidChangeNotification] {
+                     UIAccessibility.reduceTransparencyStatusDidChangeNotification, UIAccessibility.voiceOverStatusDidChangeNotification,
+                     UIAccessibility.switchControlStatusDidChangeNotification] {
             observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 Task { @MainActor [weak self] in self?.chrome.accessibilityChanged() }
             })
@@ -99,6 +100,7 @@ final class ReaderViewController: UIViewController, WKNavigationDelegate, UIGest
             ["reduceMotion": UIAccessibility.isReduceMotionEnabled, "increaseContrast": UIAccessibility.isDarkerSystemColorsEnabled,
              "reduceTransparency": UIAccessibility.isReduceTransparencyEnabled]
         }
+        chrome.keepsControls = { UIAccessibility.isVoiceOverRunning || UIAccessibility.isSwitchControlRunning }
         chrome.defaults = .standard
         // A theme chosen in the sheet reaches here as the page's new colour.
         pageColourWatch = chrome.$pageBackground.removeDuplicates().sink { [weak self] hex in
@@ -106,7 +108,8 @@ final class ReaderViewController: UIViewController, WKNavigationDelegate, UIGest
             self.apply(page: page)
         }
         // The renderer's default size suits a window on a desk; a hand-held page reads better a step smaller.
-        if UIDevice.current.userInterfaceIdiom == .phone { chrome.firstOpenPreferences = ["fontSize": 1.0] }
+        // An iPad on its side has room for two pages, as in Apple Books; upright it still shows one.
+        chrome.firstOpenPreferences = UIDevice.current.userInterfaceIdiom == .phone ? ["fontSize": 1.0] : ["columns": "two"]
     }
 
     // MARK: - Loading
@@ -231,6 +234,8 @@ final class ReaderViewController: UIViewController, WKNavigationDelegate, UIGest
             // The last page of the last chapter: closing the book here offers to mark it finished.
             let atEnd = position.href == edition.publication.spine.last && position.page + position.visiblePages > position.totalPages
             journal.readerMoved(observation, atEnd: atEnd)
+            // VoiceOver says where the new page is and moves on to its text.
+            if UIAccessibility.isVoiceOverRunning { UIAccessibility.post(notification: .pageScrolled, argument: observation.location) }
         case .forwardCoverage(let evidence):
             if isReady { journal.readerTraversed(bookID: edition.bookID, evidence: evidence) }
         case .pageMap(let data):

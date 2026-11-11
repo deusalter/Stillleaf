@@ -51,6 +51,11 @@ struct ReaderControls: View {
     /// Contents, search, appearance and bookmark, one tap each, beside the page number.
     private var toolbar: some View {
         HStack(spacing: 4) {
+            if chrome.pinned {
+                // VoiceOver and Switch Control cannot tap a page edge: they get page buttons.
+                tool("chevron.left", "Previous Page") { chrome.turn(forward: false) }
+                tool("chevron.right", "Next Page") { chrome.turn(forward: true) }
+            }
             tool("list.bullet", "Contents") { chrome.open(.contents) }
             tool("magnifyingglass", "Search Book") { chrome.open(.search) }
             tool("textformat.size", "Themes and Settings") { chrome.open(.appearance) }

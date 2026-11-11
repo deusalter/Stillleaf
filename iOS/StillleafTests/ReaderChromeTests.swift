@@ -55,6 +55,33 @@ final class ReaderChromeTests: XCTestCase {
 
     private func settle(_ milliseconds: UInt64 = 200) async throws { try await Task.sleep(nanoseconds: milliseconds * 1_000_000) }
 
+    func testControlsStayUpForVoiceOverAndStepAsideForSheets() async throws {
+        var assisted = false
+        let chrome = chrome()
+        chrome.keepsControls = { assisted }
+        await chrome.connect(firstOpen: false)
+        XCTAssertFalse(chrome.controlsVisible, "reading starts on a clean page")
+
+        assisted = true
+        chrome.accessibilityChanged()
+        XCTAssertTrue(chrome.controlsVisible, "VoiceOver cannot tap the middle of a page")
+        chrome.setControlsVisible(false)
+        chrome.toggleControls()
+        XCTAssertTrue(chrome.controlsVisible, "and nothing puts them away")
+        chrome.open(.contents)
+        XCTAssertFalse(chrome.controlsVisible, "except a sheet in front")
+        chrome.sheet = nil
+        XCTAssertTrue(chrome.controlsVisible)
+        chrome.turn(forward: true)
+        try await settle()
+        XCTAssertEqual(sent.last?.command, "next")
+
+        assisted = false
+        chrome.accessibilityChanged()
+        chrome.toggleControls()
+        XCTAssertFalse(chrome.controlsVisible, "without it a tap hides them again")
+    }
+
     func testFirstOpenStartsHandHeldAndLaterBooksCarryTheLastAppearance() async throws {
         let first = chrome()
         first.firstOpenPreferences = ["fontSize": 1.0]

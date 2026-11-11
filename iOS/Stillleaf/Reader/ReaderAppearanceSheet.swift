@@ -63,6 +63,10 @@ struct ReaderAppearanceSheet: View {
                 }
                 .pickerStyle(.segmented)
                 .padding(12)
+                if wide, !chrome.flag("scroll") {
+                    rule
+                    Toggle("Two Pages in Landscape", isOn: facing).padding(.horizontal, 16).padding(.vertical, 8)
+                }
                 if let options = chrome.control("fontFamily")?.options {
                     rule
                     menuRow("Font", options: options, key: "fontFamily")
@@ -89,6 +93,12 @@ struct ReaderAppearanceSheet: View {
     private var bold: Binding<Bool> {
         Binding(get: { (chrome.number("fontWeight") ?? 400) >= 600 },
                 set: { chrome.set("fontWeight", $0 ? 700 as Any : NSNull() as Any) })
+    }
+
+    /// Facing pages, which the renderer shows only where the page is wide enough for them.
+    private var facing: Binding<Bool> {
+        Binding(get: { chrome.preferences["columns"] as? String == "two" },
+                set: { chrome.set("columns", $0 ? "two" : "one") })
     }
 
     private var justified: Binding<Bool> {
