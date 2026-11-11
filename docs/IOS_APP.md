@@ -75,14 +75,26 @@ gives the page hand-held bands and no running title.
   and shows or hides the controls. Edge taps and swipes turn pages and put them
   away.
 - The controls are a close button, today's goal and streak, and a floating bar:
-  Contents, Search, Themes & Settings, Bookmark. While they are up the page shows
-  its total beside the page number.
+  Contents, Search, Themes & Settings, Bookmark. The bar sits in the band under
+  the text, on the trailing side; while it is up the page number moves to the
+  leading side and shows the total, so no line of text is ever covered.
 - Contents, Bookmarks, Highlights and Search are sheets. Rows come from the
   renderer (`panel`, `find`) and choosing one sends its id back (`go`), so the app
   never builds a position itself.
 - Themes & Settings is built from the renderer's own control definitions. Changes
   show on the page behind the sheet at once; rapid changes are coalesced into the
   latest values.
+- Highlighting is the renderer's own. iOS shows its Copy and Look Up menu above
+  a selection, so under the `touch` policy the highlight colours and Add note sit
+  below it. The system's selection handles send the page no pointer events, so
+  the renderer reads the settled selection from `selectionchange`; the tap that
+  clears a selection turns no page, and a swipe while text is selected is not a
+  page turn. The note editor has finger-sized controls and a 16 px field, which
+  stops iOS zooming into it.
+- Closing the reader on the last page of the last chapter, or within the last
+  1.5% of the book, offers to mark it finished (`Journal.finishOffer`,
+  `FinishOfferView`), then to rate it. Nothing is recorded without the reader's
+  tap. A declined book is offered again only after its reader gets further.
 - `ReaderChrome` (in `Model`, Foundation only) holds this state and is unit tested
   against a stand-in renderer. `ReaderControls` and the sheets are SwiftUI.
   `ReaderViewController` stays the `WKWebView` host.
@@ -230,7 +242,9 @@ records them. Position (`position` events) is saved independently of tracking.
   the app has taken over the renderer's controls, turns pages and checks position
   and page-coverage evidence.
 - `ScreenshotTests` fills a journal with generated books and walks every screen,
-  the reader and its sheets. `iOS/scripts/ci-build-and-test.sh` answers each
+  the reader and its sheets, a highlight and its note, three screens at an
+  accessibility text size and the finish offer. It runs on an iPhone and again
+  on an 11-inch iPad, whose pictures are named `ipad-<name>`. `iOS/scripts/ci-build-and-test.sh` answers each
   request with a real simulator screenshot, and the workflow uploads them as the
   `Stillleaf-iOS-screenshots` artifact. This is how the UI is reviewed on a Mac
   without Xcode.

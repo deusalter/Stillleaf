@@ -7,6 +7,7 @@ struct ReaderControls: View {
     @ObservedObject var chrome: ReaderChrome
     @EnvironmentObject private var journal: Journal
     let title: String
+    @State private var bookmarkTaps = 0
 
     var body: some View {
         GeometryReader { proxy in
@@ -54,9 +55,12 @@ struct ReaderControls: View {
             tool("magnifyingglass", "Search Book") { chrome.open(.search) }
             tool("textformat.size", "Themes and Settings") { chrome.open(.appearance) }
             tool(chrome.bookmarked ? "bookmark.fill" : "bookmark", chrome.bookmarked ? "Remove Bookmark" : "Bookmark This Page") {
+                bookmarkTaps += 1
                 chrome.toggleBookmark()
             }
         }
+        // A tap on the bookmark is felt; a page that merely has one is not.
+        .sensoryFeedback(.impact(weight: .light), trigger: bookmarkTaps)
         .padding(.horizontal, 6)
         .padding(.vertical, 2)
         .background(.regularMaterial, in: Capsule())

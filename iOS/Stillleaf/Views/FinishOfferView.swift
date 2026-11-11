@@ -52,6 +52,7 @@ struct FinishOfferView: View {
         .frame(maxWidth: 460)
         .frame(maxWidth: .infinity)
         .animation(.spring(response: 0.4, dampingFraction: 0.8), value: finished)
+        .sensoryFeedback(.success, trigger: finished)
     }
 
     private var offer: some View {
