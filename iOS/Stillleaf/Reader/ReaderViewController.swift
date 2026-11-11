@@ -82,10 +82,13 @@ final class ReaderViewController: UIViewController, WKNavigationDelegate, UIGest
                 Task { @MainActor [weak self] in self?.chrome.accessibilityChanged() }
             })
         }
-        // WebKit pans the page to keep the note field above the keyboard and can leave it panned afterwards.
-        observers.append(NotificationCenter.default.addObserver(forName: UIResponder.keyboardDidHideNotification, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor [weak self] in self?.webView?.scrollView.setContentOffset(.zero, animated: true) }
-        })
+        // WebKit pans the page to bring a focused field above the keyboard. The note editor places itself in the
+        // part of the page the keyboard leaves, so the pan only pushes it off the top, and can outlast the keyboard.
+        for name in [UIResponder.keyboardDidShowNotification, UIResponder.keyboardDidHideNotification] {
+            observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor [weak self] in self?.webView?.scrollView.setContentOffset(.zero, animated: true) }
+            })
+        }
         Task { await load() }
     }
 

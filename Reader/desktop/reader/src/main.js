@@ -1094,7 +1094,7 @@ for(const b of document.querySelectorAll('[data-highlight-color]'))b.onclick=()=
 };
 $('remove-selection').onclick=()=>{if(selection?.id)removeAnnotation(selection.id)};
 // A touch keyboard covers the lower part of the page without resizing it. The visual viewport says what is left, so the note editor can stay above the keys; where little is left (a phone, an iPad on its side) it also takes its compact form.
-if(window.visualViewport){const fit=()=>{document.documentElement.style.setProperty('--visible-height',visualViewport.height+'px');const up=visualViewport.height<innerHeight-120;document.body.classList.toggle('keyboard-up',up&&visualViewport.height<560);document.body.classList.toggle('keyboard-tight',up&&visualViewport.height<340)};visualViewport.addEventListener('resize',fit);fit()}
+if(window.visualViewport){const fit=()=>{document.documentElement.style.setProperty('--visible-height',visualViewport.height+'px');const up=visualViewport.height<innerHeight-120;document.body.classList.toggle('keyboard-shown',up);document.body.classList.toggle('keyboard-up',up&&visualViewport.height<560);document.body.classList.toggle('keyboard-tight',up&&visualViewport.height<340)};visualViewport.addEventListener('resize',fit);fit()}
 $('note-text').oninput=()=>{clearTimeout(noteSaveTimer);$('note-status').textContent='Saving…';noteSaveTimer=setTimeout(persistNote,180)};
 for(const radio of document.querySelectorAll('input[name="note-color"]'))radio.onchange=persistNote;
 $('note-selection').onclick=()=>editNote();$('dismiss-selection').onclick=dismissSelection;

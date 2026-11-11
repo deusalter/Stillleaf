@@ -104,5 +104,14 @@ if [ -n "$SMALL" ]; then
 else
   echo "No iPhone SE simulator: small-phone pictures skipped"
 fi
+# simctl pictures a turned iPhone in the panel's own upright frame; turn those pictures so they read level.
+# (An iPad simulator does not turn for a test, so its "landscape" pictures stay upright and are left alone.)
+for shot in "$OUT/screenshots"/*landscape*.png; do
+  [ -e "$shot" ] || continue
+  case "$(basename "$shot")" in ipad-*) continue ;; esac
+  width=$(sips -g pixelWidth "$shot" | awk '/pixelWidth/{print $2}')
+  height=$(sips -g pixelHeight "$shot" | awk '/pixelHeight/{print $2}')
+  if [ "${height:-0}" -gt "${width:-0}" ]; then sips -r 270 "$shot" >/dev/null 2>&1 || true; fi
+done
 echo "Screenshots: $(ls "$OUT/screenshots" | wc -l | tr -d ' ') in $OUT/screenshots"
 exit "$STATUS"

@@ -256,7 +256,10 @@ records them. Position (`position` events) is saved independently of tracking.
   accessibility text size, the finish offer, continuous scrolling, landscape
   and the controls as VoiceOver gets them. It runs on the largest iPhone, again
   on the 13-inch iPad (`ipad-<name>`) and, when the runner can provide one, on
-  an iPhone SE (`small-<name>`). `iOS/scripts/ci-build-and-test.sh` answers each
+  an iPhone SE (`small-<name>`). A turned iPhone is pictured in the panel's
+  upright frame, so the script turns those pictures level; an iPad simulator
+  does not turn for a test, so facing pages are covered by the renderer's
+  `touch-host` test instead. `iOS/scripts/ci-build-and-test.sh` answers each
   request with a real simulator screenshot, and the workflow uploads them as the
   `Stillleaf-iOS-screenshots` artifact. This is how the UI is reviewed on a Mac
   without Xcode.
