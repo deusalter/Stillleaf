@@ -1,4 +1,7 @@
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 @main
 struct StillleafApp: App {
@@ -27,7 +30,14 @@ final class AppLaunch: ObservableObject {
             journal = nil; failure = nil
             return
         }
-        do { journal = try Journal.live(); failure = nil }
-        catch { journal = nil; failure = error.localizedDescription }
+        do {
+            let live = try Journal.live()
+            #if canImport(UIKit)
+            // The name other devices show for this one in the sync folder.
+            live.deviceName = UIDevice.current.name
+            #endif
+            journal = live
+            failure = nil
+        } catch { journal = nil; failure = error.localizedDescription }
     }
 }

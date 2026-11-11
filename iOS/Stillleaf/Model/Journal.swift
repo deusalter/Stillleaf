@@ -41,6 +41,8 @@ final class Journal: ObservableObject {
     @Published var notice: JournalNotice?
     /// A short confirmation shown briefly at the bottom of the screen ("Added …").
     @Published var toast: String?
+    /// Sync through a folder the reader chose: where it stands, for Settings to show.
+    @Published private(set) var sync = SyncState()
     /// A book whose end was on screen when the reader closed and which is not marked finished: the app offers
     /// to finish it. Declined, it is offered again only once the reader has got further.
     @Published private(set) var finishOffer: String?
@@ -64,6 +66,13 @@ final class Journal: ObservableObject {
     private var offeredReach = 0.0
     private var timer: Timer?
     private var lastHistoryRefresh = Date.distantPast
+
+    /// This device's name in the sync folder. The app sets it; the model does not know what it runs on.
+    var deviceName = "iPhone"
+    private var syncRunning = false
+    private var syncWanted = false
+    /// Books in the folder that failed to import this run: not tried again on every pass.
+    private var syncUnreadable = Set<String>()
 
     private var pendingImports: [URL] = []
     private var importing = false
@@ -93,6 +102,8 @@ final class Journal: ObservableObject {
         tracker = engine.snapshot
         try ensureDailyGoal()
         refresh()
+        sync = SyncState(folderName: defaults.string(forKey: Self.syncFolderNameKey),
+                         lastSync: defaults.object(forKey: Self.syncLastKey) as? Date)
     }
 
     /// The production journal in Application Support.
@@ -220,6 +231,7 @@ final class Journal: ObservableObject {
         tick()
         stopTimer()
         refresh()
+        syncNow()
         let id = canonicalID(bookID)
         if let reach, booksByID[id] != nil, finished(bookID: id) == nil, reach > (finishOffersDeclined[id] ?? 0) {
             offeredReach = reach
@@ -235,6 +247,8 @@ final class Journal: ObservableObject {
         if !active { recordFinalPosition() }
         tick()
         if active { refresh() }
+        // Coming forward picks up what other devices did; leaving publishes what this one did.
+        syncNow()
     }
 
     /// Why time is not being credited right now, or nil while reading counts.
@@ -326,6 +340,8 @@ final class Journal: ObservableObject {
             case .success(let edition):
                 do {
                     try register(edition)
+                    // Imported here on purpose, whatever was decided about keeping it off this device before.
+                    try? rememberForSync { try $0.acceptEdition(edition.publication.id) }
                     importedIDs.append("epub:" + edition.publication.id)
                     if edition.alreadyImported { duplicates += 1 } else { imported.append(edition.publication.title) }
                 } catch { failures.append("\(url.lastPathComponent): \(error.localizedDescription)") }
@@ -490,6 +506,7 @@ final class Journal: ObservableObject {
         perform(rebuildingTracker: true) {
             try stopTracking()
             try store.deleteSession(sessionID)
+            try rememberForSync { try $0.recordDeletedSession(sessionID, at: clock().date) }
         }
     }
 
@@ -501,6 +518,7 @@ final class Journal: ObservableObject {
             try stopTracking()
             try store.deleteBook(bookID)
             if let edition = editions[bookID] { try removeFiles(of: edition) }
+            try rememberForSync { try $0.recordDeletedBook(bookID, at: clock().date) }
         }
     }
 
@@ -509,7 +527,11 @@ final class Journal: ObservableObject {
     func removeDownload(_ bookID: String) -> Bool {
         guard readingBookID != bookID else { return fail("Close the book before removing it.") }
         guard let edition = editions[bookID] else { return true }
-        return perform { try removeFiles(of: edition) }
+        return perform {
+            try removeFiles(of: edition)
+            // Its history stays and it stays on the other devices; sync must not bring the file back here.
+            try rememberForSync { try $0.declineEdition(edition.publication.id) }
+        }
     }
 
     private func removeFiles(of edition: Edition) throws {
@@ -526,6 +548,149 @@ final class Journal: ObservableObject {
         }
         ReaderPageMapStore(stateDirectory: paths.readerState).remove(publication: edition.publication)
         editions[edition.bookID] = nil
+    }
+
+    // MARK: - Sync
+
+    struct SyncState: Equatable {
+        /// The chosen folder's name, or nil while sync is off.
+        var folderName: String?
+        var running = false
+        var lastSync: Date?
+        /// The other devices seen in the folder on the last pass.
+        var devices: [String] = []
+        /// Why the last pass did not finish, in a sentence.
+        var problem: String?
+        /// Files the folder's own syncing had not delivered to this device yet.
+        var waiting = 0
+        var enabled: Bool { folderName != nil }
+    }
+
+    static let syncBookmarkKey = "syncFolderBookmark"
+    static let syncFolderNameKey = "syncFolderName"
+    static let syncLastKey = "syncLastDate"
+    static let syncPlatform = "ios"
+
+    /// Starts syncing through `folder`, which the reader picked. Access to it is kept as a bookmark.
+    func setSyncFolder(_ folder: URL) {
+        let scoped = folder.startAccessingSecurityScopedResource()
+        defer { if scoped { folder.stopAccessingSecurityScopedResource() } }
+        do {
+            defaults.set(try folder.bookmarkData(), forKey: Self.syncBookmarkKey)
+            defaults.set(folder.lastPathComponent, forKey: Self.syncFolderNameKey)
+            syncUnreadable = []
+            sync = SyncState(folderName: folder.lastPathComponent)
+            syncNow()
+        } catch {
+            sync.problem = "That folder can't be used for sync. \(error.localizedDescription)"
+        }
+    }
+
+    /// Stops syncing. What this device already published stays in the folder for the others.
+    func turnOffSync() {
+        forgetSyncFolder()
+    }
+
+    private func forgetSyncFolder() {
+        for key in [Self.syncBookmarkKey, Self.syncFolderNameKey, Self.syncLastKey] { defaults.removeObject(forKey: key) }
+        sync = SyncState()
+    }
+
+    private func syncFolder() -> URL? {
+        guard let bookmark = defaults.data(forKey: Self.syncBookmarkKey) else { return nil }
+        var stale = false
+        guard let url = try? URL(resolvingBookmarkData: bookmark, bookmarkDataIsStale: &stale) else { return nil }
+        if stale {
+            let scoped = url.startAccessingSecurityScopedResource()
+            if let fresh = try? url.bookmarkData() { defaults.set(fresh, forKey: Self.syncBookmarkKey) }
+            if scoped { url.stopAccessingSecurityScopedResource() }
+        }
+        return url
+    }
+
+    /// Runs `body` with the sync engine while the folder is open to this app. Does nothing while sync is off.
+    @discardableResult
+    private func withSyncFolder<T>(_ body: (FolderSync) throws -> T) throws -> T? {
+        guard sync.enabled, let folder = syncFolder() else { return nil }
+        let scoped = folder.startAccessingSecurityScopedResource()
+        defer { if scoped { folder.stopAccessingSecurityScopedResource() } }
+        return try body(FolderSync(folder: folder, memoryURL: paths.syncMemory, deviceName: deviceName, platform: Self.syncPlatform))
+    }
+
+    /// Notes something for sync that must not be lost when the folder is out of reach: a deletion, or a book
+    /// taken off this device. These live in this device's own memory file; the folder hears of them on the next pass.
+    private func rememberForSync(_ body: (FolderSync) throws -> Void) throws {
+        guard sync.enabled else { return }
+        let folder = syncFolder()
+        let scoped = folder?.startAccessingSecurityScopedResource() ?? false
+        defer { if scoped { folder?.stopAccessingSecurityScopedResource() } }
+        try body(FolderSync(folder: folder ?? paths.root.appendingPathComponent("SyncFolderUnavailable", isDirectory: true),
+                            memoryURL: paths.syncMemory, deviceName: deviceName, platform: Self.syncPlatform))
+    }
+
+    /// One sync pass, if sync is on and nothing is in the way. A reader that is open, or an import in progress,
+    /// postpones it: the journal is only merged while the tracker holds no session, and the pass runs when
+    /// the reader closes.
+    func syncNow() {
+        guard sync.enabled, !syncRunning else { return }
+        guard !importing, readingBookID == nil else { syncWanted = true; return }
+        syncRunning = true
+        syncWanted = false
+        sync.running = true
+        var arrivals: [URL] = []
+        do {
+            let summary = try withSyncFolder { engine -> FolderSync.Summary in
+                try stopTracking()
+                return try engine.sync(
+                    store: store, readerStates: ReaderStateStore(directory: paths.readerState), stateDirectory: paths.readerState, now: clock().date,
+                    editions: { self.editions.values.map { FolderSync.Edition(publication: $0.publication, directory: $0.directory) } },
+                    // Unpacking a book is slow, so arrivals are imported after the pass, off the main actor.
+                    importBook: { url in
+                        if !self.syncUnreadable.contains(url.deletingPathExtension().lastPathComponent) { arrivals.append(url) }
+                    },
+                    deleteBook: { id in
+                        try self.store.deleteBook(id)
+                        if let edition = self.editions[id] { try self.removeFiles(of: edition) }
+                    },
+                    deleteSession: { id in try self.store.deleteSession(id) })
+            }
+            if let summary {
+                if summary.changedLocalData {
+                    // The journal changed under the tracker: start it again from what is stored now.
+                    self.engine = try TrackingEngine(store: store, timezoneID: timezoneID)
+                    tracker = self.engine.snapshot
+                    trackingStopped = false
+                    refresh()
+                }
+                let now = clock().date
+                defaults.set(now, forKey: Self.syncLastKey)
+                sync.lastSync = now
+                sync.devices = summary.devices.map(\.name).sorted()
+                sync.waiting = summary.waitingForDownload
+                sync.problem = summary.warnings.first
+            } else {
+                sync.problem = "The sync folder can't be reached. Choose it again in Settings."
+            }
+        } catch {
+            sync.problem = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
+        sync.running = false
+        syncRunning = false
+        if !arrivals.isEmpty { Task { await importArrivals(arrivals) } }
+        else if syncWanted { syncNow() }
+    }
+
+    /// Imports books that arrived through the folder, then runs one more pass so each opens at its place.
+    private func importArrivals(_ urls: [URL]) async {
+        guard let folder = syncFolder() else { return }
+        let scoped = folder.startAccessingSecurityScopedResource()
+        let before = Set(editions.keys)
+        _ = await importEPUBs(urls)
+        if scoped { folder.stopAccessingSecurityScopedResource() }
+        for url in urls where editions["epub:" + url.deletingPathExtension().lastPathComponent] == nil {
+            syncUnreadable.insert(url.deletingPathExtension().lastPathComponent)
+        }
+        if Set(editions.keys) != before { syncNow() }
     }
 
     // MARK: - Settings
@@ -645,6 +810,10 @@ final class Journal: ObservableObject {
             try paths.prepare()
             editions = [:]
             try ensureDailyGoal()
+            // Deleting everything here is not a request to delete it everywhere: this device stops syncing
+            // and what it remembered of its books is dropped with them.
+            try? FileManager.default.removeItem(at: paths.syncMemory)
+            forgetSyncFolder()
         }
     }
 

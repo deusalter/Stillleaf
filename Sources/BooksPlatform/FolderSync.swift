@@ -192,6 +192,14 @@ public final class FolderSync {
     /// The reader removed a book's file from this device but kept its history: do not fetch it again.
     public func declineEdition(_ editionID: String) throws {
         memory.declinedEditions.insert(editionID)
+        memory.editions[editionID] = nil
+        try saveMemory()
+    }
+
+    /// This device no longer holds these books' reader state (all of them when nil). What it remembered of
+    /// their bookmarks and highlights must go too: a book that comes back empty has not had them removed.
+    public func forgetEditions(_ editionIDs: [String]? = nil) throws {
+        if let editionIDs { for id in editionIDs { memory.editions[id] = nil } } else { memory.editions = [:] }
         try saveMemory()
     }
 

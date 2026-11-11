@@ -21,6 +21,7 @@ struct SettingsView: View {
                         LabeledContent("Time zone", value: journal.timezoneID.replacingOccurrences(of: "_", with: " "))
                     }
                 }
+                SyncSection()
                 DataSection()
                 Section("About") {
                     LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")
@@ -171,6 +172,48 @@ private struct ReaderSection: View {
         } footer: {
             Text("Living grows as you read and becomes Still with Reduce Motion or Low Power Mode. Text size, theme and font are in the reader: tap the middle of a page, then the text button.")
         }
+    }
+}
+
+/// Sync with the reader's other devices through a folder they choose. Off until a folder is picked.
+private struct SyncSection: View {
+    @EnvironmentObject private var journal: Journal
+    @State private var choosing = false
+
+    var body: some View {
+        let sync = journal.sync
+        Section {
+            if sync.enabled {
+                LabeledContent("Folder", value: sync.folderName ?? "")
+                LabeledContent("Status") {
+                    Text(status(sync))
+                        .foregroundStyle(sync.problem == nil ? Color.secondary : Color.red)
+                        .multilineTextAlignment(.trailing)
+                }
+                Button("Sync Now") { journal.syncNow() }.disabled(sync.running)
+                Button("Turn Off Sync", role: .destructive) { journal.turnOffSync() }
+            } else {
+                Button("Choose Sync Folder…") { choosing = true }
+            }
+        } header: {
+            Text("Sync")
+        } footer: {
+            Text(sync.enabled
+                 ? "Stillleaf syncs when you open it and when you close a book. Choose the same folder in Stillleaf on your other devices. Deleting a book or a session here deletes it there too."
+                 : "Pick a folder in iCloud Drive, then choose the same folder in Stillleaf on your Mac. Your books, your place in them, your highlights and your reading history stay in step through that folder, in your own storage. Nothing is sent to Stillleaf.")
+        }
+        .fileImporter(isPresented: $choosing, allowedContentTypes: [.folder]) { result in
+            if case .success(let folder) = result { journal.setSyncFolder(folder) }
+        }
+    }
+
+    private func status(_ sync: Journal.SyncState) -> String {
+        if sync.running { return "Syncing…" }
+        if let problem = sync.problem { return problem }
+        if sync.waiting > 0 { return "Waiting for \(sync.waiting) file\(sync.waiting == 1 ? "" : "s") to arrive" }
+        guard let last = sync.lastSync else { return "Not synced yet" }
+        let when = last.formatted(.relative(presentation: .named))
+        return sync.devices.isEmpty ? "Synced \(when). No other device yet." : "Synced \(when) with \(sync.devices.joined(separator: ", "))"
     }
 }
 

@@ -8,6 +8,8 @@ struct JournalPaths {
     var history: URL { root.appendingPathComponent("history.sqlite") }
     var publications: URL { root.appendingPathComponent("Publications", isDirectory: true) }
     var readerState: URL { root.appendingPathComponent("ReaderState", isDirectory: true) }
+    /// What this device remembers between syncs (`FolderSync.Memory`). Never part of the sync folder.
+    var syncMemory: URL { root.appendingPathComponent("sync.json") }
     /// Short-lived export files handed to the system file exporter.
     var exports: URL { root.appendingPathComponent("Exports", isDirectory: true) }
 
