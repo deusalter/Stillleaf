@@ -122,7 +122,7 @@ struct StarRatingLabel: View {
     }
 }
 
-/// Quarter-star ratings, as on the Mac.
+/// Quarter-star ratings, as on the Mac. A tap on a star gives whole stars; the slider gives quarters.
 struct RatingEditor: View {
     let rating: Double?
     let save: (Double?) -> Void
@@ -130,13 +130,26 @@ struct RatingEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                StarRatingLabel(rating: draft).font(.title3)
-                Spacer()
-                Text(rating == nil ? "Not rated" : ReadingText.stars(draft)).foregroundStyle(.secondary).monospacedDigit()
+            HStack(spacing: 2) {
+                ForEach(1...5, id: \.self) { star in
+                    let fill = min(1, max(0, draft - Double(star - 1)))
+                    Button { draft = draft == Double(star) ? Double(star) - 0.5 : Double(star) } label: {
+                        Image(systemName: fill >= 0.75 ? "star.fill" : fill >= 0.25 ? "star.leadinghalf.filled" : "star")
+                            .font(.title2)
+                            .frame(width: 40, height: 40)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+                Spacer(minLength: 8)
+                Text(rating == nil && draft == 0 ? "Not rated" : ReadingText.stars(draft)).foregroundStyle(.secondary).monospacedDigit()
             }
+            .foregroundStyle(Color.accentColor)
+            // The slider is the one control VoiceOver needs; the stars repeat it.
+            .accessibilityHidden(true)
             Slider(value: $draft, in: 0...5, step: 0.25)
                 .accessibilityLabel("Rating")
+                .accessibilityValue(ReadingText.stars(draft))
             if rating != nil {
                 Button("Clear Rating", role: .destructive) { save(nil) }.font(.footnote)
             }
@@ -149,6 +162,8 @@ struct RatingEditor: View {
             try? await Task.sleep(for: .milliseconds(600))
             if !Task.isCancelled { save(draft) }
         }
+        // Leaving before it settled still keeps the rating.
+        .onDisappear { if draft != (rating ?? 0) { save(draft) } }
     }
 }
 

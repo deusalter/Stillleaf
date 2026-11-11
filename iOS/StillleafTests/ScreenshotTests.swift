@@ -151,6 +151,17 @@ final class ScreenshotTests: XCTestCase {
         try await capture("28-large-text-journal")
         window.traitOverrides.remove(UITraitPreferredContentSizeCategory.self)
 
+        // The offer made when the reader closes a book on its last pages, then the same sheet once accepted.
+        let finishing = AppRouter()
+        show(RootView(router: finishing).environmentObject(journal))
+        try await Task.sleep(nanoseconds: 800_000_000)
+        finishing.sheet = .finish(books[0])
+        try await capture("29-finish-offer", settle: 1.6)
+        XCTAssertTrue(journal.markFinished(books[0]))
+        try await capture("30-finish-rate", settle: 1.4)
+        finishing.sheet = nil
+        try await Task.sleep(nanoseconds: 900_000_000)
+
         // A new install.
         let emptyScratch = try Scratch()
         let empty = try emptyScratch.journal()

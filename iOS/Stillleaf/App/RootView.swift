@@ -23,13 +23,14 @@ struct RootView: View {
                 .tabItem { Label("Journal", systemImage: "calendar") }.tag(AppRouter.Tab.journal)
         }
         .overlay(alignment: .bottom) { StatusCapsule(text: journal.importStatus ?? journal.toast, busy: journal.importStatus != nil) }
-        .fullScreenCover(item: $router.reading) { edition in
+        .fullScreenCover(item: $router.reading, onDismiss: offerFinish) { edition in
             ReaderScreen(edition: edition, journal: journal) { router.reading = nil }
         }
-        .sheet(item: $router.sheet) { sheet in
+        .sheet(item: $router.sheet, onDismiss: { journal.closeFinishOffer() }) { sheet in
             switch sheet {
             case .settings: SettingsView(showWelcome: { router.sheet = nil; welcomeCompleted = false })
             case .logReading: LogReadingView()
+            case .finish(let book): FinishOfferView(bookID: book)
             }
         }
         .sheet(isPresented: Binding(get: { !welcomeCompleted && router.sheet == nil }, set: { if !$0 { welcomeCompleted = true } })) {
@@ -63,6 +64,12 @@ struct RootView: View {
         .task { await journal.loadLibrary() }
         // Outermost, so the reader and every sheet can reach the router too.
         .environmentObject(router)
+    }
+
+    /// Once the reader has gone: a book closed on its last pages is offered as finished.
+    private func offerFinish() {
+        guard let book = journal.finishOffer else { return }
+        if router.sheet == nil, router.reading == nil { router.sheet = .finish(book) } else { journal.closeFinishOffer(remember: false) }
     }
 
     private func importBooks(_ urls: [URL], openSingle: Bool) {

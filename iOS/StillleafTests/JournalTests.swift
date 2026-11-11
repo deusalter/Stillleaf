@@ -101,6 +101,40 @@ final class JournalTests: XCTestCase {
         XCTAssertEqual(journal.position(bookID: edition.bookID)?.location, "Chapter 1 of 3 · Page 3 of 6")
     }
 
+    func testClosingABookOnItsLastPagesOffersToFinishItOnce() throws {
+        let id = edition.bookID
+        func close(at fraction: Double, atEnd: Bool = false) {
+            journal.readerOpened(bookID: id)
+            journal.readerBecameReady(bookID: id)
+            journal.readerMoved(ProgressObservation(bookID: id, fraction: fraction, source: "stillleaf-epub-location", reliable: true), atEnd: atEnd)
+            journal.readerClosed(bookID: id)
+        }
+        close(at: 0.5)
+        XCTAssertNil(journal.finishOffer, "the middle of a book is not its end")
+        close(at: 0.99)
+        XCTAssertEqual(journal.finishOffer, id)
+        journal.closeFinishOffer()
+        XCTAssertNil(journal.finished(bookID: id), "declining records nothing in the journal")
+
+        close(at: 0.99)
+        XCTAssertNil(journal.finishOffer, "declined, and no further on: not asked again")
+        close(at: 0.995)
+        XCTAssertEqual(journal.finishOffer, id, "further on: asked again")
+        journal.closeFinishOffer(remember: false)
+        close(at: 0.995)
+        XCTAssertEqual(journal.finishOffer, id, "an offer that was never shown is not a decline")
+        journal.closeFinishOffer()
+        close(at: 0.4, atEnd: true)
+        XCTAssertEqual(journal.finishOffer, id, "the very last page always counts, in a short book too")
+
+        XCTAssertTrue(journal.acceptFinishOffer())
+        XCTAssertNotNil(journal.finished(bookID: id))
+        XCTAssertEqual(journal.finishOffer, id, "the offer stays up for a rating until it is closed")
+        journal.closeFinishOffer()
+        close(at: 1, atEnd: true)
+        XCTAssertNil(journal.finishOffer, "a finished book is not offered")
+    }
+
     func testManualEntriesAreValidatedLikeTheMac() {
         let paper = BookRecord(id: "manual:" + UUID().uuidString, title: "Paper Book", observedAt: clock.date)
         clock.advance(3_600)

@@ -6,9 +6,18 @@ import SwiftUI
 final class AppRouter: ObservableObject {
     enum Tab: Hashable { case reading, library, journal }
 
-    enum Sheet: String, Identifiable {
+    enum Sheet: Identifiable, Equatable {
         case settings, logReading
-        var id: String { rawValue }
+        /// The offer to mark a book finished, made after the reader closes on its last pages.
+        case finish(String)
+
+        var id: String {
+            switch self {
+            case .settings: return "settings"
+            case .logReading: return "logReading"
+            case .finish(let book): return "finish:" + book
+            }
+        }
     }
 
     enum JournalMode: String, CaseIterable, Identifiable {

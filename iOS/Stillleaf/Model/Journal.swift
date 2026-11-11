@@ -41,6 +41,9 @@ final class Journal: ObservableObject {
     @Published var notice: JournalNotice?
     /// A short confirmation shown briefly at the bottom of the screen ("Added …").
     @Published var toast: String?
+    /// A book whose end was on screen when the reader closed and which is not marked finished: the app offers
+    /// to finish it. Declined, it is offered again only once the reader has got further.
+    @Published private(set) var finishOffer: String?
 
     let paths: JournalPaths
     private let store: ReadingStore
@@ -56,6 +59,9 @@ final class Journal: ObservableObject {
     private var sceneActive = true
     private var readerReady = false
     private var latestProgress: ProgressObservation?
+    /// How far into the open book the reader is, when that is its end: the fraction, or 2 on the very last page.
+    private var endReach: Double?
+    private var offeredReach = 0.0
     private var timer: Timer?
     private var lastHistoryRefresh = Date.distantPast
 
@@ -165,6 +171,8 @@ final class Journal: ObservableObject {
         readingBookID = bookID
         readerReady = false
         latestProgress = nil
+        endReach = nil
+        finishOffer = nil
         startTimer()
         tick()
     }
@@ -175,9 +183,12 @@ final class Journal: ObservableObject {
         tick()
     }
 
-    func readerMoved(_ observation: ProgressObservation) {
+    /// `atEnd` is true while the last page of the book's last chapter is on screen.
+    func readerMoved(_ observation: ProgressObservation, atEnd: Bool = false) {
         guard readingBookID == observation.bookID else { return }
         latestProgress = observation
+        // Books end with notes and back matter, so the last few pages count as the end too.
+        endReach = atEnd ? 2 : observation.fraction.flatMap { $0 >= Self.endFraction ? $0 : nil }
     }
 
     /// Forward sequential page coverage, recorded only inside a session already being credited.
@@ -201,12 +212,19 @@ final class Journal: ObservableObject {
     func readerClosed(bookID: String) {
         guard readingBookID == bookID else { return }
         recordFinalPosition()
+        let reach = endReach
         readingBookID = nil
         readerReady = false
         latestProgress = nil
+        endReach = nil
         tick()
         stopTimer()
         refresh()
+        let id = canonicalID(bookID)
+        if let reach, booksByID[id] != nil, finished(bookID: id) == nil, reach > (finishOffersDeclined[id] ?? 0) {
+            offeredReach = reach
+            finishOffer = id
+        }
     }
 
     /// Scene activity: anything but `.active` (background, app switcher, Control Centre,
@@ -361,6 +379,30 @@ final class Journal: ObservableObject {
         case .failure(let error):
             notice = JournalNotice(title: "Library", message: "Imported books could not be loaded. \(error.localizedDescription)")
         }
+    }
+
+    // MARK: - Finishing a book from the reader
+
+    static let endFraction = 0.985
+    static let finishOffersKey = "finishOffersDeclined"
+    private var finishOffersDeclined: [String: Double] { defaults.dictionary(forKey: Self.finishOffersKey) as? [String: Double] ?? [:] }
+
+    /// Marks the offered book finished. The offer stays up so the reader can rate the book; `closeFinishOffer` ends it.
+    @discardableResult
+    func acceptFinishOffer() -> Bool {
+        guard let id = finishOffer else { return false }
+        return markFinished(id)
+    }
+
+    /// Ends the offer. A book its reader chose to leave unfinished is remembered with how far they had got;
+    /// pass `remember: false` when the offer was never shown.
+    func closeFinishOffer(remember: Bool = true) {
+        guard let id = finishOffer else { return }
+        finishOffer = nil
+        guard remember, finished(bookID: id) == nil else { return }
+        var declined = finishOffersDeclined
+        declined[id] = offeredReach
+        defaults.set(declined, forKey: Self.finishOffersKey)
     }
 
     // MARK: - Journal edits

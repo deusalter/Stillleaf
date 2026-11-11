@@ -227,8 +227,10 @@ final class ReaderViewController: UIViewController, WKNavigationDelegate, UIGest
                 .flatMap { $0["preferences"] as? [String: Any] }?["scroll"] as? Bool ?? false
             persist(data)
             matchPageColours()
-        case .position(_, let observation):
-            journal.readerMoved(observation)
+        case .position(let position, let observation):
+            // The last page of the last chapter: closing the book here offers to mark it finished.
+            let atEnd = position.href == edition.publication.spine.last && position.page + position.visiblePages > position.totalPages
+            journal.readerMoved(observation, atEnd: atEnd)
         case .forwardCoverage(let evidence):
             if isReady { journal.readerTraversed(bookID: edition.bookID, evidence: evidence) }
         case .pageMap(let data):
