@@ -5,6 +5,8 @@ import SwiftUI
 /// The appearance chosen here is also what a book opened for the first time starts with.
 struct ReaderAppearanceSheet: View {
     @ObservedObject var chrome: ReaderChrome
+    /// On a wide screen a half-height sheet is a small card that cuts the themes off; there it opens at full height.
+    var wide = false
 
     private let columns = [GridItem(.adaptive(minimum: 96, maximum: 160), spacing: 12)]
 
@@ -31,7 +33,7 @@ struct ReaderAppearanceSheet: View {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { chrome.sheet = nil } }
             }
         }
-        .presentationDetents([.medium, .large])
+        .presentationDetents(wide ? [.large] : [.medium, .large])
         .presentationDragIndicator(.visible)
     }
 

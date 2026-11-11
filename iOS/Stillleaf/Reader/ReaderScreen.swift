@@ -6,6 +6,7 @@ struct ReaderScreen: View {
     let journal: Journal
     let onClose: () -> Void
     @StateObject private var chrome: ReaderChrome
+    @Environment(\.horizontalSizeClass) private var sizeClass
 
     @MainActor
     init(edition: Edition, journal: Journal, chrome: ReaderChrome? = nil, onClose: @escaping () -> Void) {
@@ -25,7 +26,7 @@ struct ReaderScreen: View {
                     switch sheet {
                     case .contents: ReaderContentsSheet(chrome: chrome)
                     case .search: ReaderSearchSheet(chrome: chrome)
-                    case .appearance: ReaderAppearanceSheet(chrome: chrome)
+                    case .appearance: ReaderAppearanceSheet(chrome: chrome, wide: sizeClass == .regular)
                     }
                 }
                 // Sheets over a dark page are dark, whatever the system setting.

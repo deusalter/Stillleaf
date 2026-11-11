@@ -10,6 +10,7 @@ struct LibraryView: View {
 
     @EnvironmentObject private var journal: Journal
     @EnvironmentObject private var router: AppRouter
+    @Environment(\.dynamicTypeSize) private var typeSize
     @State private var path: [String] = []
     @State private var query = ""
     @State private var shelf: Shelf = .all
@@ -44,7 +45,7 @@ struct LibraryView: View {
                     .padding(.horizontal, 20)
                     .padding(.top, 4)
                 }
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 100, maximum: 170), spacing: 20, alignment: .top)], spacing: 26) {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: typeSize.isAccessibilitySize ? 140 : 100, maximum: 190), spacing: 20, alignment: .top)], spacing: 26) {
                     ForEach(books) { book in
                         Button { select(book) } label: { BookCard(book: book) }
                             .buttonStyle(.plain)
@@ -124,9 +125,10 @@ struct BookCard: View {
                             .padding(6)
                     }
                 }
-            if let fraction, !finished {
-                ProgressView(value: min(1, max(0, fraction))).scaleEffect(x: 1, y: 0.7, anchor: .center)
-            }
+            // Every card keeps the bar's place, so titles in a row share a line.
+            ProgressView(value: min(1, max(0, fraction ?? 0))).scaleEffect(x: 1, y: 0.7, anchor: .center)
+                .opacity(fraction != nil && !finished ? 1 : 0)
+                .accessibilityHidden(true)
             Text(book.title).font(.system(.subheadline, design: .serif).weight(.medium)).lineLimit(2).multilineTextAlignment(.leading)
             Text(status(finished: finished, fraction: fraction, onDevice: edition != nil))
                 .font(.caption).foregroundStyle(.secondary).lineLimit(1)

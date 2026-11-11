@@ -11,8 +11,9 @@ struct WelcomeView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                PageleafMark().fill(Color.accentColor).frame(width: 64, height: 64).frame(maxWidth: .infinity)
+            // Sized so the whole welcome, Skip included, fits an iPad's form sheet without scrolling.
+            VStack(alignment: .leading, spacing: 18) {
+                PageleafMark().fill(Color.accentColor).frame(width: 56, height: 56).frame(maxWidth: .infinity)
                 Text("Welcome to Stillleaf")
                     .font(.system(.largeTitle, design: .serif).weight(.semibold))
                     .frame(maxWidth: .infinity)
@@ -43,7 +44,8 @@ struct WelcomeView: View {
                 .buttonStyle(ProminentActionStyle(maxWidth: .infinity))
                 Button("Skip") { done(); dismiss() }.frame(maxWidth: .infinity)
             }
-            .padding(28)
+            .padding(.horizontal, 28)
+            .padding(.vertical, 22)
         }
     }
 

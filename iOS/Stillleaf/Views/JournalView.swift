@@ -53,6 +53,7 @@ private struct JournalSummary: View {
             Text(value).font(.system(.headline, design: .rounded)).monospacedDigit().lineLimit(1).minimumScaleFactor(0.7)
             Text(caption).font(.caption2).foregroundStyle(.secondary)
         }
+        .padding(.horizontal, 6)
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .combine)
     }

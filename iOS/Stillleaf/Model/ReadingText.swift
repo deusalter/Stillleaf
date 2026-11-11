@@ -39,6 +39,12 @@ enum ReadingText {
 
     static func percent(_ fraction: Double) -> String { "\(Int((min(1, max(0, fraction)) * 100).rounded()))%" }
 
+    /// "42% · Chapter 4 of 9": how far, and the chapter, without the page inside the chapter.
+    static func place(fraction: Double, location: String?) -> String {
+        let chapter = location?.components(separatedBy: " · ").first { !$0.hasPrefix("Page ") }
+        return [percent(fraction), chapter].compactMap { $0 }.joined(separator: " · ")
+    }
+
     static func stars(_ rating: Double) -> String {
         rating == rating.rounded() ? "\(Int(rating)) ★" : "\(rating.formatted(.number.precision(.fractionLength(0...2)))) ★"
     }

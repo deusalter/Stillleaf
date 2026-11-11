@@ -63,7 +63,7 @@ private struct CurrentBook: View {
                 VStack(spacing: 7) {
                     ProgressView(value: min(1, max(0, fraction)))
                         .frame(maxWidth: 220)
-                    Text([ReadingText.percent(fraction), position?.location].compactMap { $0 }.joined(separator: " · "))
+                    Text(ReadingText.place(fraction: fraction, location: position?.location))
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
