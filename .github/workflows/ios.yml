@@ -33,12 +33,14 @@ jobs:
         if: ${{ always() }}
         with:
           name: Stillleaf-iOS-screenshots
+          overwrite: true
           path: .build/ios/screenshots
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         if: ${{ failure() }}
         with:
           name: Stillleaf-iOS-test-results
+          overwrite: true
           path: .build/ios/*.xcresult
           if-no-files-found: ignore
   shared-package:

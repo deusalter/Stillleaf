@@ -53,6 +53,7 @@ jobs:
         if: ${{ !cancelled() }}
         with:
           name: Stillleaf-History-previews
+          overwrite: true
           path: ${{ runner.temp }}/history-atlas/*.png
       - name: Native Quiet UI motion checks (Core Animation layers, no window)
         if: ${{ !cancelled() && steps.reader-assets.outcome == 'success' }}
@@ -64,6 +65,7 @@ jobs:
         if: ${{ !cancelled() }}
         with:
           name: Stillleaf-Quiet-UI-previews
+          overwrite: true
           path: ${{ runner.temp }}/quiet-ui/*.png
           if-no-files-found: ignore
       - name: Native EPUB reader smoke (offscreen WKWebView, synthetic book)
@@ -113,6 +115,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Stillleaf-reader-smoke-diagnostics
+          overwrite: true
           path: |
             ${{ runner.temp }}/reader-diagnostics/
             ${{ runner.temp }}/reader-appearance/
@@ -122,5 +125,6 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: Stillleaf-macOS-development
+          overwrite: true
           path: dist/Stillleaf-*.zip
 # CI does not grant Accessibility access or validate a live Books/Discord session.
