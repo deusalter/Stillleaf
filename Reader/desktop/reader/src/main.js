@@ -165,7 +165,7 @@ const annotationUI=new AnnotationUI({popup:$('selection-tools'),layer:$('annotat
   const hrefs=navigator?.viewport?.readingOrder??[];
   return (navigator?._cframes??[]).filter(Boolean).map((manager,index)=>({frame:manager.iframe,href:hrefs[index]})).filter(({frame,href})=>href&&$('reader').contains(frame)&&getComputedStyle(frame).visibility!=='hidden');
  },
- annotations:()=>state?.annotations??[],continuous:()=>navigator?.kind==='continuous',onDismiss:()=>{selection=null},
+ annotations:()=>state?.annotations??[],continuous:()=>navigator?.kind==='continuous',onDismiss:()=>{if(selection)selectionDismissedAt=performance.now();selection=null},
  onEdit:id=>{const item=state?.annotations.find(x=>x.id===id);if(item)editNote(item)},onList:openAnnotations});
 function openAnnotations(opener){if(!state)return;annotationUI.dismiss();renderPanel('notes');showDialog('library-panel','tab-notes',opener instanceof Element?opener:undefined)}
 function removeAnnotation(id){state.annotations=state.annotations.filter(x=>x.id!==id);applyAnnotations();changed();annotationUI.dismiss();if($('library-panel').open)renderPanel('notes');notice('Highlight and note removed.')}
@@ -578,6 +578,18 @@ function selected(value){
  selection=item;annotationUI.show(item,selectedRange);
  if(selection===item)emit('selection',{selection:{text:item.quote,locator:item.locator}});
 }
+// A finger adjusts a selection with the system's handles, which send the page no pointer events, so under a touch host the
+// settled selection is read from selectionchange. Clearing it is left to the tap that does so.
+let touchSelectionTimer,selectionDismissedAt=-Infinity;
+function touchSelectionChanged(wnd,generation){
+ if(!document.body.classList.contains('native-touch'))return;
+ clearTimeout(touchSelectionTimer);
+ touchSelectionTimer=setTimeout(()=>{
+  if(generation!==lifecycle||!state||document.querySelector('dialog[open]'))return;
+  const text=wnd.getSelection()?.toString()??'',pair=annotationUI.frames().find(x=>x.frame.contentWindow===wnd);
+  if(text.trim()&&pair)selected({text,locator:{href:pair.href,type:'text/html',text:{highlight:text}}});
+ },280);
+}
 function decorationLocator(item){
  const locator=clone(item.locator);
  // Readium sends decoration locators as JSON. Passing a Locator instance loses
@@ -887,8 +899,10 @@ async function searchBook(){
 // shows or hides its controls on it, as Books does. Hosts that reveal controls another way ignore the event.
 function pageEdgeTap(event){
  const native=document.body.classList.contains('native-chrome'),busy=Boolean(event.interactiveElement||document.querySelector('dialog[open]'));
- if(state?.preferences.scroll){if(native&&!busy&&![...$('reader').querySelectorAll('iframe')].some(f=>f.contentWindow?.getSelection()?.toString()))emit('chrome-tap');return false}
- if(busy)return true;
+ // On a touch host the tap that clears a selection has already cleared it by the time it arrives here: it is not a page turn.
+ const deselecting=document.body.classList.contains('native-touch')&&performance.now()-selectionDismissedAt<500;
+ if(state?.preferences.scroll){if(native&&!busy&&!deselecting&&![...$('reader').querySelectorAll('iframe')].some(f=>f.contentWindow?.getSelection()?.toString()))emit('chrome-tap');return false}
+ if(busy||deselecting)return true;
  const frame=[...$('reader').querySelectorAll('iframe')].find(f=>getComputedStyle(f).visibility!=='hidden');
  if(!frame||frame.contentWindow.getSelection()?.toString())return true;
  const width=frame.clientWidth*devicePixelRatio;
@@ -912,7 +926,7 @@ async function installNavigator(location,settings=readiumPreferences()){
    readerScrolled:(delta,height)=>{if(generation===lifecycle)trackContinuousScroll(delta,height)},
    readerAnchorChanged:locator=>{if(generation===lifecycle&&performance.now()>=quietUntil&&!reflowCount&&!resizing)stableAnchor=clone(locator)},
    textSelected:value=>{if(generation===lifecycle)selected(value)},
-   frameLoaded:wnd=>{if(!wnd.CSS?.highlights&&navigator)navigator.decorationsAvailable=false;if(!frames.has(wnd)){frames.add(wnd);observeChapterPages(wnd,generation);for(const type of ["wheel","keydown","pointerdown"])wnd.addEventListener(type,backgroundActivity,{capture:true,passive:true});wnd.addEventListener('scroll',scrollActivity,{capture:true,passive:true});const page=installPageTurnWheel(wnd,{gesture:pageTurnGesture,enabled:()=>Boolean(state&&!state.preferences.scroll&&!document.querySelector('dialog[open]')),rtl:()=>input?.readingProgression==='rtl'||navigator?.readingProgression==='rtl',turn});wnd.document.addEventListener('keydown',keyboard);let anchorTimer;const boundary=toggledListener(wnd,'wheel',event=>{void crossScrollBoundary(wnd,event.deltaY,event);clearTimeout(anchorTimer);if(!boundaryBusy)anchorTimer=setTimeout(()=>{if(!reflowCount&&!resizing)stableAnchor=visibleAnchor()},100)},{passive:false});frameWheel.set(wnd,{page,boundary});syncWheel();wnd.document.addEventListener('keydown',event=>{if(navigator?.kind!=='continuous'&&['ArrowDown','PageDown','ArrowUp','PageUp'].includes(event.key)&&!['INPUT','TEXTAREA','SELECT'].includes(event.target?.tagName)){void crossScrollBoundary(wnd,['ArrowDown','PageDown'].includes(event.key)?1:-1,event);setTimeout(()=>{if(!boundaryBusy&&!reflowCount&&!resizing)stableAnchor=visibleAnchor()},100)}});wnd.document.addEventListener('pointerup',followPublicationLink,true);wnd.addEventListener('scroll',()=>trackScroll(wnd),{passive:true});wnd.document.addEventListener('click',followPublicationLink,true);wnd.document.addEventListener('auxclick',followPublicationLink,true);wnd.document.addEventListener('keyup',()=>{const text=wnd.getSelection()?.toString();if(text&&lastLocator&&navigator?.kind!=='continuous')selected({text,locator:Locator.deserialize({...lastLocator,text:{highlight:text}})});});}},
+   frameLoaded:wnd=>{if(!wnd.CSS?.highlights&&navigator)navigator.decorationsAvailable=false;if(!frames.has(wnd)){frames.add(wnd);observeChapterPages(wnd,generation);wnd.document.addEventListener('selectionchange',()=>touchSelectionChanged(wnd,generation));for(const type of ["wheel","keydown","pointerdown"])wnd.addEventListener(type,backgroundActivity,{capture:true,passive:true});wnd.addEventListener('scroll',scrollActivity,{capture:true,passive:true});const page=installPageTurnWheel(wnd,{gesture:pageTurnGesture,enabled:()=>Boolean(state&&!state.preferences.scroll&&!document.querySelector('dialog[open]')),rtl:()=>input?.readingProgression==='rtl'||navigator?.readingProgression==='rtl',turn});wnd.document.addEventListener('keydown',keyboard);let anchorTimer;const boundary=toggledListener(wnd,'wheel',event=>{void crossScrollBoundary(wnd,event.deltaY,event);clearTimeout(anchorTimer);if(!boundaryBusy)anchorTimer=setTimeout(()=>{if(!reflowCount&&!resizing)stableAnchor=visibleAnchor()},100)},{passive:false});frameWheel.set(wnd,{page,boundary});syncWheel();wnd.document.addEventListener('keydown',event=>{if(navigator?.kind!=='continuous'&&['ArrowDown','PageDown','ArrowUp','PageUp'].includes(event.key)&&!['INPUT','TEXTAREA','SELECT'].includes(event.target?.tagName)){void crossScrollBoundary(wnd,['ArrowDown','PageDown'].includes(event.key)?1:-1,event);setTimeout(()=>{if(!boundaryBusy&&!reflowCount&&!resizing)stableAnchor=visibleAnchor()},100)}});wnd.document.addEventListener('pointerup',followPublicationLink,true);wnd.addEventListener('scroll',()=>trackScroll(wnd),{passive:true});wnd.document.addEventListener('click',followPublicationLink,true);wnd.document.addEventListener('auxclick',followPublicationLink,true);wnd.document.addEventListener('keyup',()=>{const text=wnd.getSelection()?.toString();if(text&&lastLocator&&navigator?.kind!=='continuous')selected({text,locator:Locator.deserialize({...lastLocator,text:{highlight:text}})});});}},
    error:error=>{notice(error.message);emit('error',{message:error.message})}
   };
   navigator=input.experimentalContinuous&&settings.scroll?new ContinuousNavigator($('reader'),input,pool,listeners,location,settings):new EpubNavigator($('reader'),publication,listeners,positions,location?engineLocator(location):undefined,{preferences:settings,defaults:{}});

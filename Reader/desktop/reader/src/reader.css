@@ -120,6 +120,23 @@ input[type=range]::-moz-range-thumb{width:12px;height:12px;border:2px solid var(
 .native-chrome.native-touch .footer-navigation{left:14px;bottom:8px}
 .native-chrome.native-touch #running-title{display:none!important}
 @media(min-width:700px){.native-chrome.native-touch{--reader-top:56px;--reader-bottom:68px}.native-chrome.native-touch .reading-footer{bottom:26px}}
+/* With the hand-held controls up, the toolbar takes the trailing side of the bottom band and the page number the leading side, so neither covers text. */
+.native-chrome.native-touch.native-controlsVisible .reading-footer{text-align:left;padding-left:24px;bottom:18px}
+.native-chrome.native-touch.native-controlsVisible .reading-footer:has(#return-jump:not([hidden])){padding-left:104px}
+@media(min-width:700px){.native-chrome.native-touch.native-controlsVisible .reading-footer{bottom:26px;padding-left:28px}}
+/* Fingers need larger targets than a pointer, and iOS shows its own Copy and Look Up menu above a selection: the highlight colours go below it (annotation-ui.js). */
+.native-touch #selection-tools{gap:2px;padding:4px 6px;border-radius:14px}
+.native-touch #selection-tools button{min-height:44px;padding:8px 10px;font-size:15px}
+.native-touch #selection-tools .highlight-color{width:40px;padding:8px}
+.native-touch .highlight-color span{width:24px;height:24px}
+/* The note editor in the hand: a field of 16px or more so iOS does not zoom into it, finger-sized controls, and on a phone a place near the top, clear of the keyboard. */
+.native-touch .note-panel textarea{font-size:16px;line-height:1.4}
+.native-touch .note-panel .close-button{width:44px;height:44px;right:-14px;top:-1px}
+.native-touch .annotation-colors label{padding:11px 15px}
+.native-touch .note-panel legend,.native-touch .note-panel .small-note{font-size:13px}
+.native-touch .note-panel .primary-button,.native-touch .note-panel .quiet-danger{min-height:44px;font-size:15px}
+.native-touch .note-panel .primary-button{padding-inline:24px}
+@media(max-width:699px){.native-touch .note-panel{margin-top:12px}}
 .native-chrome .panel{top:12px;max-height:calc(100dvh - 24px)}
 .native-reduceMotion *, .native-reduceMotion *::before,.native-reduceMotion *::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
 .native-increaseContrast .panel,.native-increaseContrast .note-panel{border:2px solid var(--ink)}

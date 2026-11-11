@@ -2,10 +2,12 @@ import {locatorRange} from './continuous';
 
 // Geometry stays in viewport coordinates. Nothing here changes chapter layout,
 // progress, or persisted locators; the navigator remains the location authority.
-export function popupPosition(rect, width, height, viewport) {
+// `below` is for touch hosts, where the system's own selection menu takes the place above the text and the handles hang under it.
+export function popupPosition(rect, width, height, viewport, below=false) {
  const pad=8, left=Math.max(pad,Math.min(viewport.width-width-pad,(rect.left+rect.right-width)/2));
- const above=rect.top-height-10;
- return {left,top:Math.max(pad,Math.min(viewport.height-height-pad,above>=pad?above:rect.bottom+10))};
+ const above=rect.top-height-10, under=below?(rect.lowest??rect.bottom)+26:rect.bottom+10;
+ const top=below?(under+height+pad<=viewport.height?under:above):(above>=pad?above:under);
+ return {left,top:Math.max(pad,Math.min(viewport.height-height-pad,top))};
 }
 export function marginSlots(items,top,bottom,gap=8) {
  const ends=[top,top];return items.map(item=>{
@@ -16,8 +18,9 @@ export function marginSlots(items,top,bottom,gap=8) {
 }
 function rectInHost(frame,range,viewport){
  const host=frame.getBoundingClientRect();
- const rect=[...range.getClientRects()].find(r=>r.width>0&&r.height>0&&host.top+r.bottom>viewport.top&&host.top+r.top<viewport.bottom&&host.left+r.right>viewport.left&&host.left+r.left<viewport.right);
- return rect?{left:host.left+rect.left,right:host.left+rect.right,top:host.top+rect.top,bottom:host.top+rect.bottom}:null;
+ const shown=[...range.getClientRects()].filter(r=>r.width>0&&r.height>0&&host.top+r.bottom>viewport.top&&host.top+r.top<viewport.bottom&&host.left+r.right>viewport.left&&host.left+r.left<viewport.right),rect=shown[0];
+ // `lowest` is the foot of the last visible line: a popup placed under a selection must clear all of it.
+ return rect?{left:host.left+rect.left,right:host.left+rect.right,top:host.top+rect.top,bottom:host.top+rect.bottom,lowest:host.top+Math.max(...shown.map(r=>r.bottom))}:null;
 }
 export class AnnotationUI {
  constructor({popup,layer,viewport,frames,annotations,continuous,onDismiss,onEdit,onList}){
@@ -91,7 +94,7 @@ export class AnnotationUI {
    const rect=pair&&rectInHost(pair.frame,pair.range,viewport);
    if(!rect){this.dismiss(false)}else{
     this.active.frame=pair.frame;this.active.range=pair.range;
-    const p=popupPosition(rect,this.popup.offsetWidth,this.popup.offsetHeight,{width:innerWidth,height:innerHeight});
+    const p=popupPosition(rect,this.popup.offsetWidth,this.popup.offsetHeight,{width:innerWidth,height:innerHeight},document.body.classList.contains('native-touch'));
     this.popup.style.left=p.left+'px';this.popup.style.top=p.top+'px';
    }
   }
