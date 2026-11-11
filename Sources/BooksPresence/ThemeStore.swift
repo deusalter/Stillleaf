@@ -205,7 +205,6 @@ enum ReadingPalette {
 
     // Stars are gold in every theme, so they only vary by appearance.
     static let star = appearanceColor(light: StarColors.fillLight, dark: StarColors.fillDark)
-    static let starEdge = appearanceColor(light: StarColors.edgeLight, dark: StarColors.edgeDark)
 
     private static func appearanceColor(light: UInt32, dark: UInt32) -> Color {
         Color(NSColor(name: nil) { appearance in

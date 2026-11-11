@@ -39,7 +39,6 @@ struct ReaderPanelPalette {
     /// The fill behind a panel's larger controls: measured #DEDEDF on a light panel, #303033 on a dark one.
     var control: Color { ink.opacity(dark ? 0.16 : 0.12) }
     var nsSecondary: NSColor { nsInk.withAlphaComponent(0.88) }
-    var nsRim: NSColor { nsInk.withAlphaComponent(0.18) }
     var nsHover: NSColor { nsInk.withAlphaComponent(0.08) }
     var nsSelected: NSColor { nsAccent.withAlphaComponent(0.18) }
 
@@ -147,15 +146,6 @@ struct ReaderPanelFrame<Content: View, Footer: View>: View {
 extension ReaderPanelFrame where Footer == EmptyView {
     init(title: String, close: @escaping () -> Void, scrolls: Bool = true, @ViewBuilder content: () -> Content) {
         self.init(title: title, close: close, scrolls: scrolls, content: content, footer: { EmptyView() })
-    }
-}
-
-struct ReaderIconButtonStyle: ButtonStyle {
-    @Environment(\.readerPalette) private var palette
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label.foregroundStyle(palette.secondary)
-            .background(Circle().fill(configuration.isPressed ? palette.hover : .clear))
-            .hoverBackground(Circle(), palette.hover)
     }
 }
 
@@ -315,34 +305,6 @@ struct ReaderToggleRow: View {
             Toggle(title, isOn: isOn).labelsHidden().toggleStyle(.switch).tint(palette.accent)
         }
         .accessibilityElement(children: .combine)
-    }
-}
-
-/// A collapsed-by-default group, for controls most readers never need.
-struct ReaderDisclosure<Content: View>: View {
-    let title: String
-    @Binding var expanded: Bool
-    @ViewBuilder let content: Content
-    @Environment(\.readerPalette) private var palette
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            Button { expanded.toggle() } label: {
-                HStack {
-                    Text(title.uppercased()).font(.system(size: 11, weight: .semibold)).tracking(0.8)
-                    Spacer()
-                    Image(systemName: expanded ? "chevron.up" : "chevron.down").font(.system(size: 9, weight: .semibold))
-                }
-                .foregroundStyle(palette.secondary).padding(.vertical, 8).contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(title)
-            .accessibilityValue(expanded ? "expanded" : "collapsed")
-            .accessibilityHint("Shows more reading options")
-            if expanded { content }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.bottom, 8)
     }
 }
 

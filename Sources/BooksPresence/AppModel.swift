@@ -5,8 +5,13 @@ import BooksPlatform
 import UniformTypeIdentifiers
 import CryptoKit
 
+/// The Mac app's one owner of state: the tracker, the journal and everything the views read.
+/// It is a single file on purpose. Nearly all of its state is `private(set)`, which only this file can write,
+/// and that is what stops a view from changing the journal behind the tracker's back. The marks are its sections.
 @MainActor
 final class AppModel: ObservableObject {
+    // MARK: - Published state
+
     let audiobookPlayer = AudiobookPlayer()
     @Published private(set) var importingAudio = false
     let epubLibrary: EPUBLibraryController
@@ -99,6 +104,8 @@ final class AppModel: ObservableObject {
         calendar.timeZone = TimeZone(identifier: timezoneID) ?? .current
         return calendar.component(.year, from: Date())
     }
+    // MARK: - Daily goals and session groups
+
     func dailyGoal(on day: String) -> DailyGoalProgress {
         goalProgressByDay[day] ?? ReadingGoals.daily(day: day, pages: 0, creditedSeconds: 0, goals: goalHistory)
     }
@@ -153,6 +160,8 @@ final class AppModel: ObservableObject {
         guard interval.id.hasPrefix("group:") else { return [interval.id] }
         return intervals.filter { $0.sessionID == interval.sessionID && $0.bookID == interval.bookID && $0.disposition == interval.disposition && $0.start >= interval.start && $0.end <= interval.end }.map(\.id)
     }
+    // MARK: - Dependencies and settings state
+
     var manualActive: Bool { manualBook != nil }
     var dashboardAction: (() -> Void)?
     @Published var dashboardSectionRequest: DashboardSection?
@@ -240,6 +249,8 @@ final class AppModel: ObservableObject {
         sessionGroupsCache = groups
         return groups
     }
+
+    // MARK: - Setup
 
     init(support: URL, defaults: UserDefaults = .standard, startTracking: Bool = true,
          accessibilityStatus: @escaping () -> Bool = { BooksCapture.isTrusted },
@@ -354,6 +365,8 @@ final class AppModel: ObservableObject {
         }
         if startTracking { epubLibrary.recover() }
     }
+
+    // MARK: - EPUB library and the built-in reader
 
     private func registerPublication(_ publication: EPUBPublication, directory: URL) throws {
         let id = "epub:" + publication.id
@@ -567,6 +580,8 @@ final class AppModel: ObservableObject {
         catch { errorMessage = "Could not save the last listening checkpoint. Resolve the storage error, then try quitting again: \(error)"; return false }
         return await epubReaders.closeAll()
     }
+
+    // MARK: - Tracking: system events, the one-second poll and pauses
 
     private func registerObservers() {
         let center = NSWorkspace.shared.notificationCenter
@@ -829,6 +844,8 @@ final class AppModel: ObservableObject {
         reportHealth("Storage requires attention. New time is not being credited.")
         ready = false; timer?.invalidate(); presencePolicy.reset(); presenceState = .hidden; discord.clear()
     }
+    // MARK: - Discord presence
+
     private func publishPresence() {
         if snapshot.book?.source == "stillleaf-epub" {
             finishPublishingPresence(readerOpen: epubReaders.focusedPublicationID != nil && commonPauseReason() == nil)
@@ -879,6 +896,8 @@ final class AppModel: ObservableObject {
         if discordStatus != status { discordStatus = status }
     }
     /// Opt-in diagnostics from the actual GUI process, whose macOS permission may differ from a CLI helper.
+    // MARK: - Status report
+
     func writeStatusReport(to url: URL) throws {
         let report: [String: Any] = [
             "processID": ProcessInfo.processInfo.processIdentifier,
@@ -923,6 +942,8 @@ final class AppModel: ObservableObject {
 
     /// Reader-driven requests coalesce without starving publication during continuous reading.
     /// Serial results may trail live progress; explicit edits invalidate them via refreshGeneration.
+    // MARK: - History: refresh, lookups and page totals
+
     func requestHistoryRefresh() {
         guard !refreshStopped else { return }
         if refreshInFlight { refreshPending = true; return }
@@ -1126,6 +1147,8 @@ final class AppModel: ObservableObject {
         PageStatistics.manualPages(events: events, effectiveIntervals: group.intervals, merges: merges,
                                    from: from, through: through, bookID: group.bookID)
     }
+    // MARK: - Public covers
+
     func publicCoverURL(for book: BookRecord) -> String { book.source == "stillleaf-epub" ? "" : publicCoverURLs[book.id] ?? "" }
     func savePublicCoverURL(_ value: String, for book: BookRecord) {
         guard book.source != "stillleaf-epub" else { return }
@@ -1166,6 +1189,8 @@ final class AppModel: ObservableObject {
         for (id, task) in coverLookupTasks { task.cancel(); coverLookupDates.removeValue(forKey: id) }
         coverLookupTasks.removeAll(); coverLookups.removeAll()
     }
+    // MARK: - Finishing, ratings and reviews
+
     @discardableResult
     func markFinished(_ book: BookRecord) -> FinishedBookEntry? {
         let canonicalID = BookMergeResolver(merges: merges).resolvedID(for: book.id)
@@ -1234,6 +1259,8 @@ final class AppModel: ObservableObject {
     nonisolated private static func historyKey(_ id: String) -> String {
         SHA256.hash(data: Data(id.utf8)).map { String(format: "%02x", $0) }.joined()
     }
+    // MARK: - Apple Books finished-book history
+
     func syncAppleBooksHistory(onlyIfCatalogChanged: Bool = false) {
         guard syncAppleBooksHistoryEnabled, !historySyncInFlight else { return }
         let unchanged = onlyIfCatalogChanged && Date().timeIntervalSince(lastFullHistorySync) < Self.unchangedCatalogRecheck
@@ -1342,6 +1369,8 @@ final class AppModel: ObservableObject {
             return true
         } catch { appleHistoryStatus = "Could not save Apple Books history: \(error.localizedDescription)"; return false }
     }
+    // MARK: - Journal edits: the one path every change takes
+
     @discardableResult
     private func perform(afterCommit: (() throws -> Void)? = nil, _ action: () throws -> Void) -> Bool {
         refreshGeneration += 1; refreshPending = false
@@ -1379,6 +1408,8 @@ final class AppModel: ObservableObject {
         historyGeneration += 1
         try engine.stop(); snapshot = engine.snapshot; pageTurnTracker.reset(); readerPagination.reset(); currentPagePosition = nil; presencePolicy.reset(); presenceState = .hidden; discord.clear()
     }
+    // MARK: - Manual reading and audiobooks
+
     @discardableResult
     func startManual(title: String, author: String) -> Bool {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1588,6 +1619,8 @@ final class AppModel: ObservableObject {
         try encoder.encode(archive).write(to: url, options: .atomic)
         try store.importJSON(from: url)
     }
+    // MARK: - Accessibility, onboarding and settings
+
     func requestAccessibility() { BooksCapture.requestAccess(); refreshAccessibilityStatus(); openAccessibilitySettings() }
     /// Access is granted in System Settings, outside the app; views that wait on it poll here.
     func refreshAccessibilityStatus() {
@@ -1664,6 +1697,8 @@ final class AppModel: ObservableObject {
             if manualBook?.id == book.id { manualBook = updated }
         }
     }
+    // MARK: - Session corrections, deleting and merging
+
     @discardableResult
     func editInterval(_ interval: ReadingInterval, start: Date, end: Date, bookID: String, disposition: IntervalDisposition) -> Bool {
         guard end > start, end <= Date() else { errorMessage = "Use an end time after the start and no later than now."; return false }
@@ -1766,6 +1801,8 @@ final class AppModel: ObservableObject {
         return perform { try stopForMutation(); try store.merge(BookMerge(sourceID: source.id, targetID: target.id)) } }
     func unmerge(_ merge: BookMerge) { perform { try stopForMutation(); try store.merge(BookMerge(sourceID: merge.sourceID, targetID: merge.targetID, active: false)) } }
 
+    // MARK: - Export, import and backup
+
     private func saveURL(name: String, type: UTType) -> URL? {
         let panel = NSSavePanel(); panel.nameFieldStringValue = name; panel.allowedContentTypes = [type]
         return panel.runModal() == .OK ? panel.url : nil
@@ -1783,6 +1820,8 @@ final class AppModel: ObservableObject {
     }
     func backup() { guard let url = saveURL(name: "Stillleaf-backup.sqlite", type: .database) else { return }; perform { try engine.checkpoint(); try store.backup(to: url) } }
     func restore() { guard !importingAudio else { errorMessage = "Finish the audio import before restoring history."; return }; guard let url = openURL(types: [.database, .data]) else { return }; perform { try stopForMutation(); try store.restore(from: url); try resetEngineAfterMutation(); syncGoalFromHistory(); try ensureCurrentPageGoal() } }
+    // MARK: - Windows, quitting and uninstalling
+
     func showDashboard(section: DashboardSection? = nil, settingsCategory: SettingsCategory? = nil) {
         if let section {
             if section == .settings { settingsCategoryRequest = settingsCategory }
