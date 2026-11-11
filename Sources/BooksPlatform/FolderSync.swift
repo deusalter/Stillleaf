@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import BooksCore
 
 public enum FolderSyncError: Error, LocalizedError, Equatable {
@@ -65,8 +66,22 @@ public final class FolderSync {
         /// Editions removed from this device on purpose with their history kept: not to be fetched again.
         public var declinedEditions: Set<String> = []
         public var editions: [String: EditionMemory] = [:]
+        /// A digest of each other device's journal file as last merged. An unchanged file is not merged again,
+        /// so an idle pass never touches the journal (or the tracker that sits on it).
+        public var mergedJournals: [String: String] = [:]
         public var lastSync: Date?
         public init(deviceID: String = UUID().uuidString) { self.deviceID = deviceID }
+
+        /// A memory file written by an older version lacks newer fields; only the device's identity is required.
+        public init(from decoder: Decoder) throws {
+            let values = try decoder.container(keyedBy: CodingKeys.self)
+            deviceID = try values.decode(String.self, forKey: .deviceID)
+            tombstones = try values.decodeIfPresent(SyncTombstones.self, forKey: .tombstones) ?? SyncTombstones()
+            declinedEditions = try values.decodeIfPresent(Set<String>.self, forKey: .declinedEditions) ?? []
+            editions = try values.decodeIfPresent([String: EditionMemory].self, forKey: .editions) ?? [:]
+            mergedJournals = try values.decodeIfPresent([String: String].self, forKey: .mergedJournals) ?? [:]
+            lastSync = try values.decodeIfPresent(Date.self, forKey: .lastSync)
+        }
     }
 
     public struct Edition {
@@ -144,10 +159,16 @@ public final class FolderSync {
 
     /// One whole pass, in the order that keeps every step consistent: read the folder, apply the other
     /// devices' deletions, merge their journals, fetch their books, merge reader state, then publish.
-    /// The closures are the host's own ways of doing things: `editions` lists the books on this device (asked
-    /// again after imports), and the delete closures remove a book or a session as the app does elsewhere.
+    ///
+    /// The closures are the host's own ways of doing things. `editions` lists the books on this device (asked
+    /// again after imports). `willChangeJournal` is called once, just before the journal is first changed, and
+    /// not at all on a pass with nothing to merge: the apps stop their tracker there. The delete closures
+    /// remove a book or a session as the app does elsewhere; one that throws is reported and tried again on
+    /// the next pass. With `offersBooks` false the host copies its books into the folder itself
+    /// (`offerBooks`), which it may do away from the main thread.
     public func sync(store: ReadingStore, readerStates: ReaderStateStore, stateDirectory: URL, busy: Set<String> = [], now: Date = Date(),
-                     editions: () -> [Edition], importBook: (URL) throws -> Void,
+                     offersBooks: Bool = true, editions: () -> [Edition], willChangeJournal: () throws -> Void = {},
+                     importBook: (URL) throws -> Void,
                      deleteBook: (String) throws -> Void, deleteSession: (String) throws -> Void) throws -> Summary {
         var summary = Summary()
         let incoming = try pull()
@@ -155,18 +176,29 @@ public final class FolderSync {
         summary.waitingForDownload = incoming.waitingForDownload
         summary.warnings = incoming.warnings
         let pending = try deletions(from: incoming, in: store.archive())
-        for id in pending.sessions { try deleteSession(id); summary.deletedSessions.append(id) }
-        for id in pending.books { try deleteBook(id); summary.deletedBooks.append(id) }
-        let journals = mergeJournals(incoming, into: store)
-        summary.journal = journals.report
-        summary.warnings += journals.warnings
+        let changed = incoming.journals.filter { memory.mergedJournals[$0.device.id] != Self.digest($0.data) }
+        if !pending.sessions.isEmpty || !pending.books.isEmpty || !changed.isEmpty { try willChangeJournal() }
+        for id in pending.sessions {
+            do { try deleteSession(id); summary.deletedSessions.append(id) }
+            catch { summary.warnings.append("A session deleted on another device could not be deleted here yet: \(error.localizedDescription)") }
+        }
+        for id in pending.books {
+            do { try deleteBook(id); summary.deletedBooks.append(id) }
+            catch { summary.warnings.append("A book deleted on another device could not be deleted here yet: \(error.localizedDescription)") }
+        }
+        for (device, data) in changed {
+            do {
+                summary.journal.add(try store.mergeSynced(try store.decodeArchive(data), tombstones: memory.tombstones))
+                memory.mergedJournals[device.id] = Self.digest(data)
+            } catch { summary.warnings.append("\(device.name)'s journal could not be merged: \(Self.describe(error))") }
+        }
         for url in missingBooks(incoming, having: Set(editions().map(\.publication.id))) {
             do { try importBook(url); summary.importedBooks += 1 }
             catch { summary.warnings.append("A book in the sync folder could not be added: \(error.localizedDescription)") }
         }
         let current = editions()
         summary.readerUpdates = try mergeReaderStates(incoming, editions: current, store: readerStates, stateDirectory: stateDirectory, busy: busy, now: now)
-        summary.offeredBooks = try offerBooks(current)
+        if offersBooks { summary.offeredBooks = try offerBooks(current) }
         try push(store: store, now: now)
         return summary
     }
@@ -199,7 +231,13 @@ public final class FolderSync {
     /// This device no longer holds these books' reader state (all of them when nil). What it remembered of
     /// their bookmarks and highlights must go too: a book that comes back empty has not had them removed.
     public func forgetEditions(_ editionIDs: [String]? = nil) throws {
-        if let editionIDs { for id in editionIDs { memory.editions[id] = nil } } else { memory.editions = [:] }
+        if let editionIDs { for id in editionIDs { memory.editions[id] = nil } } else { memory.editions = [:]; memory.mergedJournals = [:] }
+        try saveMemory()
+    }
+
+    /// This device's journal was replaced or lost rows (a restore, an import): merge every device's journal afresh.
+    public func forgetMergedJournals() throws {
+        memory.mergedJournals = [:]
         try saveMemory()
     }
 
@@ -252,8 +290,10 @@ public final class FolderSync {
     public func mergeJournals(_ incoming: Incoming, into store: ReadingStore) -> (report: SyncMergeReport, warnings: [String]) {
         var report = SyncMergeReport(), warnings: [String] = []
         for (device, data) in incoming.journals {
-            do { report.add(try store.mergeSynced(try store.decodeArchive(data), tombstones: memory.tombstones)) }
-            catch { warnings.append("\(device.name)'s journal could not be merged: \(Self.describe(error))") }
+            do {
+                report.add(try store.mergeSynced(try store.decodeArchive(data), tombstones: memory.tombstones))
+                memory.mergedJournals[device.id] = Self.digest(data)
+            } catch { warnings.append("\(device.name)'s journal could not be merged: \(Self.describe(error))") }
         }
         return (report, warnings)
     }
@@ -463,6 +503,10 @@ public final class FolderSync {
         guard bookID.hasPrefix("epub:") else { return nil }
         let edition = String(bookID.dropFirst(5))
         return isEditionID(edition) ? edition : nil
+    }
+
+    private static func digest(_ data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
     private static func describe(_ error: Error) -> String {

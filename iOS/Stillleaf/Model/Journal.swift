@@ -640,10 +640,13 @@ final class Journal: ObservableObject {
         var arrivals: [URL] = []
         do {
             let summary = try withSyncFolder { engine -> FolderSync.Summary in
-                try stopTracking()
-                return try engine.sync(
+                try engine.sync(
                     store: store, readerStates: ReaderStateStore(directory: paths.readerState), stateDirectory: paths.readerState, now: clock().date,
-                    editions: { self.editions.values.map { FolderSync.Edition(publication: $0.publication, directory: $0.directory) } },
+                    // Copying books into the folder can be slow, so that happens after the pass, off the main actor.
+                    offersBooks: false,
+                    editions: { self.syncEditions },
+                    // Only a pass that has something to merge stops the tracker.
+                    willChangeJournal: { try self.stopTracking() },
                     // Unpacking a book is slow, so arrivals are imported after the pass, off the main actor.
                     importBook: { url in
                         if !self.syncUnreadable.contains(url.deletingPathExtension().lastPathComponent) { arrivals.append(url) }
@@ -677,7 +680,25 @@ final class Journal: ObservableObject {
         sync.running = false
         syncRunning = false
         if !arrivals.isEmpty { Task { await importArrivals(arrivals) } }
-        else if syncWanted { syncNow() }
+        else {
+            offerBooksInBackground()
+            if syncWanted { syncNow() }
+        }
+    }
+
+    private var syncEditions: [FolderSync.Edition] {
+        editions.values.map { FolderSync.Edition(publication: $0.publication, directory: $0.directory) }
+    }
+
+    /// Copies this device's books into the folder for the others. Nothing here touches the journal.
+    private func offerBooksInBackground() {
+        guard sync.enabled, let folder = syncFolder() else { return }
+        let offered = syncEditions, memory = paths.syncMemory, name = deviceName
+        Task.detached(priority: .utility) {
+            let scoped = folder.startAccessingSecurityScopedResource()
+            defer { if scoped { folder.stopAccessingSecurityScopedResource() } }
+            _ = try? FolderSync(folder: folder, memoryURL: memory, deviceName: name, platform: Journal.syncPlatform).offerBooks(offered)
+        }
     }
 
     /// Imports books that arrived through the folder, then runs one more pass so each opens at its place.

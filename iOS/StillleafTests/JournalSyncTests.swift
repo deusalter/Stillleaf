@@ -32,7 +32,11 @@ final class JournalSyncTests: XCTestCase {
         XCTAssertNil(phone.sync.problem)
         XCTAssertEqual(phone.sync.devices, ["Mac"])
         XCTAssertEqual(phone.secondsRead(bookID: bookID), 25 * 60, accuracy: 1)
-        try await waitUntil("the book to arrive on the second device", timeout: 30) { phone.edition(forBook: bookID) != nil }
+        // The Mac copies its books into the folder in the background, so the phone may need another pass to see the file.
+        try await waitUntil("the book to arrive on the second device", timeout: 30) {
+            if phone.edition(forBook: bookID) == nil { phone.syncNow() }
+            return phone.edition(forBook: bookID) != nil
+        }
         XCTAssertEqual(phone.book(bookID)?.title, mac.book(bookID)?.title)
 
         mac.syncNow()
