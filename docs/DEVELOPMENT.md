@@ -63,7 +63,7 @@ Run `scripts/install-git-hooks.sh` once per clone. Branch names follow `<area>/<
 
 Most smoke suites only run locally, so run `scripts/check-local.sh` before packaging or merging native changes.
 
-macOS checks and Project checks run on pull requests and on pushes to `main` and `release/**`; the iOS workflow also runs on `ios/**` pushes. A ready pull request can be merged automatically on this Mac, so push a `release/**` branch to get CI on work that must not merge yet.
+macOS checks and Project checks run on pull requests and on pushes to `main`, `release/**` and `mac/**`; the iOS workflow runs on `ios/**` and `release/**` pushes. A ready pull request can be merged automatically on this Mac, so push one of those branches without a pull request to get CI on work that must not merge yet.
 
 Performance probes (`--measure-idle`, `--measure-launch`, `--measure-reader`) and the latest before/after numbers are in [the pre-launch performance pass](LAUNCH_PERFORMANCE.md).
 
