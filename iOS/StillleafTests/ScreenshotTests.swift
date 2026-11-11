@@ -1,6 +1,7 @@
 import XCTest
 import SwiftUI
 import UIKit
+import WebKit
 import BooksCore
 @testable import Stillleaf
 
@@ -8,7 +9,7 @@ import BooksCore
 /// `STILLLEAF_SCREENSHOTS`, or `/tmp/stillleaf-ios-screenshots` (the simulator shares the host's files).
 /// For each screen the test writes `<name>.request` and iOS/scripts/ci-build-and-test.sh answers with a real
 /// simulator screenshot, so the web page, sheets and system bars are all in the picture. With no host
-/// listening it draws the window itself.
+/// listening it draws the window itself. On an iPad the pictures are named `ipad-<name>`.
 @MainActor
 final class ScreenshotTests: XCTestCase {
     private var folder: URL!
@@ -86,6 +87,34 @@ final class ScreenshotTests: XCTestCase {
         try await capture("12-reader-page", settle: 1.5)
         chrome.toggleControls()
         try await capture("13-reader-controls")
+        chrome.toggleControls()
+
+        // Highlighting: a selection as the system's handles leave it, the colours under it, then the note editor.
+        let selected = try await page("""
+            (() => {
+              const frame = [...document.querySelectorAll('#reader iframe')].find(f => getComputedStyle(f).visibility !== 'hidden' && f.getBoundingClientRect().width > 0);
+              if (!frame) return false;
+              const doc = frame.contentDocument, host = frame.getBoundingClientRect();
+              const paragraph = [...doc.querySelectorAll('p')].find(p => { const r = p.getBoundingClientRect();
+                return host.left + r.left >= 0 && host.left + r.right <= innerWidth && host.top + r.top > 150 && host.top + r.bottom < innerHeight - 280; });
+              const text = paragraph?.firstChild;
+              if (!text || text.nodeType !== 3) return false;
+              const range = doc.createRange(); range.setStart(text, 13); range.setEnd(text, Math.min(96, text.length));
+              const selection = frame.contentWindow.getSelection(); selection.removeAllRanges(); selection.addRange(range);
+              return true;
+            })()
+            """) as? Bool
+        XCTAssertEqual(selected, true, "a paragraph on the page to select")
+        try await waitForPage("the highlight colours", "!document.getElementById('selection-tools').hidden")
+        try await capture("23-reader-highlight", settle: 0.8)
+        _ = try await page("document.getElementById('note-selection').click(); true")
+        try await waitForPage("the note editor", "document.getElementById('note-panel').open")
+        try await waitUntil("the controls to learn of the note editor", timeout: 10) { chrome.dialogOpen }
+        try await capture("24-reader-note", settle: 0.8)
+        _ = try await page("document.getElementById('note-text').value = 'Come back to this.'; document.getElementById('note-text').dispatchEvent(new Event('input', {bubbles: true})); document.getElementById('save-note').click(); true")
+        try await waitUntil("the note editor to close", timeout: 10) { !chrome.dialogOpen }
+        try await capture("25-reader-highlighted", settle: 0.8)
+
         chrome.open(.contents)
         try await waitUntil("the contents rows", timeout: 20) { !(chrome.lists[.outline]?.rows.isEmpty ?? true) }
         try await capture("14-reader-contents", settle: 1.4)
@@ -111,6 +140,17 @@ final class ScreenshotTests: XCTestCase {
         chrome.close?()
         try await waitUntil("the reader to close", timeout: 30) { closed }
 
+        // Larger accessibility text: nothing should clip or overlap.
+        let large = AppRouter()
+        window.traitOverrides.preferredContentSizeCategory = .accessibilityMedium
+        show(RootView(router: large).environmentObject(journal))
+        try await capture("26-large-text-reading-now", settle: 1.5)
+        large.tab = .library
+        try await capture("27-large-text-library")
+        large.tab = .journal
+        try await capture("28-large-text-journal")
+        window.traitOverrides.remove(UITraitPreferredContentSizeCategory.self)
+
         // A new install.
         let emptyScratch = try Scratch()
         let empty = try emptyScratch.journal()
@@ -133,7 +173,28 @@ final class ScreenshotTests: XCTestCase {
         window.makeKeyAndVisible()
     }
 
-    private func capture(_ name: String, settle: Double = 1) async throws {
+    /// Runs a script in the reader's page, found in the window being pictured.
+    private func page(_ script: String) async throws -> Any? {
+        func find(_ view: UIView) -> WKWebView? { view as? WKWebView ?? view.subviews.lazy.compactMap(find).first }
+        let webView = try XCTUnwrap(find(window), "the reader's web view")
+        return try await withCheckedThrowingContinuation { continuation in
+            webView.evaluateJavaScript(script) { value, error in
+                if let error { continuation.resume(throwing: error) } else { continuation.resume(returning: value) }
+            }
+        }
+    }
+
+    private func waitForPage(_ what: String, _ condition: String, timeout: TimeInterval = 15) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if try await page("Boolean(\(condition))") as? Bool == true { return }
+            try await Task.sleep(nanoseconds: 150_000_000)
+        }
+        XCTFail("Timed out waiting for \(what)")
+    }
+
+    private func capture(_ shot: String, settle: Double = 1) async throws {
+        let name = (UIDevice.current.userInterfaceIdiom == .pad ? "ipad-" : "") + shot
         try await Task.sleep(nanoseconds: UInt64(settle * 1_000_000_000))
         let image = folder.appendingPathComponent(name + ".png")
         if hostCaptures {

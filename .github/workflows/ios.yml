@@ -39,7 +39,7 @@ jobs:
         if: ${{ failure() }}
         with:
           name: Stillleaf-iOS-test-results
-          path: .build/ios/Stillleaf.xcresult
+          path: .build/ios/*.xcresult
           if-no-files-found: ignore
   shared-package:
     # The iOS app changes code the Mac app shares; prove the Mac package still builds and passes.
