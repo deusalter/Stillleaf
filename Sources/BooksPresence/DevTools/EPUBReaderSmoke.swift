@@ -1,0 +1,870 @@
+import AppKit
+import Combine
+import WebKit
+import BooksCore
+import BooksPlatform
+
+// The native EPUB reader's fixture checks: `--self-test-epub` and `--measure-reader`. They open real reader
+// windows on a synthetic book and drive the reader's own state, which is why `EPUBReaderWindow` keeps the
+// members they use internal rather than private. Nothing here runs in the shipped app's normal launch.
+
+/// `--measure-reader <book.epub> [cycles]` opens and closes a parked reader `cycles` times and
+/// reports this process's memory footprint with no reader, with one open and after each close,
+/// and how many readers and web views outlive their windows. The EPUB smoke runs four cycles and
+/// fails if more than one is left alive: a closed reader must release its window, WKWebView and bridge.
+@MainActor
+func measureReaderLifecycle(fixture: URL, cycles: Int) async throws -> (alive: Int, lines: [String]) {
+    let temporary = FileManager.default.temporaryDirectory.appendingPathComponent("Stillleaf-reader-memory-" + UUID().uuidString)
+    try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: temporary) }
+    let importer = EPUBPublicationImporter(directory: temporary.appendingPathComponent("Publications"))
+    let imported = try await Task.detached { try importer.importPublication(from: fixture) }.value
+    func footprint() -> Double {
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size)
+        let status = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count) }
+        }
+        return status == KERN_SUCCESS ? Double(info.phys_footprint) / 1_048_576 : 0
+    }
+    func settle(_ seconds: Double) async throws { try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000)) }
+    try await settle(1)
+    let baseline = footprint()
+    var lines = [String(format: "reader-memory: no reader %.1f MB", baseline)]
+    for cycle in 1...max(1, cycles) {
+        let state = temporary.appendingPathComponent("State\(cycle)")
+        var reader: EPUBReaderWindow? = try await EPUBReaderWindow(publication: imported.publication, directory: imported.directory, stateDirectory: state)
+        reader?.window?.setFrameOrigin(NSPoint(x: -20_000, y: -20_000)); reader?.window?.orderBack(nil)
+        try await reader?.testWaitUntilReady()
+        try await settle(1.5)
+        let open = footprint()
+        guard await reader?.requestClose() == true else { throw EPUBImportError.invalid("The reader refused to close.") }
+        reader = nil
+        // `NSApp.currentEvent` keeps the last event, and with it that event's window, until another
+        // event arrives. Ordinary use supplies one; a parked probe gets none, so it posts one.
+        if let event = NSEvent.otherEvent(with: .applicationDefined, location: .zero, modifierFlags: [], timestamp: 0,
+                                          windowNumber: 0, context: nil, subtype: 0, data1: 0, data2: 0) {
+            NSApp.postEvent(event, atStart: false)
+        }
+        try await settle(1.5)
+        lines.append(String(format: "reader-memory: cycle %d open %.1f MB, closed %.1f MB (+%.1f MB over no reader), alive %d",
+                            cycle, open, footprint(), footprint() - baseline, EPUBReaderWindow.liveObjects.allObjects.count))
+    }
+    // WebKit may finish tearing a view down a moment after its window closes.
+    let deadline = Date().addingTimeInterval(10)
+    while !EPUBReaderWindow.liveObjects.allObjects.isEmpty && Date() < deadline { try await settle(0.2) }
+    let alive = EPUBReaderWindow.liveObjects.allObjects.count
+    let names = EPUBReaderWindow.liveObjects.allObjects.map { String(describing: type(of: $0)) }
+    lines.append("reader-memory: readers and web views alive after closing: \(alive)\(names.isEmpty ? "" : " (" + names.joined(separator: ", ") + ")")")
+    if alive > 0, let seconds = ProcessInfo.processInfo.environment["STILLLEAF_PROBE_HOLD"].flatMap(Double.init) {
+        // Keep the process alive for `leaks <pid>` or `heap <pid>` to find the owners.
+        print("reader-memory: holding pid \(getpid()) for \(Int(seconds)) s"); fflush(stdout)
+        try await settle(seconds)
+    }
+    return (alive, lines)
+}
+
+/// Flush fixture progress independently of buffered stdout, including before a stuck WebKit await.
+private func readerSmokeCheckpoint(_ phase: String) {
+    FileHandle.standardError.write(Data("epub-reader-smoke-stage: \(phase)\n".utf8))
+}
+
+/// Fixture-only CLI check. Never uses the app's production store or preferences.
+@MainActor
+func runEPUBReaderSmoke(fixture: URL) async throws {
+    readerSmokeCheckpoint("native command queue")
+    try await runNativeReaderQueueSmoke()
+    readerSmokeCheckpoint("reader teardown")
+    // AppKit sometimes lets go of the most recent closed window a little later; a leak keeps one per
+    // reader opened (two or three after four cycles), so allow a single straggler.
+    let teardown = try await measureReaderLifecycle(fixture: fixture, cycles: 4)
+    teardown.lines.forEach { print($0) }
+    guard teardown.alive <= 1 else { throw EPUBImportError.invalid("Closed readers left \(teardown.alive) readers or web views alive.") }
+    let temporary = FileManager.default.temporaryDirectory.appendingPathComponent("Stillleaf-reader-smoke-" + UUID().uuidString)
+    try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: temporary) }
+    let importer = EPUBPublicationImporter(directory: temporary.appendingPathComponent("Publications"))
+    readerSmokeCheckpoint("fixture import")
+    let imported = try await Task.detached { try importer.importPublication(from: fixture) }.value
+    let defaultsName = "Stillleaf.reader-smoke." + UUID().uuidString
+    let defaults = UserDefaults(suiteName: defaultsName)!
+    defer { defaults.removePersistentDomain(forName: defaultsName) }
+    let model = try AppModel(support: temporary, defaults: defaults, startTracking: false)
+    var presentations = 0
+    model.dashboardAction = { presentations += 1 }
+    readerSmokeCheckpoint("library import and duplicate handling")
+    model.epubLibrary.enqueue([fixture, fixture])
+    let importDeadline = Date().addingTimeInterval(20)
+    while model.epubLibrary.queue.isBusy && Date() < importDeadline { try await Task.sleep(nanoseconds: 50_000_000) }
+    guard model.epubLibrary.queue.summary.duplicates == 1, model.books.count == 1,
+          presentations == 1, model.intervals.isEmpty, model.snapshot.phase == .paused else {
+        throw EPUBImportError.invalid("Library import did not preserve one presentation and zero reading sessions.")
+    }
+    let journal = try ReadingStore(url: temporary.appendingPathComponent("history.sqlite"))
+    let canonical = BookRecord(id: "manual:canonical-fixture", title: "Canonical journal book")
+    try journal.saveBook(canonical)
+    model.mergeBooks(source: model.books[0], target: canonical)
+    guard model.errorMessage == nil, model.hasEPUB(canonical), model.hasImportedEPUB(canonical),
+          model.epubEditions(for: canonical).map(\.id) == [imported.publication.id], model.intervals.isEmpty else {
+        throw EPUBImportError.invalid("Merging an imported edition hid its EPUB actions or created reading time.")
+    }
+    for terminating in [false, true] {
+        readerSmokeCheckpoint(terminating ? "queued reset during quit" : "queued reset during close")
+        let raceState = temporary.appendingPathComponent(terminating ? "QueuedResetQuit" : "QueuedResetClose")
+        let raceReader = try await EPUBReaderWindow(publication: imported.publication, directory: imported.directory, stateDirectory: raceState)
+        raceReader.window?.setFrameOrigin(NSPoint(x: -20_000, y: -20_000)); raceReader.window?.orderBack(nil)
+        try await raceReader.testWaitUntilReady()
+        try await raceReader.testCloseWithQueuedReset(terminating: terminating, stateDirectory: raceState)
+        let saved = try JSONSerialization.jsonObject(with: Data(contentsOf: raceState.appendingPathComponent(imported.publication.id + ".json"))) as? [String: Any]
+        guard (saved?["preferences"] as? [String: Any])?["fontSize"] as? Double == 1.2 else {
+            throw EPUBImportError.invalid("Close/Quit did not durably save queued Reset.")
+        }
+    }
+    readerSmokeCheckpoint("activation during failed close")
+    let activationState = temporary.appendingPathComponent("ActivationCloseKeepOpen")
+    let activationReader = try await EPUBReaderWindow(publication: imported.publication, directory: imported.directory, stateDirectory: activationState)
+    activationReader.window?.setFrameOrigin(NSPoint(x: -20_000, y: -20_000)); activationReader.window?.orderBack(nil)
+    try await activationReader.testWaitUntilReady()
+    try await activationReader.testActivationDuringFailedClose(stateDirectory: activationState)
+    readerSmokeCheckpoint("main reader creation")
+    let state = temporary.appendingPathComponent("ReaderState")
+    let reader = try await EPUBReaderWindow(publication: imported.publication, directory: imported.directory, stateDirectory: state)
+    defer { reader.window?.close() }
+    guard reader.window?.collectionBehavior.contains(.fullScreenPrimary) == true else {
+        throw EPUBImportError.invalid("Reader window cannot enter full screen.")
+    }
+    reader.window?.setFrameOrigin(NSPoint(x: -20_000, y: -20_000))
+    reader.window?.orderBack(nil)
+    readerSmokeCheckpoint("initial chapter render")
+    let deadline = Date().addingTimeInterval(20)
+    var rendered = false
+    while Date() < deadline {
+        if let value = try? await reader.testContent(), !value.isEmpty, reader.isReady { rendered = true; break }
+        try await Task.sleep(nanoseconds: 100_000_000)
+    }
+    guard rendered else {
+        let detail = (try? await reader.testDiagnostic()) ?? "No page diagnostics"
+        throw EPUBImportError.invalid("Native reader did not render imported chapter text: \(detail)")
+    }
+    readerSmokeCheckpoint("fixture assets")
+    guard try await reader.testFixtureAssets() else {
+        throw EPUBImportError.invalid("Chapter stylesheet or image did not load through the reader scheme.")
+    }
+    readerSmokeCheckpoint("native controls")
+    try await reader.testNativeChrome()
+    readerSmokeCheckpoint("render stability")
+    try await reader.testRenderStability()
+    readerSmokeCheckpoint("page evidence")
+    try await reader.testPageEvidence()
+    try reader.testProgressDeliveryBurst()
+    if let index = CommandLine.arguments.firstIndex(of: "--reader-artifacts"), index + 1 < CommandLine.arguments.count {
+        readerSmokeCheckpoint("review snapshots")
+        try await reader.testRenderReviewSnapshots(directory: URL(fileURLWithPath: CommandLine.arguments[index + 1]))
+    }
+    let locationURL = state.appendingPathComponent(imported.publication.id + ".json")
+    reader.flushStateForTest()
+    // The renderer saves its position 120 ms after a move. The page turns above can cross into the next chapter and back
+    // (they do in two columns), so wait for the saved position to reach the page on screen before reading it.
+    let live = try await reader.testHref(), savedDeadline = Date().addingTimeInterval(3)
+    func savedHref() -> String? { ((try? JSONSerialization.jsonObject(with: Data(contentsOf: locationURL))) as? [String: Any]).flatMap { ($0["position"] as? [String: Any])?["href"] as? String } }
+    while savedHref() != live, Date() < savedDeadline { try await Task.sleep(nanoseconds: 50_000_000); reader.flushStateForTest() }
+    guard FileManager.default.fileExists(atPath: locationURL.path),
+          let saved = try JSONSerialization.jsonObject(with: Data(contentsOf: locationURL)) as? [String: Any],
+          let locator = saved["position"] as? [String: Any],
+          let href = locator["href"] as? String, imported.publication.spine.contains(href) else {
+        throw EPUBImportError.invalid("Reader location was not persisted through the authenticated bridge.")
+    }
+    readerSmokeCheckpoint("durable note")
+    try await reader.testAddDurableNote()
+    readerSmokeCheckpoint("reading modes")
+    var expectedPreferences = try await reader.testReadingModes()
+    if CommandLine.arguments.contains("--reader-appearance-review") {
+        guard let index = CommandLine.arguments.firstIndex(of: "--reader-artifacts"), index + 1 < CommandLine.arguments.count else { throw EPUBImportError.invalid("Appearance proof needs an artifact directory.") }
+        readerSmokeCheckpoint("appearance scenarios")
+        try await reader.testAppearanceReview(directory: URL(fileURLWithPath: CommandLine.arguments[index + 1]))
+        expectedPreferences = try await reader.testPreferences()
+    }
+    readerSmokeCheckpoint("garden mode")
+    let expectedGarden = EPUBReaderWindow.currentGardenMode()
+    guard try await reader.testGardenMode() == expectedGarden else { throw EPUBImportError.invalid("Reader did not receive the Garden setting.") }
+    guard try await reader.testInjectedGardenMode() == expectedGarden else { throw EPUBImportError.invalid("Reader was not started in the Garden setting at document start.") }
+    readerSmokeCheckpoint("page map finishes")
+    // The modes above keep changing the layout, and counting waits for it to settle. A larger book
+    // is still counting at this point, so wait for the finished map instead of racing the close.
+    let pageMapDeadline = Date().addingTimeInterval(60)
+    while ReaderPageMapStore(stateDirectory: state).load(publication: imported.publication).isEmpty, Date() < pageMapDeadline {
+        try await Task.sleep(nanoseconds: 100_000_000)
+    }
+    readerSmokeCheckpoint("durable close")
+    guard await reader.requestClose() else { throw EPUBImportError.invalid("Reader close did not complete.") }
+    let closedState = try JSONSerialization.jsonObject(with: Data(contentsOf: locationURL)) as? [String: Any]
+    guard let notes = closedState?["annotations"] as? [[String: Any]],
+          notes.last?["note"] as? String == String(repeating: "N", count: 65_536),
+          (closedState?["bookmarks"] as? [Any])?.count == 1 else {
+        throw EPUBImportError.invalid("Immediate close lost the latest note or bookmark.")
+    }
+    readerSmokeCheckpoint("page maps")
+    // Finished whole-book screen counts are kept apart from reading state, so the next opening shows them at once.
+    let pageMaps = ReaderPageMapStore(stateDirectory: state).load(publication: imported.publication)
+    guard !pageMaps.isEmpty, closedState?["pageMaps"] == nil else {
+        throw EPUBImportError.invalid("The reader did not keep a finished page map apart from its reading state.")
+    }
+    readerSmokeCheckpoint("restore saved reader")
+    let second = try await EPUBReaderWindow(publication: imported.publication, directory: imported.directory, stateDirectory: state)
+    defer { second.window?.close() }
+    guard second.openedWithPageMapsForTest else { throw EPUBImportError.invalid("A reopened book did not receive its saved page maps.") }
+    second.window?.setFrameOrigin(NSPoint(x: -20_000, y: -20_000)); second.window?.orderBack(nil)
+    let restoreDeadline = Date().addingTimeInterval(20)
+    var restored = false, seen = "nothing"
+    while Date() < restoreDeadline {
+        if let value = try? await second.testHref() { seen = value; if value == href { restored = true; break } }
+        try await Task.sleep(nanoseconds: 100_000_000)
+    }
+    guard restored else { throw EPUBImportError.invalid("Native reader did not restore saved chapter: expected \(href), saved at close \((closedState?["position"] as? [String: Any])?["href"] as? String ?? "none"), reopened at \(seen).") }
+    guard try await second.testNoteLength() == 65_536 else {
+        throw EPUBImportError.invalid("Reopened reader shortened a durable note.")
+    }
+    guard try await second.testPreferences() == expectedPreferences,
+          try await second.testBookmarkCount() == 1 else {
+        throw EPUBImportError.invalid("Reopened reader lost reading preferences or bookmark.")
+    }
+    readerSmokeCheckpoint("failed draft save and cancelled quit")
+    try await second.testEditDraft()
+    let manager = EPUBReaderWindows(stateDirectory: state)
+    manager.testAdopt(second)
+    let cancelledClose = Task { await manager.closeAll() }
+    let draftDeadline = Date().addingTimeInterval(5)
+    while !(try await second.testDraftPrompt()) && Date() < draftDeadline { try await Task.sleep(nanoseconds: 50_000_000) }
+    guard try await second.testDraftPrompt() else { throw EPUBImportError.invalid("Native close bypassed the note draft prompt.") }
+    var anotherEdition = imported.publication; anotherEdition.id = String(repeating: "a", count: 64)
+    try await manager.open(anotherEdition, directory: imported.directory, present: false)
+    guard manager.testWindowCount == 1, manager.isTerminating else { throw EPUBImportError.invalid("Quit allowed another reader to open while awaiting a draft decision.") }
+    try await second.testChooseDraft("keep-draft")
+    guard !(await cancelledClose.value) else { throw EPUBImportError.invalid("Keep editing did not cancel native close.") }
+    guard !manager.isTerminating else { throw EPUBImportError.invalid("Cancelled Quit left the reader manager locked.") }
+    readerSmokeCheckpoint("recovered draft save")
+    try await second.testRestoreDraftSaving()
+    let savedClose = Task { await manager.closeAll() }
+    guard await savedClose.value else { throw EPUBImportError.invalid("Autosaving the recovered draft did not complete native close.") }
+    let draftSaved = try JSONSerialization.jsonObject(with: Data(contentsOf: locationURL)) as? [String: Any]
+    guard (draftSaved?["annotations"] as? [[String: Any]])?.last?["note"] as? String == "Native draft preserved" else {
+        throw EPUBImportError.invalid("Native close did not durably save the note draft.")
+    }
+    readerSmokeCheckpoint("optional continuous proof")
+    if CommandLine.arguments.contains("--reader-experimental-continuous") {
+        guard imported.publication.spine.count >= 12 else { throw EPUBImportError.invalid("Continuous eviction proof needs a 12-chapter synthetic fixture.") }
+        let experimental = try await EPUBReaderWindow(publication: imported.publication, directory: imported.directory, stateDirectory: state)
+        defer { experimental.window?.close() }
+        experimental.window?.setFrameOrigin(NSPoint(x: -20_000, y: -20_000)); experimental.window?.orderBack(nil)
+        try await experimental.testWaitUntilReady()
+        try await experimental.testExperimentalContinuous()
+        guard await experimental.requestClose() else { throw EPUBImportError.invalid("Continuous reader close failed.") }
+        let reopened = try await EPUBReaderWindow(publication: imported.publication, directory: imported.directory, stateDirectory: state)
+        defer { reopened.window?.close() }
+        reopened.window?.setFrameOrigin(NSPoint(x: -20_000, y: -20_000)); reopened.window?.orderBack(nil)
+        try await reopened.testWaitUntilReady()
+        try await reopened.testExperimentalContinuousRestored()
+        guard await reopened.requestClose() else { throw EPUBImportError.invalid("Restored continuous reader close failed.") }
+        print("epub-reader-smoke: experimental continuous co-visibility, bounded eviction, DOM-range selection note/remount, mode handoff and native reopen passed")
+    }
+    print("epub-reader-smoke: Library-first import, scoped rendering, three reading modes, narrow fallback, long-note/bookmark/preferences reopen, native failed-save draft cancel and autosaved durable close passed (synthetic; no activity credit)")
+}
+
+private extension EPUBReaderWindows {
+    var testWindowCount: Int { windows.count + opening.count }
+    func testAdopt(_ reader: EPUBReaderWindow) {
+        let id = reader.publication.id
+        windows[id] = reader
+        reader.closed = { [weak self] in self?.windows.removeValue(forKey: id) }
+    }
+}
+
+private extension EPUBReaderWindow {
+    func testProgressDeliveryBurst() throws {
+        guard let href = publication.spine.first else { throw EPUBImportError.invalid("Missing smoke-test spine.") }
+        flushPositionUpdate()
+        let priorCallback = positionChanged, priorGate = progressDelivery, priorFinalized = positionFinalized
+        let priorPosition = nativePosition, priorProgress = progress, priorSequence = lastSequence
+        var deliveries = 0
+        var finalized: [ProgressObservation] = []
+        positionChanged = { deliveries += 1 }
+        positionFinalized = { finalized.append($0) }
+        progressDelivery = ReaderProgressDeliveryGate()
+        defer {
+            progressDeliveryTask?.cancel(); progressDeliveryTask = nil
+            positionChanged = priorCallback; progressDelivery = priorGate; positionFinalized = priorFinalized
+            nativePosition = priorPosition; progress = priorProgress; lastSequence = priorSequence
+        }
+        for offset in 1...120 {
+            receiveProgress(["type": "position", "observedAt": Date().timeIntervalSince1970 * 1000,
+                "sequence": NSNumber(value: priorSequence + UInt64(offset)),
+                "position": ["href": href, "page": 1, "totalPages": 10, "visiblePages": 1,
+                             "bookOffset": offset, "bookTotal": 1000]])
+        }
+        guard deliveries == 1, nativePosition?.bookOffset == 120,
+              progress?.fraction == 0.12, progressDelivery.pending else {
+            throw EPUBImportError.invalid("Native burst did not retain the newest position with bounded tracking notifications.")
+        }
+        windowDidResignKey(Notification(name: NSWindow.didResignKeyNotification))
+        flushPositionUpdate(final: true)
+        guard deliveries == 1, finalized.count == 1, finalized.first?.fraction == 0.12,
+              !progressDelivery.pending, progressDeliveryTask == nil else {
+            throw EPUBImportError.invalid("Native focus-loss/close flush did not deliver pending progress exactly once.")
+        }
+        let manager = EPUBReaderWindows(stateDirectory: stateURL.deletingLastPathComponent())
+        manager.positionChanged = { deliveries += 1 }
+        manager.positionFinalized = { finalized.append($0) }
+        positionChanged = { [unowned self] in manager.deliverPosition(from: self) }
+        receiveProgress(["type": "position", "observedAt": Date().timeIntervalSince1970 * 1000,
+            "sequence": NSNumber(value: priorSequence + 121),
+            "position": ["href": href, "page": 1, "totalPages": 10, "visiblePages": 1,
+                         "bookOffset": 121, "bookTotal": 1000]])
+        // Exercise the ordinary trailing task's path after focus has already gone.
+        flushPositionUpdate()
+        flushPositionUpdate(final: true)
+        guard deliveries == 1, finalized.count == 2, finalized.last?.fraction == 0.121,
+              !progressDelivery.pending, progressDeliveryTask == nil else {
+            throw EPUBImportError.invalid("A late background position was dropped or incorrectly counted as activity.")
+        }
+        print("reader-progress-burst: 120 positions coalesced; focus-loss and late background final positions retained once without activity")
+    }
+
+    func testNativeChrome() async throws {
+        let deadline = Date().addingTimeInterval(15)
+        while !chrome.isConnected && Date() < deadline { try await Task.sleep(nanoseconds: 50_000_000) }
+        guard chrome.isConnected, window?.toolbar === chrome.toolbar else { throw EPUBImportError.invalid("Native toolbar handshake did not finish") }
+        guard chrome.model.definitions.count == chrome.model.preferences.count else { throw EPUBImportError.invalid("Native appearance omits a preference") }
+        let keys = chrome.model.definitions.map(\.key)
+        guard Set(ReaderControlLayout.sections(for: keys).flatMap(\.keys)) == Set(keys),
+              ReaderControlLayout.sections(for: keys).map(\.group) == ReaderControlGroup.allCases else { throw EPUBImportError.invalid("Native appearance groups omit or reorder a control") }
+        guard let themes = chrome.model.definitions.first(where: { $0.key == "theme" })?.options, themes.count > 10,
+              themes.allSatisfy({ $0.background != nil && $0.text != nil }) else { throw EPUBImportError.invalid("Native theme swatches lack their colours") }
+        guard chrome.model.panelAppearance["panelColor"] is String, chrome.model.panelAppearance["accentColor"] is String else { throw EPUBImportError.invalid("Native panel lacks the page theme's tint") }
+        try await chrome.testPendingFeedback()
+        let before = try await webView.evaluateJavaScript("JSON.stringify(window.StillleafReader.exportState())") as? String ?? ""
+        try chrome.testClick("bookmark")
+        let bookmarkDeadline = Date().addingTimeInterval(3)
+        while Date() < bookmarkDeadline {
+            if let count = try await webView.evaluateJavaScript("window.StillleafReader.exportState().bookmarks.length") as? Int, count > 0 { break }
+            try await Task.sleep(nanoseconds: 25_000_000)
+        }
+        guard let count = try await webView.evaluateJavaScript("window.StillleafReader.exportState().bookmarks.length") as? Int, count > 0 else { throw EPUBImportError.invalid("Actual native bookmark button did not dispatch") }
+        try chrome.testClick("bookmark")
+        let restoreDeadline = Date().addingTimeInterval(3)
+        while Date() < restoreDeadline {
+            if let count = try await webView.evaluateJavaScript("window.StillleafReader.exportState().bookmarks.length") as? Int, count == 0 { break }
+            try await Task.sleep(nanoseconds: 25_000_000)
+        }
+        if CommandLine.arguments.contains("--reader-artifacts") && BackgroundUI.isEnabled {
+            // Popovers only open in an active app, and background runs never activate.
+            print("native-reader-chrome: active toolbar and appearance-popover captures SKIPPED in background mode; CI runs them, or set STILLLEAF_FOREGROUND_UI=1 when nobody is using the Mac")
+        } else if let index = CommandLine.arguments.firstIndex(of: "--reader-artifacts"), index + 1 < CommandLine.arguments.count, let window {
+            let directory = URL(fileURLWithPath: CommandLine.arguments[index + 1])
+            show() // Match the normal reader presentation path for active chrome captures.
+            try await captureNativeWindow(window, to: directory.appendingPathComponent("native-reader-toolbar.png"))
+            print("native-reader-capture-focus: appActive=\(NSApp.isActive) key=\(window.isKeyWindow)")
+            try await chrome.testAppearancePopup()
+            try await chrome.testPanels(evaluate: { script in try await self.webView.evaluateJavaScript(script) }, captureDirectory: directory)
+            try await chrome.testCaptureAppearance(to: directory.appendingPathComponent("native-reader-appearance.png"))
+            try await chrome.benchmarkFeedback(output: directory.appendingPathComponent("native-feedback.json"))
+            let originalFrame = window.frame, originalAppearance = window.appearance, originalPreferences = chrome.model.preferences
+            for dark in [false, true] {
+                window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+                window.setFrame(NSRect(origin: originalFrame.origin, size: NSSize(width: 520, height: 440)), display: true)
+                _ = try await sendNativeControl("preferences", payload: ["theme": dark ? "dark" : "paper"])
+                let prefix = dark ? "native-compact-dark" : "native-compact-light"
+                try await captureNativeWindow(window, to: directory.appendingPathComponent(prefix + "-toolbar.png"))
+                try await chrome.testCaptureAppearance(to: directory.appendingPathComponent(prefix + "-appearance.png"), includeBottom: true)
+            }
+            window.appearance = originalAppearance; window.setFrame(originalFrame, display: true)
+            _ = try await sendNativeControl("preferences", payload: originalPreferences)
+        }
+        guard before.contains("schemaVersion") else { throw EPUBImportError.invalid("Missing canonical state") }
+        print("native-reader-chrome: actual AppKit toolbar, complete appearance definitions and durable renderer dispatch passed")
+    }
+    func testCloseWithQueuedReset(terminating: Bool, stateDirectory: URL) async throws {
+        let deadline = Date().addingTimeInterval(15)
+        while !chrome.isConnected && Date() < deadline { try await Task.sleep(nanoseconds: 10_000_000) }
+        guard chrome.isConnected, let originalSend = chrome.send else { throw EPUBImportError.invalid("Queued Reset test requires connected chrome.") }
+        var release: CheckedContinuation<Void, Never>?
+        chrome.send = { command, payload in
+            if command == "preferences" { await withCheckedContinuation { release = $0 } }
+            return try await originalSend(command, payload)
+        }
+        defer { chrome.send = originalSend; release?.resume() }
+        chrome.model.change?("fontSize", 1.8)
+        let batchDeadline = Date().addingTimeInterval(3)
+        while release == nil && Date() < batchDeadline { try await Task.sleep(nanoseconds: 5_000_000) }
+        guard release != nil else { throw EPUBImportError.invalid("Appearance batch did not reach delayed transport.") }
+        chrome.model.reset?()
+        let manager = EPUBReaderWindows(stateDirectory: stateDirectory)
+        if terminating { manager.testAdopt(self) }
+        // Fail this synthetic regression rather than leave CI in a modal alert
+        // if draining unexpectedly fails. Production alerts remain unchanged.
+        let modalWatch = Task { @MainActor in
+            while !Task.isCancelled {
+                if NSApp.modalWindow != nil { NSApp.abortModal(); return }
+                try? await Task.sleep(nanoseconds: 10_000_000)
+            }
+        }
+        defer { modalWatch.cancel() }
+        let close = Task { @MainActor in terminating ? await manager.closeAll() : await requestClose() }
+        let closeDeadline = Date().addingTimeInterval(3)
+        while !closing && Date() < closeDeadline { try await Task.sleep(nanoseconds: 5_000_000) }
+        guard closing, !chrome.canAcceptCommands else { throw EPUBImportError.invalid("Close did not block new native interactions.") }
+        chrome.model.change?("fontSize", 2.7); chrome.model.reset?()
+        release?.resume(); release = nil
+        guard await close.value, chrome.model.preferences["fontSize"] as? Double == 1.2 else {
+            throw EPUBImportError.invalid("Queued Reset failed while closing or terminating.")
+        }
+        print("native-reader-queue: delayed batch + queued Reset + \(terminating ? "Quit" : "Close") durably drained; new interactions blocked")
+    }
+    func testActivationDuringFailedClose(stateDirectory: URL) async throws {
+        let deadline = Date().addingTimeInterval(15)
+        while !chrome.isConnected && Date() < deadline { try await Task.sleep(nanoseconds: 10_000_000) }
+        guard chrome.isConnected, let originalSend = chrome.send else { throw EPUBImportError.invalid("Activation recovery test requires connected chrome.") }
+        chrome.disconnect()
+        _ = try await originalSend("deactivate", nil)
+        var release: CheckedContinuation<Void, Never>?
+        chrome.send = { command, payload in
+            let value = try await originalSend(command, payload)
+            if command == "activate" { await withCheckedContinuation { release = $0 } }
+            return value
+        }
+        defer { chrome.send = originalSend; release?.resume() }
+        let connect = Task { @MainActor in await chrome.connect() }
+        let activationDeadline = Date().addingTimeInterval(5)
+        while release == nil && Date() < activationDeadline { try await Task.sleep(nanoseconds: 5_000_000) }
+        guard release != nil else { throw EPUBImportError.invalid("Activation did not reach delayed acknowledgement.") }
+        // Temporary fixture only: block the real durable-save worker, then make
+        // its directory unwritable by replacing it with a file. No mock close.
+        stateWorker.sync {}
+        let backup = stateDirectory.appendingPathExtension("backup")
+        try FileManager.default.moveItem(at: stateDirectory, to: backup)
+        try Data("synthetic save failure".utf8).write(to: stateDirectory)
+        let saveGate = DispatchSemaphore(value: 0)
+        stateWorker.async { saveGate.wait() }
+        var gateReleased = false, restoredDirectory = false
+        defer {
+            if !gateReleased { saveGate.signal() }
+            if !restoredDirectory {
+                try? FileManager.default.removeItem(at: stateDirectory)
+                try? FileManager.default.moveItem(at: backup, to: stateDirectory)
+            }
+        }
+        var keptOpen = false
+        let keepOpen = Timer(timeInterval: 0.01, repeats: true) { timer in
+            MainActor.assumeIsolated {
+                guard NSApp.modalWindow != nil else { return }
+                keptOpen = true; NSApp.stopModal(withCode: .alertFirstButtonReturn); timer.invalidate()
+            }
+        }
+        RunLoop.main.add(keepOpen, forMode: .modalPanel)
+        defer { keepOpen.invalidate() }
+        let close = Task { @MainActor in await requestClose() }
+        let closeDeadline = Date().addingTimeInterval(3)
+        while !closing && Date() < closeDeadline { try await Task.sleep(nanoseconds: 5_000_000) }
+        guard closing else { throw EPUBImportError.invalid("Close did not reach save drain.") }
+        release?.resume(); release = nil
+        await connect.value
+        saveGate.signal(); gateReleased = true
+        guard !(await close.value), keptOpen, !closing, !chrome.isConnected, !chrome.toolbar.isVisible,
+              try await webView.evaluateJavaScript("getComputedStyle(document.querySelector('.reader-bar')).display !== 'none'") as? Bool == true else {
+            throw EPUBImportError.invalid("Failed close stranded reader controls after delayed activation.")
+        }
+        try FileManager.default.removeItem(at: stateDirectory)
+        try FileManager.default.moveItem(at: backup, to: stateDirectory)
+        restoredDirectory = true
+        guard await requestClose() else { throw EPUBImportError.invalid("Recovered reader did not close durably.") }
+        print("native-reader-activation: delayed response during real save failure + Keep Open restored exactly one usable web surface")
+    }
+    func testGardenMode() async throws -> String {
+        let deadline = Date().addingTimeInterval(3)
+        var mode = ""
+        repeat {
+            mode = try await webView.evaluateJavaScript("document.documentElement.dataset.garden ?? ''") as? String ?? ""
+            if !mode.isEmpty { return mode }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        } while Date() < deadline
+        return mode
+    }
+
+    /// The mode the page was handed before any reader script ran (the garden's first frame reads this).
+    func testInjectedGardenMode() async throws -> String {
+        try await webView.evaluateJavaScript("window.__stillleafGardenMode ?? ''") as? String ?? ""
+    }
+
+    func testWaitUntilReady() async throws {
+        let deadline = Date().addingTimeInterval(20)
+        while Date() < deadline {
+            if isReady, let text = try? await testContent(), !text.isEmpty { return }
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+        throw EPUBImportError.invalid("Experimental fixture reader did not become ready.")
+    }
+    func testExperimentalContinuousRestored() async throws {
+        let ok = try await webView.evaluateJavaScript("(()=>{const s=window.StillleafReader.exportState();return s.annotations.some(n=>n.note==='Native continuous selection survives remount.'&&n.locator.locations.domRange)&&s.annotations.some(n=>n.note==='Native draft preserved')&&s.bookmarks.length===1&&s.preferences.scroll===true})()") as? Bool ?? false
+        guard ok else { throw EPUBImportError.invalid("Continuous state did not survive native close/reopen.") }
+    }
+    func testExperimentalContinuous() async throws {
+        window?.setContentSize(NSSize(width: 1000, height: 850))
+        let script = """
+        const api=window.StillleafReader, input=JSON.parse(payload);
+        const pause=ms=>new Promise(r=>setTimeout(r,ms));
+        const require=(ok,message)=>{if(!ok)throw Error(message)};
+        let lastResize=performance.now();addEventListener('resize',()=>{lastResize=performance.now()});
+        input.experimentalContinuous=true;input.state=api.exportState();input.state.preferences.scroll=true;
+        input.state.position={href:input.readingOrder[0].href,type:'text/html',locations:{progression:0}};
+        await api.open(input);
+        // Reopening makes the host re-attach its toolbar, which resizes the page and reflows the book to its
+        // opening position (the reader then ignores scrolling for 800ms). Let that settle before scrolling.
+        const chromeDeadline=performance.now()+10000;
+        while(!document.body.classList.contains('native-chrome')&&performance.now()<chromeDeadline)await pause(20);
+        require(document.body.classList.contains('native-chrome'),'native toolbar did not reconnect after the reader reopened');
+        while(performance.now()-lastResize<1000)await pause(50);
+        await api.setPreferences({});await pause(350);
+        const flow=document.querySelector('#reader');require(flow.classList.contains('continuous-reader'),'continuous gate did not activate');
+        const frames=()=>[...flow.querySelectorAll('iframe')];
+        flow.scrollTop=flow.querySelector('.continuous-chapter').clientHeight-flow.clientHeight/2;await pause(250);
+        const [first,second]=frames(),view=flow.getBoundingClientRect();
+        const last=first.contentDocument.querySelector('aside p').getBoundingClientRect(),heading=second.contentDocument.querySelector('h1').getBoundingClientRect();
+        // Some WebKit versions report a zoomed body's rectangles unzoomed while the frame is sized in real pixels, so scale by their measured ratio.
+        const firstScale=first.clientHeight/first.contentDocument.body.getBoundingClientRect().bottom;
+        const boundary={top:view.top,bottom:view.bottom,tail:first.getBoundingClientRect().top+last.bottom*firstScale,firstScale,next:second.getBoundingClientRect().top+heading.top,firstFrameHeight:first.clientHeight,firstBodyBottom:first.contentDocument.body.getBoundingClientRect().bottom,firstBodyScrollHeight:first.contentDocument.body.scrollHeight,zoom:first.contentWindow.getComputedStyle(first.contentDocument.body).zoom,firstFrameTop:first.getBoundingClientRect().top,scrollTop:flow.scrollTop,scrollHeight:flow.scrollHeight,clientHeight:flow.clientHeight};
+        require(boundary.tail>view.top&&boundary.tail<view.bottom&&boundary.next>view.top&&boundary.next<view.bottom,'chapters not co-visible: '+JSON.stringify(boundary));
+        // The margin garden is a decorative fixed layer: scrolling the book must neither move it nor be blocked by it.
+        const garden=document.getElementById('garden'),gardenStyle=garden&&getComputedStyle(garden),gardenBox=garden?.getBoundingClientRect();
+        const reading=document.elementFromPoint(view.left+view.width/2,view.top+view.height/2);
+        const gardenState={mode:document.documentElement.dataset.garden,position:gardenStyle?.position,pointerEvents:gardenStyle?.pointerEvents,ariaHidden:garden?.getAttribute('aria-hidden'),box:gardenBox&&[gardenBox.left,gardenBox.top,gardenBox.width,gardenBox.height],hit:reading?.id||reading?.tagName,scrollTop:flow.scrollTop};
+        require(garden&&gardenState.mode&&gardenState.ariaHidden==='true'&&gardenState.position==='fixed'&&gardenState.pointerEvents==='none','garden is not an inert fixed layer in continuous mode: '+JSON.stringify(gardenState));
+        require(Math.abs(gardenBox.left)<1&&Math.abs(gardenBox.top)<1&&Math.abs(gardenBox.width-innerWidth)<1&&Math.abs(gardenBox.height-innerHeight)<1,'garden moved with the continuous scroll: '+JSON.stringify(gardenState));
+        require(reading!==garden&&reading?.id!=='garden-spine'&&flow.contains(reading),'garden intercepts the continuous reading surface: '+JSON.stringify(gardenState));
+        const geometry=frames().map(f=>{const d=f.contentDocument,e=d.scrollingElement,b=d.body,old=e.scrollTop,before=b.getBoundingClientRect().top;e.scrollTop=100;const probe={scrollTop:e.scrollTop,bodyMoved:b.getBoundingClientRect().top-before};e.scrollTop=old;return {height:f.clientHeight,content:e.scrollHeight,clientHeight:e.clientHeight,bodyScrollHeight:b.scrollHeight,bodyHeight:b.getBoundingClientRect().height,rootHeight:d.documentElement.getBoundingClientRect().height,overflow:f.contentWindow.getComputedStyle(e).overflow,renderedBottom:Math.max(b.getBoundingClientRect().bottom,...[...b.querySelectorAll('*')].map(x=>x.getBoundingClientRect().bottom)),renderedRight:Math.max(b.getBoundingClientRect().right,...[...b.querySelectorAll('*')].map(x=>x.getBoundingClientRect().right)),probe,width:f.clientWidth,contentWidth:e.scrollWidth}});
+        require(geometry.every(x=>x.probe.scrollTop===0&&Math.abs(x.probe.bodyMoved)<0.1&&x.renderedBottom<=x.height+2&&x.renderedRight<=x.width+2),'internal iframe scrolling or clipped content: '+JSON.stringify(geometry));
+        const outerBefore=flow.scrollTop;first.contentDocument.dispatchEvent(new first.contentWindow.KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true,cancelable:true}));await pause(150);
+        require(flow.scrollTop>outerBefore&&frames().every(f=>f.contentDocument.scrollingElement.scrollTop===0),'keyboard did not scroll outer surface exclusively'+JSON.stringify({outerBefore,after:flow.scrollTop,max:flow.scrollHeight-flow.clientHeight,inner:frames().map(f=>f.contentDocument.scrollingElement.scrollTop)}));
+        const href=input.readingOrder[1].href;
+        await api.go({href,type:'text/html',locations:{progression:0}});await pause(150);
+        const frame=frames().find(f=>f.parentElement.dataset.href===href),node=frame.contentDocument.querySelector('p').firstChild;
+        const range=frame.contentDocument.createRange();range.setStart(node,0);range.setEnd(node,42);
+        const selection=frame.contentWindow.getSelection();selection.removeAllRanges();selection.addRange(range);
+        frame.contentDocument.dispatchEvent(new frame.contentWindow.PointerEvent('pointerup',{bubbles:true,isPrimary:true}));
+        document.querySelector('#note-selection').click();document.querySelector('#note-text').value='Native continuous selection survives remount.';document.querySelector('#save-note').click();
+        const saved=api.exportState(),note=saved.annotations.at(-1);
+        require(note.note==='Native continuous selection survives remount.'&&note.locator.href===href&&note.locator.locations.domRange,'selection note lost DOM range');
+        const highlight=()=>frames().some(f=>[...(f.contentWindow.CSS.highlights?.values()??[])].some(h=>[...h].some(r=>r.toString()===note.quote)));
+        require(highlight(),'selected note did not paint');
+        await api.go({href:input.readingOrder[10].href,type:'text/html',locations:{progression:0}});await pause(150);
+        require(frames().length<=8&&!frames().some(f=>f.parentElement.dataset.href===href),'bounded window did not evict selected chapter');
+        await api.go(note.locator);await pause(150);require(highlight(),'note did not repaint after remount');
+        await api.setPreferences({scroll:false,columns:'one'});require(!flow.classList.contains('continuous-reader')&&api.bookmark().href===href,'single-page handoff lost chapter');
+        await api.setPreferences({scroll:true});require(flow.classList.contains('continuous-reader')&&highlight(),'continuous handoff lost highlight');
+        require(JSON.stringify(api.exportState().annotations)===JSON.stringify(saved.annotations),'mode handoff changed annotations');
+        require(JSON.stringify(api.exportState().bookmarks)===JSON.stringify(saved.bookmarks),'mode handoff changed bookmarks');
+        return JSON.stringify({boundary,garden:gardenState,geometry,mounted:frames().length,chapters:flow.querySelectorAll('.continuous-chapter').length,noteHref:note.locator.href});
+        """
+        let result = try await testRunScript("continuous proof", script, arguments: ["payload": payload])
+        let metrics = result as? String ?? "{}"
+        print("epub-reader-experimental-metrics: " + metrics)
+        if let index = CommandLine.arguments.firstIndex(of: "--reader-artifacts"), index + 1 < CommandLine.arguments.count {
+            try Data(metrics.utf8).write(to: URL(fileURLWithPath: CommandLine.arguments[index + 1]).appendingPathComponent("native-experimental-continuous-metrics.json"))
+        }
+    }
+    /// Synthetic fixture only: real WKWebView must preserve XHTML targets and the
+    /// exact page geometry when the animation overlay reveals its live document.
+    func testRenderStability() async throws {
+        let script = """
+        const api=window.StillleafReader;
+        const frame=()=>[...document.querySelectorAll('#reader iframe')].find(f=>getComputedStyle(f).visibility!=='hidden'&&f.contentDocument?.body);
+        if(!frame()?.contentDocument.getElementById('fixture-page'))return 'fixture markers absent';
+        const saved=api.exportState(),pause=ms=>new Promise(r=>setTimeout(r,ms));
+        const require=(ok,message)=>{if(!ok)throw Error(message)};
+        await api.setPreferences({theme:'original',fontFamily:'sans',fontSize:1.3,scroll:false,columns:'one'});
+        await api.go({href:saved.position.href,type:'text/html',locations:{progression:0}});
+        let f=frame(),d=f.contentDocument,p=d.getElementById('fixture-prose');
+        require(!p.closest('a')&&d.getElementById('fixture-page').textContent==='', 'XHTML destination swallowed prose');
+        require(f.contentWindow.getComputedStyle(p).color===f.contentWindow.getComputedStyle(d.body).color, 'Publisher link style colored prose');
+        require(d.querySelector('a[href*="#note-one"]'), 'Footnote link was lost');
+        if(matchMedia('(prefers-reduced-motion: reduce)').matches){await api.setPreferences(saved.preferences);await api.go(saved.position);return 'anchor checks passed; slide skipped for Reduced Motion'};
+        const turn=api.next();let animation;
+        const deadline=performance.now()+5000;
+        while(performance.now()<deadline){animation=document.querySelector('.page-slide-track')?.getAnimations().find(a=>a.playState==='running');if(animation)break;await pause(10)}
+        require(animation,'No page-slide animation for fixture');
+        animation.pause();animation.currentTime=animation.effect.getTiming().duration;
+        await new Promise(requestAnimationFrame);
+        const copy=[...document.querySelectorAll('.page-slide-snapshot')].at(-1);f=frame();
+        const geometry=frame=>{const d=frame.contentDocument,r=frame.getBoundingClientRect();return {mode:d.compatMode,host:[r.x,r.y],rects:[...d.querySelectorAll('h1,p')].map(p=>{const r=p.getBoundingClientRect();return [r.x,r.y,r.width,r.height]})}};
+        const live=geometry(f),snapshot=geometry(copy);
+        require(live.mode===snapshot.mode&&live.mode==='CSS1Compat','Snapshot document mode differs');
+        require(live.host.every((v,i)=>Math.abs(v-snapshot.host[i])<1),'Snapshot frame position differs');
+        require(live.rects.length===snapshot.rects.length&&live.rects.every((r,i)=>r.every((v,j)=>Math.abs(v-snapshot.rects[i][j])<1)),'Snapshot text geometry differs');
+        animation.finish();await turn;await pause(100);
+        const revealed=geometry(frame());
+        require(live.rects.every((r,i)=>r.every((v,j)=>Math.abs(v-revealed.rects[i][j])<1)),'Text moved after animation');
+        await api.setPreferences(saved.preferences);await api.go(saved.position);
+        return 'XHTML anchor styling and snapshot/live text geometry passed';
+        """
+        let result = try await testRunScript("render stability", script)
+        print("epub-reader-render-stability: " + String(describing: result))
+    }
+    /// Runs a smoke script in the page. A script that never settles (a reflow whose Readium callback is lost,
+    /// a page the system stopped rendering) would otherwise sit silent until the CI watchdog; fail instead with
+    /// the reader's own state so the stall names what it was waiting on.
+    func testRunScript(_ label: String, _ script: String, arguments: [String: Any] = [:], timeout: TimeInterval = 90) async throws -> Any {
+        try await withCheckedThrowingContinuation { continuation in
+            var finished = false
+            func finish(_ result: Result<Any, Error>) {
+                guard !finished else { return }
+                finished = true; continuation.resume(with: result)
+            }
+            let watchdog = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+                guard !Task.isCancelled, !finished else { return }
+                let report: (String) -> Void = { state in
+                    finish(.failure(EPUBImportError.invalid("\(label): the page script did not finish within \(Int(timeout))s. Reader state: \(state)")))
+                }
+                // The page itself may be wedged, so the state probe gets its own deadline.
+                let giveUp = Task { @MainActor in try? await Task.sleep(nanoseconds: 5_000_000_000); if !Task.isCancelled { report("page did not answer a state probe") } }
+                webView.evaluateJavaScript("JSON.stringify({visibility:document.visibilityState,hasFocus:document.hasFocus(),size:[innerWidth,innerHeight],body:document.body.className,dialogs:document.querySelectorAll('dialog[open]').length,frames:[...document.querySelectorAll('#reader iframe')].map(f=>[getComputedStyle(f).visibility,Boolean(f.contentDocument?.body)])})") { value, _ in
+                    Task { @MainActor in giveUp.cancel(); report(value as? String ?? "unavailable") }
+                }
+            }
+            webView.callAsyncJavaScript(script, arguments: arguments, in: nil, in: .page) { result in
+                Task { @MainActor in
+                    guard !finished else { return }
+                    watchdog.cancel(); finish(result)
+                }
+            }
+        }
+    }
+    /// A deliberate turn must reach the host as actual chapter geometry. Real books open on a one-page cover
+    /// or title page, so each turn is judged by where it can land: the next page of its chapter, or the first
+    /// page of the next chapter. Two turns forward cross a chapter boundary even in the two-page fixture.
+    func testPageEvidence() async throws {
+        let deadline = Date().addingTimeInterval(5)
+        while nativePosition == nil && Date() < deadline { try await Task.sleep(nanoseconds: 50_000_000) }
+        guard let start = nativePosition else { throw EPUBImportError.invalid("The reader never announced its page layout.") }
+        func landing(_ matches: (NativeReaderPosition) -> Bool) async throws -> Bool {
+            let limit = Date().addingTimeInterval(5)
+            while Date() < limit {
+                if let position = nativePosition, matches(position) { return true }
+                try await Task.sleep(nanoseconds: 50_000_000)
+            }
+            return false
+        }
+        var visited = [start]
+        for _ in 0..<2 {
+            let from = visited[visited.count - 1]
+            let expected: (href: String, page: Int)
+            if from.page + from.visiblePages <= from.totalPages {
+                expected = (from.href, from.page + from.visiblePages)
+            } else if let index = publication.spine.firstIndex(of: from.href), index + 1 < publication.spine.count {
+                expected = (publication.spine[index + 1], 1)
+            } else {
+                throw EPUBImportError.invalid("The page-turn proof needs a page after \(from.href) page \(from.page).")
+            }
+            _ = try await webView.evaluateJavaScript("window.StillleafReader.next(); true")
+            guard try await landing({ $0.href == expected.href && $0.page == expected.page }), let after = nativePosition else {
+                throw EPUBImportError.invalid("A page turn did not reach the host chapter position (expected \(expected.href) page \(expected.page)): \(String(describing: nativePosition))")
+            }
+            visited.append(after)
+        }
+        // Later checks read the chapter href, so wait for each turn back to land.
+        for target in visited.dropLast().reversed() {
+            _ = try await webView.evaluateJavaScript("window.StillleafReader.previous(); true")
+            guard try await landing({ $0.href == target.href && $0.page == target.page }) else {
+                throw EPUBImportError.invalid("Turning back did not return to \(target.href) page \(target.page): \(String(describing: nativePosition))")
+            }
+        }
+    }
+    /// Fixtures with `#fixture-figure` must show the lazily fetched image, styled by a fetched stylesheet.
+    func testFixtureAssets() async throws -> Bool {
+        let deadline = Date().addingTimeInterval(5)
+        repeat {
+            let status = try await webView.evaluateJavaScript("(()=>{const f=[...document.querySelectorAll('#reader iframe')].find(f=>f.contentDocument?.getElementById('fixture-figure'));if(!f)return [...document.querySelectorAll('#reader iframe')].some(f=>f.contentDocument?.body?.innerText)?'absent':'pending';const i=f.contentDocument.getElementById('fixture-figure');return (i.getAttribute('src')||'').startsWith('blob:')&&i.complete&&i.naturalWidth===1&&parseFloat(f.contentWindow.getComputedStyle(i).borderLeftWidth)>0?'ok':'pending'})()") as? String ?? "pending"
+            if status != "pending" { return true }
+            try await Task.sleep(nanoseconds: 100_000_000)
+        } while Date() < deadline
+        return false
+    }
+    func testAppearanceReview(directory: URL) async throws {
+        // Fixture-only narrow stress size; production keeps its 520-point minimum.
+        window?.minSize = NSSize(width: 390, height: 440)
+        let prepare = """
+        const api=window.StillleafReader,book=JSON.parse(payload);book.state=api.exportState();book.experimentalContinuous=true;
+        await api.open(book);
+        window.appearanceBaseline={notes:JSON.stringify(api.exportState().annotations),bookmarks:JSON.stringify(api.exportState().bookmarks)};
+        window.appearanceTarget={href:book.readingOrder[0].href,type:'text/html',locations:{cssSelector:'body > p:nth-of-type(2)'},text:{highlight:'She had meant to read only a few pages.'}};
+        await api.go(window.appearanceTarget);return true;
+        """
+        readerSmokeCheckpoint("appearance fixture preparation")
+        _ = try await testRunScript("appearance fixture preparation", prepare, arguments: ["payload": payload])
+        var records: [[String: Any]] = []
+        let scenarios: [(String, Int, Int, String, String, Bool, String, Double, Bool, Bool)] = [
+            ("appearance-literata", 1280, 900, "literata", "paper", false, "one", 1.2, false, false),
+            ("appearance-lora-wide", 1400, 900, "lora", "sepia", false, "one", 1.2, false, true),
+            ("appearance-atkinson-facing", 1400, 900, "atkinson", "white", false, "two", 1.2, false, true),
+            ("appearance-night", 1400, 900, "literata", "midnight", false, "two", 1.2, false, true),
+            ("appearance-custom-continuous", 1400, 900, "lora", "custom", true, "one", 1.2, false, true),
+            ("appearance-narrow520-large", 520, 800, "atkinson", "midnight", false, "one", 3.0, false, true),
+            ("appearance-narrow390-large", 390, 800, "atkinson", "paper", true, "one", 3.0, false, true),
+            ("appearance-focus", 1400, 900, "literata", "midnight", false, "one", 1.5, true, true)
+        ]
+        for (name, width, height, font, theme, scroll, columns, scale, immersive, wide) in scenarios {
+            readerSmokeCheckpoint("\(name): layout and fonts")
+            window?.setContentSize(NSSize(width: width, height: height))
+            try await Task.sleep(nanoseconds: 400_000_000)
+            let script = """
+            const api=window.StillleafReader;
+            await api.setPreferences({fontFamily:font,theme,scroll,columns,fontSize:scale,immersive,contentWidth:wide?100:90,measure:wide?110:65,sideMargin:wide?8:32,lineHeight:1.6,fontWeight:null,textAlign:'publisher',letterSpacing:0,wordSpacing:0,backgroundColor:'#162530',textColor:'#F2E6CB'});
+            await new Promise(r=>setTimeout(r,400));
+            const frames=[...document.querySelectorAll('#reader iframe')].filter(f=>getComputedStyle(f).visibility!=='hidden'&&f.contentDocument?.body);
+            const family={literata:'Stillleaf Literata',lora:'Stillleaf Lora',atkinson:'Stillleaf Atkinson Hyperlegible'}[font];
+            const metrics=[];
+            for(const f of frames){
+              const d=f.contentDocument,w=f.contentWindow,b=d.body,p=d.querySelector('p'),e=d.scrollingElement;
+              const loaded=await d.fonts.load('400 18px "'+family+'"');await d.fonts.ready;
+              const faces=[...d.fonts].filter(face=>face.family.replace(/['"]/g,'')===family).map(face=>({family:face.family,status:face.status,weight:face.weight,style:face.style}));
+              const rect=f.getBoundingClientRect(),style=w.getComputedStyle(p),before=b.getBoundingClientRect().top;
+              const sample=d.createElement('span');sample.textContent='Hamburgefontsiv 0123456789 Wide margins and little leaves';sample.style.cssText='position:absolute;white-space:nowrap;font-size:20px;font-weight:400;font-style:normal;letter-spacing:0;word-spacing:0';p.append(sample);
+              sample.style.setProperty('font-family',style.fontFamily,'important');const actualWidth=sample.getBoundingClientRect().width;sample.style.setProperty('font-family','"'+family+'"','important');const desiredWidth=sample.getBoundingClientRect().width;sample.style.setProperty('font-family','serif','important');const fallbackWidth=sample.getBoundingClientRect().width;sample.remove();
+              const renderedFont={actualWidth,desiredWidth,fallbackWidth,matches:Math.abs(actualWidth-desiredWidth)<.5&&Math.abs(desiredWidth-fallbackWidth)>1};
+              let probe=null;if(scroll){e.scrollTop=100;probe={top:e.scrollTop,movement:b.getBoundingClientRect().top-before};e.scrollTop=0}
+              const target=d.querySelector('body > p:nth-of-type(2)'),range=d.createRange();range.setStart(target.firstChild,0);range.setEnd(target.firstChild,Math.min(12,target.firstChild.length));
+              const targetRects=[...range.getClientRects()].map(r=>({top:r.top,bottom:r.bottom,left:r.left,right:r.right}));
+              metrics.push({family:style.fontFamily,faces,renderedFont,loaded:loaded.length,color:style.color,background:w.getComputedStyle(b).backgroundColor,fontSize:style.fontSize,zoom:w.getComputedStyle(b).zoom,width:f.clientWidth,height:f.clientHeight,left:rect.left,right:rect.right,rootWidth:e.scrollWidth,rootHeight:e.scrollHeight,probe,renderedBottom:Math.max(b.getBoundingClientRect().bottom,...[...b.querySelectorAll('*')].map(x=>x.getBoundingClientRect().bottom)),renderedRight:Math.max(b.getBoundingClientRect().right,...[...b.querySelectorAll('*')].map(x=>x.getBoundingClientRect().right)),targetRects});
+            }
+            const saved=api.exportState(),flow=document.querySelector('#reader'),bounds=flow.getBoundingClientRect();
+            const retained=saved.position?.href===window.appearanceTarget.href&&JSON.stringify(saved.annotations)===window.appearanceBaseline.notes&&JSON.stringify(saved.bookmarks)===window.appearanceBaseline.bookmarks;
+            const targetVisible=frames.some((f,i)=>metrics[i].targetRects.some(r=>{const v=f.getBoundingClientRect();return r.bottom+v.top>bounds.top&&r.top+v.top<bounds.bottom&&r.right>0&&r.left<f.clientWidth}));
+            return JSON.stringify({name,width:innerWidth,height:innerHeight,preferences:saved.preferences,retained,targetVisible,fontsLoaded:metrics.length>0&&metrics.every(m=>m.loaded>0&&m.renderedFont.matches&&m.family.includes(family)&&m.faces.some(f=>f.status==='loaded')),outerOverflow:document.documentElement.scrollWidth>innerWidth+1,immersiveActive:document.documentElement.classList.contains('immersive'),returnControlVisible:!document.querySelector('#leave-focus').hidden,readerWidth:bounds.width,frames:metrics});
+            """
+            let output = try await testRunScript("\(name) layout and fonts", script, arguments: ["name": name, "font": font, "theme": theme, "scroll": scroll, "columns": columns, "scale": scale, "immersive": immersive, "wide": wide])
+            let text = output as? String ?? "{}"
+            let record = try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any] ?? [:]
+            try Data(text.utf8).write(to: directory.appendingPathComponent(name + "-metrics.json"))
+            readerSmokeCheckpoint("\(name): snapshot")
+            let picture: NSImage = try await withCheckedThrowingContinuation { continuation in
+                webView.takeSnapshot(with: nil) { image, error in
+                    if let image { continuation.resume(returning: image) }
+                    else { continuation.resume(throwing: error ?? EPUBImportError.invalid("Appearance snapshot failed.")) }
+                }
+            }
+            guard let tiff = picture.tiffRepresentation, let bitmap = NSBitmapImageRep(data: tiff), let png = bitmap.representation(using: .png, properties: [:]) else { throw EPUBImportError.invalid("Appearance image encoding failed.") }
+            try png.write(to: directory.appendingPathComponent(name + ".png"))
+            guard record["fontsLoaded"] as? Bool == true, record["retained"] as? Bool == true, record["targetVisible"] as? Bool == true, record["outerOverflow"] as? Bool == false else { throw EPUBImportError.invalid("Appearance validation failed for \(name): \(text)") }
+            if scroll {
+                let frames = record["frames"] as? [[String: Any]] ?? []
+                guard frames.allSatisfy({ f in
+                    let probe = f["probe"] as? [String: Any] ?? [:]
+                    return (probe["top"] as? Double ?? -1) == 0 && abs(probe["movement"] as? Double ?? -1) < 0.1 && (f["renderedBottom"] as? Double ?? .infinity) <= (f["height"] as? Double ?? 0) + 2 && (f["renderedRight"] as? Double ?? .infinity) <= (f["width"] as? Double ?? 0) + 2
+                }) else { throw EPUBImportError.invalid("Appearance continuous geometry failed: \(text)") }
+            }
+            records.append(record)
+            readerSmokeCheckpoint("\(name): validated")
+        }
+        let data = try JSONSerialization.data(withJSONObject: records, options: [.prettyPrinted, .sortedKeys])
+        try data.write(to: directory.appendingPathComponent("appearance-summary.json"))
+        print("epub-reader-appearance: bundled fonts, palette, width, narrow stress, immersive, semantic target and personal-data checks passed")
+    }
+    func testPreferences() async throws -> String {
+        try await webView.evaluateJavaScript("JSON.stringify(window.StillleafReader.exportState().preferences)") as? String ?? ""
+    }
+    func testBookmarkCount() async throws -> Int {
+        try await webView.evaluateJavaScript("window.StillleafReader.exportState().bookmarks.length") as? Int ?? 0
+    }
+    func testReadingModes() async throws -> String {
+        let originalHref = try await testHref()
+        var captures: [[String: Any]] = []
+        for (name, width, columns, scrolling, expectedColumns) in [
+            ("wide-facing", 1280, "two", false, "2"),
+            ("narrow-fallback", 520, "two", false, "1"),
+            ("continuous", 1000, "two", true, "auto"),
+            ("single", 1000, "one", false, "1")
+        ] {
+            window?.setContentSize(NSSize(width: width, height: 800))
+            _ = try await testRunScript("\(name) reading mode", "await window.StillleafReader.setPreferences({columns,scroll:scrolling,fontWeight:700,textAlign:'justify',hyphens:true,letterSpacing:0.1,wordSpacing:0.2}); return true",
+                arguments: ["columns": columns, "scrolling": scrolling])
+            let deadline = Date().addingTimeInterval(8)
+            var metrics: [String: Any] = [:]
+            repeat {
+                try await Task.sleep(nanoseconds: 150_000_000)
+                let value = try await webView.evaluateJavaScript("JSON.stringify((()=>{const f=[...document.querySelectorAll('#reader iframe')].find(f=>getComputedStyle(f).visibility!=='hidden'&&f.contentDocument?.body);if(!f)return {};const d=f.contentDocument,s=f.contentWindow.getComputedStyle(d.documentElement);return {continuous:document.querySelector('#reader').classList.contains('continuous-reader'),width:f.clientWidth,columns:s.columnCount,view:s.getPropertyValue('--USER__view').trim(),height:d.scrollingElement.scrollHeight,viewport:f.contentWindow.innerHeight,preferences:window.StillleafReader.exportState().preferences}})())") as? String ?? "{}"
+                metrics = try JSONSerialization.jsonObject(with: Data(value.utf8)) as? [String: Any] ?? [:]
+                if scrolling ? metrics["continuous"] as? Bool == true : metrics["columns"] as? String == expectedColumns { break }
+            } while Date() < deadline
+            let preferences = metrics["preferences"] as? [String: Any]
+            guard (scrolling ? metrics["continuous"] as? Bool == true : metrics["columns"] as? String == expectedColumns),
+                  preferences?["columns"] as? String == columns, preferences?["scroll"] as? Bool == scrolling,
+                  try await testHref() == originalHref, try await testNoteLength() == 65_536,
+                  try await testBookmarkCount() == 1 else {
+                let href = try await testHref(), note = try await testNoteLength(), bookmarks = try await testBookmarkCount()
+                throw EPUBImportError.invalid("Native reading mode \(name) failed geometry or state retention: href \(href) (was \(originalHref)), note \(note), bookmarks \(bookmarks), \(metrics)")
+            }
+            metrics["mode"] = name; captures.append(metrics)
+        }
+        let data = try JSONSerialization.data(withJSONObject: captures, options: [.prettyPrinted, .sortedKeys])
+        print("epub-reader-mode-metrics: " + String(decoding: data, as: UTF8.self))
+        if let index = CommandLine.arguments.firstIndex(of: "--reader-artifacts"), index + 1 < CommandLine.arguments.count {
+            try data.write(to: URL(fileURLWithPath: CommandLine.arguments[index + 1]).appendingPathComponent("native-reading-modes-metrics.json"))
+        }
+        return try await testPreferences()
+    }
+    func testRenderReviewSnapshots(directory: URL) async throws {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        for (name, theme, width, height, scale) in [("native-paper", "paper", 1000, 800, 1.2), ("native-dark", "dark", 1000, 800, 1.2), ("native-narrow", "paper", 520, 600, 1.2), ("native-size100", "paper", 1000, 800, 1.0), ("native-size150", "paper", 1000, 800, 1.5)] {
+            window?.setContentSize(NSSize(width: width, height: height))
+            _ = try await testRunScript("\(name) theme", "await window.StillleafReader.setPreferences({theme: theme, fontFamily: 'serif', fontSize: scale}); return true",
+                arguments: ["theme": theme, "scale": scale])
+            try await Task.sleep(nanoseconds: 600_000_000)
+            let picture: NSImage = try await withCheckedThrowingContinuation { continuation in
+                webView.takeSnapshot(with: nil) { image, error in
+                    if let image { continuation.resume(returning: image) }
+                    else { continuation.resume(throwing: error ?? EPUBImportError.invalid("Native review snapshot failed.")) }
+                }
+            }
+            guard let tiff = picture.tiffRepresentation, let bitmap = NSBitmapImageRep(data: tiff),
+                  let png = bitmap.representation(using: .png, properties: [:]) else { throw EPUBImportError.invalid("Native review image encoding failed.") }
+            try png.write(to: directory.appendingPathComponent(name + ".png"))
+            if let metrics = try await webView.evaluateJavaScript("JSON.stringify(Array.from(document.querySelectorAll('#reader iframe')).map(f=>{const p=f.contentDocument?.querySelector('p');if(!p)return null;const s=f.contentWindow.getComputedStyle(p);return {frameWidth:f.clientWidth,paragraphWidth:p.getBoundingClientRect().width,fontFamily:s.fontFamily,fontSize:s.fontSize,fontWeight:s.fontWeight,lineHeight:s.lineHeight,paragraphZoom:s.zoom,bodyZoom:f.contentWindow.getComputedStyle(f.contentDocument.body).zoom,htmlZoom:f.contentWindow.getComputedStyle(f.contentDocument.documentElement).zoom}}))") as? String {
+                try Data(metrics.utf8).write(to: directory.appendingPathComponent(name + "-metrics.json"))
+            }
+        }
+    }
+    func testEditDraft() async throws {
+        _ = try await webView.evaluateJavaScript("document.getElementById('contents').click(); document.getElementById('tab-notes').click(); document.querySelector('.edit-note').click(); document.getElementById('note-text').value='Native draft preserved'; true")
+        // Successful drafts now autosave during close. Exercise the remaining
+        // decision path with a synthetic storage-budget refusal, without growing
+        // the fixture or changing any production bridge/persistence behavior.
+        _ = try await webView.evaluateJavaScript("window.stillleafTestEncode=TextEncoder.prototype.encode; TextEncoder.prototype.encode=function(value){return value.includes('Native draft preserved')?new Uint8Array(2*1024*1024):window.stillleafTestEncode.call(this,value)}; true")
+    }
+    func testRestoreDraftSaving() async throws {
+        _ = try await webView.evaluateJavaScript("TextEncoder.prototype.encode=window.stillleafTestEncode; delete window.stillleafTestEncode; true")
+    }
+    func testDraftPrompt() async throws -> Bool {
+        try await webView.evaluateJavaScript("document.getElementById('draft-panel').open") as? Bool ?? false
+    }
+    func testChooseDraft(_ id: String) async throws {
+        _ = try await webView.evaluateJavaScript("document.getElementById('\(id)').click(); true")
+    }
+    func testAddDurableNote() async throws {
+        _ = try await webView.evaluateJavaScript("window.StillleafReader.addBookmark(); window.StillleafReader.annotate({locator:window.StillleafReader.bookmark(),quote:'Synthetic passage',note:'N'.repeat(65536),color:'gold'}); true")
+    }
+    func testNoteLength() async throws -> Int {
+        try await webView.evaluateJavaScript("window.StillleafReader.exportState().annotations.at(-1)?.note.length || 0") as? Int ?? 0
+    }
+    func flushStateForTest() { stateWorker.sync {} }
+    var openedWithPageMapsForTest: Bool { payload.contains("\"pageMaps\"") }
+    func testDiagnostic() async throws -> String {
+        let result = try await webView.evaluateJavaScript("JSON.stringify({url:location.href,api:typeof window.StillleafReader,frames:document.querySelectorAll('iframe').length,text:document.body?.innerText})")
+        return (result as? String ?? "") + " startup=" + (startupError ?? "none") + " didLoad=\(didLoad)"
+    }
+    func testContent() async throws -> String {
+        let result = try await webView.evaluateJavaScript("Array.from(document.querySelectorAll('iframe')).map(f => f.contentDocument?.body?.innerText || '').join('').trim()")
+        return result as? String ?? ""
+    }
+    func testHref() async throws -> String {
+        let result = try await webView.evaluateJavaScript("window.StillleafReader?.bookmark()?.href || ''")
+        return result as? String ?? ""
+    }
+}
