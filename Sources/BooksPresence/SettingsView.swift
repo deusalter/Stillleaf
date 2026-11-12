@@ -313,7 +313,7 @@ struct SettingsView: View {
                     }
                 }
             }
-            ReadingSection("Sync") {
+            ReadingSection("Your devices") {
                 VStack(spacing: 0) {
                     SettingsRow(title: model.sync.enabled ? "Sync folder: \(model.sync.folderName ?? "")" : "Sync with your other devices",
                                 description: model.sync.enabled
@@ -326,7 +326,7 @@ struct SettingsView: View {
                     }
                     if model.sync.enabled {
                         SettingsDivider()
-                        SettingsRow(title: "Sync status", description: syncStatus) {
+                        SettingsRow(title: "Device sync", description: syncStatus) {
                             Button("Sync now") { model.syncNow() }.controlSize(.small).disabled(model.sync.running)
                         }
                     }

@@ -8,7 +8,7 @@ There is no Stillleaf server and no account. Whatever keeps that folder the same
 on each device (iCloud Drive, or any other file syncing) carries the data, in the
 reader's own storage. The apps themselves make no network requests for it.
 
-It is off until a folder is chosen: **Settings → Data & privacy → Sync** on the
+It is off until a folder is chosen: **Settings → Data & privacy → Your devices** on the
 Mac, **Settings → Sync** on iPhone and iPad. Choose the same folder on each device.
 
 ## What crosses
