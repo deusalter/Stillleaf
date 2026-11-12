@@ -1809,7 +1809,9 @@ final class AppModel: ObservableObject {
             }
             epubLibrary.forgetAll()
             // Deleting everything here is not a request to delete it everywhere: this Mac stops syncing, and
-            // what it remembered of its books goes with them.
+            // what it remembered of its books goes with them. Its own copy of the journal leaves the sync
+            // folder, though: deleted data must not sit on in the reader's cloud storage.
+            if let folder = syncFolder() { try? syncEngine(folder).removeOwnData() }
             try? FileManager.default.removeItem(at: syncMemoryURL)
             forgetSyncFolder()
             let coverDirectory = support.appendingPathComponent("Covers")
@@ -1852,7 +1854,12 @@ final class AppModel: ObservableObject {
         perform { try engine.checkpoint(); try store.exportCSV(to: dir.appendingPathComponent("Stillleaf-export-\(Int(Date().timeIntervalSince1970))")) }
     }
     func backup() { guard let url = saveURL(name: "Stillleaf-backup.sqlite", type: .database) else { return }; perform { try engine.checkpoint(); try store.backup(to: url) } }
-    func restore() { guard !importingAudio else { errorMessage = "Finish the audio import before restoring history."; return }; guard let url = openURL(types: [.database, .data]) else { return }; perform { try stopForMutation(); try store.restore(from: url); try resetEngineAfterMutation(); syncGoalFromHistory(); try ensureCurrentPageGoal() } }
+    func restore() { guard !importingAudio else { errorMessage = "Finish the audio import before restoring history."; return }; guard let url = openURL(types: [.database, .data]) else { return }; perform {
+            try stopForMutation(); try store.restore(from: url); try resetEngineAfterMutation(); syncGoalFromHistory(); try ensureCurrentPageGoal()
+            // The journal was replaced: what the other devices hold has to be merged into it afresh.
+            rememberForSync { try $0.forgetMergedJournals() }
+        }
+    }
     // MARK: - Sync with other devices
 
     struct SyncState: Equatable {
@@ -1928,8 +1935,11 @@ final class AppModel: ObservableObject {
 
     /// Notes something for sync that must not be lost when the folder is out of reach: a deletion, or a book
     /// taken off this Mac. It lives in this Mac's own memory file; the folder hears of it on the next pass.
+    ///
+    /// Deletions are noted while sync is turned off too, once this Mac has ever synced: turned on again, the
+    /// other devices would otherwise hand back what was deleted in between.
     private func rememberForSync(_ body: (FolderSync) throws -> Void) {
-        guard sync.enabled else { return }
+        guard sync.enabled || FileManager.default.fileExists(atPath: syncMemoryURL.path) else { return }
         let folder = syncFolder() ?? support.appendingPathComponent("SyncFolderUnavailable", isDirectory: true)
         do { try body(syncEngine(folder)) }
         catch { sync.problem = "A change could not be noted for sync. \(error.localizedDescription)" }

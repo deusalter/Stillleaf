@@ -69,6 +69,9 @@ public final class FolderSync {
         /// A digest of each other device's journal file as last merged. An unchanged file is not merged again,
         /// so an idle pass never touches the journal (or the tracker that sits on it).
         public var mergedJournals: [String: String] = [:]
+        /// Books that were deleted and then imported again, by edition, with when they came back. A deletion
+        /// older than this no longer keeps the book's file out of the folder or off this device.
+        public var revivedEditions: [String: Date] = [:]
         public var lastSync: Date?
         public init(deviceID: String = UUID().uuidString) { self.deviceID = deviceID }
 
@@ -80,6 +83,7 @@ public final class FolderSync {
             declinedEditions = try values.decodeIfPresent(Set<String>.self, forKey: .declinedEditions) ?? []
             editions = try values.decodeIfPresent([String: EditionMemory].self, forKey: .editions) ?? [:]
             mergedJournals = try values.decodeIfPresent([String: String].self, forKey: .mergedJournals) ?? [:]
+            revivedEditions = try values.decodeIfPresent([String: Date].self, forKey: .revivedEditions) ?? [:]
             lastSync = try values.decodeIfPresent(Date.self, forKey: .lastSync)
         }
     }
@@ -111,6 +115,8 @@ public final class FolderSync {
     private let platform: String
     private let fm = FileManager.default
     private var outgoingRecords: [String: ReaderStateSync.Record] = [:]
+    /// Books whose reader state could not be brought up to date on the last `mergeReaderStates`.
+    public private(set) var readerWarnings: [String] = []
 
     private static let encoder: JSONEncoder = {
         let encoder = JSONEncoder()
@@ -192,15 +198,27 @@ public final class FolderSync {
                 memory.mergedJournals[device.id] = Self.digest(data)
             } catch { summary.warnings.append("\(device.name)'s journal could not be merged: \(Self.describe(error))") }
         }
+        try noteRevivals(in: store)
         for url in missingBooks(incoming, having: Set(editions().map(\.publication.id))) {
             do { try importBook(url); summary.importedBooks += 1 }
             catch { summary.warnings.append("A book in the sync folder could not be added: \(error.localizedDescription)") }
         }
         let current = editions()
         summary.readerUpdates = try mergeReaderStates(incoming, editions: current, store: readerStates, stateDirectory: stateDirectory, busy: busy, now: now)
+        summary.warnings += readerWarnings
         if offersBooks { summary.offeredBooks = try offerBooks(current) }
         try push(store: store, now: now)
         return summary
+    }
+
+    /// Publishes this device's journal, deletions and reader records without taking anything in. For the
+    /// moment a full pass has to wait (a book is open and being recorded, so the journal cannot be merged)
+    /// but the other devices should still learn where this one has got to.
+    public func publish(store: ReadingStore, readerStates: ReaderStateStore, stateDirectory: URL, editions: [Edition], now: Date = Date()) throws {
+        try prepareFolder()
+        // With nothing incoming, each book's record is its state as it stands on this device.
+        try mergeReaderStates(Incoming(), editions: editions, store: readerStates, stateDirectory: stateDirectory, now: now)
+        try push(store: store, now: now)
     }
 
     // MARK: - Things the host records as they happen
@@ -241,10 +259,31 @@ public final class FolderSync {
         try saveMemory()
     }
 
-    /// The reader imported the book here again themselves.
-    public func acceptEdition(_ editionID: String) throws {
-        guard memory.declinedEditions.remove(editionID) != nil else { return }
-        try saveMemory()
+    /// The reader imported the book here again themselves: it is wanted on this device, and if it had been
+    /// deleted, that deletion no longer keeps its file from the other devices.
+    public func acceptEdition(_ editionID: String, at date: Date = Date()) throws {
+        let declined = memory.declinedEditions.remove(editionID) != nil
+        let deleted = memory.tombstones.books["epub:" + editionID] != nil
+        if deleted { memory.revivedEditions[editionID] = max(memory.revivedEditions[editionID] ?? date, date) }
+        if declined || deleted { try saveMemory() }
+    }
+
+    /// True while a deletion still keeps this book's file out of the folder and off this device.
+    private func deletionHolds(_ edition: String) -> Bool {
+        guard let deleted = memory.tombstones.books["epub:" + edition] else { return false }
+        return (memory.revivedEditions[edition] ?? .distantPast) <= deleted
+    }
+
+    /// A book the journal has seen again since it was deleted is a book once more: its file may travel.
+    /// The journal says so on every device, because the new record of the book crosses with the journal.
+    private func noteRevivals(in store: ReadingStore) throws {
+        guard !memory.tombstones.books.isEmpty else { return }
+        var revived = memory.revivedEditions.filter { memory.tombstones.books["epub:" + $0.key] != nil }
+        for book in try store.archive().books where memory.tombstones.books[book.id] != nil && !memory.tombstones.covers(book) {
+            guard let edition = Self.editionID(ofBook: book.id) else { continue }
+            revived[edition] = max(revived[edition] ?? book.observedAt, book.observedAt)
+        }
+        if revived != memory.revivedEditions { memory.revivedEditions = revived; try saveMemory() }
     }
 
     // MARK: - Reading the folder
@@ -301,7 +340,7 @@ public final class FolderSync {
     /// Book files in the folder that this device does not have, has not declined and has not deleted.
     public func missingBooks(_ incoming: Incoming, having editions: Set<String>) -> [URL] {
         incoming.books.filter { edition, _ in
-            !editions.contains(edition) && !memory.declinedEditions.contains(edition) && memory.tombstones.books["epub:" + edition] == nil
+            !editions.contains(edition) && !memory.declinedEditions.contains(edition) && !deletionHolds(edition)
         }.sorted { $0.key < $1.key }.map(\.value)
     }
 
@@ -316,6 +355,7 @@ public final class FolderSync {
                                   busy: Set<String> = [], now: Date = Date()) throws -> [String] {
         var updated: [String] = []
         outgoingRecords = [:]
+        readerWarnings = []
         let cutoff = now.addingTimeInterval(-Self.tombstoneLifetime)
         for edition in editions {
             let id = edition.publication.id
@@ -343,7 +383,15 @@ public final class FolderSync {
                 outgoingRecords[id] = local
             } else if let merged = ReaderStateSync.merge(local: local, remotes: remotes, publication: edition.publication) {
                 if merged.changed {
-                    try store.save(merged.record.state, publication: edition.publication)
+                    // One book whose state cannot be saved must not stop the pass: the journal, the deletions
+                    // and every other book still have to be published.
+                    do { try store.save(merged.record.state, publication: edition.publication) }
+                    catch {
+                        readerWarnings.append("\(edition.publication.title): its place and highlights could not be updated. \(error.localizedDescription)")
+                        outgoingRecords[id] = local
+                        memory.editions[id] = memo
+                        continue
+                    }
                     updated.append(id)
                 }
                 if let contents = ReaderStateSync.contents(of: merged.record.state) {
@@ -377,7 +425,7 @@ public final class FolderSync {
             let id = edition.publication.id
             let source = edition.directory.appendingPathComponent("original.epub")
             let destination = booksFolder.appendingPathComponent(id + ".epub")
-            guard Self.isEditionID(id), memory.tombstones.books["epub:" + id] == nil, fm.fileExists(atPath: source.path),
+            guard Self.isEditionID(id), !deletionHolds(id), fm.fileExists(atPath: source.path),
                   !fm.fileExists(atPath: destination.path), !fm.fileExists(atPath: Self.placeholder(for: destination).path) else { continue }
             // A name ending in .tmp is one iCloud Drive does not upload, so no device sees half a book.
             let partial = booksFolder.appendingPathComponent(id + "-" + memory.deviceID + ".epub.tmp")

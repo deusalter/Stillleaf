@@ -40,7 +40,7 @@ final class SyncScenarioDevice {
         try store.deleteBook(id)
         if let edition = FolderSync.editionID(ofBook: id), let held = editions.removeValue(forKey: edition) {
             try? FileManager.default.removeItem(at: held.directory)
-            try? FileManager.default.removeItem(at: stateDirectory.appendingPathComponent(edition + ".json"))
+            for name in [edition + ".json", edition + ".json.bak"] { try? FileManager.default.removeItem(at: stateDirectory.appendingPathComponent(name)) }
         }
     }
 
@@ -112,6 +112,7 @@ func runFolderSyncScenario(failed: (String) -> Void) throws {
         ["id": id, "locator": locator(0.2), "quote": "a shared book", "note": text, "color": "gold", "createdAt": stamp(created), "updatedAt": stamp(updated)]
     }
     func ids(_ state: [String: Any]?, _ key: String) -> Set<String> { Set((state?[key] as? [[String: Any]] ?? []).compactMap { $0["id"] as? String }) }
+    func revision(_ device: SyncScenarioDevice, _ publication: EPUBPublication) -> Int { ((try? device.state(publication))?["revision"] as? NSNumber)?.intValue ?? 0 }
     func progression(_ state: [String: Any]?) -> Double? { ((state?["position"] as? [String: Any])?["locations"] as? [String: Any])?["progression"] as? Double }
 
     // 1. The Mac has a book, some reading, a place, a bookmark and a highlight. The phone has nothing.
@@ -204,6 +205,11 @@ func runFolderSyncScenario(failed: (String) -> Void) throws {
     expect(declined.importedBooks == 0 && phone.editions.isEmpty, "a declined book stays off the device")
     expect(try phone.store.archive().books.contains { $0.id == bookID }, "while its history stays")
 
+    // A third device joins and takes the book: unlike the phone, it has not declined it.
+    let tablet = try SyncScenarioDevice("iPad", in: root, folder: folder)
+    let joined = try tablet.pass(at: at(165))
+    expect(joined.importedBooks == 1 && Set(joined.devices.map(\.name)) == ["Mac", "iPhone"], "a third device joins and receives the book")
+
     // 9. Deleting a book and its history on the Mac removes it everywhere, file included.
     // A book's record carries the real time it was first seen, so its deletion is dated by the real clock too.
     try mac.deleteBook(bookID)
@@ -215,6 +221,8 @@ func runFolderSyncScenario(failed: (String) -> Void) throws {
     try mac.pass(at: Date())
     expect(try mac.store.archive().books.isEmpty && phone.store.archive().books.isEmpty, "and neither journal brings it back")
     expect(try mac.store.archive().intervals.isEmpty, "with its reading")
+    let goneToo = try tablet.pass(at: Date())
+    expect(goneToo.deletedBooks == [bookID] && tablet.editions.isEmpty, "the third device deletes it as well")
 
     // 10. Importing the same file again afterwards is a new start, not something the old deletion swallows.
     try mac.add(epub)
@@ -223,8 +231,53 @@ func runFolderSyncScenario(failed: (String) -> Void) throws {
     try mac.pass(at: Date())
     let again = try phone.pass(at: Date())
     expect(again.journal.addedBooks == 1 && again.journal.addedIntervals == 1, "a book imported again after its deletion syncs as new: \(again)")
+    expect(fm.fileExists(atPath: folder.appendingPathComponent("books/\(book.id).epub").path), "and its file is offered again, the old deletion notwithstanding")
+    let revived = try tablet.pass(at: Date())
+    expect(revived.importedBooks == 1 && tablet.editions[book.id] != nil, "so a device that had deleted it gets the file back, not just its history: \(revived)")
+    expect(again.importedBooks == 0 && phone.editions.isEmpty, "while the phone, which chose to keep it off, still does")
 
-    // 11. A folder written by a newer format is refused rather than damaged.
+    // 11. Putting a device down with a book open publishes where it stopped, without merging anything in.
+    try mac.store.appendInterval(interval(bookID, session: "mac-later", from: 320, to: 330))
+    try mac.pass(at: Date())
+    try tablet.store.appendInterval(interval(bookID, session: "tablet-open", from: 340, to: 350))
+    try save(tablet, book, revision: revision(tablet, book) + 1, position: 0.4, bookmarks: [bookmark("b9", at(345))], annotations: [], savedAt: Date())
+    try tablet.sync.publish(store: tablet.store, readerStates: tablet.readerStates, stateDirectory: tablet.stateDirectory, editions: Array(tablet.editions.values), now: Date())
+    expect(try !tablet.store.archive().intervals.contains { $0.sessionID == "mac-later" }, "publishing takes nothing into the journal under the open book")
+    let pickedUp = try mac.pass(at: Date())
+    expect(pickedUp.journal.addedIntervals == 1 && pickedUp.readerUpdates == [book.id], "the other device receives the reading and the place: \(pickedUp)")
+    expect(try progression(mac.state(book)) == 0.4 && ids(mac.state(book), "bookmarks") == ["b9"], "and opens where the book was left open")
+    try tablet.pass(at: Date())
+    expect(try tablet.store.archive().intervals.contains { $0.sessionID == "mac-later" }, "the full pass after the book closes takes in what waited")
+
+    // 12. A journal that was replaced (a restore) has the other devices' reading merged into it afresh.
+    try mac.pass(at: Date())
+    try mac.store.deleteSession("tablet-open")   // as a restored, older journal would lack it
+    let unaware = try mac.pass(at: Date())
+    expect(unaware.journal.addedIntervals == 0, "an unchanged journal from another device is not merged twice")
+    try mac.sync.forgetMergedJournals()
+    let afresh = try mac.pass(at: Date())
+    expect(afresh.journal.addedIntervals == 1, "after a restore the other devices' reading comes back: \(afresh)")
+
+    // 13. One book whose state cannot be saved does not stop the rest of the pass.
+    try save(tablet, book, revision: revision(tablet, book) + 1, position: 0.7, bookmarks: [bookmark("b9", at(345))], annotations: [], savedAt: Date())
+    try tablet.pass(at: Date())
+    for name in [book.id + ".json", book.id + ".json.bak"] { try Data("not a reader state".utf8).write(to: mac.stateDirectory.appendingPathComponent(name)) }
+    try mac.store.deleteSession("mac-later")
+    try mac.sync.recordDeletedSession("mac-later")
+    let hobbled = try mac.pass(at: Date())
+    expect(hobbled.warnings.count == 1 && hobbled.readerUpdates.isEmpty, "the book that could not be updated is reported: \(hobbled.warnings)")
+    let lateDeletion = try tablet.pass(at: Date())
+    expect(lateDeletion.deletedSessions == ["mac-later"], "and the pass still published the deletion made on that device")
+
+    // 14. A device that deletes all its data takes its copy of the journal out of the folder.
+    let phoneFolder = folder.appendingPathComponent("devices/\(phone.sync.deviceID)", isDirectory: true)
+    expect(fm.fileExists(atPath: phoneFolder.appendingPathComponent("journal.json").path), "a device's journal is in its own folder")
+    try phone.sync.removeOwnData()
+    expect(!fm.fileExists(atPath: phoneFolder.path), "and leaves with the device")
+    let without = try tablet.pass(at: Date())
+    expect(without.devices.map(\.name) == ["Mac"], "the others no longer see it")
+
+    // 15. A folder written by a newer format is refused rather than damaged.
     let future = root.appendingPathComponent("Future", isDirectory: true)
     try fm.createDirectory(at: future, withIntermediateDirectories: true)
     try Data(#"{"format":"stillleaf-sync","version":99}"#.utf8).write(to: future.appendingPathComponent("stillleaf-sync.json"))

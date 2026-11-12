@@ -341,7 +341,7 @@ final class Journal: ObservableObject {
                 do {
                     try register(edition)
                     // Imported here on purpose, whatever was decided about keeping it off this device before.
-                    try? rememberForSync { try $0.acceptEdition(edition.publication.id) }
+                    try? rememberForSync { try $0.acceptEdition(edition.publication.id, at: clock().date) }
                     importedIDs.append("epub:" + edition.publication.id)
                     if edition.alreadyImported { duplicates += 1 } else { imported.append(edition.publication.title) }
                 } catch { failures.append("\(url.lastPathComponent): \(error.localizedDescription)") }
@@ -516,8 +516,9 @@ final class Journal: ObservableObject {
         guard readingBookID != bookID else { return fail("Close the book before deleting it.") }
         return perform(rebuildingTracker: true) {
             try stopTracking()
-            try store.deleteBook(bookID)
+            // Files first: if they cannot be removed, the book is still whole and can be deleted again.
             if let edition = editions[bookID] { try removeFiles(of: edition) }
+            try store.deleteBook(bookID)
             try rememberForSync { try $0.recordDeletedBook(bookID, at: clock().date) }
         }
     }
@@ -619,8 +620,11 @@ final class Journal: ObservableObject {
 
     /// Notes something for sync that must not be lost when the folder is out of reach: a deletion, or a book
     /// taken off this device. These live in this device's own memory file; the folder hears of them on the next pass.
+    ///
+    /// Deletions are noted while sync is turned off too, once this device has ever synced: turned on again,
+    /// the other devices would otherwise hand back what was deleted in between.
     private func rememberForSync(_ body: (FolderSync) throws -> Void) throws {
-        guard sync.enabled else { return }
+        guard sync.enabled || FileManager.default.fileExists(atPath: paths.syncMemory.path) else { return }
         let folder = syncFolder()
         let scoped = folder?.startAccessingSecurityScopedResource() ?? false
         defer { if scoped { folder?.stopAccessingSecurityScopedResource() } }
@@ -652,8 +656,9 @@ final class Journal: ObservableObject {
                         if !self.syncUnreadable.contains(url.deletingPathExtension().lastPathComponent) { arrivals.append(url) }
                     },
                     deleteBook: { id in
-                        try self.store.deleteBook(id)
+                        // Files first: a book left in the journal is found and deleted again on the next pass.
                         if let edition = self.editions[id] { try self.removeFiles(of: edition) }
+                        try self.store.deleteBook(id)
                     },
                     deleteSession: { id in try self.store.deleteSession(id) })
             }
@@ -683,6 +688,21 @@ final class Journal: ObservableObject {
         else {
             offerBooksInBackground()
             if syncWanted { syncNow() }
+        }
+    }
+
+    /// Publishes where this device has got to without taking anything in. A book that is open keeps a full
+    /// pass waiting, because the journal cannot be merged under the tracker; but putting the phone down with
+    /// the book open is exactly when the Mac needs to learn the place. The reader calls this as it leaves.
+    func publishForSync() {
+        guard sync.enabled, !syncRunning, !importing else { return }
+        do {
+            try withSyncFolder { engine in
+                try engine.publish(store: store, readerStates: ReaderStateStore(directory: paths.readerState), stateDirectory: paths.readerState,
+                                   editions: syncEditions, now: clock().date)
+            }
+        } catch {
+            sync.problem = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
     }
 
@@ -809,13 +829,17 @@ final class Journal: ObservableObject {
     /// Replaces the journal with a validated SQLite backup.
     @discardableResult
     func restore(from url: URL) -> Bool {
-        withLocalCopy(of: url) { copy in
+        let restored = withLocalCopy(of: url) { copy in
             perform(rebuildingTracker: true) {
                 try stopTracking()
                 try store.restore(from: copy)
                 try ensureDailyGoal()
+                // The journal was replaced: what the other devices hold has to be merged into it afresh.
+                try rememberForSync { try $0.forgetMergedJournals() }
             }
         }
+        if restored { syncNow() }
+        return restored
     }
 
     /// Deletes all journal records, imported books and reader state on this device.
@@ -832,7 +856,9 @@ final class Journal: ObservableObject {
             editions = [:]
             try ensureDailyGoal()
             // Deleting everything here is not a request to delete it everywhere: this device stops syncing
-            // and what it remembered of its books is dropped with them.
+            // and what it remembered of its books is dropped with them. Its own copy of the journal leaves
+            // the sync folder, though: deleted data must not sit on in the reader's cloud storage.
+            _ = try? withSyncFolder { try $0.removeOwnData() }
             try? FileManager.default.removeItem(at: paths.syncMemory)
             forgetSyncFolder()
         }

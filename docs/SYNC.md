@@ -26,7 +26,9 @@ Mac, **Settings → Sync** on iPhone and iPad. Choose the same folder on each de
 ## When it runs
 
 - **iPhone and iPad:** when the app comes forward, when it leaves, and when a book
-  is closed. Nothing runs in the background.
+  is closed. Nothing runs in the background. Leaving with a book still open
+  publishes the place, highlights and reading so far (`FolderSync.publish`)
+  without taking anything in; the full pass follows when the book is closed.
 - **Mac:** when the library has loaded at launch, when the journal changes or the
   Mac is returned to (at most once a minute), and on **Sync now**.
 
@@ -80,18 +82,26 @@ each device keeps **tombstones** (`SyncTombstones`): the ids it deleted and when
 - Rows a tombstone covers are ignored when another device's journal is merged.
 - Another device's tombstones are applied locally, then passed on.
 - A book's tombstone stops applying once the book is observed again after the
-  deletion, so importing the same file later is a fresh start.
+  deletion, so importing the same file later is a fresh start: its history
+  crosses again and so does its file, including to the devices that had deleted it.
 - Tombstones are kept for 400 days.
 
 Deletions are noted in the device's own memory file at the moment they happen,
-so they are not lost if the folder is unreachable at that moment.
+so they are not lost if the folder is unreachable at that moment. They are noted
+while sync is turned off too, once a device has ever synced, so turning sync back
+on does not hand back what was deleted in between.
 
 Two things are deliberately **not** deletions everywhere:
 
 - **Remove EPUB from this device** keeps the history and keeps the book on the
   other devices. This device remembers not to fetch it again.
-- **Delete all data** turns sync off on that device. It does not delete the
-  journal on the others.
+- **Delete all data** turns sync off on that device and takes that device's own
+  folder (`devices/<id>`) out of the sync folder, so no copy of the deleted
+  journal stays in the reader's cloud storage. It does not delete the journal on
+  the other devices; choosing the same folder again brings their history back.
+
+Restoring a backup replaces the journal, so the device forgets which journals it
+had already merged and merges every other device's journal afresh.
 
 ## Reader state
 
@@ -104,6 +114,8 @@ Two things are deliberately **not** deletions everywhere:
   the last pass, so it can tell "removed here" from "never arrived here".
 - The merged document gets a revision above every one seen, so the reader
   accepts it, and it is checked with `ReaderStateValidation` before it is saved.
+- A book whose state cannot be saved is reported and skipped; the rest of the
+  pass, and the publishing after it, still happen.
 
 ## Code
 
@@ -135,6 +147,17 @@ The engine is shared, so both apps follow the same rules.
   code but have not run on devices.
 - Sessions that overlap in time across devices are left out on the other device
   rather than reconciled.
+- A book's deletion is compared with when each device last recorded the book, by
+  each device's own clock. Clocks that disagree by more than the gap between the
+  two events can let a deleted book survive, or delete one imported again
+  moments later. A book that another device changes (opens and counts its pages,
+  say) after it was deleted elsewhere, before that device has synced, also
+  survives.
+- A restore or an archive import that brings back a session deleted while sync
+  was on will have it deleted again by the next pass: a session's deletion is
+  permanent for 400 days.
+- A book deleted while the folder is out of reach (or sync is off) leaves its
+  file in `books/`; no device fetches it, but it is not cleaned up.
 - Book metadata (title, author) edited on one device does not propagate.
 - A daily goal changed on two devices for the same day can resolve differently
   on each.

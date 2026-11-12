@@ -74,7 +74,14 @@ final class ReaderViewController: UIViewController, WKNavigationDelegate, UIGest
         journal.readerOpened(bookID: edition.bookID)
         // The renderer saves on every change; this also covers the moment before suspension.
         observers.append(NotificationCenter.default.addObserver(forName: UIScene.willDeactivateNotification, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor [weak self] in await self?.saveSnapshot() }
+            Task { @MainActor [weak self] in
+                // The system may suspend the app at once; ask for the moment it takes to save and to tell
+                // the other devices where the reading stopped.
+                let task = UIApplication.shared.beginBackgroundTask()
+                await self?.saveSnapshot()
+                self?.journal.publishForSync()
+                if task != .invalid { UIApplication.shared.endBackgroundTask(task) }
+            }
         })
         for name in [UIAccessibility.reduceMotionStatusDidChangeNotification, UIAccessibility.darkerSystemColorsStatusDidChangeNotification,
                      UIAccessibility.reduceTransparencyStatusDidChangeNotification, UIAccessibility.voiceOverStatusDidChangeNotification,
