@@ -88,14 +88,14 @@ struct AtlasYearView: View {
                 }
             }.frame(width: Self.labelWidth, alignment: .leading)
         }
-        .accessibilityValue("\(activity.count) recorded days, \(pages) pages, \(ReadingFormat.duration(seconds)) recorded. \(finished.isEmpty ? "" : "Finished this year.")")
+        .accessibilityValue("\(activity.count) recorded days, \(ReadingFormat.pages(pages)), \(ReadingFormat.duration(seconds)) recorded. \(finished.isEmpty ? "" : "Finished this year.")")
     }
 
     private func totals(_ row: AtlasYearRow) -> some View {
         let seconds = row.creditedSeconds, pages = row.pages, finished = row.finishes
         return VStack(alignment: .trailing, spacing: 5) {
             if pages > 0 {
-                Text(pages.formatted()).font(.callout.weight(.medium)); Text("pages").font(.caption2)
+                Text(pages.formatted()).font(.callout.weight(.medium)); Text(ReadingFormat.pageWord(pages)).font(.caption2)
             } else if seconds > 0 {
                 Text(ReadingFormat.duration(seconds)).font(.callout.weight(.medium)); Text("recorded").font(.caption2)
             } else { Text(finished.isEmpty ? "—" : "Finished").font(.caption) }

@@ -161,7 +161,7 @@ struct HistoryView: View, Equatable {
         HistoryNavigationControls(navigation: $navigation, canMoveForward: canMoveForward)
     }
     @ViewBuilder private func summary(pages: Int, seconds: Double, activeDays: Int, scale: CalendarScale) -> some View {
-        if pages > 0 { metric(pages.formatted(), "pages") }
+        if pages > 0 { metric(pages.formatted(), ReadingFormat.pageWord(pages)) }
         metric(ReadingFormat.duration(seconds), "recorded")
         if scale != .day { metric("\(activeDays)", activeDays == 1 ? "active day" : "active days") }
     }

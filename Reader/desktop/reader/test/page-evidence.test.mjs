@@ -30,7 +30,7 @@ test('only deliberate page movement is reported as page evidence',{timeout:12000
  const frameWith=selector=>page.waitForFunction(selector=>[...document.querySelectorAll('#reader iframe')].some(f=>f.contentDocument?.querySelector(selector)),selector);
 
  const indexedBook={...book,contentProgress:true,resources:book.resources.map((r,i)=>i===2?{...r,dataBase64:Buffer.from(chapter(3).replace('</body>',prose.repeat(100)+'</body>')).toString('base64')}:r)};
- await page.evaluate(input=>window.StillleafReader.open(input),indexedBook);await frameWith('#c1p0');await settle();
+ await page.evaluate(b=>window.StillleafReader.open({...b,state:{schemaVersion:1,editionId:b.editionId,revision:0,position:null,preferences:{columns:'one',lineHeight:1.6},bookmarks:[],annotations:[]}}),indexedBook);await frameWith('#c1p0');await settle();
  await page.waitForFunction(()=>window.positions.some(e=>e.position.bookTotal>0));
  const indexCheck=await page.evaluate(resources=>{
   const lengths=resources.map(r=>new DOMParser().parseFromString(atob(r.dataBase64),'text/html').body.textContent.length);

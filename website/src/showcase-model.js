@@ -1,7 +1,7 @@
 /**
- * Pure state for the website's illustrative scroll story.
- * These presets are original presentation examples, not a catalog of shipped
- * app themes. No reading activity or app preferences are recorded here.
+ * Pure state for the website's scroll story. The reader presets mirror real
+ * page colours from the Mac reader; the daily goal is sample data. No reading
+ * activity or app preferences are recorded here.
  */
 
 /**
@@ -52,10 +52,19 @@ export function journeyState(progress) {
     blend: clampProgress((p - 0.4) / 0.2),
     night: clampProgress((p - 0.75) / 0.25),
     dailyCopy: clampProgress((0.5 - p) / 0.075),
-    readerCopy: clampProgress((p - 0.49) / 0.075),
+    // Pale reader copy waits for the dark background, so it never sits on a
+    // mid-blend green with too little contrast (WCAG 1.4.3).
+    readerCopy: clampProgress((p - 0.585) / 0.075),
     activeScene: p < 0.5 ? "daily" : "reader",
   };
 }
+
+/**
+ * Where the reader and its copy are fully shown, just before the first
+ * page-colour change. The reader link's scroll anchor in showcase.css sits at
+ * this fraction of the shared stage's scroll distance.
+ */
+export const readerSettledProgress = 0.662;
 
 /**
  * Illustrative daily reading, counting complete pages only. Rounding down avoids
@@ -82,50 +91,55 @@ export function dailyReading(progress) {
  * @property {string} fontLabel
  * @property {string} spacingLabel
  * @property {string} themeColor
- * @property {'literary'|'classic'|'modern'} fontFamily
+ * @property {'newyork'|'georgia'|'sans'} fontFamily
  * @property {number} lineHeight
  */
 
-/** @type {readonly Readonly<ReaderPreset>[]} */
+/**
+ * Four of the Mac reader's page colours, with the same names and colours as
+ * `THEMES` in Reader/desktop/reader/src/appearance.js. Typefaces are a subset
+ * of its `FONTS`; the website shows them with the visitor's closest system font.
+ * @type {readonly Readonly<ReaderPreset>[]}
+ */
 export const readerPresets = Object.freeze([
   Object.freeze({
-    id: "sea-glass",
-    label: "Sea glass",
-    description: "Soft green light, with room for each line to breathe.",
-    fontLabel: "Literary serif",
+    id: "stillleaf",
+    label: "Stillleaf",
+    description: "Soft green paper and dark ink, Stillleaf’s own page.",
+    fontLabel: "New York",
     spacingLabel: "Open spacing",
-    themeColor: "#dce9e0",
-    fontFamily: "literary",
+    themeColor: "#f0f7f3",
+    fontFamily: "newyork",
     lineHeight: 1.8,
   }),
   Object.freeze({
-    id: "paper",
-    label: "Paper",
+    id: "warm",
+    label: "Warm",
     description: "Warm paper and a familiar serif for a quiet afternoon.",
-    fontLabel: "Classic serif",
+    fontLabel: "Georgia",
     spacingLabel: "Balanced spacing",
-    themeColor: "#f2e9d8",
-    fontFamily: "classic",
+    themeColor: "#f6f1e3",
+    fontFamily: "georgia",
     lineHeight: 1.65,
   }),
   Object.freeze({
     id: "dusk",
     label: "Dusk",
     description: "Muted plum and clean letterforms as the room grows dim.",
-    fontLabel: "Modern sans",
+    fontLabel: "San Francisco",
     spacingLabel: "Easy spacing",
-    themeColor: "#49414d",
-    fontFamily: "modern",
+    themeColor: "#25212e",
+    fontFamily: "sans",
     lineHeight: 1.75,
   }),
   Object.freeze({
-    id: "midnight",
-    label: "Midnight",
-    description: "Deep green, pale type, and one more chapter before sleep.",
-    fontLabel: "Literary serif",
+    id: "night",
+    label: "Night",
+    description: "True black with bright text, for dark rooms and OLED screens.",
+    fontLabel: "New York",
     spacingLabel: "Generous spacing",
-    themeColor: "#142923",
-    fontFamily: "literary",
+    themeColor: "#000000",
+    fontFamily: "newyork",
     lineHeight: 1.9,
   }),
 ]);

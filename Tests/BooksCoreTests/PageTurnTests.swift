@@ -360,6 +360,36 @@ final class PageTurnTests: XCTestCase {
         XCTAssertNil(event.rating)
     }
 
+    func testImportRequiresEachPageEventToCloseItsSessionInterval() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        var archive = HistoryArchive()
+        archive.books = [BookRecord(id: "book", title: "Synthetic"), BookRecord(id: "other", title: "Other")]
+        archive.intervals = [
+            ReadingInterval(id: "auto", sessionID: "session", bookID: "book", start: start, end: start.addingTimeInterval(60),
+                            duration: 60, timezoneID: "UTC", mode: .automatic),
+            ReadingInterval(id: "manual", sessionID: "manual", bookID: "book", start: start.addingTimeInterval(120),
+                            end: start.addingTimeInterval(180), duration: 60, timezoneID: "UTC", mode: .manual)
+        ]
+        let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .millisecondsSince1970
+        func imports(_ event: AuditEvent) throws -> Bool {
+            var candidate = archive; candidate.events = [event]
+            let url = directory.appendingPathComponent(UUID().uuidString + ".json")
+            try encoder.encode(candidate).write(to: url)
+            let store = try ReadingStore(url: directory.appendingPathComponent(UUID().uuidString + ".sqlite"))
+            return (try? store.importJSON(from: url)) != nil
+        }
+        let end = start.addingTimeInterval(60)
+        XCTAssertTrue(try imports(turn(id: "closes", date: end, book: "book", session: "session", from: 1, to: 2, visible: 1)))
+        XCTAssertFalse(try imports(turn(id: "mid", date: start.addingTimeInterval(30), book: "book", session: "session", from: 1, to: 2, visible: 1)))
+        XCTAssertFalse(try imports(turn(id: "session", date: end, book: "book", session: "elsewhere", from: 1, to: 2, visible: 1)))
+        XCTAssertFalse(try imports(turn(id: "book", date: end, book: "other", session: "session", from: 1, to: 2, visible: 1)))
+        XCTAssertFalse(try imports(turn(id: "manual-turn", date: start.addingTimeInterval(180), book: "book", session: "manual", from: 1, to: 2, visible: 1)),
+                       "a manual interval hosts page corrections, not observed turns")
+    }
+
     private func turn(id: String, date: Date, book: String, session: String, from: Int, to: Int, visible: Int) -> AuditEvent {
         AuditEvent(id: id, date: date, kind: "pageTurn", bookID: book, sessionID: session,
                    detail: "Observed adjacent reader pages.",

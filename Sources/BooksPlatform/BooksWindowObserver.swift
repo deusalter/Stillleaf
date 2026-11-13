@@ -1,7 +1,8 @@
+#if os(macOS)
 import AppKit
 import ApplicationServices
 
-/// Event notifications supplement the one-second poll. Values and book text are never requested.
+/// Event notifications supplement the eligibility poll (every second while Books is in front). Values and book text are never requested.
 public final class BooksWindowObserver {
     private let queue = DispatchQueue(label: "Stillleaf.window-observer", qos: .utility)
     private let queueKey = DispatchSpecificKey<Bool>()
@@ -66,3 +67,4 @@ public final class BooksWindowObserver {
     }
     deinit { invalidate() }
 }
+#endif

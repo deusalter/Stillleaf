@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#e5eeea" />
+    <title>Privacy policy | Stillleaf</title>
+    <meta
+      name="description"
+      content="Stillleaf keeps your reading history, reviews, and books on your Mac. No accounts, analytics, or advertising. Here is exactly what the app stores and when it connects to the internet."
+    />
+    <link rel="icon" href="/favicon.ico" sizes="32x32" />
+    <link rel="icon" type="image/svg+xml" href="/leaf.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <meta property="og:type" content="article" />
+    <meta property="og:site_name" content="Stillleaf" />
+    <meta property="og:title" content="Stillleaf privacy policy" />
+    <meta
+      property="og:description"
+      content="Your reading stays on your Mac. What Stillleaf stores, and the few times it connects to the internet."
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="stylesheet" href="/src/page.css" />
+  </head>
+  <body>
+    {{site-header}}
+    <main id="main" tabindex="-1">
+      <div class="page-hero">
+        <div class="section-wrap">
+          <p class="page-kicker">Privacy policy</p>
+          <h1>Your reading stays on your Mac.</h1>
+          <p class="page-lede">
+            Stillleaf is a reading journal, so it knows a lot about what you
+            read. That information belongs on your Mac and nowhere else. This
+            policy explains what the app stores, and the few times it talks to
+            the internet.
+          </p>
+          <p class="page-meta">Effective {{effective-date}}</p>
+        </div>
+      </div>
+
+      <div class="page-body section-wrap">
+        <article class="prose">
+          <section class="summary-card" aria-labelledby="short">
+            <h2 id="short">In short</h2>
+            <ul>
+              <li>
+                There are no accounts, analytics, advertising, or tracking.
+              </li>
+              <li>
+                Your reading history, reviews, notes, and imported books are
+                stored on your Mac.
+              </li>
+              <li>
+                {{publisher}} does not run servers that receive your reading
+                data, and never sees it.
+              </li>
+              <li>
+                Stillleaf connects to the internet only for features you choose
+                to use, listed below.
+              </li>
+            </ul>
+          </section>
+
+          <h2 id="stored">What Stillleaf stores on your Mac</h2>
+          <p>
+            Everything lives in one folder,
+            <code>~/Library/Application Support/BooksPresence/</code>. The
+            folder keeps the app’s original name so upgrades keep your history.
+          </p>
+          <ul>
+            <li>
+              <strong>Reading journal</strong> (<code>history.sqlite</code>):
+              the books in your Library (title, author, and identifiers),
+              reading sessions with their start and end times and time zone,
+              page progress, goals, finished dates, ratings, written reviews,
+              and any corrections you make.
+            </li>
+            <li>
+              <strong>Imported books</strong> (<code>Publications/</code>
+              and <code>Audiobooks/</code>): copies of the EPUB and audio files
+              you import.
+            </li>
+            <li>
+              <strong>Reader state</strong> (<code>ReaderState/</code>): where
+              you are in each book, your reader settings, notes, and bookmarks,
+              plus saved page counts for each screen layout
+              (<code>ReaderState/PageMaps/</code>), so a book you reopen shows
+              its page count at once.
+            </li>
+            <li>
+              <strong>Covers</strong> (<code>Covers/</code>): cover images taken
+              from your books, from Apple Books on your Mac, or from a cover
+              search you started.
+            </li>
+            <li>
+              <strong>Settings</strong>: your preferences, kept in the standard
+              macOS preferences for the app, including a Discord application ID
+              if you enter one.
+            </li>
+          </ul>
+          <p>
+            Stillleaf also keeps a health log of tracking problems, such as a
+            permission that was turned off, so it can explain gaps in your
+            history. It stays in the same folder.
+          </p>
+
+          <h2 id="apple-books">Apple Books on your Mac</h2>
+          <p>
+            Stillleaf works with Apple Books in two separate ways. Neither
+            sends anything over the internet.
+          </p>
+          <ul>
+            <li>
+              <strong>Finished-book sync is on by default.</strong> Stillleaf
+              reads Apple Books’ library database on your Mac, read-only, for
+              titles, authors, covers, saved progress, and finished dates. On
+              macOS 14 and later, macOS may ask whether Stillleaf may access
+              data from other apps. You can turn this off in Settings, under
+              Data &amp; privacy, then Apple Books.
+            </li>
+            <li>
+              <strong>Reading-time tracking is optional</strong> and stays off
+              until you give Stillleaf Accessibility permission in System
+              Settings. When it is on, Stillleaf looks at the Apple Books window
+              you are reading in: its title, the structure of the window, and
+              the page numbers in its footer, to work out which book is open and
+              when you turn a page. You can remove the permission at any time.
+            </li>
+          </ul>
+          <p>
+            Stillleaf never reads the text of your books, takes screenshots,
+            uses OCR, or looks at other apps’ windows, and never changes
+            anything in Apple Books.
+          </p>
+
+          <h2 id="network">When Stillleaf uses the internet</h2>
+          <p>
+            Reading, goals, and your journal work entirely offline. Stillleaf
+            makes a network connection only in these cases:
+          </p>
+          <table class="data-table">
+            <caption>
+              Every connection the Mac app can make
+            </caption>
+            <thead>
+              <tr>
+                <th scope="col">Feature</th>
+                <th scope="col">What is sent</th>
+                <th scope="col">To</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">
+                  Book search, when you add reading by hand and type a title
+                </th>
+                <td>
+                  The words you type, up to 120 characters. Cover images for
+                  the results are then downloaded. No cookies, account, or
+                  library contents are sent.
+                </td>
+                <td>
+                  Open Library (openlibrary.org and covers.openlibrary.org), run
+                  by the Internet Archive, which may serve covers from its own
+                  servers
+                </td>
+              </tr>
+              <tr>
+                <th scope="row">
+                  Automatic public covers (off unless you turn on both Discord
+                  sharing and automatic cover art)
+                </th>
+                <td>
+                  A book’s title and author, to find one exactly matching public
+                  cover image for Discord. Your local covers are never uploaded.
+                </td>
+                <td>Apple’s public search service (itunes.apple.com)</td>
+              </tr>
+              <tr>
+                <th scope="row">
+                  Discord presence (off unless you turn it on)
+                </th>
+                <td>
+                  The title and author of the book you are reading, your page
+                  progress, and a public cover link if one is available. Sent to the Discord app on your Mac, which shows it
+                  on your profile.
+                </td>
+                <td>The Discord desktop app, then Discord’s servers</td>
+              </tr>
+              <tr>
+                <th scope="row">
+                  Update checks, when you choose Check for Updates, or once a
+                  day if you turn on Check automatically (off by default)
+                </th>
+                <td>
+                  One plain request for the release file at {{feed-path}} on
+                  this website, naming only the app version. It contains no
+                  reading data, identifiers, or cookies. Stillleaf never
+                  downloads or installs anything itself.
+                </td>
+                <td>This website</td>
+              </tr>
+            </tbody>
+          </table>
+          <p>
+            Like any internet request, these reveal your IP address to the
+            service you contact. Open Library, Apple, and Discord handle that
+            information under their own privacy policies. The built-in reader
+            blocks books from loading anything from the internet, and the app
+            contains no analytics, crash reporting, or advertising code.
+          </p>
+
+          <h2 id="control">Exporting and deleting your data</h2>
+          <p>
+            In Settings, under Data &amp; privacy, you can export your journal
+            as JSON or CSV, make and restore backups, delete individual books
+            or sessions, or delete everything. Deleting everything removes your
+            history, cached covers, and Stillleaf’s own backups from your Mac,
+            moves imported books (with their notes and highlights) and
+            audiobooks to the Trash, and turns off Apple Books sync. Empty the
+            Trash to finish. Copies you saved somewhere else, such as exports,
+            need to be removed separately. Removing a book from your Library
+            never deletes the original file in Apple Books.
+          </p>
+
+          <h2 id="website">This website</h2>
+          <p>
+            This website has no cookies, analytics, or third-party scripts, and
+            its fonts are served from this site. If you pause the page’s
+            animation, that choice is saved in your browser’s local storage and
+            never sent anywhere. The company that hosts the site may keep
+            standard server logs, such as IP addresses and browser types, to
+            run and protect it.
+          </p>
+
+          <h2 id="children">Children</h2>
+          <p>
+            Stillleaf is not directed at children under 13. Because the app
+            collects no personal information, it collects none from children
+            either.
+          </p>
+
+          <h2 id="changes">Changes to this policy</h2>
+          <p>
+            If a new version of Stillleaf changes what it stores or sends, this
+            policy will be updated first, with a new effective date at the top
+            of the page.
+          </p>
+
+          <h2 id="contact">Contact</h2>
+          <p>
+            Questions about privacy? Write to {{contact}}. Stillleaf is made by
+            {{publisher}}.
+          </p>
+        </article>
+
+        <nav class="page-toc" aria-labelledby="toc-title">
+          <h2 id="toc-title">On this page</h2>
+          <ol>
+            <li><a href="#stored">What’s stored</a></li>
+            <li><a href="#apple-books">Apple Books</a></li>
+            <li><a href="#network">Internet use</a></li>
+            <li><a href="#control">Export and delete</a></li>
+            <li><a href="#website">This website</a></li>
+            <li><a href="#contact">Contact</a></li>
+          </ol>
+        </nav>
+      </div>
+    </main>
+    {{site-footer}}
+  </body>
+</html>

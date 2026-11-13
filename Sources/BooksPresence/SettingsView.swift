@@ -289,6 +289,16 @@ struct SettingsView: View {
 
     // MARK: Data & privacy
 
+    private var syncStatus: String {
+        let sync = model.sync
+        if sync.running { return "Syncing…" }
+        if let problem = sync.problem { return problem }
+        if sync.waiting > 0 { return "Waiting for \(sync.waiting) file\(sync.waiting == 1 ? "" : "s") to arrive in the folder." }
+        guard let last = sync.lastSync else { return "Not synced yet. A pass runs when you finish reading." }
+        let when = DateText.string(last, zone: model.timezoneID, date: .medium, time: .short)
+        return sync.devices.isEmpty ? "Last synced \(when). No other device has joined yet." : "Last synced \(when) with \(sync.devices.joined(separator: ", "))."
+    }
+
     private var dataSettings: some View {
         VStack(alignment: .leading, spacing: ReadingMetrics.Space.xxl) {
             ReadingSection("Apple Books") {
@@ -300,6 +310,25 @@ struct SettingsView: View {
                     SettingsRow(title: "Sync status", description: model.appleHistoryStatus) {
                         Button("Sync now") { model.syncAppleBooksHistory() }.controlSize(.small)
                             .disabled(!model.syncAppleBooksHistoryEnabled)
+                    }
+                }
+            }
+            ReadingSection("Your devices") {
+                VStack(spacing: 0) {
+                    SettingsRow(title: model.sync.enabled ? "Sync folder: \(model.sync.folderName ?? "")" : "Sync with your other devices",
+                                description: model.sync.enabled
+                                    ? "Choose the same folder in Stillleaf on your other devices. Deleting a book or a session here deletes it there too."
+                                    : "Choose a folder in iCloud Drive, then the same folder in Stillleaf on your iPhone. Your books, your place in them, your highlights and your history stay in step through it, in your own storage. Nothing is sent to Stillleaf.") {
+                        HStack(spacing: ReadingMetrics.Space.s) {
+                            if model.sync.enabled { Button("Turn off") { model.turnOffSync() } }
+                            Button(model.sync.enabled ? "Change folder…" : "Choose folder…") { model.chooseSyncFolder() }
+                        }.controlSize(.small)
+                    }
+                    if model.sync.enabled {
+                        SettingsDivider()
+                        SettingsRow(title: "Device sync", description: syncStatus) {
+                            Button("Sync now") { model.syncNow() }.controlSize(.small).disabled(model.sync.running)
+                        }
                     }
                 }
             }
@@ -323,6 +352,7 @@ struct SettingsView: View {
                     }
                 }
             }
+            UpdateSettingsSection(updates: model.updates)
             ReadingSection("Help") {
                 VStack(spacing: 0) {
                     SettingsRow(title: "Trouble with tracking?", description: "Check permissions and recent tracking issues.") {
@@ -332,13 +362,17 @@ struct SettingsView: View {
                     SettingsRow(title: "Welcome tour", description: "Replay the introduction to Stillleaf.") {
                         Button("Show tour") { model.showOnboarding() }.controlSize(.small)
                     }
+                    SettingsDivider()
+                    SettingsRow(title: "Open-source licences", description: "The libraries and fonts inside the built-in reader.") {
+                        Button("View") { ThirdPartyNoticesWindow.shared.show() }.controlSize(.small)
+                    }
                 }
             }
             ReadingSection("Reset") {
                 GlassDisclosure(title: "Reset or uninstall", subtitle: "Delete reading data or remove Stillleaf from this Mac.",
                                 isExpanded: $showRemoval) {
                     VStack(alignment: .leading, spacing: ReadingMetrics.Space.m) {
-                        Text("Deleting removes history, managed backups, and cached covers. Copies you exported elsewhere remain.")
+                        Text("Deleting removes history, managed backups, and cached covers, and moves imported books, notes and audiobooks to the Trash. Copies you exported elsewhere remain.")
                             .font(.callout).foregroundStyle(ReadingPalette.secondaryInk)
                             .fixedSize(horizontal: false, vertical: true)
                         HStack(spacing: ReadingMetrics.Space.s) {

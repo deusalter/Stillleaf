@@ -11,6 +11,10 @@ import {
 const sampleArtifact = {
   url: "https://releases.stillleaf.app/Stillleaf-2.0.0.dmg",
   version: "2.0.0",
+  build: 24,
+  minimumSystemVersion: "13.0",
+  size: 18_204_331,
+  publishedAt: "2026-11-02T17:00:00Z",
   sha256: "0123456789abcdef".repeat(4),
   verified: true,
 };
@@ -68,10 +72,20 @@ test("adding only a URL cannot advertise an available release", () => {
   assert.equal(getDownload(development), null);
   const candidate = availableRelease({ url: sampleArtifact.url });
   const errors = errorsFor(candidate);
-  assert.equal(errors.length, 3);
-  assert.ok(errors.some((error) => error.includes("version")));
-  assert.ok(errors.some((error) => error.includes("SHA-256")));
-  assert.ok(errors.some((error) => error.includes("verified")));
+  assert.equal(errors.length, 7);
+  for (const needle of [
+    "version such as",
+    "build number",
+    "minimum system version",
+    "size in bytes",
+    "publication time",
+    "SHA-256",
+    "verified",
+  ])
+    assert.ok(
+      errors.some((error) => error.includes(needle)),
+      `missing ${needle} error`,
+    );
 });
 
 test("available release requires version, exact checksum, and explicit verification", () => {
@@ -82,6 +96,20 @@ test("available release requires version, exact checksum, and explicit verificat
     ["sha256", "0".repeat(64)],
     ["sha256", "a".repeat(64)],
     ["sha256", "not-a-checksum"],
+    ["version", "2.0.0-beta.1"],
+    ["build", ""],
+    ["build", "24"],
+    ["build", 0],
+    ["build", 2.5],
+    ["minimumSystemVersion", "Ventura"],
+    ["minimumSystemVersion", 13],
+    ["size", 0],
+    ["size", -1],
+    ["size", 1.5],
+    ["size", "18204331"],
+    ["publishedAt", "2026-11-02"],
+    ["publishedAt", "soon"],
+    ["publishedAt", "2026-13-40T17:00:00Z"],
     ["verified", false],
     ["verified", "true"],
     ["verified", 1],

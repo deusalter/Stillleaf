@@ -7,6 +7,7 @@ import {
   readerPresetAt,
   readerPresets,
   storyProgress,
+  readerSettledProgress,
 } from "../src/showcase-model.js";
 
 const invalidInputs = [
@@ -99,7 +100,7 @@ test("journey completes the daily goal before handing off to reader presets", ()
     [0.56, 0.7, 0.8, 0.95, 1].map(
       (progress) => readerPresetAt(journeyState(progress).readerProgress).id,
     ),
-    ["sea-glass", "paper", "dusk", "midnight", "midnight"],
+    ["stillleaf", "warm", "dusk", "night", "night"],
   );
   const end = journeyState(1);
   assert.equal(end.activeScene, "reader");
@@ -118,11 +119,29 @@ test("journey completes the daily goal before handing off to reader presets", ()
     );
 });
 
+test("the reader link lands with the reader fully shown on its first page colour", () => {
+  const settled = journeyState(readerSettledProgress);
+  assert.equal(settled.activeScene, "reader");
+  assert.equal(settled.readerCopy, 1);
+  assert.equal(settled.blend, 1);
+  assert.equal(readerPresetAt(settled.readerProgress).id, readerPresets[0].id);
+});
+
+test("copy only shows over a background it contrasts with", () => {
+  for (let step = 0; step <= 1000; step++) {
+    const state = journeyState(step / 1000);
+    // Pale reader copy needs the nearly finished forest background.
+    if (state.readerCopy > 0) assert.ok(state.blend >= 0.9, `p=${step / 1000}`);
+    // Dark daily copy fades before the background is half dark.
+    if (state.dailyCopy > 0) assert.ok(state.blend < 0.5, `p=${step / 1000}`);
+  }
+});
+
 test("journey visual channels stay bounded and continuous through transition edges", () => {
   const delta = 1e-7;
   // Include the beginning/end of each fade and the discrete active-scene handoff.
   for (const edge of [
-    0, 0.38, 0.4, 0.425, 0.49, 0.5, 0.56, 0.565, 0.6, 0.75, 1,
+    0, 0.38, 0.4, 0.425, 0.49, 0.5, 0.56, 0.585, 0.6, 0.66, 0.75, 1,
   ]) {
     const before = journeyState(edge - delta);
     const after = journeyState(edge + delta);
@@ -154,7 +173,7 @@ test("journey rewinds the entire composition without retaining a later scene", (
   assert.equal(dailyReading(journeyState(0.19).dailyProgress).pages, 12);
   assert.equal(
     readerPresetAt(journeyState(0.19).readerProgress).id,
-    "sea-glass",
+    "stillleaf",
   );
 });
 
@@ -225,7 +244,7 @@ test("daily reading is bounded and reversible across every page threshold", () =
 test("illustrative reader presets have complete immutable display data", () => {
   assert.deepEqual(
     readerPresets.map(({ id }) => id),
-    ["sea-glass", "paper", "dusk", "midnight"],
+    ["stillleaf", "warm", "dusk", "night"],
   );
   assert.ok(Object.isFrozen(readerPresets));
   for (const preset of readerPresets) {
@@ -235,7 +254,7 @@ test("illustrative reader presets have complete immutable display data", () => {
       assert.ok(preset[field].trim().length > 0);
     }
     assert.match(preset.themeColor, /^#[0-9a-f]{6}$/i);
-    assert.ok(["literary", "classic", "modern"].includes(preset.fontFamily));
+    assert.ok(["newyork", "georgia", "sans"].includes(preset.fontFamily));
     assert.ok(
       Number.isFinite(preset.lineHeight) &&
         preset.lineHeight >= 1.4 &&

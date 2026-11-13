@@ -204,7 +204,7 @@ async function facingReader(t, {width = 1500, height = 860, paragraphs = 120} = 
   const book = fixture();
   book.resources = [1, 2].map(n => ({href: `c${n}.html`, type: 'text/html', dataBase64: Buffer.from(`<!doctype html><html><head><title>Chapter ${n}</title></head><body><h1>Chapter ${n}</h1>${Array.from({length: paragraphs}, (_, i) => `<p id="c${n}p${i}">${n}.${i + 1} — ${prose}</p>`).join('')}</body></html>`).toString('base64')}));
   await page.evaluate(input => window.StillleafReader.open(input), book);
-  await page.evaluate(() => window.StillleafReader.setPreferences({columns: 'two', fontFamily: 'literata', fontSize: 1.1}));
+  await page.evaluate(() => window.StillleafReader.setPreferences({columns: 'two', fontFamily: 'literata', fontSize: 1.1, vines: 'margins'}));
   await page.evaluate(() => { window.slideIdle = () => { const stage = document.querySelector('.reader-page-slide'); return !stage || stage.dataset.state === 'idle'; }; });
   // The copies are built in the background once the page has been still for a moment.
   await page.waitForFunction(() => { const state = window.StillleafReader.slideDebug(); return state.frames === 2 && state.fresh; }, null, {timeout: 20000});
@@ -214,9 +214,10 @@ async function facingReader(t, {width = 1500, height = 860, paragraphs = 120} = 
   return {page, errors};
 }
 
-test('a turn follows the motion contract: 280-360 ms, an eased-in curve, transform and opacity only', {timeout: 120000}, async t => {
+test('a turn follows the measured motion: about 420 ms, a long settle, transform only', {timeout: 120000}, async t => {
   const {page, errors} = await facingReader(t);
-  assert.ok(SLIDE.duration >= 280 && SLIDE.duration <= 360, `duration ${SLIDE.duration} is outside 280-360 ms`);
+  // Measured from Apple Books 8: about 420 ms, cubic-bezier(.25,.9,.4,1) within 8.5 px rms (docs/READER_APPLE_BOOKS_PARITY.md).
+  assert.ok(SLIDE.duration >= 400 && SLIDE.duration <= 440, `duration ${SLIDE.duration} is outside 400-440 ms`);
   assert.ok(SLIDE.hurried < SLIDE.duration);
   await page.evaluate(() => {
     window.animations = [];
@@ -247,15 +248,15 @@ test('a turn follows the motion contract: 280-360 ms, an eased-in curve, transfo
   assert.equal(during.garden, true, 'the garden was not held still during the turn');
   assert.equal(await page.evaluate(() => window.turned), true);
   await page.waitForFunction(() => window.slideIdle());
-  const result = await page.evaluate(() => ({animations: window.animations, frameTimes: window.frameTimes, xs: window.xs, clocks: window.clocks, iframesMade: window.iframesMade, width: document.querySelector('#reader').clientWidth, ticks: window.StillleafReader.gardenDebug().ticks - window.__stillleafGardenTicks}));
+  const result = await page.evaluate(() => ({animations: window.animations, frameTimes: window.frameTimes, xs: window.xs, clocks: window.clocks, iframesMade: window.iframesMade, travel: (r => Math.max(r.width, r.right, innerWidth - r.left))(document.querySelector('#reader').getBoundingClientRect()), ticks: window.StillleafReader.gardenDebug().ticks - window.__stillleafGardenTicks}));
   const main = result.animations.find(a => a.target.includes('page-slide-track'));
   assert.equal(main.duration, SLIDE.duration);
   assert.equal(main.easing, SLIDE.easing);
   // Nothing but transform and opacity is ever animated, so the turn never touches layout.
   for (const animation of result.animations) for (const frame of animation.keyframes) assert.deepEqual(Object.keys(frame).filter(k => !['offset', 'easing', 'composite'].includes(k)).filter(k => !['transform', 'opacity'].includes(k)), [], `${animation.target} animates ${JSON.stringify(frame)}`);
-  assert.ok(result.animations.some(a => a.target.includes('page-slide-shade')) && result.animations.some(a => a.target.includes('page-slide-edge')), 'the depth cues did not animate');
+  // One moving strip: a translucent layer over the page would round to a slightly different colour than the page.
+  assert.deepEqual(result.animations.map(a => a.target).filter(target => !target.includes('page-slide-track')), [], 'something besides the strip animated');
   assert.equal(result.iframesMade, 0, 'a turn within a warm chapter built a snapshot');
-  // The curve eases in from rest: a frame's worth of time moves it a few percent, not a fifth of the page.
   const bezier = (x1, y1, x2, y2) => t => {
     let low = 0, high = 1;
     for (let i = 0; i < 40; i++) { const u = (low + high) / 2, x = 3 * (1 - u) ** 2 * u * x1 + 3 * (1 - u) * u * u * x2 + u ** 3; if (x < t) low = u; else high = u; }
@@ -263,14 +264,14 @@ test('a turn follows the motion contract: 280-360 ms, an eased-in curve, transfo
     return 3 * (1 - u) ** 2 * u * y1 + 3 * (1 - u) * u * u * y2 + u ** 3;
   };
   const curve = bezier(...SLIDE.easing.match(/-?[\d.]+/g).map(Number));
-  assert.ok(curve(16.7 / SLIDE.duration) < 0.04, `the first frame of the curve covers ${(curve(16.7 / SLIDE.duration) * 100).toFixed(1)}% of the page`);
-  assert.ok(curve(0.5) > 0.7 && curve(0.5) < 0.95 && curve(0.9) > 0.97, 'the curve does not settle gently');
+  // Remaining distance at points read from Books' frames, as shares of the turn.
+  for (const [time, moved] of [[0.098, 0.318], [0.264, 0.695], [0.493, 0.928], [0.731, 0.985]]) assert.ok(Math.abs(curve(time) - moved) < 0.08, `at ${time} of the turn the curve is ${curve(time).toFixed(3)}, Books ${moved}`);
   // Whatever the frame pacing of the machine, the strip sits where the curve says it should at the animation clock.
   result.xs.forEach((x, i) => {
-    const expected = curve(Math.min(1, result.clocks[i] / SLIDE.duration)) * result.width;
-    assert.ok(Math.abs(Math.abs(x) - expected) < result.width * 0.04, `at ${Math.round(result.clocks[i])} ms the strip is at ${Math.round(Math.abs(x))}px, the curve says ${Math.round(expected)}px`);
+    const expected = curve(Math.min(1, result.clocks[i] / SLIDE.duration)) * result.travel;
+    assert.ok(Math.abs(Math.abs(x) - expected) < result.travel * 0.04, `at ${Math.round(result.clocks[i])} ms the strip is at ${Math.round(Math.abs(x))}px, the curve says ${Math.round(expected)}px`);
   });
-  assert.ok(Math.abs(result.xs.at(-1)) > result.width * 0.9);
+  assert.ok(Math.abs(result.xs.at(-1)) > result.travel * 0.9);
   const gaps = result.frameTimes.slice(1).map((time, i) => time - result.frameTimes[i]);
   // A shared CI runner can stall any frame for a moment (the book-wide page count runs in the background), so this only catches a
   // pathological one; scripts/measure-page-turn.mjs reports the real frame times.

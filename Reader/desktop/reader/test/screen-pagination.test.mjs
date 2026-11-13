@@ -14,7 +14,7 @@ test('one screen per page survives facing switches, odd final spreads, and chapt
  await page.goto(`http://127.0.0.1:${server.address().port}/index.html`);await page.waitForFunction(()=>window.StillleafReader);
  await page.evaluate(()=>{window.turns=[];window.positions=[];window.addEventListener('stillleaf-reader-event',e=>{if(e.detail.type==='pageTurn')window.turns.push(e.detail);if(e.detail.type==='position')window.positions.push(e.detail.position)})});
  const book={editionId:'screen-units',title:'Screens',contentProgress:true,readingOrder:[0,1].map(i=>({href:`c${i}.html`,type:'text/html',title:`Chapter ${i+1}`})),resources:[0,1].map(i=>({href:`c${i}.html`,type:'text/html',dataBase64:Buffer.from(`<html><body>${Array.from({length:7},(_,j)=>`<p id="p${j}" style="${j<6?'break-after:column;':''}">${i}.${j} The ferry crossed slowly. ${'She turned the page and kept reading. '.repeat(8)}</p>`).join('')}</body></html>`).toString('base64')}))};
- await page.evaluate(b=>StillleafReader.open(b),book);await page.waitForTimeout(900);
+ await page.evaluate(b=>StillleafReader.open({...b,state:{schemaVersion:1,editionId:b.editionId,revision:0,position:null,preferences:{columns:'one',lineHeight:1.6},bookmarks:[],annotations:[]}}),book);await page.waitForTimeout(900);
  const position=()=>page.evaluate(()=>window.positions.at(-1));
  const clear=()=>page.evaluate(()=>window.turns.splice(0));
  const settled=()=>page.waitForTimeout(950);
@@ -40,7 +40,7 @@ test('one screen per page survives facing switches, odd final spreads, and chapt
  await page.evaluate(()=>StillleafReader.setPreferences({columns:'one',fontSize:1.5,contentWidth:80}));await settled();assert.deepEqual(await clear(),[]);assert.equal((await position()).visiblePages,1);
  await page.setViewportSize({width:520,height:700});await page.evaluate(()=>StillleafReader.setPreferences({columns:'two'}));await settled();assert.deepEqual(await clear(),[]);
  const narrow=await page.evaluate(()=>{const frame=[...document.querySelectorAll('#reader iframe')].find(f=>getComputedStyle(f).visibility!=='hidden');return {columns:frame.contentWindow.getComputedStyle(frame.contentDocument.documentElement).columnCount,position:window.positions.at(-1),label:document.querySelector('#position-label').textContent}});
- assert.equal(narrow.columns,'1');assert.equal(narrow.position.visiblePages,1);assert.match(narrow.label,/^Page \d+ of \d+(?: · Chapter \d+ · Calculating book pages…)?$/);
+ assert.equal(narrow.columns,'1');assert.equal(narrow.position.visiblePages,1);assert.match(narrow.label,/^Page \d+ of \d+$/,'the footer always shows a whole-book page, never a calculating notice');
  await page.waitForFunction(()=>/^Page \d+ of \d+$/.test(document.querySelector('#position-label').textContent));
  const final=await position();assert.equal(Number((await page.locator('#position-label').textContent()).match(/of (\d+)/)[1]),2*final.totalPages,'both chapters recalculated after font and narrow facing fallback');
  assert.deepEqual(await clear(),[],'background completion generates no reading turns');
@@ -54,10 +54,10 @@ test('one screen per page survives facing switches, odd final spreads, and chapt
  // Close a book with pending unseen chapters; its probe and generation must
  // disappear before resource URLs close or the next book receives its totals.
  const many={...book,readingOrder:Array.from({length:10},(_,i)=>({href:`many${i}.html`,type:'text/html'})),resources:Array.from({length:10},(_,i)=>({...book.resources[i%2],href:`many${i}.html`}))};
- await page.evaluate(b=>StillleafReader.open(b),many);
+ await page.evaluate(b=>StillleafReader.open({...b,state:{schemaVersion:1,editionId:b.editionId,revision:0,position:null,preferences:{columns:'one',lineHeight:1.6},bookmarks:[],annotations:[]}}),many);
  await page.waitForFunction(()=>document.querySelector('.pagination-probe'));
  await page.evaluate(()=>StillleafReader.close());assert.equal(await page.locator('.pagination-probe').count(),0);
- await page.evaluate(b=>StillleafReader.open(b),nextBook);
+ await page.evaluate(b=>StillleafReader.open({...b,state:{schemaVersion:1,editionId:b.editionId,revision:0,position:null,preferences:{columns:'one',lineHeight:1.6},bookmarks:[],annotations:[]}}),nextBook);
  await page.waitForFunction(()=>document.querySelector('#position-label').textContent==='Page 1 of 7');
  await page.waitForTimeout(300);assert.equal(await page.locator('.pagination-probe').count(),0);
 });

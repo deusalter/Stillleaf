@@ -38,6 +38,8 @@ struct AudiobookSection: View {
                     selection: Binding(get: { book.resolvedFormat }, set: { model.setBookFormat($0, for: book) }),
                     title: { $0 == .text ? "Text" : "Audiobook" },
                     systemImage: { $0 == .text ? "book.closed" : "headphones" })
+                    // The row's heading already names it; the picker's own label would say "Book format" twice.
+                    .labelsHidden()
                     .frame(width: 260)
                     .accessibilityIdentifier("book-format")
             }

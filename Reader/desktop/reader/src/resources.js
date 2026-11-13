@@ -1,5 +1,10 @@
 import DOMPurify from 'dompurify';
-import * as css from 'css-tree';
+// The parser, walker and generator entries leave out css-tree's validator (lexer and its
+// property-syntax tables), which this rewrite never uses: about a quarter of the bundle.
+import parseCSS from 'css-tree/parser';
+import walkCSS from 'css-tree/walker';
+import generateCSS from 'css-tree/generator';
+const css={parse:parseCSS,walk:walkCSS,generate:generateCSS};
 import {Resource} from '@readium/shared';
 const htmlTypes=new Set(['application/xhtml+xml','text/html']);
 const assetTypes=new Set(['image/png','image/jpeg','image/gif','image/webp','font/woff','font/woff2','font/ttf','font/otf','font/sfnt','font/opentype','font/truetype','application/font-woff','application/vnd.ms-opentype','application/font-sfnt','application/x-font-ttf','application/x-font-otf','application/x-font-opentype','application/x-font-truetype','application/x-font-woff','application/font-ttf','application/font-otf']);
@@ -156,14 +161,16 @@ export class PublicationResources {
  }
  /** Content indexing reads only chapter markup, never referenced images/fonts/CSS.
   * Its sanitizer matches the displayed document; release bytes after counting. */
- async textLength(href){
+ async textLength(href){return (await this.profile(href)).text}
+ /** A chapter's characters and illustrations, from the same pass: they weigh its share of the book's screens. */
+ async profile(href){
   const item=this.map.get(href);if(!item||!htmlTypes.has(item.type))throw Error('Unsupported content index resource');
   // Displayed chapters already own the sanitized markup after releasing bytes.
   // Reusing it avoids a second host fetch when the book denominator starts.
   const source=this.chapters.get(href)??unwrapSvgImages(htmlSource(new TextDecoder().decode(await this.read(href)),item.type));
   const doc=sanitizedDocument(source);
   for(const node of doc.body.querySelectorAll('script,style'))node.remove();
-  const length=doc.body.textContent.length;this.release(item);return length;
+  const length=doc.body.textContent.length;this.release(item);return {text:length,images:doc.body.querySelectorAll('img').length};
  }
  rewrite(source,href,collecting){
   const warnings=collecting?new Set():this.warnings;

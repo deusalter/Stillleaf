@@ -18,7 +18,7 @@ Initial investigation: macOS 26.0.1, Books 8.0, Apple Silicon. These findings de
 | Existing/custom covers | Verified one associated local image | Exact Books.plist book-info path resolved; cached image decoded successfully. Other formats and protected books remain untested; manual override takes priority |
 | AppleScript book properties | Unavailable evidence | No sdef/scriptSuite found and no NSAppleScriptEnabled declaration; no invented scripting properties |
 | Group container access | Unavailable | macOS denied directory read; no permission bypass |
-| iPhone/iPad reading/backfill | Unavailable | First release only observes this Mac |
+| iPhone/iPad reading on the Mac | Through sync, when turned on | The Mac app only observes this Mac. Reading in the [iOS app](IOS_APP.md) arrives through [sync](SYNC.md): a folder you choose carries books, history, places and highlights between your devices. Off by default, and not yet tried between real devices |
 
 Run the bundled `books-diagnostic` to produce a current JSON report. It excludes personal metadata by default. Opt-in `--include-metadata` includes the focused Books title and matching asset metadata, never prose. Reports are local; do not commit them. Saved database progress is not proof of current activity or freshness.
 

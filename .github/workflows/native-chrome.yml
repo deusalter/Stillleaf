@@ -18,7 +18,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-14
+          - os: macos-15
             developer: /Applications/Xcode.app/Contents/Developer
           - os: macos-26
             developer: /Applications/Xcode_26.0.1.app/Contents/Developer
@@ -119,7 +119,7 @@ jobs:
     # Exercise a retained development package even when a timing gate is red.
     # A missing/invalid package still fails this job; no smoke check is waived.
     if: ${{ !cancelled() && (needs.sdk-probe.result == 'success' || needs.sdk-probe.result == 'failure') }}
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4

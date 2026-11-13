@@ -1,3 +1,4 @@
+#if os(macOS)
 import AppKit
 import ApplicationServices
 
@@ -29,3 +30,4 @@ public final class BooksReaderWindow {
         return title != nil || document != nil
     }
 }
+#endif

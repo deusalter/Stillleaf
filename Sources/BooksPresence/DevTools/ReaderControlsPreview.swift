@@ -26,7 +26,7 @@ func renderReaderControlPreviews(to destination: URL) throws {
         ("dusk", "Dusk", "#25212E", "#F7F1FA"), ("midnight", "Midnight", "#0A0E15", "#EAEFF7"), ("custom", "Custom", "#F0F7F3", "#0E2C24"),
     ]
     let definitions: [[String: Any]] = [
-        choice("theme", "Page theme", [option("system", "System", "#F0F7F3", "#087D65", "#000000")] + themes.map { option($0.id, $0.label, $0.background, $0.text) }),
+        choice("theme", "Page theme", [option("system", "System", "#FFFFFF", "#0A57AD", "#000000")] + themes.map { option($0.id, $0.label, $0.background, $0.text) }),
         choice("fontFamily", "Typeface", [option("publisher", "Original"), option("newyork", "New York"), option("sans", "San Francisco"), option("literata", "Literata")]),
         choice("margins", "Margins", [option("narrow", "Narrow"), option("normal", "Normal"), option("wide", "Wide")]),
         choice("vines", "Vines", [option("margins", "Margins"), option("off", "Off")]),
@@ -64,7 +64,7 @@ func renderReaderControlPreviews(to destination: URL) throws {
                 }
             }
             .padding(40).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            ReaderAppearanceView(model: model, close: {}, initiallyOpen: open).frame(width: 380, height: height).padding(14)
+            ReaderAppearanceView(model: model, close: {}, initiallyOpen: open).frame(width: ReaderPanelMetrics.width, height: height).padding(14)
         }
         .environment(\.nativePreviewOpaque, false)
         let name = "reader-appearance-\(id)\(height > 700 ? (open ? "-full-advanced" : "-full") : "")"
@@ -81,6 +81,8 @@ func renderReaderPanelPreviews(to destination: URL) throws {
     try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
     func outline(_ id: String, _ title: String, current: Bool = false, children: [[String: Any]] = [], group: Bool = false, openable: Bool = true) -> [String: Any] {
         var row: [String: Any] = ["id": id, "title": title, "current": current, "openable": openable && !group]
+        // Start pages, as the renderer numbers them in the footer's whole-book count.
+        if !group, let index = Int(id.dropFirst()) { row["page"] = 1 + index * 23 }
         if !children.isEmpty { row["children"] = children }
         if group { row["group"] = true }
         return row

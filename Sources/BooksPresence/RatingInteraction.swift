@@ -80,6 +80,7 @@ struct QuarterStarRating: View {
                     .disabled(rating == nil || value <= 0).accessibilityLabel("Decrease rating by a quarter star")
                 Button { hovered = nil; rating = min(5, value + 0.25) } label: { Image(systemName: "plus") }
                     .disabled(value >= 5).accessibilityLabel("Increase rating by a quarter star")
+                    .viewProbe("rating-increase")
             }.controlSize(.small).buttonStyle(ReadingButtonStyle())
         }
         .help("Click or drag the stars. Fine-tune by a quarter.")

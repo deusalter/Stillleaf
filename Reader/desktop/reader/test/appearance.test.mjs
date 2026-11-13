@@ -27,6 +27,7 @@ test('themes, typefaces and margins apply to the page and persist',{timeout:1200
  const errors=[];page.on('pageerror',e=>errors.push(e.message));
  await page.goto(origin+'/index.html');await page.waitForFunction(()=>Boolean(window.StillleafReader));
  await page.evaluate(input=>window.StillleafReader.open(input),book);
+ await page.evaluate(()=>window.StillleafReader.setPreferences({columns:'one'}));
  await page.waitForFunction(()=>[...document.querySelectorAll('#reader iframe')].some(f=>f.contentDocument?.getElementById('first')));
  const frame=()=>page.evaluate(()=>{
   const f=[...document.querySelectorAll('#reader iframe')].find(f=>f.contentDocument?.getElementById('first'));const w=f.contentWindow,d=f.contentDocument;
@@ -37,11 +38,11 @@ test('themes, typefaces and margins apply to the page and persist',{timeout:1200
  const settle=()=>page.waitForTimeout(250);
 
  // System follows the Mac appearance.
- assert.equal((await frame()).theme,'paper');
+ assert.equal((await frame()).theme,'original');
  // Wait for the switch itself: a fixed pause lost the race on a slow runner.
  const themed=theme=>page.waitForFunction(theme=>document.documentElement.dataset.theme===theme,theme,{timeout:5000});
  await page.emulateMedia({colorScheme:'dark'});await themed('night');assert.equal((await frame()).theme,'night');
- await page.emulateMedia({colorScheme:'light'});await themed('paper');
+ await page.emulateMedia({colorScheme:'light'});await themed('original');
 
  await page.getByRole('button',{name:'Appearance',exact:true}).click();
  assert.equal(await page.locator('#theme-options button').count(),THEMES.length+1,'Every page theme plus System');

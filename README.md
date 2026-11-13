@@ -2,7 +2,7 @@
 
 A native macOS menu-bar reading journal with a built-in offline EPUB reader, optional Apple Books tracking, and optional Discord Rich Presence. Reading history stays on this Mac. Automatic time is **inferred reading activity**, not proof of attention.
 
-The native app, shared reader, separate Electron development host, and website live in this repository. See [development](docs/DEVELOPMENT.md) for how the pieces fit together, how to build, and which checks run where. The Electron host is not a validated Windows release.
+The native Mac app, [iPhone and iPad app](docs/IOS_APP.md), shared reader, separate Electron development host, and website live in this repository. See [development](docs/DEVELOPMENT.md) for how the pieces fit together, how to build, and which checks run where. The Electron host is not a validated Windows release.
 
 **Integration status:** the diagnostic has matched a live local EPUB in Books 8.0 and rejected its Library window. This reader omits `AXDocument`, so a version-scoped structural inference supplements exact document-path matching. Apple Books tracking requires Accessibility access for the packaged app and pauses for unsupported or ambiguous Apple Books windows. Stillleaf’s built-in reader records progress, sequential page coverage and active reading time independently of that permission. See [capabilities](docs/CAPABILITIES.md).
 
@@ -34,7 +34,9 @@ open dist/Stillleaf.app
 
 Run `scripts/install-git-hooks.sh` once per clone. The local builder bypasses SwiftPM using `swiftc`. The check script runs independent assertion executables because this host does not have XCTest. GitHub Actions runs the actual XCTest suites on a full macOS/Xcode runner.
 
-Move the app to `~/Applications` or `/Applications` before configuring permissions and login startup. This is an **ad-hoc signed development build**, not a notarized release. Rebuilding or replacing it may require re-enabling its Accessibility entry and reopening the app. A distribution build requires your own Developer ID and notarization; no signing credentials are stored here.
+Move the app to `~/Applications` or `/Applications` before configuring permissions and login startup. This is an **ad-hoc signed development build**, not a notarized release. Rebuilding or replacing it may require re-enabling its Accessibility entry and reopening the app. `STILLLEAF_UNIVERSAL=1 scripts/package-app.sh` builds an arm64 + x86_64 app.
+
+Public releases are Developer ID signed, notarized and distributed from the website, not the Mac App Store: Apple Books tracking and Discord IPC cannot run in the App Sandbox. `scripts/release/build-release.sh` and the `macOS release` workflow build them; no signing credentials are stored here. See [distribution](docs/DISTRIBUTION.md), the [release checklist](docs/RELEASE_CHECKLIST.md), the [privacy statement](docs/PRIVACY.md) and [third-party notices](THIRD_PARTY_NOTICES.md), which both apps bundle and show under Settings (on the Mac, also **Stillleaf → Open-Source Licences…**).
 
 ## First use
 
@@ -46,7 +48,7 @@ After the tour, or to set things up by hand:
 2. Click the book icon in the menu bar to open your journal. A Dock icon and standard Mac menu bar appear while the dashboard or reader is open.
 3. Open Dashboard → Settings to adjust reading goals or **Track reading**, which controls tracking across Stillleaf and supported readers. The daily goal starts at 20 reading pages, using this Mac's initial timezone.
 4. If you want Apple Books tracking, expand **Optional Apple Books integration** in reading settings, allow access and enable **Stillleaf** in macOS Accessibility settings. Then open a reading window in Apple Books. macOS may require reopening Stillleaf. Unsupported or ambiguous Apple Books windows pause that integration; its troubleshooting panel explains why. You can also use **Start manual reading** for a paper book or unsupported reader.
-5. Check **Open at login**. The app attempts main-app login registration once on first packaged launch, subject to macOS approval. You can disable it in Settings or System Settings → General → Login Items.
+5. Check **Open at login**. The app attempts main-app login registration once, on its first launch from an installed location, subject to macOS approval. Launches from the disk image or a translocated download skip it and suggest moving the app to Applications. You can disable it in Settings or System Settings → General → Login Items.
 
 Closing all dashboard/reader windows returns Stillleaf to the menu bar and leaves tracking running. Quit stops the tracker. A per-user file lock prevents duplicate instances. Pause tracking and Share with Discord are independent controls; each book also has separate tracking and sharing exclusions.
 
@@ -56,7 +58,7 @@ Import a DRM-free EPUB from Library to read directly in Stillleaf without Apple 
 
 Native reading records active time and sequential content coverage while its Stillleaf reader is focused, with tracking enabled and the Mac awake and unlocked. Position is saved independently of Apple Books Accessibility permission.
 
-Apple Books automatic eligibility requires Books foreground, a focused reader matched to one stable Books asset, an awake display, an unlocked user session, permission, and enabled tracking. Library/store, unidentified windows and background Books do not count. Workspace and Accessibility notifications supplement a one-second eligibility poll. Books 8.0 EPUB windows without a document path use a bounded structural check, followed by one exact unique catalog-title match. Duplicate titles, library navigation, minimized/modal windows and incomplete scans are rejected. History continues to use stable asset IDs.
+Apple Books automatic eligibility requires Books foreground, a focused reader matched to one stable Books asset, an awake display, an unlocked user session, permission, and enabled tracking. Library/store, unidentified windows and background Books do not count. Workspace and Accessibility notifications supplement an eligibility poll that runs every second while Books is in front, a book is open, or a Stillleaf window is on screen, and every 30 seconds otherwise; app switches, wake and unlock are handled at once. Books 8.0 EPUB windows without a document path use a bounded structural check, followed by one exact unique catalog-title match. Duplicate titles, library navigation, minimized/modal windows and incomplete scans are rejected. History continues to use stable asset IDs.
 
 Eligible reading time continues while the reader stays active, including long periods on one page. There is no inactivity threshold or time-approval queue. The capture does not read words or prose, measure gaze, or prove attention. Page movement supplies progress evidence independently of elapsed reading time.
 
@@ -85,6 +87,8 @@ Stable asset IDs preserve history across renamed books and covers. Same-title ed
 Stillleaf keeps the existing `com.bookspresence.app` identifier and `~/Library/Application Support/BooksPresence/` storage location so upgrades preserve permissions, settings, and history. Data lives in that folder:
 
 - `history.sqlite` and SQLite sidecars: original intervals, metadata changes, progress observations, goals, corrections, lifecycle evidence and recovery markers.
+- `Publications/` and `Audiobooks/`: copies of the books you import.
+- `ReaderState/`: reader position, settings, notes and bookmarks, plus saved page counts per layout in `ReaderState/PageMaps/`.
 - `Covers/`: local image cache. Local covers are never uploaded. Optional automatic public-cover lookup is off by default and uses Apple metadata only; it does not upload or read local images.
 - `tracker.lock`: instance-lock inode. Do not delete it while the app is running.
 
@@ -92,9 +96,11 @@ Elapsed time uses monotonic uptime. Wall clocks place intervals on the calendar,
 
 JSON is a versioned complete structured-history archive, with duplicate-safe atomic import. SQLite backup/restore validates before replacing history. CSV includes raw and effective interval tables so corrections remain traceable. Cover references are exported; binary cover images are separate local files, so keep the `Covers/` directory when migrating artwork. Imported paths are not uploaded or fetched from the internet.
 
-Deletion physically removes affected records and dependent private lineage, preserving unrelated split/reassigned intervals. Deleting a book also suppresses it from later automatic Apple Books completion imports. SQLite secure deletion, WAL checkpoint and vacuum remove normal database copies; OS snapshots, SSD wear-leveling and user-made copies are outside application control. Delete-all clears managed local covers and managed backups, turns off automatic Apple Books history sync, and clears its import state. **Exports and backups you saved elsewhere must be removed separately.** No automatic remote backups exist.
+Deletion physically removes affected records and dependent private lineage, preserving unrelated split/reassigned intervals. Deleting a book also suppresses it from later automatic Apple Books completion imports. SQLite secure deletion, WAL checkpoint and vacuum remove normal database copies; OS snapshots, SSD wear-leveling and user-made copies are outside application control. Delete-all clears managed local covers and managed backups, moves imported EPUBs (with their notes and highlights) and audiobooks to the Trash, turns off automatic Apple Books history sync, and clears its import state. **Exports and backups you saved elsewhere must be removed separately.** No automatic remote backups exist.
 
-Uninstall disables login startup, moves the app bundle to Trash and quits. Reading history is preserved; use Delete all data first if you want it removed. No global daemon or privileged helper is installed.
+Uninstall disables login startup, moves the app bundle to Trash and quits. Reading history is preserved; use Delete all data first if you want it removed. No global daemon or privileged helper is installed. [Uninstalling completely](docs/PRIVACY.md#uninstalling-completely) lists the remaining preference, cache and permission entries.
+
+Updates: **Stillleaf → Check for Updates…** compares the build number with the release feed (`/updates/macos.json` on the website, [contract](website/UPDATES.md)) and opens the download page; it never downloads or installs anything itself. Automatic daily checks are off by default. Development builds have no feed URL and never check.
 
 ## Diagnostic
 
@@ -116,9 +122,9 @@ Exact local covers stay local. With explicit opt-in, the app can search Apple’
 
 ## Scope
 
-This release observes this Mac only. It does not backfill or claim iPhone/iPad activity. Saved Books progress can be stale and is labeled accordingly. Verified small forward page observations support page goals and credited automatic-session pace; they do not establish total pagination, words read, reading speed, gaze or attention. The observed Books 8.0 footer is limited to the supported English reader layout and is never used as a Discord percentage. Books' private catalog schema may change: the adapter checks required columns and fails closed.
+The Mac app observes this Mac only. It does not backfill or claim iPhone/iPad activity; the iOS app keeps its own journal, and nothing syncs between devices. Saved Books progress can be stale and is labeled accordingly. Verified small forward page observations support page goals and credited automatic-session pace; they do not establish total pagination, words read, reading speed, gaze or attention. The observed Books 8.0 footer is limited to the supported English reader layout and is never used as a Discord percentage. Books' private catalog schema may change: the adapter checks required columns and fails closed.
 
-Source layout: `BooksCore` owns evidence/storage/statistics; `BooksPlatform` owns macOS/Books/Discord adapters; `BooksPresence` owns lifecycle and native views. The binding requirements are preserved in [the product specification](docs/PRODUCT_SPEC.md).
+Source layout: `BooksCore` owns evidence/storage/statistics; `BooksPlatform` owns the reader host logic shared with iOS and the macOS/Books/Discord adapters; `BooksPresence` owns the Mac lifecycle and native views; `iOS/` holds the iPhone and iPad app. The binding requirements are preserved in [the product specification](docs/PRODUCT_SPEC.md).
 
 ## UI development
 

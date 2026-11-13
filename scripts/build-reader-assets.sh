@@ -12,3 +12,5 @@ mkdir -p "$OUT/Reader"
 # Replace only this generated build asset directory, never installed resources.
 find "$OUT/Reader" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
 cp -R "$RENDERER/dist/." "$OUT/Reader/"
+# Beside the executable, so a development build can show the licences of what it bundles.
+cp THIRD_PARTY_NOTICES.md "$OUT/THIRD_PARTY_NOTICES.md"

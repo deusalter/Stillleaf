@@ -12,13 +12,13 @@ import {installPageTurnWheel,toggledListener} from './page-turn-input';
 import {NavigationCompletion} from './navigation-completion';
 import {screenPages,pageLabel,chapterPagesLeft} from './page-progress';
 import {ScreenPaginationIndex} from './screen-pagination-index';
+import {estimateCounts,StablePageCount,pageMapsFor} from './page-estimate';
 import {continuousTextCandidates} from './content-geometry';
 import {pageTextCandidates,touchTextIndex} from './page-text-index';
 import {syncTypographyChoices} from './appearance-choices';
 import {fontCSS,installFont,contrast} from './bundled-fonts';
 import {DEFAULT_PREFERENCES,preferences,restoreState,selectorFor,rangePoint} from './state';
 import {installGarden} from './garden';
-import {backdropColor,cardColors} from './vines';
 import {THEMES,FONTS,MARGINS,resolveTheme,fontStack,fontAvailable,marginMetrics,averageCharacterWidth} from './appearance';
 
 const $=id=>document.getElementById(id);
@@ -29,9 +29,12 @@ const navigationCompletion=new NavigationCompletion();
 const pageTurnGesture={distance:0,sign:0,latched:false,last:0};
 const clone=value=>JSON.parse(JSON.stringify(value));
 const media=matchMedia('(prefers-color-scheme: dark)');
-const widePage=matchMedia('(min-width:1100px)');
-const effectiveColumns=()=>state?.preferences.columns==='two'&&widePage.matches&&!state.preferences.scroll?2:1;
-const colors={gold:'#e4c778',sage:'#a7cbb0',rose:'#d7a9b4'};
+const widePage=matchMedia('(min-width:960px)'),sideways=matchMedia('(orientation:landscape)');
+// Facing pages need a wide page. A hand-held one must also be on its side: an upright 13-inch iPad is wide enough to count, and two columns there are narrow strips.
+const facingFits=()=>widePage.matches&&(!document.body.classList.contains('native-touch')||sideways.matches);
+const effectiveColumns=()=>state?.preferences.columns==='two'&&facingFits()&&!state.preferences.scroll?2:1;
+// The five highlight colours of Apple Books' selection menu, measured. Stored ids never change.
+const colors={gold:'#ead158',sage:'#a7da8c',blue:'#9cb8f9',rose:'#f1a0b4',purple:'#c1b0f6'};
 let navigator,pool,input,state,lastLocator,selection,editingNote,activeTab='contents',searchGeneration=0,searchTimer,stateTimer,noticeTimer,lastFocus,opening=false;
 let lifecycle=0;let preferenceQueue=Promise.resolve(),preferenceRevision=0,preferenceRestore=false;let jumpHistory=[];let stableAnchor=null,reflowCount=0,resizeTimer,resizing=false;
 const frames=new WeakSet();let headingCache=new Map();
@@ -39,35 +42,42 @@ const pageLayoutObservers=new WeakMap();
 let screenIndex,backgroundQuietUntil=0;
 const deferredAnnotationHrefs=new Set();
 let deferredAnnotationDocuments=new WeakSet();
-// Whole-book page counting lays out a hidden copy of every chapter. It starts only after the reader has been still for
-// a while, so a burst of turns or scrolling never competes with it.
+// Whole-book page counting lays out a hidden copy of every chapter. It runs only once the reader has been still for
+// a while, so a burst of turns or scrolling never competes with it. The footer shows an estimate meanwhile.
 const PAGINATION_QUIET=2000;
 const backgroundActivity=()=>{backgroundQuietUntil=performance.now()+PAGINATION_QUIET;garden.activity()};
+// The reader's own relayout scrolls its frames too, so a scroll holds the garden still but only input pauses counting.
+const scrollActivity=()=>garden.activity();
 // Vines in the empty margins and the facing-page gap; they freeze while the reader scrolls.
 const garden=installGarden({canvas:$('garden'),spine:$('garden-spine'),footer:$('garden-footer'),percent:$('footer-percent'),viewport:$('reading-viewport'),
  chrome:()=>[...document.querySelectorAll('.reader-bar,.footer-navigation,.footer-pill')],
  layout:()=>({columns:effectiveColumns(),gutter:state?readingMargins().gutter:0,scroll:Boolean(state?.preferences.scroll)}),
  enabled:()=>Boolean(state)&&state.preferences.vines!=='off',edition:()=>input?.editionId??''});
-for(const type of ['wheel','scroll','pointerdown','keydown','input'])window.addEventListener(type,backgroundActivity,{capture:true,passive:true});
+for(const type of ['wheel','pointerdown','keydown','input'])window.addEventListener(type,backgroundActivity,{capture:true,passive:true});
+window.addEventListener('scroll',scrollActivity,{capture:true,passive:true});
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
-const idleSlot=()=>new Promise(resolve=>typeof requestIdleCallback==='function'?requestIdleCallback(()=>resolve(),{timeout:1500}):setTimeout(resolve,50));
+// WebKit has no idle callback; a zero-delay task still lets waiting input and rendering run first.
+const idleSlot=()=>new Promise(resolve=>typeof requestIdleCallback==='function'?requestIdleCallback(()=>resolve(),{timeout:1500}):setTimeout(resolve,0));
+const paginationPaused=()=>opening||reflowCount||resizing||performance.now()<backgroundQuietUntil;
 async function paginationIdle(signal){
- // Yield between chapters, wait for an idle slot, and pause while the reader scrolls or changes layout.
- await new Promise(requestAnimationFrame);
+ // Yield between chapters and pause while the reader turns, scrolls or changes layout.
  do{
-  while(!signal.aborted&&(opening||reflowCount||resizing||performance.now()<backgroundQuietUntil))await delay(80);
+  while(!signal.aborted&&paginationPaused())await delay(80);
   if(!signal.aborted)await idleSlot();
- }while(!signal.aborted&&performance.now()<backgroundQuietUntil);
+ }while(!signal.aborted&&paginationPaused());
 }
+// A frame, or a short wait where a background window gets none.
+const nextFrame=()=>new Promise(resolve=>{const timer=setTimeout(resolve,50);requestAnimationFrame(()=>{clearTimeout(timer);resolve()})});
 // Every position update asks for this key (a scrolling book asks every 80 ms). Building it measures text and serialises
 // all the layout preferences, so it is remembered until a preference object, a window size or the system theme changes.
+// Colours never move a line, so a theme change keeps the book's counts. The host keeps finished maps under this key.
 let paginationLayoutCache=null;
 function paginationLayout(){
  const width=$('reading-viewport').clientWidth,height=$('reader').clientHeight,c=paginationLayoutCache;
- if(c&&c.input===input&&c.preferences===state.preferences&&c.width===width&&c.height===height&&c.inner===innerWidth&&c.dark===media.matches&&c.wide===widePage.matches&&c.fonts===document.fonts.status+document.fonts.size)return c.key;
+ if(c&&c.input===input&&c.preferences===state.preferences&&c.width===width&&c.height===height&&c.inner===innerWidth&&c.dark===media.matches&&c.wide===facingFits()&&c.fonts===document.fonts.status+document.fonts.size)return c.key;
  const key=JSON.stringify({edition:input.editionId,width,height,
-  continuous:Boolean(input.experimentalContinuous&&state.preferences.scroll),settings:readiumPreferences(),renderer:'screen-v1'});
- paginationLayoutCache={input,preferences:state.preferences,width,height,inner:innerWidth,dark:media.matches,wide:widePage.matches,fonts:document.fonts.status+document.fonts.size,key};
+  continuous:Boolean(input.experimentalContinuous&&state.preferences.scroll),settings:layoutPreferences(),renderer:'screen-v2'});
+ paginationLayoutCache={input,preferences:state.preferences,width,height,inner:innerWidth,dark:media.matches,wide:facingFits(),fonts:document.fonts.status+document.fonts.size,key};
  return key;
 }
 function assetsSettled(doc){return doc?.body&&doc.fonts.status!=='loading'&&[...doc.images].every(image=>image.complete)}
@@ -97,14 +107,18 @@ async function measureChapterScreens(book,owner,chapter,signal,key){
    const wnd=frame?.contentWindow,doc=frame?.contentDocument;
    if(!doc?.body)throw Error('Missing chapter layout');
    await doc.fonts.ready;
-   // Image load/error both settle geometry. A pending resource leaves the
-   // denominator calculating rather than claiming a provisional exact count.
+   // Image load/error both settle geometry. A pending resource keeps the
+   // chapter's estimate rather than claiming a provisional exact count.
    await Promise.all([...doc.images].filter(image=>!image.complete).map(image=>new Promise(resolve=>{image.addEventListener('load',resolve,{once:true});image.addEventListener('error',resolve,{once:true})})));
-   await delay(120);
    if(signal.aborted)return;
-   let extent,viewport;
-   if(layout.continuous){probe.measure(probe.entries[0]);extent=probe.entries[0].height;viewport=layout.height;}
-   else{const root=doc.scrollingElement;extent=layout.settings.scroll?root.scrollHeight:root.scrollWidth;viewport=layout.settings.scroll?wnd.innerHeight:wnd.innerWidth;}
+   const root=doc.scrollingElement,measure=()=>{
+    if(layout.continuous){probe.measure(probe.entries[0]);return probe.entries[0].height}
+    return layout.settings.scroll?root.scrollHeight:root.scrollWidth;
+   };
+   // Read the extent once it holds still across a frame, rather than after a fixed wait.
+   let extent=measure();
+   for(let frame=0;frame<8;frame++){await nextFrame();if(signal.aborted)return;const next=measure();if(next===extent)break;extent=next}
+   const viewport=layout.continuous?layout.height:layout.settings.scroll?wnd.innerHeight:wnd.innerWidth;
    return screenPages({extent,viewport})?.total;
   })();
   return await Promise.race([measuring,aborted]);
@@ -153,7 +167,7 @@ const annotationUI=new AnnotationUI({popup:$('selection-tools'),layer:$('annotat
   const hrefs=navigator?.viewport?.readingOrder??[];
   return (navigator?._cframes??[]).filter(Boolean).map((manager,index)=>({frame:manager.iframe,href:hrefs[index]})).filter(({frame,href})=>href&&$('reader').contains(frame)&&getComputedStyle(frame).visibility!=='hidden');
  },
- annotations:()=>state?.annotations??[],continuous:()=>navigator?.kind==='continuous',onDismiss:()=>{selection=null},
+ annotations:()=>state?.annotations??[],continuous:()=>navigator?.kind==='continuous',onDismiss:()=>{if(selection)selectionDismissedAt=performance.now();selection=null},
  onEdit:id=>{const item=state?.annotations.find(x=>x.id===id);if(item)editNote(item)},onList:openAnnotations});
 function openAnnotations(opener){if(!state)return;annotationUI.dismiss();renderPanel('notes');showDialog('library-panel','tab-notes',opener instanceof Element?opener:undefined)}
 function removeAnnotation(id){state.annotations=state.annotations.filter(x=>x.id!==id);applyAnnotations();changed();annotationUI.dismiss();if($('library-panel').open)renderPanel('notes');notice('Highlight and note removed.')}
@@ -248,7 +262,7 @@ function updatePosition(light=false){
  const left=chapterPagesLeft(metrics??{});
  const chapter=input.readingOrder.findIndex(link=>link.href===lastLocator.href);
  if(screenIndex&&!opening){
-  screenIndex.configure(paginationLayout(),input.readingOrder.length);
+  screenIndex.configure(paginationLayout(),input.readingOrder.length,Math.max(0,chapter));
   if(!reflowCount&&!resizing&&navigator?.kind==='continuous'){
    for(const entry of navigator.entries)if(entry.frame&&!navigator.dirtyEntries.has(entry)&&assetsSettled(entry.frame.contentDocument)){
     screenIndex.record(entry.index,screenPages({extent:entry.height,viewport:$('reader').clientHeight})?.total);
@@ -261,38 +275,67 @@ function updatePosition(light=false){
   nativePosition=contentPosition(pages,left===0,liveFrame);
   emit('position',{position:nativePosition});
  }
- const displayFrame=navigator?.kind==='continuous'?navigator.entries.find(entry=>entry.index===chapter)?.frame:liveFrame;
- const bookScreens=!reflowCount&&!resizing&&assetsSettled(displayFrame?.contentDocument)?screenIndex?.pages(chapter,pages):null;
- const label=bookScreens?pageLabel(bookScreens):pages?`${pageLabel(pages)} · Chapter ${chapter+1} · Calculating book pages…`:'Calculating book pages…';
- if($('position-label').textContent!==label)$('position-label').textContent=label;
- $('position-label').title=heading+' · One page is one full reading screen. Whole-book counts update with layout.';
+ // While the layout moves, and briefly after while a new count may still become exact, the footer keeps its last page.
+ const book=pages&&screenIndex&&!opening&&!reflowCount&&!resizing?shownPages.show({key:paginationLayout(),best:bookEstimate(chapter,pages),chapter,local:pages}):null;
+ if(book?.hold){clearTimeout(footerHold);footerHold=setTimeout(()=>updatePosition(true),book.hold+16)}
+ else if(book)showBookPages(book,heading);
  const remaining=left===null?'':`${left} ${left===1?'page':'pages'} left in chapter`;
  if($('chapter-label').textContent!==remaining)$('chapter-label').textContent=remaining;
  $('chapter-label').title=heading+' · Remaining reading screens in this chapter.';
  const saved=state.bookmarks.some(x=>samePlace(x.locator,lastLocator));
  $('save-bookmark').setAttribute('aria-pressed',String(saved));$('save-bookmark').setAttribute('aria-label',saved?'Remove bookmark':'Add bookmark');$('save-bookmark').title=saved?'Remove bookmark':'Add bookmark';
 }
+function showBookPages(book,heading){
+ const label=book?pageLabel(book):'',status=book?(book.exact?'exact':'estimate'):'',footer=$('position-label');
+ if(footer.textContent!==label)footer.textContent=label;
+ // Under the native chrome the footer reads like Books: the page alone, and "of N" while the controls are showing.
+ const first=book?String(book.first):'',total=book?` of ${book.total}`:'';
+ if($('page-first').textContent!==first)$('page-first').textContent=first;
+ if($('page-total').textContent!==total)$('page-total').textContent=total;
+ if(footer.dataset.pages!==status)footer.dataset.pages=status;
+ footer.title=book?heading+' · One page is one full reading screen. Whole-book counts update with layout'+(book.exact?'.':', and settle as the rest of the book is measured.'):'';
+}
+let footerHold=0;
+const shownPages=new StablePageCount({hold:300,changeHold:900,enough:40});
 // Text coordinates survive font changes and resizing. Never infer a whole-book
 // page total from chapter ordinals. Empty/image-only pages retain position only.
-let nativePosition=null,contentIndex=null,contentIndexFailed=false;
+let nativePosition=null,contentIndex=null,contentProfiles=null,contentIndexFailed=false;
 const contentIndexes=new Map();
+/**
+ * Whole-book screen counts for the footer: measured chapters, and an estimate for the rest. The chapter on screen, and
+ * one being measured again, keep their latest count meanwhile. Display-only: native progress never receives these numbers.
+ */
+function bookEstimate(chapter,pages){
+ const provisional=screenIndex.previous.slice();if(pages)provisional[chapter]=pages.total;
+ // Until the text index is ready, chapter sizes stand in for their text: markup is roughly a quarter of the bytes.
+ const weights=contentProfiles??input.readingOrder.map(link=>({text:pool.size(link.href)*.75,images:0}));
+ return estimateCounts({exact:screenIndex.counts,provisional,references:screenIndex.references(),weights,density:screenDensity});
+}
+/** Screens per character from the page geometry, for a book whose measured chapters hold no text yet (a cover). */
+function screenDensity(){
+ const p=state.preferences,size=16*p.fontSize,stack=fontStack(p.fontFamily),perCharacter=(stack&&averageCharacterWidth(stack,size))||size*.48;
+ const columns=effectiveColumns(),line=Math.min(p.measure,Math.max(1,(readingWidth()/columns-2*readingMargins().gutter)/perCharacter));
+ const lines=Math.max(1,$('reader').clientHeight*.9/(size*p.lineHeight));
+ // Paragraph ends and headings leave part of each screen empty.
+ return 1/(line*lines*columns*.85);
+}
 async function indexContent(owner,generation,edition,order){
  try{
-  let counts=contentIndexes.get(edition);
-  if(!counts){
-   counts=[];
+  let profiles=contentIndexes.get(edition);
+  if(!profiles){
+   profiles=[];
    for(const link of order){
     // Yield between chapters. Never block opening on the complete denominator.
     await new Promise(resolve=>setTimeout(resolve,0));
     if(owner!==pool||generation!==lifecycle)return;
-    counts.push(await owner.textLength(link.href));
+    profiles.push(await owner.profile(link.href));
    }
    if(owner!==pool||generation!==lifecycle)return;
-   contentIndexes.set(edition,counts);
+   contentIndexes.set(edition,profiles);
    while(contentIndexes.size>16)contentIndexes.delete(contentIndexes.keys().next().value);
   }
   if(owner!==pool||generation!==lifecycle)return;
-  contentIndex=counts;refreshPosition();
+  contentIndex=profiles.map(profile=>profile.text);contentProfiles=profiles;refreshPosition();
  }catch{if(owner===pool&&generation===lifecycle){contentIndexFailed=true;refreshPosition()}}
 }
 
@@ -369,30 +412,42 @@ function currentTheme(){
 }
 function theme(){return currentTheme().id}
 const compactWindow=()=>innerWidth<640;
+/** Facing pages under the native chrome keep the proportions measured from Apple Books at 1280 wide: an outer margin of 6.05% of the
+ *  window and 85 pt between the columns. Readium pads every column by one gutter, so the viewport narrows to make up the outer margin. */
+function facingProportions(){
+ const p=state.preferences;
+ if(p.sideMargin!=null||p.margins!=='normal'||effectiveColumns()!==2||!document.body.classList.contains('native-chrome'))return null;
+ const shown=Math.min(56,Math.max(24,Math.round(innerWidth*.033)));
+ // Readium applies the type size as a zoom on the page, gutter included, so the gutter it is given is the one wanted over that zoom.
+ return {gutter:shown/p.fontSize,shown,outer:Math.min(100,Math.max(shown,Math.round(innerWidth*.0605)))};
+}
 function readingMargins(){
- const p=state.preferences,m=marginMetrics(p.margins,compactWindow());
+ const p=state.preferences,m=marginMetrics(p.margins,compactWindow()),facing=facingProportions();
+ if(facing)return {...m,gutter:facing.gutter};
  return {...m,gutter:p.sideMargin==null?m.gutter:Math.min(p.sideMargin,Math.max(0,(innerWidth/effectiveColumns()-240)/2))};
 }
 function readiumPreferences(){
  const p=state.preferences,t=currentTheme(),{gutter}=readingMargins();
- return {fontSize:p.fontSize,fontFamily:fontStack(p.fontFamily),fontWeight:p.fontWeight,textAlign:p.textAlign==='publisher'?null:p.textAlign,hyphens:p.hyphens,letterSpacing:p.letterSpacing,wordSpacing:p.wordSpacing,scroll:p.scroll,scrollPaddingTop:0,scrollPaddingBottom:0,scrollPaddingLeft:gutter,scrollPaddingRight:gutter,lineHeight:p.lineHeight,optimalLineLength:p.measure,maximalLineLength:p.measure+5,minimalLineLength:Math.min(effectiveColumns()===2?Math.min(20,p.measure):Math.min(p.measure,Math.max(20,p.measure-15)),Math.max(1,Math.floor((readingWidth()/effectiveColumns()-2*gutter)/(16*p.fontSize*.55)))),pageGutter:gutter,columnCount:effectiveColumns(),backgroundColor:t.background,textColor:t.text,linkColor:t.link,selectionBackgroundColor:t.selection,darkenFilter:t.dimImages===true};
+ return {fontSize:p.fontSize,fontFamily:fontStack(p.fontFamily),fontWeight:p.fontWeight,textAlign:p.textAlign==='publisher'?null:p.textAlign,hyphens:p.hyphens,letterSpacing:p.letterSpacing,wordSpacing:p.wordSpacing,scroll:p.scroll,scrollPaddingTop:0,scrollPaddingBottom:0,scrollPaddingLeft:gutter,scrollPaddingRight:gutter,lineHeight:p.lineHeight,optimalLineLength:p.measure,maximalLineLength:facingProportions()?Math.max(p.measure+5,120):p.measure+5,minimalLineLength:Math.min(effectiveColumns()===2?Math.min(20,p.measure):Math.min(p.measure,Math.max(20,p.measure-15)),Math.max(1,Math.floor((readingWidth()/effectiveColumns()-2*gutter)/(16*p.fontSize*.55)))),pageGutter:gutter,columnCount:effectiveColumns(),backgroundColor:t.background,textColor:t.text,linkColor:t.link,selectionBackgroundColor:t.selection,darkenFilter:t.dimImages===true};
 }
+/** The preferences that can move a line. Colours and image dimming cannot, so they never invalidate page counts. */
+function layoutPreferences(){const {backgroundColor,textColor,linkColor,selectionBackgroundColor,darkenFilter,...layout}=readiumPreferences();return layout}
 /** Page width for the chosen measure: the chosen typeface's measured advance, or an
  *  average serif estimate when the publisher's own font is in use. */
 function readingWidth(){
  const p=state.preferences,{gutter}=readingMargins(),size=16*p.fontSize,stack=fontStack(p.fontFamily);
  const perCharacter=(stack&&averageCharacterWidth(stack,size))||size*.48;
- return Math.min(innerWidth*p.contentWidth/100,(p.measure*perCharacter+2*gutter)*effectiveColumns());
+ const facing=facingProportions(),room=facing?innerWidth-2*(facing.outer-facing.shown):innerWidth;
+ return Math.min(room*p.contentWidth/100,(p.measure*perCharacter+2*gutter)*effectiveColumns());
 }
 function applyChromeTheme(t){
  const root=document.documentElement.style;root.colorScheme=t.scheme;
- const card=cardColors(t.background,t.text);
- for(const [name,value]of [['chrome',t.chrome],['paper',t.background],['ink',t.text],['muted',t.muted],['accent',t.link],['line',t.text+(t.scheme==='dark'?'20':'1c')],['hover',t.scheme==='dark'?'#ffffff0d':t.text+'0f'],['panel',t.panel],['backdrop',backdropColor(t.background,t.text)],['card-fold',card.fold],['card-rule',card.rule],['card-shadow',card.shadow]])root.setProperty('--'+name,value);
+ for(const [name,value]of [['chrome',t.chrome],['paper',t.background],['ink',t.text],['muted',t.muted],['accent',t.link],['line',t.text+(t.scheme==='dark'?'20':'1c')],['hover',t.scheme==='dark'?'#ffffff0d':t.text+'0f'],['panel',t.panel],['backdrop',t.background]])root.setProperty('--'+name,value);
 }
 function renderVinesControl(){
  const vines=$('vines');
  if(!vines.childElementCount)for(const [id,label]of [['margins','Margins'],['off','Off']]){const b=document.createElement('button');b.dataset.vines=id;b.setAttribute('role','radio');b.textContent=label;b.onclick=()=>void setPreferences({vines:id});vines.append(b)}
- for(const b of vines.children){const on=b.dataset.vines===(state?.preferences.vines??'margins');b.setAttribute('aria-checked',String(on));b.tabIndex=on?0:-1}
+ for(const b of vines.children){const on=b.dataset.vines===(state?.preferences.vines??'off');b.setAttribute('aria-checked',String(on));b.tabIndex=on?0:-1}
 }
 function renderAppearanceControls(){
  renderVinesControl();
@@ -437,7 +492,7 @@ function syncAppearance(){
  for(const button of document.querySelectorAll('[data-theme]'))button.setAttribute('aria-pressed',String(button.dataset.theme===state.preferences.theme));
  {const mode=state.preferences.scroll?'continuous':state.preferences.columns==='two'?'facing':'single';for(const b of $('reading-mode').querySelectorAll('[role=radio]')){const on=b.dataset.mode===mode;b.setAttribute('aria-checked',String(on));b.tabIndex=on?0:-1}}syncTypographyChoices(state.preferences);
  $('previous').title=state.preferences.scroll?'Previous section':'Previous page';$('next').title=state.preferences.scroll?'Next section':'Next page';
- $('columns-note').textContent=state.preferences.scroll||state.preferences.columns!=='two'?'':widePage.matches?'A narrow window shows one page at a time.':'Widen the window to see both pages.';
+ $('columns-note').textContent=state.preferences.scroll||state.preferences.columns!=='two'?'':facingFits()?'A narrow window shows one page at a time.':'Widen the window to see both pages.';
  for(const [id,key]of [['letter-spacing','letterSpacing'],['word-spacing','wordSpacing']]){$(id).value=state.preferences[key];$(id+'-value').textContent=Math.round(state.preferences[key]*100)+'%';}
  for(const [id,key]of [['font-size','fontSize'],['line-height','lineHeight'],['measure','measure']])$(id).value=state.preferences[key];
  $('font-size-value').textContent=Math.round(state.preferences.fontSize*100)+'%';$('line-height-value').textContent=state.preferences.lineHeight.toFixed(2).replace(/0$/,'');$('measure-value').textContent='About '+Math.round(state.preferences.measure)+' characters';
@@ -473,6 +528,7 @@ function destroyNavigator(current){
 async function setPreferences(value,retained){
  const requestedLifecycle=lifecycle;
  pageSlide.invalidate();
+ if(Object.hasOwn(value,'vines'))value={...value,vinesChosen:value.vines==='margins'};
  await navigation;
  if(!state||requestedLifecycle!==lifecycle)return;
  screenIndex?.cancel();
@@ -524,6 +580,18 @@ function selected(value){
  selection=item;annotationUI.show(item,selectedRange);
  if(selection===item)emit('selection',{selection:{text:item.quote,locator:item.locator}});
 }
+// A finger adjusts a selection with the system's handles, which send the page no pointer events, so under a touch host the
+// settled selection is read from selectionchange. Clearing it is left to the tap that does so.
+let touchSelectionTimer,selectionDismissedAt=-Infinity;
+function touchSelectionChanged(wnd,generation){
+ if(!document.body.classList.contains('native-touch'))return;
+ clearTimeout(touchSelectionTimer);
+ touchSelectionTimer=setTimeout(()=>{
+  if(generation!==lifecycle||!state||document.querySelector('dialog[open]'))return;
+  const text=wnd.getSelection()?.toString()??'',pair=annotationUI.frames().find(x=>x.frame.contentWindow===wnd);
+  if(text.trim()&&pair)selected({text,locator:{href:pair.href,type:'text/html',text:{highlight:text}}});
+ },280);
+}
 function decorationLocator(item){
  const locator=clone(item.locator);
  // Readium sends decoration locators as JSON. Passing a Locator instance loses
@@ -553,7 +621,8 @@ function applyAnnotations(){
  const decorations=state.annotations.filter(item=>input.readingOrder.some(link=>link.href===item.locator.href)).flatMap(item=>{
   const locator=navigator?.kind==='continuous'?clone(item.locator):decorationLocator(item);
   if(!locator){deferredAnnotationHrefs.add(item.locator.href);return []}
-  return [{id:item.id,locator,style:{type:DecorationStyleType.Highlight,tint:colors[item.color]??colors.gold,isActive:true}}];
+  // The colour is the one its reader chose, as in the continuous view: Readium would otherwise darken it until it contrasts with the page.
+ return [{id:item.id,locator,style:{type:DecorationStyleType.Highlight,tint:colors[item.color]??colors.gold,enforceContrast:false,isActive:true}}];
  });
  navigator?.applyDecorations(decorations,'personal');
 }
@@ -829,16 +898,21 @@ async function searchBook(){
  if(found!==null&&generation===searchGeneration)$('search-status').textContent=searchSummary(found);
 }
 // Route Readium's existing edge taps through the same motion/evidence path.
+// A tap that turns no page and activates nothing is reported to a native host as `chrome-tap`: a touch host
+// shows or hides its controls on it, as Books does. Hosts that reveal controls another way ignore the event.
 function pageEdgeTap(event){
- if(state?.preferences.scroll)return false;
- if(event.interactiveElement||document.querySelector('dialog[open]'))return true;
+ const native=document.body.classList.contains('native-chrome'),busy=Boolean(event.interactiveElement||document.querySelector('dialog[open]'));
+ // On a touch host the tap that clears a selection has already cleared it by the time it arrives here: it is not a page turn.
+ const deselecting=document.body.classList.contains('native-touch')&&performance.now()-selectionDismissedAt<500;
+ if(state?.preferences.scroll){if(native&&!busy&&!deselecting&&![...$('reader').querySelectorAll('iframe')].some(f=>f.contentWindow?.getSelection()?.toString()))emit('chrome-tap');return false}
+ if(busy||deselecting)return true;
  const frame=[...$('reader').querySelectorAll('iframe')].find(f=>getComputedStyle(f).visibility!=='hidden');
  if(!frame||frame.contentWindow.getSelection()?.toString())return true;
  const width=frame.clientWidth*devicePixelRatio;
  if(event.x<width/4||event.x>width*3/4){
   const rtl=input?.readingProgression==='rtl'||navigator?.readingProgression==='rtl';
   turn((event.x>width/2)!==rtl?'next':'previous');
- }
+ }else if(native)emit('chrome-tap');
  return true;
 }
 async function installNavigator(location,settings=readiumPreferences()){
@@ -850,12 +924,14 @@ async function installNavigator(location,settings=readiumPreferences()){
   const listeners={
    chapterInvalidated:index=>screenIndex?.invalidate(index),
    click:pageEdgeTap,tap:pageEdgeTap,
-   positionChanged:locator=>{if(generation!==lifecycle||!state)return;lastLocator=locator.serialize();garden.progress(lastLocator);warmSlide();retryDeferredAnnotations();if(opening&&state.position){positionMoved();return;}state.position=clone(lastLocator);positionMoved();changed(false);emit('relocated',{locator:lastLocator,cause:'unknown',eligibleForProgress:false})},
+   // Readium announces a frame only when it loads as the current one. A chapter it preloaded and then showed is never announced
+   // (seen with facing pages), which would leave that chapter without this reader's own listeners: adopt whatever is showing.
+   positionChanged:locator=>{if(generation!==lifecycle||!state)return;for(const manager of navigator?._cframes??[]){const wnd=manager?.iframe?.contentWindow;if(wnd?.document?.body&&!frames.has(wnd)&&getComputedStyle(manager.iframe).visibility!=='hidden')listeners.frameLoaded(wnd)}lastLocator=locator.serialize();garden.progress(lastLocator);warmSlide();retryDeferredAnnotations();if(opening&&state.position){positionMoved();return;}state.position=clone(lastLocator);positionMoved();changed(false);emit('relocated',{locator:lastLocator,cause:'unknown',eligibleForProgress:false})},
    frameUnloaded:wnd=>{pageLayoutObservers.get(wnd)?.();pageLayoutObservers.delete(wnd);frames.delete(wnd);frameWheel.delete(wnd)},
    readerScrolled:(delta,height)=>{if(generation===lifecycle)trackContinuousScroll(delta,height)},
    readerAnchorChanged:locator=>{if(generation===lifecycle&&performance.now()>=quietUntil&&!reflowCount&&!resizing)stableAnchor=clone(locator)},
    textSelected:value=>{if(generation===lifecycle)selected(value)},
-   frameLoaded:wnd=>{if(!wnd.CSS?.highlights&&navigator)navigator.decorationsAvailable=false;if(!frames.has(wnd)){frames.add(wnd);observeChapterPages(wnd,generation);for(const type of ["wheel","scroll","keydown","pointerdown"])wnd.addEventListener(type,backgroundActivity,{capture:true,passive:true});const page=installPageTurnWheel(wnd,{gesture:pageTurnGesture,enabled:()=>Boolean(state&&!state.preferences.scroll&&!document.querySelector('dialog[open]')),rtl:()=>input?.readingProgression==='rtl'||navigator?.readingProgression==='rtl',turn});wnd.document.addEventListener('keydown',keyboard);let anchorTimer;const boundary=toggledListener(wnd,'wheel',event=>{void crossScrollBoundary(wnd,event.deltaY,event);clearTimeout(anchorTimer);if(!boundaryBusy)anchorTimer=setTimeout(()=>{if(!reflowCount&&!resizing)stableAnchor=visibleAnchor()},100)},{passive:false});frameWheel.set(wnd,{page,boundary});syncWheel();wnd.document.addEventListener('keydown',event=>{if(navigator?.kind!=='continuous'&&['ArrowDown','PageDown','ArrowUp','PageUp'].includes(event.key)&&!['INPUT','TEXTAREA','SELECT'].includes(event.target?.tagName)){void crossScrollBoundary(wnd,['ArrowDown','PageDown'].includes(event.key)?1:-1,event);setTimeout(()=>{if(!boundaryBusy&&!reflowCount&&!resizing)stableAnchor=visibleAnchor()},100)}});wnd.document.addEventListener('pointerup',followPublicationLink,true);wnd.addEventListener('scroll',()=>trackScroll(wnd),{passive:true});wnd.document.addEventListener('click',followPublicationLink,true);wnd.document.addEventListener('auxclick',followPublicationLink,true);wnd.document.addEventListener('keyup',()=>{const text=wnd.getSelection()?.toString();if(text&&lastLocator&&navigator?.kind!=='continuous')selected({text,locator:Locator.deserialize({...lastLocator,text:{highlight:text}})});});}},
+   frameLoaded:wnd=>{if(!wnd.CSS?.highlights&&navigator)navigator.decorationsAvailable=false;if(!frames.has(wnd)){frames.add(wnd);observeChapterPages(wnd,generation);wnd.document.addEventListener('selectionchange',()=>touchSelectionChanged(wnd,generation));for(const type of ["wheel","keydown","pointerdown"])wnd.addEventListener(type,backgroundActivity,{capture:true,passive:true});wnd.addEventListener('scroll',scrollActivity,{capture:true,passive:true});const page=installPageTurnWheel(wnd,{gesture:pageTurnGesture,enabled:()=>Boolean(state&&!state.preferences.scroll&&!document.querySelector('dialog[open]')),rtl:()=>input?.readingProgression==='rtl'||navigator?.readingProgression==='rtl',turn});wnd.document.addEventListener('keydown',keyboard);let anchorTimer;const boundary=toggledListener(wnd,'wheel',event=>{void crossScrollBoundary(wnd,event.deltaY,event);clearTimeout(anchorTimer);if(!boundaryBusy)anchorTimer=setTimeout(()=>{if(!reflowCount&&!resizing)stableAnchor=visibleAnchor()},100)},{passive:false});frameWheel.set(wnd,{page,boundary});syncWheel();wnd.document.addEventListener('keydown',event=>{if(navigator?.kind!=='continuous'&&['ArrowDown','PageDown','ArrowUp','PageUp'].includes(event.key)&&!['INPUT','TEXTAREA','SELECT'].includes(event.target?.tagName)){void crossScrollBoundary(wnd,['ArrowDown','PageDown'].includes(event.key)?1:-1,event);setTimeout(()=>{if(!boundaryBusy&&!reflowCount&&!resizing)stableAnchor=visibleAnchor()},100)}});wnd.document.addEventListener('pointerup',followPublicationLink,true);wnd.addEventListener('scroll',()=>trackScroll(wnd),{passive:true});wnd.document.addEventListener('click',followPublicationLink,true);wnd.document.addEventListener('auxclick',followPublicationLink,true);wnd.document.addEventListener('keyup',()=>{const text=wnd.getSelection()?.toString();if(text&&lastLocator&&navigator?.kind!=='continuous')selected({text,locator:Locator.deserialize({...lastLocator,text:{highlight:text}})});});}},
    error:error=>{notice(error.message);emit('error',{message:error.message})}
   };
   navigator=input.experimentalContinuous&&settings.scroll?new ContinuousNavigator($('reader'),input,pool,listeners,location,settings):new EpubNavigator($('reader'),publication,listeners,positions,location?engineLocator(location):undefined,{preferences:settings,defaults:{}});
@@ -876,11 +952,15 @@ async function open(value){
   for(const link of value.readingOrder)if(!['application/xhtml+xml','text/html'].includes(link.type))throw Error('This book contains illustrated or fixed-image pages that this reader does not support yet.');
   pool=new PublicationResources(value.resources);state=restoreState(value.state,value.editionId,validLocator);
   const override=validLocator(value.locator);if(override)state.position=override;
-  $('reader').replaceChildren();$('book-title').textContent=value.title??'Untitled';$('book-author').textContent=value.creators?.join(', ')??'';document.title=(value.title??'Book')+' · Stillleaf';$('back').hidden=!value.canReturnToLibrary;
+  $('reader').replaceChildren();$('book-title').textContent=value.title??'Untitled';$('running-title').textContent=value.title??'Untitled';$('book-author').textContent=value.creators?.join(', ')??'';document.title=(value.title??'Book')+' · Stillleaf';$('back').hidden=!value.canReturnToLibrary;
   syncAppearance();await prepareFont(state.preferences.fontFamily,lifecycle);
   const owner=pool,book=input;
+  shownPages.reset();
   screenIndex=new ScreenPaginationIndex({measure:(chapter,signal,key)=>measureChapterScreens(book,owner,chapter,signal,key),idle:paginationIdle,
-   changed:()=>{if(owner===pool&&!opening){cancelPosition();positionFrame=requestAnimationFrame(()=>{positionFrame=0;if(owner===pool)refreshPosition()})}}});
+   changed:()=>{if(owner===pool&&!opening){cancelPosition();positionFrame=requestAnimationFrame(()=>{positionFrame=0;if(owner===pool)refreshPosition()})}},
+   // Finished maps go to the host, which hands them back next time so a reopened book shows its exact count at once.
+   completed:(key,counts)=>{if(owner===pool)emit('pageMap',{pageMap:{key,counts}})}});
+  screenIndex.seed(pageMapsFor(value.pageMaps,value.readingOrder.length));
   await installNavigator(state.position);opening=false;refreshPosition();emit('ready',{warnings:[...pool.warnings]});announcedLayout=null;relayout();changed();
   void indexContent(pool,lifecycle,input.editionId,input.readingOrder);
   if(pool.warnings.size&&$('notice').hidden)notice('Some original styling or illustrations could not be displayed.');
@@ -892,7 +972,7 @@ async function close(){
  if(navigator?.kind==='continuous')navigator.report();
  nativeChrome.disconnect();clearTimeout(noteSaveTimer);annotationUI.reset();pageSlide.invalidate();lifecycle++;searchGeneration++;cancelPosition();anchorPending=false;positionDirty=true;clearTimeout(resizeTimer);resizing=false;clearTimeout(searchTimer);clearTimeout(stateTimer);clearTimeout(noticeTimer);
  const paginationClosed=screenIndex?.queue;screenIndex?.close();screenIndex=undefined;
- nativePosition=null;contentIndex=null;contentIndexFailed=false;preferenceRestore=false;
+ nativePosition=null;contentIndex=null;contentProfiles=null;contentIndexFailed=false;preferenceRestore=false;shownPages.reset();clearTimeout(footerHold);showBookPages(null);
  if(state)emit('state',{state:snapshot()});
  for(const dialog of document.querySelectorAll('dialog[open]'))dialog.close();
  const current=navigator;navigator=undefined;navigationCompletion.dispose(current);await preferenceQueue.catch(()=>{});await destroyNavigator(current);await paginationClosed?.catch(()=>{});pool?.close();pool=undefined;state=undefined;lastLocator=undefined;selection=undefined;$('selection-tools').hidden=true;$('notice').hidden=true;editingNote=undefined;return true;
@@ -901,8 +981,16 @@ async function close(){
 // and the host sends them back instead of locators, so it can only open places the book really has.
 let hostOutline=new Map(),hostResults=new Map();
 const unavailable=()=>Error('That item is not available.');
+/** Each contents row shows the page its chapter starts on, in the same whole-book count as the footer. */
+function numberRows(rows,targets){
+ const chapter=Math.max(0,input.readingOrder.findIndex(link=>link.href===lastLocator?.href)),counts=screenIndex?bookEstimate(chapter,null).counts:null;
+ if(!counts)return;
+ const starts=new Map();let page=1;input.readingOrder.forEach((link,index)=>{starts.set(link.href,page);page+=counts[index]??1});
+ const walk=list=>{for(const row of list){const href=targets.get(row.id)?.href;if(starts.has(href))row.page=starts.get(href);if(row.children)walk(row.children)}};
+ walk(rows);
+}
 function hostPanel(name){
- if(name==='outline'){const {rows,targets}=outlinePayload(outlineEntries(),{isCurrent:locator=>locator.href===lastLocator?.href});hostOutline=targets;return {name,rows,empty:'This book has no table of contents.'}}
+ if(name==='outline'){const {rows,targets}=outlinePayload(outlineEntries(),{isCurrent:locator=>locator.href===lastLocator?.href});hostOutline=targets;numberRows(rows,targets);return {name,rows,empty:'This book has no table of contents.'}}
  if(name==='bookmarks')return {name,rows:bookmarkRows(state.bookmarks),empty:'Keep a place to return to. Use the bookmark button while you read.'};
  return {name,rows:noteRows(state.annotations,colors),empty:'Select a passage in the book to highlight it or leave yourself a note.'};
 }
@@ -940,7 +1028,7 @@ function nativeDefinitions(){
  for(const option of result.find(x=>x.key==='theme').options){const id=JSON.parse(option.value),t=THEMES.find(x=>x.id===id);Object.assign(option,id==='system'?{background:day.background,text:day.link,alternate:night.background}:{background:t.background,text:t.text})}
  return nativeDefinitionCache=result;
 }
-const nativeChrome=nativeChromeAdapter({edition:()=>input?.editionId,ready:()=>Boolean(state&&navigator&&!opening),current:()=>clone(state?.preferences??{}),definitions:nativeDefinitions,
+const nativeChrome=nativeChromeAdapter({edition:()=>input?.editionId,ready:()=>Boolean(state&&navigator&&!opening),current:()=>{const {vinesChosen,...shown}=clone(state?.preferences??{});return shown},definitions:nativeDefinitions,
  status:()=>({effectiveAppearance:{backgroundColor:currentTheme().background,textColor:currentTheme().text},panelAppearance:{panelColor:currentTheme().panel,accentColor:currentTheme().link},bookmarked:Boolean(lastLocator&&state?.bookmarks.some(x=>samePlace(x.locator,lastLocator))),dialogOpen:Boolean(document.querySelector('dialog[open]'))}),
  visibility:(active,closing=false)=>{document.body.classList.toggle('native-chrome',active);if(state&&!closing)return setPreferences({})},
  perform:async(command,payload)=>{
@@ -965,7 +1053,12 @@ const nativeChrome=nativeChromeAdapter({edition:()=>input?.editionId,ready:()=>B
   if(command==='search')showDialog('search-panel','search-query');
   if(command==='bookmark')addBookmark();
   if(command==='focus')return setPreferences({immersive:!state.preferences.immersive});
-  if(command==='policy')for(const [key,value]of Object.entries(payload)){document.body.classList.toggle('native-'+key,value);if(key==='reduceMotion'&&value)pageSlide.invalidate()}
+  if(command==='policy'){
+   const columns=effectiveColumns();
+   for(const [key,value]of Object.entries(payload)){document.body.classList.toggle('native-'+key,value);if(key==='reduceMotion'&&value)pageSlide.invalidate()}
+   // Learning that the host is hand-held can take facing pages away (an upright iPad): lay the book out again.
+   if(effectiveColumns()!==columns)return setPreferences({});
+  }
  }});
 const api={nativeControl:request=>nativeChrome.dispatch(request),setGardenMode:mode=>garden.setMode(mode),
  ...(window.__stillleafGardenDebug||new URLSearchParams(location.search).has('debug-garden')?{gardenDebug:light=>garden.debug(light),slideDebug:()=>pageSlide.debug(),slideInvalidate:()=>pageSlide.invalidate()}:{}),open,close,prepareClose,hasPendingDraft,returnFromJump,next:()=>turn('next'),previous:()=>turn('previous'),go,setPreferences,bookmark:()=>lastLocator?clone(lastLocator):null,restore:go,exportState:()=>{if(hasPendingDraft())persistNote();if(navigator?.kind==='continuous')navigator.report();return snapshot()},addBookmark,annotate};
@@ -1000,6 +1093,8 @@ for(const b of document.querySelectorAll('[data-highlight-color]'))b.onclick=()=
  try{annotate({...selection,color:b.dataset.highlightColor});dismissSelection();notice('Passage highlighted.')}catch(error){notice(error.message)}
 };
 $('remove-selection').onclick=()=>{if(selection?.id)removeAnnotation(selection.id)};
+// A touch keyboard covers the lower part of the page without resizing it. The visual viewport says what is left, so the note editor can stay above the keys; where little is left (a phone, an iPad on its side) it also takes its compact form.
+if(window.visualViewport){const fit=()=>{document.documentElement.style.setProperty('--visible-height',visualViewport.height+'px');const up=visualViewport.height<innerHeight-120;document.body.classList.toggle('keyboard-shown',up);document.body.classList.toggle('keyboard-up',up&&visualViewport.height<560);document.body.classList.toggle('keyboard-tight',up&&visualViewport.height<340)};visualViewport.addEventListener('resize',fit);fit()}
 $('note-text').oninput=()=>{clearTimeout(noteSaveTimer);$('note-status').textContent='Saving…';noteSaveTimer=setTimeout(persistNote,180)};
 for(const radio of document.querySelectorAll('input[name="note-color"]'))radio.onchange=persistNote;
 $('note-selection').onclick=()=>editNote();$('dismiss-selection').onclick=dismissSelection;

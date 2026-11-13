@@ -1,8 +1,10 @@
 name: Project checks
 on:
   push:
-    branches: [main]
+    # Release candidates and Mac work in progress are integrated without a pull request (no auto-merge), so they are checked on push.
+    branches: [main, 'release/**', 'mac/**', 'sync/**']
   pull_request:
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:
@@ -34,3 +36,5 @@ jobs:
       - run: npm --prefix website ci --ignore-scripts
       - run: npm --prefix website test
       - run: npm --prefix website run build
+      - name: Release script writes the shared update feed
+        run: python3 scripts/release/test-update-feed-contract.py

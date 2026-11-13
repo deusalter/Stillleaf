@@ -7,12 +7,13 @@ How the repository fits together and how to check a change. For what the app doe
 | Path | What it is |
 |---|---|
 | `Sources/BooksPresence` | The native Mac app (SwiftUI/AppKit). This is the product that gets packaged as `Stillleaf.app`. |
-| `Sources/BooksCore`, `Sources/BooksPlatform` | Storage, tracking rules, EPUB import, Apple Books and Discord adapters. Covered by XCTest in `Tests/`. |
-| `Reader/desktop/reader` | The shared EPUB renderer. `scripts/build-reader-assets.sh` bundles it into the Mac app. |
+| `Sources/BooksCore`, `Sources/BooksPlatform` | Storage, tracking rules, EPUB import, Apple Books and Discord adapters. Covered by XCTest in `Tests/`. The iOS app uses them too, so Mac-only adapters sit behind `#if os(macOS)`. |
+| `iOS` | The iPhone and iPad app, generated with XcodeGen ([design](IOS_APP.md), [usage](../iOS/README.md)). It also compiles the Mac files in `iOS/shared-sources.sh`, which must stay Foundation + BooksCore only. |
+| `Reader/desktop/reader` | The shared EPUB renderer. `scripts/build-reader-assets.sh` bundles it into the Mac and iOS apps. |
 | `Reader/packages` | Publication importer and archive packages used by the renderer and the Electron host. |
 | `Reader/desktop` | A separate Electron development host with its own SQLite journal. It is not a validated Windows release. |
 | `prototypes/windows-journal` | The older Windows journal prototype. Kept isolated as the reference for the `stillleaf-journal-prototype/v1` format that `Reader/desktop/src/journal/migration.cjs` imports. |
-| `website` | The marketing site preview. |
+| `website` | The marketing site preview. Its build also publishes the Mac app's update feed ([contract](../website/UPDATES.md)). |
 | `design` | Design concepts and review renders. |
 | `docs/archive` | Finished plans, handoffs and dated reports, kept for history. |
 
@@ -21,7 +22,7 @@ The executable, Application Support folder (`~/Library/Application Support/Books
 ## Conventions in the native app
 
 - **One main type per file**, named after it. Small private helpers stay with the view that uses them.
-- **Test, benchmark and preview code** lives in `Sources/BooksPresence/DevTools/`. It compiles into the same binary so CI and `check-local.sh` can run `--self-test-*`, `--benchmark-*` and `--render-*` against what ships. The reader smoke stays inside `EPUBReaderWindow.swift` because it drives private reader state.
+- **Test, benchmark and preview code** lives in `Sources/BooksPresence/DevTools/`. It compiles into the same binary so CI and `check-local.sh` can run `--self-test-*`, `--benchmark-*` and `--render-*` against what ships. The reader's fixture checks (`DevTools/EPUBReaderSmoke.swift`) drive the reader's own state, so `EPUBReaderWindow` keeps the members they use internal rather than private.
 - **Design tokens.** Colours come from `ReadingPalette` (`ThemeStore.swift`, backed by the themes in `Theme.swift`). Radii, spacing, page widths and card padding come from `ReadingMetrics`, and type from `ReadingType` (both in `ReadingLayout.swift`). Use `.readingPanel()` for a screen's one glass surface and `.readingPage()` for screen insets rather than new literals.
 - **One glass surface per region.** A dashboard screen is the floating sidebar plus one content surface; a sheet is its own surface; an onboarding step has at most one. Group inside a surface with spacing and type (`ReadingSection` headings), not nested cards, and keep dividers rare and faint. `.readingPanel()` inside a surface adds nothing (sheet roots call `.readingSheetSurface()`), and text fields turn into inset wells there. `--self-test-ui` counts the published glass regions per screen, and `--render-ui <dir> --offscreen --surface-report` prints the same table.
 - **Goal limits** come from `ReadingGoalLimits` in BooksCore. **Date labels** go through `DateText` (`ReadingFormat.swift`), which caches formatters per time zone and format.
@@ -56,8 +57,16 @@ Run `scripts/install-git-hooks.sh` once per clone. Branch names follow `<area>/<
 | Electron host UI tests | In `Reader/desktop`: `npm ci && npm run build:reader && node --test test/*.test.mjs` | No |
 | Windows prototype | `npm --prefix prototypes/windows-journal test` | Yes |
 | Website | `npm --prefix website ci && npm --prefix website test && npm --prefix website run build` | Yes |
+| iOS model and shared code | `iOS/scripts/check-model-local.sh` (Command Line Tools) | Simulator XCTest and device build instead, `ios.yml` |
+| Sync between devices ([design](SYNC.md)) | `scripts/check-local.sh` runs `sync-smoke`: two devices through one folder | Yes, the same scenario as `FolderSyncTests`, plus `JournalSyncTests` on iOS |
+| Update feed contract | `scripts/release/test-update-feed-contract.py`, plus the website test and `UpdateCheckerTests` | Yes |
+| Unsigned universal release | `scripts/release/build-release.sh` with no signing identity | When release scripts change, `release.yml` |
 
 Most smoke suites only run locally, so run `scripts/check-local.sh` before packaging or merging native changes.
+
+macOS checks and Project checks run on pull requests and on pushes to `main`, `release/**`, `mac/**` and `sync/**`; the iOS workflow runs on `ios/**`, `release/**` and `sync/**` pushes. A ready pull request can be merged automatically on this Mac, so push one of those branches without a pull request to get CI on work that must not merge yet.
+
+Performance probes (`--measure-idle`, `--measure-launch`, `--measure-reader`) and the latest before/after numbers are in [the pre-launch performance pass](LAUNCH_PERFORMANCE.md).
 
 Smokes, previews and captures run in the background, so they can run while someone is using the Mac. Background mode never activates the app, and each window it shows is parked at the bottom-right corner of the screen with only a 24 pt sliver showing. The windows still render and still count as visible, so `--capture-window` captures the whole window. `--render-native-chrome` tests focus itself, so background runs skip it. CI runs it, or set `STILLLEAF_FOREGROUND_UI=1` to run any of these in front. Background mode is always off when `CI` is set.
 
@@ -67,6 +76,10 @@ Browser and Electron UI tests write screenshots to `Reader/desktop/reader/artifa
 
 `BooksPresence --render-ui <folder> --offscreen` renders every dashboard screen, the menu panel and onboarding to PNGs from a disposable synthetic database. `--preview-filter today,library` limits the set and `--all-themes` adds every theme. Glass and system materials do not render offscreen. `scripts/run-native-chrome-preview.sh` captures real windows, but it needs Screen Recording permission.
 
+## Releases
+
+Public Mac releases are Developer ID signed and notarized ([distribution](DISTRIBUTION.md)). `scripts/release/build-release.sh` builds, signs, notarizes, packages and verifies them; the `macOS release` workflow runs it for `v*` tags and opens a draft GitHub release. Pull requests that touch the release scripts get an unsigned dry run. Follow the [release checklist](RELEASE_CHECKLIST.md) to publish, and keep the [privacy statement](PRIVACY.md) and `THIRD_PARTY_NOTICES.md` current.
+
 ## Not verified by automated checks
 
-Live Apple Books Accessibility behaviour, live Discord rendering, VoiceOver operation, notarized distribution and Windows hardware.
+Live Apple Books Accessibility behaviour, live Discord rendering, VoiceOver operation and Windows hardware. Notarization runs only once the Developer ID secrets are configured. Gatekeeper's first-launch prompts on a clean account are a manual release-checklist step.

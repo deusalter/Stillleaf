@@ -175,7 +175,7 @@ struct PopoverView: View {
                 if model.manualActive || model.snapshot.book != nil || model.sessionPages > 0 {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("This session").font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
-                        Text("\(model.sessionPages) \(model.sessionPages == 1 ? "page" : "pages")")
+                        Text(ReadingFormat.pages(model.sessionPages))
                             .font(ReadingType.numeral(20)).monospacedDigit()
                         LiveSessionTime(live: model.live) { time in
                             Text("\(time) \(model.manualActive ? "manual" : "recorded")")

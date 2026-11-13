@@ -5,12 +5,20 @@ import BooksPlatform
 import UniformTypeIdentifiers
 import CryptoKit
 
+/// The Mac app's one owner of state: the tracker, the journal and everything the views read.
+/// It is a single file on purpose. Nearly all of its state is `private(set)`, which only this file can write,
+/// and that is what stops a view from changing the journal behind the tracker's back. The marks are its sections.
 @MainActor
 final class AppModel: ObservableObject {
+    // MARK: - Published state
+
     let audiobookPlayer = AudiobookPlayer()
     @Published private(set) var importingAudio = false
     let epubLibrary: EPUBLibraryController
+    let updates = UpdateController()
     private var transferringReaderState = Set<String>()
+    /// Set while delete-all waits for imported books' readers to close; no reader may open meanwhile.
+    private var deletingAllData = false
     private let epubReaders: EPUBReaderWindows
     /// The tracker's state. Tracking assigns it every second while a book is open, but only the
     /// running session time changes then, and two labels show it. So views are told about any
@@ -96,6 +104,8 @@ final class AppModel: ObservableObject {
         calendar.timeZone = TimeZone(identifier: timezoneID) ?? .current
         return calendar.component(.year, from: Date())
     }
+    // MARK: - Daily goals and session groups
+
     func dailyGoal(on day: String) -> DailyGoalProgress {
         goalProgressByDay[day] ?? ReadingGoals.daily(day: day, pages: 0, creditedSeconds: 0, goals: goalHistory)
     }
@@ -150,7 +160,17 @@ final class AppModel: ObservableObject {
         guard interval.id.hasPrefix("group:") else { return [interval.id] }
         return intervals.filter { $0.sessionID == interval.sessionID && $0.bookID == interval.bookID && $0.disposition == interval.disposition && $0.start >= interval.start && $0.end <= interval.end }.map(\.id)
     }
+    // MARK: - Dependencies and settings state
+
     var manualActive: Bool { manualBook != nil }
+    /// Sync through a folder the reader chose: where it stands, for Settings to show.
+    @Published private(set) var sync = SyncState()
+    private var syncRunning = false
+    private var syncWanted = false
+    private var libraryRecovered = false
+    private var lastSyncAttempt = Date.distantPast
+    /// Books in the folder that failed to import this run: not tried again on every pass.
+    private var syncUnreadable = Set<String>()
     var dashboardAction: (() -> Void)?
     @Published var dashboardSectionRequest: DashboardSection?
     @Published var settingsCategoryRequest: SettingsCategory?
@@ -176,9 +196,19 @@ final class AppModel: ObservableObject {
     private var coverLookupGeneration = 0
     private var coverLookupDates: [String: Date] = [:]
     private let historyQueue = DispatchQueue(label: "BooksPresence.finished-history", qos: .utility)
+    /// The Apple Books catalog this model reads. Dev-tool probes point it at a synthetic copy.
+    private let booksCatalog: BooksCatalog
     private var historySyncInFlight = false
     private var historyGeneration = 0
     private var lastHistorySync = Date.distantPast
+    /// Catalog stamps behind the last completed history sync and store-purchase check. The periodic
+    /// poll skips both while the Books catalog is unchanged, and repeats them every 10 minutes anyway.
+    /// A stamp is kept only once its read succeeded, so a failed or discarded read retries next poll.
+    private var historySyncStamp: [String]?
+    private var storePurchaseStamp: [String]?
+    private var lastFullHistorySync = Date.distantPast
+    private var lastFullStorePurchaseCheck = Date.distantPast
+    private static let unchangedCatalogRecheck: TimeInterval = 600
     private var suppressedHistoryIDs: Set<String> = []
     private var presenceState: ReadingPresenceState = .hidden
     private let captureQueue = DispatchQueue(label: "BooksPresence.capture", qos: .utility)
@@ -228,8 +258,11 @@ final class AppModel: ObservableObject {
         return groups
     }
 
+    // MARK: - Setup
+
     init(support: URL, defaults: UserDefaults = .standard, startTracking: Bool = true,
          accessibilityStatus: @escaping () -> Bool = { BooksCapture.isTrusted },
+         booksCatalog: BooksCatalog = BooksCatalog(),
          historyReader: @escaping (URL) throws -> (archive: HistoryArchive, intervals: [ReadingInterval]) = ReadingStore.readSnapshot,
          makeTrackingEngine: @escaping (ReadingStore, String) throws -> TrackingEngine = {
              try TrackingEngine(store: $0, timezoneID: $1)
@@ -237,6 +270,7 @@ final class AppModel: ObservableObject {
         self.historyReader = historyReader
         self.makeTrackingEngine = makeTrackingEngine
         self.accessibilityStatus = accessibilityStatus
+        self.booksCatalog = booksCatalog
         self.support = support
         self.defaults = defaults
         epubLibrary = EPUBLibraryController(directory: support.appendingPathComponent("Publications", isDirectory: true))
@@ -247,7 +281,7 @@ final class AppModel: ObservableObject {
         let zone = defaults.string(forKey: "timezoneID").flatMap { TimeZone(identifier: $0) }?.identifier ?? TimeZone.current.identifier
         engine = try makeTrackingEngine(store, zone)
         covers = try CoverCache(directory: support.appendingPathComponent("Covers"))
-        captures = BooksCapture(covers: covers)
+        captures = BooksCapture(catalog: booksCatalog, covers: covers)
         accessibilityGranted = accessibilityStatus()
         timezoneID = zone
         trackingEnabled = defaults.object(forKey: "trackingEnabled") as? Bool ?? true
@@ -269,6 +303,7 @@ final class AppModel: ObservableObject {
         syncGoalFromHistory()
         try ensureCurrentPageGoal()
         ready = startTracking
+        restoreSyncState()
         syncGoalFromHistory()
         if startTracking {
         registerObservers()
@@ -278,8 +313,10 @@ final class AppModel: ObservableObject {
             if self.manualBook == nil && self.epubReaders.focusedPublicationID == nil { self.pause(.noReadingWindow); self.tick() }
         }
         refresh()
-        timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in Task { @MainActor [weak self] in self?.tick() } }
-        if !defaults.bool(forKey: "didConfigureLogin"), Bundle.main.bundleURL.pathExtension == "app" {
+        schedulePoll()
+        // Only from a real install: registering a disk-image or translocated copy would point
+        // login startup at a path that disappears, and the flag would stop a later retry.
+        if !defaults.bool(forKey: "didConfigureLogin"), InstallLocation.current() == .installed {
             defaults.set(true, forKey: "didConfigureLogin")
             do { try LoginService.setEnabled(true); launchAtLogin = LoginService.enabled }
             catch { errorMessage = "Login startup needs setup: \(error.localizedDescription). Enable it in Settings after installing the app." }
@@ -300,7 +337,11 @@ final class AppModel: ObservableObject {
         epubLibrary.register = { [weak self] publication, directory in
             try self?.registerPublication(publication, directory: directory)
         }
-        epubLibrary.didImport = { [weak self] publication in self?.pendingLinkOffers.append("epub:" + publication.id) }
+        epubLibrary.didImport = { [weak self] publication in
+            self?.pendingLinkOffers.append("epub:" + publication.id)
+            // Imported here on purpose, whatever was decided about keeping it off this Mac before.
+            self?.rememberForSync { try $0.acceptEdition(publication.id) }
+        }
         epubLibrary.didFinishQueue = { [weak self] in
             guard let self else { return }
             let ids = self.pendingLinkOffers; self.pendingLinkOffers = []
@@ -309,6 +350,9 @@ final class AppModel: ObservableObject {
         epubLibrary.didRecover = { [weak self] in
             guard let self else { return }
             self.offerLinks(for: self.books.filter { $0.source == "stillleaf-epub" }.map(\.id))
+            // Sync waits for this: a pass that ran before the library was listed would see no books here.
+            self.libraryRecovered = true
+            self.syncNow()
         }
         epubLibrary.presentLibrary = { [weak self] in
             self?.dashboardSectionRequest = .library
@@ -338,6 +382,8 @@ final class AppModel: ObservableObject {
         if startTracking { epubLibrary.recover() }
     }
 
+    // MARK: - EPUB library and the built-in reader
+
     private func registerPublication(_ publication: EPUBPublication, directory: URL) throws {
         let id = "epub:" + publication.id
         var book = books.first(where: { $0.id == id }) ?? BookRecord(id: id, title: publication.title,
@@ -363,17 +409,24 @@ final class AppModel: ObservableObject {
         return !appleBooksStorePurchaseIDs.contains(assetID)
     }
     /// Checks the journal's Apple Books books for store purchases off the main thread.
-    private func refreshStorePurchases() {
+    private func refreshStorePurchases(onlyIfCatalogChanged: Bool = false) {
         guard !storePurchaseCheckInFlight else { return }
         let prefix = "apple-books:"
         let assetIDs = Set(books.filter { $0.id.hasPrefix(prefix) }.map { String($0.id.dropFirst(prefix.count)) })
         guard !assetIDs.isEmpty else { return }
+        let unchanged = onlyIfCatalogChanged && Date().timeIntervalSince(lastFullStorePurchaseCheck) < Self.unchangedCatalogRecheck
+            ? storePurchaseStamp : nil
         storePurchaseCheckInFlight = true; lastStorePurchaseCheck = Date()
-        historyQueue.async { [weak self] in
-            let purchases = try? BooksCatalog().storePurchases(among: assetIDs)
+        historyQueue.async { [weak self, booksCatalog] in
+            // Touch the Books container off the main thread, as every other catalog read does.
+            let stamp = booksCatalog.changeStamp().map { $0 + assetIDs.sorted() }
+            let skip = stamp != nil && stamp == unchanged
+            let purchases = skip ? nil : try? booksCatalog.storePurchases(among: assetIDs)
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.storePurchaseCheckInFlight = false
+                guard !skip else { return }
+                if purchases != nil { self.storePurchaseStamp = stamp; self.lastFullStorePurchaseCheck = Date() }
                 if let purchases, purchases != self.appleBooksStorePurchaseIDs { self.appleBooksStorePurchaseIDs = purchases }
             }
         }
@@ -461,7 +514,7 @@ final class AppModel: ObservableObject {
         return openingEPUBIDs.contains { resolver.resolvedID(for: "epub:" + $0) == canonicalID }
     }
     func readEPUB(_ book: BookRecord) {
-        guard !isOpeningEPUB(book), let publication = chooseEPUB(book), !epubLibrary.removingIDs.contains(publication.id),
+        guard !deletingAllData, !isOpeningEPUB(book), let publication = chooseEPUB(book), !epubLibrary.removingIDs.contains(publication.id),
               !transferringReaderState.contains(publication.id), openingEPUBIDs.insert(publication.id).inserted else { return }
         cancelExternalCoverLookups()
         Task {
@@ -479,7 +532,11 @@ final class AppModel: ObservableObject {
             guard !self.transferringReaderState.contains(id), self.epubLibrary.reserveRemoval(id) else { return }
             Task {
                 guard await self.epubReaders.close(publicationID: id) else { self.epubLibrary.cancelRemoval(id); return }
-                self.epubLibrary.remove(publicationID: id, keepingOriginalAt: destination) { [weak self] in self?.refresh() }
+                self.epubLibrary.remove(publicationID: id, keepingOriginalAt: destination) { [weak self] in
+                    // Its history stays and it stays on the other devices; sync must not bring the file back here.
+                    self?.rememberForSync { try $0.declineEdition(id) }
+                    self?.refresh()
+                }
             }
         }
         if keepCopy {
@@ -544,6 +601,8 @@ final class AppModel: ObservableObject {
         return await epubReaders.closeAll()
     }
 
+    // MARK: - Tracking: system events, the one-second poll and pauses
+
     private func registerObservers() {
         let center = NSWorkspace.shared.notificationCenter
         workspaceObservers.append(center.addObserver(forName: NSWorkspace.didTerminateApplicationNotification, object: nil, queue: .main) { [weak self] notification in
@@ -560,8 +619,15 @@ final class AppModel: ObservableObject {
         workspaceObservers.append(center.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self else { return }; self.captureGeneration += 1
+                // The relaxed poll last sampled input up to 30 s ago. Count only what a
+                // one-second poll would have: input from the second before this switch.
+                if self.timer?.timeInterval == Self.idlePollInterval {
+                    self.lastInputUptime = max(self.lastInputUptime, ProcessInfo.processInfo.systemUptime - Self.activePollInterval)
+                }
                 if self.manualBook == nil && self.epubReaders.focusedPublicationID == nil && !SystemEligibility.booksForeground { self.pause(.background) }
                 self.tick()
+                // Coming back to the Mac is when reading done on another device should show up.
+                self.syncIfDue()
             }
         })
         let pairs: [(Notification.Name, String, Bool, PauseReason)] = [
@@ -577,6 +643,14 @@ final class AppModel: ObservableObject {
                 Task { @MainActor [weak self] in self?.systemChanged(key: key, stopped: stop, reason: reason) }
             })
         }
+        // Today rolls over at midnight even while the poll is relaxed.
+        observers.append(NotificationCenter.default.addObserver(forName: .NSCalendarDayChanged, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.tick() }
+        })
+        // A Stillleaf window or the menu panel coming on screen or leaving it changes the poll rate.
+        observers.append(NotificationCenter.default.addObserver(forName: NSWindow.didChangeOcclusionStateNotification, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.schedulePoll() }
+        })
         for (name, stop) in [("com.apple.screenIsLocked", true), ("com.apple.screenIsUnlocked", false)] {
             distributedObservers.append(DistributedNotificationCenter.default().addObserver(forName: Notification.Name(name), object: nil, queue: .main) { [weak self] _ in
                 Task { @MainActor [weak self] in self?.systemChanged(key: "lock", stopped: stop, reason: .locked) }
@@ -601,10 +675,38 @@ final class AppModel: ObservableObject {
         health = message
     }
 
+    /// The eligibility poll runs every second while anything could be credited or watched: manual
+    /// reading, a focused Stillleaf reader, Apple Books in front, audio playing, an open session, or
+    /// a Stillleaf window or the menu panel on screen. Otherwise nothing can start without an app
+    /// activation, reader focus, wake/unlock or day change, and each of those ticks at once, so the
+    /// poll relaxes to the 30-second Apple Books history sync and lets the Mac stay idle (App Nap).
+    nonisolated static let activePollInterval: TimeInterval = 1
+    nonisolated static let idlePollInterval: TimeInterval = 30
+    private var pollShouldStayActive: Bool {
+        readingTrackingSource != .idle || audiobookPlayer.isPlaying || snapshot.phase != .paused
+            || NSApp.windows.contains { window in
+                window.isVisible && window.occlusionState.contains(.visible)
+                    && (window.styleMask.contains(.titled) || window is StatusMenuPanel)
+            }
+    }
+    private func schedulePoll() {
+        guard ready else { return }
+        let interval = pollShouldStayActive ? Self.activePollInterval : Self.idlePollInterval
+        if let timer, timer.isValid, timer.timeInterval == interval { return }
+        timer?.invalidate()
+        let poll = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in Task { @MainActor [weak self] in self?.tick() } }
+        // Let macOS batch the wakeup with others; elapsed time comes from uptime, not the timer.
+        poll.tolerance = interval / 10
+        timer = poll
+    }
+    var pollInterval: TimeInterval? { timer?.isValid == true ? timer?.timeInterval : nil }
+
     private func tick() {
         guard ready, !trackingRecoveryRequired else { return }
-        if Date().timeIntervalSince(lastHistorySync) > 30 { syncAppleBooksHistory() }
-        if Date().timeIntervalSince(lastStorePurchaseCheck) > 60 { refreshStorePurchases() }
+        defer { schedulePoll() }
+        // A second of slack, so a 30-second poll runs the sync on every tick rather than every other.
+        if Date().timeIntervalSince(lastHistorySync) >= 29 { syncAppleBooksHistory(onlyIfCatalogChanged: true) }
+        if Date().timeIntervalSince(lastStorePurchaseCheck) >= 59 { refreshStorePurchases(onlyIfCatalogChanged: true) }
         let trusted = accessibilityStatus()
         if accessibilityGranted != trusted { accessibilityGranted = trusted }
         windowObserver?.refresh()
@@ -764,6 +866,8 @@ final class AppModel: ObservableObject {
         reportHealth("Storage requires attention. New time is not being credited.")
         ready = false; timer?.invalidate(); presencePolicy.reset(); presenceState = .hidden; discord.clear()
     }
+    // MARK: - Discord presence
+
     private func publishPresence() {
         if snapshot.book?.source == "stillleaf-epub" {
             finishPublishingPresence(readerOpen: epubReaders.focusedPublicationID != nil && commonPauseReason() == nil)
@@ -814,6 +918,8 @@ final class AppModel: ObservableObject {
         if discordStatus != status { discordStatus = status }
     }
     /// Opt-in diagnostics from the actual GUI process, whose macOS permission may differ from a CLI helper.
+    // MARK: - Status report
+
     func writeStatusReport(to url: URL) throws {
         let report: [String: Any] = [
             "processID": ProcessInfo.processInfo.processIdentifier,
@@ -858,6 +964,8 @@ final class AppModel: ObservableObject {
 
     /// Reader-driven requests coalesce without starving publication during continuous reading.
     /// Serial results may trail live progress; explicit edits invalidate them via refreshGeneration.
+    // MARK: - History: refresh, lookups and page totals
+
     func requestHistoryRefresh() {
         guard !refreshStopped else { return }
         if refreshInFlight { refreshPending = true; return }
@@ -914,6 +1022,8 @@ final class AppModel: ObservableObject {
             applyHistory(HistoryPresentation(archive: archive, effectiveIntervals: try store.effectiveIntervals(),
                 timezoneID: timezoneID, goalMinutes: goalMinutes))
         } catch { errorMessage = "Cannot read local history: \(error)" }
+        // Something in the journal just changed: let the other devices hear of it, at most once a minute.
+        syncIfDue()
     }
 
     private func applyHistory(_ prepared: HistoryPresentation) {
@@ -1061,6 +1171,8 @@ final class AppModel: ObservableObject {
         PageStatistics.manualPages(events: events, effectiveIntervals: group.intervals, merges: merges,
                                    from: from, through: through, bookID: group.bookID)
     }
+    // MARK: - Public covers
+
     func publicCoverURL(for book: BookRecord) -> String { book.source == "stillleaf-epub" ? "" : publicCoverURLs[book.id] ?? "" }
     func savePublicCoverURL(_ value: String, for book: BookRecord) {
         guard book.source != "stillleaf-epub" else { return }
@@ -1101,6 +1213,8 @@ final class AppModel: ObservableObject {
         for (id, task) in coverLookupTasks { task.cancel(); coverLookupDates.removeValue(forKey: id) }
         coverLookupTasks.removeAll(); coverLookups.removeAll()
     }
+    // MARK: - Finishing, ratings and reviews
+
     @discardableResult
     func markFinished(_ book: BookRecord) -> FinishedBookEntry? {
         let canonicalID = BookMergeResolver(merges: merges).resolvedID(for: book.id)
@@ -1169,17 +1283,26 @@ final class AppModel: ObservableObject {
     nonisolated private static func historyKey(_ id: String) -> String {
         SHA256.hash(data: Data(id.utf8)).map { String(format: "%02x", $0) }.joined()
     }
-    func syncAppleBooksHistory() {
+    // MARK: - Apple Books finished-book history
+
+    func syncAppleBooksHistory(onlyIfCatalogChanged: Bool = false) {
         guard syncAppleBooksHistoryEnabled, !historySyncInFlight else { return }
+        let unchanged = onlyIfCatalogChanged && Date().timeIntervalSince(lastFullHistorySync) < Self.unchangedCatalogRecheck
+            ? historySyncStamp : nil
         historySyncInFlight = true; lastHistorySync = Date()
         let generation = historyGeneration
         let knownBooks = Dictionary(uniqueKeysWithValues: books.map { ($0.id, $0) })
         let suppressed = suppressedHistoryIDs
-        historyQueue.async { [weak self] in
+        historyQueue.async { [weak self, booksCatalog] in
+            let stamp = booksCatalog.changeStamp()
+            if stamp != nil && stamp == unchanged {
+                DispatchQueue.main.async { [weak self] in self?.historySyncInFlight = false }
+                return
+            }
             let staging = FileManager.default.temporaryDirectory.appendingPathComponent("BooksPresence-history-\(UUID().uuidString)", isDirectory: true)
             do {
                 let stagedCovers = try CoverCache(directory: staging)
-                var imported = try BooksCatalog().finishedBooks()
+                var imported = try booksCatalog.finishedBooks()
                 imported.removeAll { suppressed.contains(Self.historyKey($0.book.id)) }
                 for index in imported.indices {
                     let book = imported[index].book
@@ -1197,7 +1320,9 @@ final class AppModel: ObservableObject {
                     guard let self else { return }
                     self.historySyncInFlight = false
                     guard self.historyGeneration == generation, self.syncAppleBooksHistoryEnabled else { return }
-                    self.acceptFinishedHistory(records, staging: staging)
+                    if self.acceptFinishedHistory(records, staging: staging) {
+                        self.historySyncStamp = stamp; self.lastFullHistorySync = Date()
+                    }
                 }
             } catch {
                 try? FileManager.default.removeItem(at: staging)
@@ -1211,8 +1336,10 @@ final class AppModel: ObservableObject {
         }
     }
     /// Internal seam for synthetic integration checks; callers own staged-file cleanup.
-    func acceptFinishedHistory(_ records: [CatalogFinishedBook], staging: URL) {
-        guard syncAppleBooksHistoryEnabled else { return }
+    /// Returns whether the records were saved.
+    @discardableResult
+    func acceptFinishedHistory(_ records: [CatalogFinishedBook], staging: URL) -> Bool {
+        guard syncAppleBooksHistoryEnabled else { return false }
         do {
             let previousSync = defaults.object(forKey: "lastAppleHistorySync") as? Date
             let archive = try store.archive()
@@ -1263,8 +1390,11 @@ final class AppModel: ObservableObject {
             if historyChanged { refresh() }
             if let id = newestCompletionID { pendingCompletionEventID = newestCompletionEventID; pendingCompletion = finishedBooks.first { $0.id == id } }
             appleHistoryStatus = "Synced \(records.count) finished books from Apple Books."
-        } catch { appleHistoryStatus = "Could not save Apple Books history: \(error.localizedDescription)" }
+            return true
+        } catch { appleHistoryStatus = "Could not save Apple Books history: \(error.localizedDescription)"; return false }
     }
+    // MARK: - Journal edits: the one path every change takes
+
     @discardableResult
     private func perform(afterCommit: (() throws -> Void)? = nil, _ action: () throws -> Void) -> Bool {
         refreshGeneration += 1; refreshPending = false
@@ -1302,6 +1432,8 @@ final class AppModel: ObservableObject {
         historyGeneration += 1
         try engine.stop(); snapshot = engine.snapshot; pageTurnTracker.reset(); readerPagination.reset(); currentPagePosition = nil; presencePolicy.reset(); presenceState = .hidden; discord.clear()
     }
+    // MARK: - Manual reading and audiobooks
+
     @discardableResult
     func startManual(title: String, author: String) -> Bool {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1511,6 +1643,8 @@ final class AppModel: ObservableObject {
         try encoder.encode(archive).write(to: url, options: .atomic)
         try store.importJSON(from: url)
     }
+    // MARK: - Accessibility, onboarding and settings
+
     func requestAccessibility() { BooksCapture.requestAccess(); refreshAccessibilityStatus(); openAccessibilitySettings() }
     /// Access is granted in System Settings, outside the app; views that wait on it poll here.
     func refreshAccessibilityStatus() {
@@ -1587,6 +1721,8 @@ final class AppModel: ObservableObject {
             if manualBook?.id == book.id { manualBook = updated }
         }
     }
+    // MARK: - Session corrections, deleting and merging
+
     @discardableResult
     func editInterval(_ interval: ReadingInterval, start: Date, end: Date, bookID: String, disposition: IntervalDisposition) -> Bool {
         guard end > start, end <= Date() else { errorMessage = "Use an end time after the start and no later than now."; return false }
@@ -1611,9 +1747,13 @@ final class AppModel: ObservableObject {
         }
     }
     @discardableResult
-    func deleteSession(_ sessionID: String) -> Bool { perform(afterCommit: resetEngineAfterMutation) { try stopForMutation(); defer { try? removeManagedBackups() }; try store.deleteSession(sessionID) } }
+    func deleteSession(_ sessionID: String) -> Bool {
+        let deleted = perform(afterCommit: resetEngineAfterMutation) { try stopForMutation(); defer { try? removeManagedBackups() }; try store.deleteSession(sessionID) }
+        if deleted { rememberForSync { try $0.recordDeletedSession(sessionID) } }
+        return deleted
+    }
     func deleteBook(_ book: BookRecord) {
-        perform {
+        let deleted = perform {
             try stopForMutation(); if manualBook?.id == book.id { manualBook = nil }
             defer { try? removeManagedBackups() }
             if audiobookPlayer.bookID == book.id { try audiobookPlayer.close() }
@@ -1627,9 +1767,33 @@ final class AppModel: ObservableObject {
             if pendingCompletion?.id == book.id { pendingCompletion = nil }
             try resetEngineAfterMutation(); try removeUnusedCovers()
         }
+        if deleted { rememberForSync { try $0.recordDeletedBook(book.id) } }
     }
     func deleteAllData() {
-        guard !importingAudio else { errorMessage = "Finish the audio import before deleting all data."; return }
+        guard !deletingAllData, canDeleteAllData() else { return }
+        // Imported books, with their notes and highlights, are reading data too. Their readers
+        // close first so none is still saving state into a folder that is going away.
+        let imported = Array(epubLibrary.publications.keys)
+        guard !imported.isEmpty else { return deleteAllDataNow() }
+        deletingAllData = true
+        Task {
+            defer { deletingAllData = false }
+            for id in imported where !(await epubReaders.close(publicationID: id)) {
+                errorMessage = "Close the open books, then delete all data again."; return
+            }
+            // An import or transfer may have started while the readers closed.
+            guard canDeleteAllData() else { return }
+            deleteAllDataNow()
+        }
+    }
+    private func canDeleteAllData() -> Bool {
+        if importingAudio { errorMessage = "Finish the audio import before deleting all data."; return false }
+        guard !epubLibrary.queue.isBusy, epubLibrary.removingIDs.isEmpty, transferringReaderState.isEmpty, openingEPUBIDs.isEmpty else {
+            errorMessage = "Finish importing, opening, removing or transferring books before deleting all data."; return false
+        }
+        return true
+    }
+    private func deleteAllDataNow() {
         trackingEnabled = false
         syncAppleBooksHistoryEnabled = false; defaults.set(false, forKey: "syncAppleBooksHistoryEnabled")
         perform {
@@ -1637,8 +1801,19 @@ final class AppModel: ObservableObject {
             publicCoverURLs = [:]; defaults.removeObject(forKey: "publicCoverURLs")
             suppressedHistoryIDs = []; defaults.removeObject(forKey: "suppressedAppleHistory")
             defaults.removeObject(forKey: "lastAppleHistorySync"); pendingCompletion = nil
-            let audioDirectory = support.appendingPathComponent("Audiobooks")
-            if FileManager.default.fileExists(atPath: audioDirectory.path) { try FileManager.default.trashItem(at: audioDirectory, resultingItemURL: nil) }
+            // Copied files go to the Trash, as audiobooks always have, so a mistaken deletion of
+            // imported books or their notes can still be recovered there.
+            for name in ["Audiobooks", "Publications", "ReaderState"] {
+                let directory = support.appendingPathComponent(name)
+                if FileManager.default.fileExists(atPath: directory.path) { try FileManager.default.trashItem(at: directory, resultingItemURL: nil) }
+            }
+            epubLibrary.forgetAll()
+            // Deleting everything here is not a request to delete it everywhere: this Mac stops syncing, and
+            // what it remembered of its books goes with them. Its own copy of the journal leaves the sync
+            // folder, though: deleted data must not sit on in the reader's cloud storage.
+            if let folder = syncFolder() { try? syncEngine(folder).removeOwnData() }
+            try? FileManager.default.removeItem(at: syncMemoryURL)
+            forgetSyncFolder()
             let coverDirectory = support.appendingPathComponent("Covers")
             if FileManager.default.fileExists(atPath: coverDirectory.path) { try FileManager.default.removeItem(at: coverDirectory); try FileManager.default.createDirectory(at: coverDirectory, withIntermediateDirectories: true) }
         }
@@ -1661,6 +1836,8 @@ final class AppModel: ObservableObject {
         return perform { try stopForMutation(); try store.merge(BookMerge(sourceID: source.id, targetID: target.id)) } }
     func unmerge(_ merge: BookMerge) { perform { try stopForMutation(); try store.merge(BookMerge(sourceID: merge.sourceID, targetID: merge.targetID, active: false)) } }
 
+    // MARK: - Export, import and backup
+
     private func saveURL(name: String, type: UTType) -> URL? {
         let panel = NSSavePanel(); panel.nameFieldStringValue = name; panel.allowedContentTypes = [type]
         return panel.runModal() == .OK ? panel.url : nil
@@ -1677,7 +1854,190 @@ final class AppModel: ObservableObject {
         perform { try engine.checkpoint(); try store.exportCSV(to: dir.appendingPathComponent("Stillleaf-export-\(Int(Date().timeIntervalSince1970))")) }
     }
     func backup() { guard let url = saveURL(name: "Stillleaf-backup.sqlite", type: .database) else { return }; perform { try engine.checkpoint(); try store.backup(to: url) } }
-    func restore() { guard !importingAudio else { errorMessage = "Finish the audio import before restoring history."; return }; guard let url = openURL(types: [.database, .data]) else { return }; perform { try stopForMutation(); try store.restore(from: url); try resetEngineAfterMutation(); syncGoalFromHistory(); try ensureCurrentPageGoal() } }
+    func restore() { guard !importingAudio else { errorMessage = "Finish the audio import before restoring history."; return }; guard let url = openURL(types: [.database, .data]) else { return }; perform {
+            try stopForMutation(); try store.restore(from: url); try resetEngineAfterMutation(); syncGoalFromHistory(); try ensureCurrentPageGoal()
+            // The journal was replaced: what the other devices hold has to be merged into it afresh.
+            rememberForSync { try $0.forgetMergedJournals() }
+        }
+    }
+    // MARK: - Sync with other devices
+
+    struct SyncState: Equatable {
+        /// The chosen folder's name, or nil while sync is off.
+        var folderName: String?
+        var running = false
+        var lastSync: Date?
+        /// The other devices seen in the folder on the last pass.
+        var devices: [String] = []
+        /// Why the last pass did not finish, in a sentence.
+        var problem: String?
+        /// Files the folder's own syncing had not delivered to this Mac yet.
+        var waiting = 0
+        var enabled: Bool { folderName != nil }
+    }
+
+    private static let syncBookmarkKey = "syncFolderBookmark"
+    private static let syncFolderNameKey = "syncFolderName"
+    private static let syncLastKey = "syncLastDate"
+    private var syncMemoryURL: URL { support.appendingPathComponent("sync.json") }
+    private var readerStateDirectory: URL { support.appendingPathComponent("ReaderState", isDirectory: true) }
+
+    /// Asks for the folder to sync through (one in iCloud Drive, say) and starts syncing.
+    func chooseSyncFolder() {
+        let panel = NSOpenPanel()
+        panel.title = "Choose a sync folder"
+        panel.message = "Choose a folder that stays the same on your devices, such as one in iCloud Drive. Pick the same folder in Stillleaf on your iPhone."
+        panel.prompt = "Sync Here"
+        panel.canChooseFiles = false; panel.canChooseDirectories = true; panel.canCreateDirectories = true; panel.allowsMultipleSelection = false
+        panel.begin { [weak self] response in
+            guard response == .OK, let url = panel.url else { return }
+            Task { @MainActor [weak self] in self?.setSyncFolder(url) }
+        }
+    }
+
+    func setSyncFolder(_ folder: URL) {
+        do {
+            defaults.set(try folder.bookmarkData(), forKey: Self.syncBookmarkKey)
+            defaults.set(folder.lastPathComponent, forKey: Self.syncFolderNameKey)
+            syncUnreadable = []
+            sync = SyncState(folderName: folder.lastPathComponent)
+            syncNow()
+        } catch { sync.problem = "That folder can't be used for sync. \(error.localizedDescription)" }
+    }
+
+    /// Stops syncing. What this Mac already published stays in the folder for the others.
+    func turnOffSync() { forgetSyncFolder() }
+
+    private func restoreSyncState() {
+        sync = SyncState(folderName: defaults.string(forKey: Self.syncFolderNameKey), lastSync: defaults.object(forKey: Self.syncLastKey) as? Date)
+    }
+
+    private func forgetSyncFolder() {
+        for key in [Self.syncBookmarkKey, Self.syncFolderNameKey, Self.syncLastKey] { defaults.removeObject(forKey: key) }
+        sync = SyncState()
+    }
+
+    private func syncFolder() -> URL? {
+        guard let bookmark = defaults.data(forKey: Self.syncBookmarkKey) else { return nil }
+        var stale = false
+        guard let url = try? URL(resolvingBookmarkData: bookmark, bookmarkDataIsStale: &stale) else { return nil }
+        if stale, let fresh = try? url.bookmarkData() { defaults.set(fresh, forKey: Self.syncBookmarkKey) }
+        return url
+    }
+
+    private func syncEngine(_ folder: URL) -> FolderSync {
+        FolderSync(folder: folder, memoryURL: syncMemoryURL, deviceName: Host.current().localizedName ?? "Mac", platform: "mac")
+    }
+
+    private var syncEditions: [FolderSync.Edition] {
+        epubLibrary.publications.values.map { FolderSync.Edition(publication: $0, directory: epubLibrary.directory.appendingPathComponent($0.id, isDirectory: true)) }
+    }
+
+    /// Notes something for sync that must not be lost when the folder is out of reach: a deletion, or a book
+    /// taken off this Mac. It lives in this Mac's own memory file; the folder hears of it on the next pass.
+    ///
+    /// Deletions are noted while sync is turned off too, once this Mac has ever synced: turned on again, the
+    /// other devices would otherwise hand back what was deleted in between.
+    private func rememberForSync(_ body: (FolderSync) throws -> Void) {
+        guard sync.enabled || FileManager.default.fileExists(atPath: syncMemoryURL.path) else { return }
+        let folder = syncFolder() ?? support.appendingPathComponent("SyncFolderUnavailable", isDirectory: true)
+        do { try body(syncEngine(folder)) }
+        catch { sync.problem = "A change could not be noted for sync. \(error.localizedDescription)" }
+    }
+
+    /// The journal is only merged while nothing is recording into it or moving its files.
+    private var idleForSync: Bool {
+        libraryRecovered && snapshot.phase == .paused && !manualActive && !audiobookPlayer.isPlaying && !importingAudio && !deletingAllData
+            && !epubLibrary.queue.isBusy && epubLibrary.removingIDs.isEmpty && transferringReaderState.isEmpty && openingEPUBIDs.isEmpty
+    }
+
+    private func syncIfDue() {
+        guard ready, sync.enabled, !syncRunning, Date().timeIntervalSince(lastSyncAttempt) >= 60 else { return }
+        syncNow()
+    }
+
+    /// One sync pass, if sync is on and nothing is in the way. Reading in progress postpones it: the pass
+    /// runs once the session has ended.
+    func syncNow() {
+        guard ready, sync.enabled, !syncRunning else { return }
+        guard idleForSync else { syncWanted = true; return }
+        guard let folder = syncFolder() else { sync.problem = "The sync folder can't be reached. Choose it again in Settings."; return }
+        syncRunning = true
+        syncWanted = false
+        lastSyncAttempt = Date()
+        sync.running = true
+        var arrivals: [URL] = [], stopped = false
+        do {
+            let summary = try syncEngine(folder).sync(
+                store: store, readerStates: ReaderStateStore(directory: readerStateDirectory), stateDirectory: readerStateDirectory,
+                busy: epubReaders.openPublicationIDs,
+                // Copying books into the folder can be slow, so that happens after the pass, off the main actor.
+                offersBooks: false,
+                editions: { self.syncEditions },
+                // Only a pass that has something to merge stops the tracker.
+                willChangeJournal: { try self.stopForMutation(); stopped = true },
+                // Unpacking a book is slow too: arrivals are imported after the pass, on the import queue.
+                importBook: { url in
+                    if !self.syncUnreadable.contains(url.deletingPathExtension().lastPathComponent) { arrivals.append(url) }
+                },
+                deleteBook: { id in try self.deleteBookForSync(id) },
+                deleteSession: { id in try self.store.deleteSession(id) })
+            if stopped { try? resetEngineAfterMutation(); try? removeUnusedCovers() }
+            sync.lastSync = lastSyncAttempt
+            defaults.set(lastSyncAttempt, forKey: Self.syncLastKey)
+            sync.devices = summary.devices.map(\.name).sorted()
+            sync.waiting = summary.waitingForDownload
+            sync.problem = summary.warnings.first
+        } catch {
+            if stopped { try? resetEngineAfterMutation() }
+            sync.problem = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+        }
+        sync.running = false
+        if stopped { refresh(recoverTracking: false) }
+        syncRunning = false
+        if !arrivals.isEmpty {
+            epubLibrary.importSynced(arrivals) { [weak self] imported in
+                guard let self else { return }
+                for url in arrivals where !imported.contains(url.deletingPathExtension().lastPathComponent) {
+                    self.syncUnreadable.insert(url.deletingPathExtension().lastPathComponent)
+                }
+                // One more pass so each new book opens at the place it was left on the other device.
+                if !imported.isEmpty { self.syncNow() }
+            }
+        } else {
+            let offered = syncEditions, engine = syncEngine(folder)
+            DispatchQueue.global(qos: .utility).async { _ = try? engine.offerBooks(offered) }
+            if syncWanted { syncNow() }
+        }
+    }
+
+    private struct SyncPostponed: LocalizedError {
+        var errorDescription: String? { "it is open or in use on this Mac" }
+    }
+
+    /// A book deleted on another device goes here too, with its files, as `deleteBook` and removing its EPUB do.
+    private func deleteBookForSync(_ id: String) throws {
+        if let edition = FolderSync.editionID(ofBook: id), epubLibrary.publications[edition] != nil {
+            guard !epubReaders.openPublicationIDs.contains(edition) else { throw SyncPostponed() }
+            try epubLibrary.removeNow(publicationID: edition)
+            for name in [edition + ".json", edition + ".json.bak"] { try? FileManager.default.removeItem(at: readerStateDirectory.appendingPathComponent(name)) }
+        }
+        let book = books.first { $0.id == id }
+        if manualBook?.id == id { manualBook = nil }
+        if audiobookPlayer.bookID == id { try audiobookPlayer.close() }
+        try store.deleteBook(id)
+        if let file = book?.audioFileName {
+            let url = support.appendingPathComponent("Audiobooks").appendingPathComponent(file)
+            if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.trashItem(at: url, resultingItemURL: nil) }
+        }
+        // Apple Books would otherwise report the book as finished again and bring it back.
+        suppressedHistoryIDs.insert(Self.historyKey(id)); defaults.set(Array(suppressedHistoryIDs), forKey: "suppressedAppleHistory")
+        publicCoverURLs.removeValue(forKey: id); defaults.set(publicCoverURLs, forKey: "publicCoverURLs")
+        if pendingCompletion?.id == id { pendingCompletion = nil }
+    }
+
+    // MARK: - Windows, quitting and uninstalling
+
     func showDashboard(section: DashboardSection? = nil, settingsCategory: SettingsCategory? = nil) {
         if let section {
             if section == .settings { settingsCategoryRequest = settingsCategory }

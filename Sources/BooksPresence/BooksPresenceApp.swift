@@ -43,6 +43,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             item.button?.target = self; item.button?.action = #selector(togglePopover)
             statusItem = item
             menuPanel = makeMenuPanel(model: state)
+            state.updates.start()
             NSApp.mainMenu = AppPresence.makeMainMenu(dashboardTarget: self, dashboardAction: #selector(openDashboard))
             let center = NotificationCenter.default
             center.addObserver(forName: NSWindow.willCloseNotification, object: nil, queue: .main) { note in
@@ -52,6 +53,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             for name in [NSWindow.didBecomeKeyNotification, NSWindow.didDeminiaturizeNotification] {
                 center.addObserver(forName: name, object: nil, queue: .main) { _ in Task { @MainActor in AppPresence.refresh() } }
             }
+            if InstallLocation.current().isTemporary, !BackgroundUI.isEnabled, recommendMovingToApplications() { return }
             if state.needsOnboarding {
                 if returning { state.markOnboardingComplete() } else { showOnboarding() }
             }
@@ -78,6 +80,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             let alert = NSAlert(); alert.messageText = "Stillleaf could not start"; alert.informativeText = String(describing: error); alert.runModal(); NSApp.terminate(nil)
         }
     }
+    /// A download opened in place runs from a temporary read-only location until it is moved.
+    /// Returns true when the reader chose to quit and move it first.
+    private func recommendMovingToApplications() -> Bool {
+        let alert = NSAlert()
+        alert.messageText = "Move Stillleaf to your Applications folder"
+        alert.informativeText = "Stillleaf is running from the disk image or from a temporary location macOS uses for new downloads. Drag Stillleaf into Applications, then open it from there so Open at login, Apple Books access and updates keep working."
+        alert.addButton(withTitle: "Quit and Move")
+        alert.addButton(withTitle: "Continue Anyway")
+        NSApp.activate(ignoringOtherApps: true)
+        guard alert.runModal() == .alertFirstButtonReturn else { return false }
+        NSApp.terminate(nil)
+        return true
+    }
     func application(_ application: NSApplication, open urls: [URL]) {
         if let model { model.epubLibrary.enqueue(urls) }
         else {
@@ -96,13 +111,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         guard let model else { return }
         dismissMenuPanel()
         if dashboard == nil {
-            let window = DashboardWindow(contentRect: NSRect(x: 0, y: 0, width: 1060, height: 760), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-            window.title = "Stillleaf"; window.titlebarAppearsTransparent = false
-            // Menu-bar (accessory) apps get no full-screen behavior unless a window opts in.
-            window.collectionBehavior.insert(.fullScreenPrimary)
+            let window = DashboardWindow.make()
             let content = NSHostingController(rootView: dashboardView(model: model))
             window.contentViewController = content
-            window.isReleasedWhenClosed = false; window.delegate = self; window.center()
+            window.delegate = self; window.center()
             dashboard = window; dashboardContent = content
         } else if dashboardReleased, let window = dashboard, let content = dashboardContent {
             // A closed dashboard holds no views (see `windowWillClose`). Build them again at the
@@ -126,6 +138,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     }
     @objc private func openDashboard() { showDashboard() }
     @objc func openSettings() { model?.showDashboard(section: .settings) }
+    @objc func checkForUpdates() { model?.updates.checkNow() }
+    @objc func showLicences() { ThirdPartyNoticesWindow.shared.show() }
     @objc func openLibrary() { model?.showDashboard(section: .library) }
     /// The welcome tour. Closing it early counts as done; Settings can replay it.
     func showOnboarding() {
@@ -308,6 +322,18 @@ struct BooksPresenceMain {
             do { try runInteractiveLibraryPreview(); exit(0) }
             catch { fputs("library-preview failed: \(error)\n", stderr); exit(1) }
         }
+        if let index = CommandLine.arguments.firstIndex(of: "--capture-window-chrome"), index + 1 < CommandLine.arguments.count {
+            do { try captureWindowChrome(to: URL(fileURLWithPath: CommandLine.arguments[index + 1], isDirectory: true)); exit(0) }
+            catch { fputs("window-chrome capture failed: \(error)\n", stderr); exit(1) }
+        }
+        if CommandLine.arguments.contains("--self-test-book-detail-finish") {
+            do { try checkBookDetailFinish(); exit(0) }
+            catch { fputs("book-detail-finish smoke failed: \(error)\n", stderr); exit(1) }
+        }
+        if let index = CommandLine.arguments.firstIndex(of: "--capture-finish-moment"), index + 1 < CommandLine.arguments.count {
+            do { try captureFinishMoment(to: URL(fileURLWithPath: CommandLine.arguments[index + 1], isDirectory: true)); exit(0) }
+            catch { fputs("finish-moment capture failed: \(error)\n", stderr); exit(1) }
+        }
         if let index = CommandLine.arguments.firstIndex(of: "--self-test-audio"), index + 1 < CommandLine.arguments.count {
             let destination = URL(fileURLWithPath: CommandLine.arguments[index + 1])
             Task { @MainActor in
@@ -325,6 +351,18 @@ struct BooksPresenceMain {
             }
             application.run()
             return
+        }
+        if let index = CommandLine.arguments.firstIndex(of: "--measure-reader"), index + 1 < CommandLine.arguments.count {
+            let fixture = URL(fileURLWithPath: CommandLine.arguments[index + 1])
+            let cycles = index + 2 < CommandLine.arguments.count ? Int(CommandLine.arguments[index + 2]) ?? 5 : 5
+            Task { @MainActor in
+                do {
+                    let result = try await measureReaderLifecycle(fixture: fixture, cycles: cycles)
+                    result.lines.forEach { print($0) }
+                    exit(result.alive == 0 ? 0 : 1)
+                } catch { fputs("reader-memory failed: \(error)\n", stderr); exit(1) }
+            }
+            application.run(); return
         }
         if CommandLine.arguments.contains("--render-native-chrome") && BackgroundUI.isEnabled {
             print("native-chrome-preview: SKIPPED in background mode (it tests focus); CI runs it, or set STILLLEAF_FOREGROUND_UI=1 when nobody is using the Mac")
@@ -351,6 +389,14 @@ struct BooksPresenceMain {
         if let index = CommandLine.arguments.firstIndex(of: "--measure-seedling"), index + 1 < CommandLine.arguments.count {
             measureSeedlingCPU(seconds: Double(CommandLine.arguments[index + 1]) ?? 21)
             exit(0)
+        }
+        if CommandLine.arguments.contains("--measure-launch") {
+            do { try measureLaunch(); exit(0) }
+            catch { fputs("launch probe failed: \(error)\n", stderr); exit(1) }
+        }
+        if let index = CommandLine.arguments.firstIndex(of: "--measure-idle"), index + 1 < CommandLine.arguments.count {
+            do { try measureIdleCPU(seconds: Double(CommandLine.arguments[index + 1]) ?? 60); exit(0) }
+            catch { fputs("idle-cpu failed: \(error)\n", stderr); exit(1) }
         }
         // Only the Quiet UI motion checks; they build layers and never show a window.
         if quietCheck {

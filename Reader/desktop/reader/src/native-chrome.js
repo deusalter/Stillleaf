@@ -21,7 +21,7 @@ export function nativeChromeAdapter({edition,ready,current,definitions,status=()
    if(request.command==='preferences'){
     const p=request.payload;if(!p||Array.isArray(p)||typeof p!=='object'||Object.keys(p).some(k=>!Object.hasOwn(current(),k))||Object.values(p).some(v=>v!==null&&!['string','number','boolean'].includes(typeof v))||Object.values(p).some(v=>typeof v==='number'&&!Number.isFinite(v)))throw Error('Invalid reading preferences.');
    }else if(request.command==='policy'){
-    if(!request.payload||Object.keys(request.payload).some(k=>!['reduceMotion','reduceTransparency','increaseContrast'].includes(k))||Object.values(request.payload).some(v=>typeof v!=='boolean'))throw Error('Invalid display policy.');
+    if(!request.payload||Object.keys(request.payload).some(k=>!['reduceMotion','reduceTransparency','increaseContrast','controlsVisible','fullScreen','touch'].includes(k))||Object.values(request.payload).some(v=>typeof v!=='boolean'))throw Error('Invalid display policy.');
    }else if(Object.hasOwn(panelRequests,request.command)){
     if(!panelRequests[request.command](request.payload))throw Error('Invalid panel request.');
    }else if(request.payload!==undefined)throw Error('Unexpected reader control payload.');

@@ -32,32 +32,6 @@ struct DottedReadingArc: View, Animatable {
     }
 }
 
-struct SegmentedReadingBar: View, Animatable {
-    var progress: Double
-    var animatableData: Double {
-        get { progress }
-        set { progress = newValue }
-    }
-    var body: some View {
-        GeometryReader { geometry in
-            let segments = 24
-            let gap = 3.0
-            let width = max(1, (geometry.size.width - Double(segments - 1) * gap) / Double(segments))
-            HStack(spacing: gap) {
-                ForEach(0..<segments, id: \.self) { index in
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(ReadingPalette.track)
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 2).fill(ReadingPalette.accent)
-                                .opacity(min(1, max(0, progress * Double(segments) - Double(index))))
-                        }
-                        .frame(width: width)
-                }
-            }
-        }
-    }
-}
-
 @MainActor
 struct DailyReadingOverview: View {
     @ObservedObject var model: AppModel
@@ -200,7 +174,7 @@ struct MenuReadingGoal: View {
                     Text(daily.target == nil ? daily.targetText : "\(daily.targetText) daily goal")
                         .font(.caption).foregroundStyle(ReadingPalette.secondaryInk)
                         .fixedSize(horizontal: false, vertical: true)
-                    Label(daily.unit == .pages ? ReadingFormat.duration(model.today.creditedSeconds) : "\(model.todayPages) pages",
+                    Label(daily.unit == .pages ? ReadingFormat.duration(model.today.creditedSeconds) : ReadingFormat.pages(model.todayPages),
                           systemImage: daily.unit == .pages ? "clock" : "book")
                         .font(.caption.weight(.medium)).foregroundStyle(ReadingPalette.secondaryInk)
                 }

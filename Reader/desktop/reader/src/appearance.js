@@ -22,9 +22,9 @@ export const THEMES=Object.freeze([
  {id:'custom',label:'Custom',scheme:'light',background:'#F0F7F3',text:'#183D33',link:'#087D65',selection:'#B9DCCE',chrome:'#F0F7F3',muted:'#183D33',panel:'#F0F7F3'}
 ]);
 export const THEME_IDS=Object.freeze(['system',...THEMES.map(t=>t.id)]);
-/** `system` follows the Mac: Stillleaf by day, true-black Night in dark mode. */
+/** `system` follows the Mac: a white page by day, true-black Night in dark mode. */
 export function resolveTheme(id,prefersDark){
- const chosen=id==='system'?(prefersDark?'night':'paper'):id;
+ const chosen=id==='system'?(prefersDark?'night':'original'):id;
  return THEMES.find(t=>t.id===chosen)??THEMES.find(t=>t.id==='paper');
 }
 

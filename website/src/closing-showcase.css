@@ -188,7 +188,7 @@
   padding-bottom: 19px;
   margin-right: 25px;
   color: #425b48;
-  font-size: 9px;
+  font-size: 12px;
 }
 .journal-note h3 {
   font: 36px/1.08 var(--serif);
@@ -208,7 +208,7 @@
   gap: 13px;
   margin-top: 21px;
   color: #425b48;
-  font-size: 9px;
+  font-size: 12px;
 }
 .note-signature svg {
   width: 44px;
@@ -217,14 +217,15 @@
 .journal-keepsake figcaption {
   margin: 8px 0 0;
   text-align: center;
-  font-size: 9px;
+  font-size: 12px;
   line-height: 1.7;
   color: #a5bca3;
 }
 .journal-thread {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 60px;
+  /* Library, Timeline, History and Reviews: the app's four journal views. */
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 44px;
   padding: 60px 0 45px;
 }
 .journal-thread h3 {
@@ -234,7 +235,7 @@
 }
 .journal-thread p {
   color: #adbea8;
-  font-size: 12px;
+  font-size: 13.5px;
   line-height: 1.85;
   max-width: 290px;
 }
@@ -250,7 +251,7 @@
   cursor: pointer;
   padding: 25px 0;
   color: #d6e3c9;
-  font-size: 12px;
+  font-size: 13.5px;
 }
 .native-gallery > summary::-webkit-details-marker {
   display: none;
@@ -258,7 +259,7 @@
 .gallery-summary-detail {
   margin-left: auto;
   color: #9db79c;
-  font-size: 10px;
+  font-size: 12px;
 }
 .gallery-open-icon {
   color: #bfceaf;
@@ -370,13 +371,13 @@
   margin-bottom: 20px;
 }
 .closing-downloads .release-card > p {
-  font-size: 12px;
+  font-size: 13.5px;
   color: #b8ccb1;
   line-height: 1.85;
 }
 .closing-downloads .release-card ul {
   color: #9cb697;
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.8;
   margin-top: 20px;
   margin-bottom: 30px;
@@ -388,12 +389,12 @@
   border-radius: 0;
   background: transparent;
   color: #b4cba7;
-  font-size: 11px;
+  font-size: 13px;
   min-height: 35px;
 }
 .closing-downloads .release-footnote {
   color: #92ae8d;
-  font-size: 10px;
+  font-size: 12px;
   margin-top: 25px;
 }
 .closing-downloads .closing-mobile {
@@ -506,7 +507,7 @@
     font-size: 33px;
   }
   .journal-note > p {
-    font-size: 12px;
+    font-size: 13.5px;
   }
   .journal-volume {
     --volume-width: 160px;
@@ -517,7 +518,8 @@
     left: 10px;
   }
   .journal-thread {
-    gap: 34px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 34px 48px;
   }
   .journal-thread h3 {
     font-size: 26px;
@@ -581,7 +583,7 @@
   .journal-keepsake figcaption {
     max-width: 280px;
     margin: 4px auto 0;
-    font-size: 9px;
+    font-size: 12px;
   }
   .journal-thread {
     grid-template-columns: 1fr;
@@ -595,12 +597,12 @@
   }
   .journal-thread p {
     max-width: 380px;
-    font-size: 12px;
+    font-size: 13.5px;
   }
   .native-gallery > summary {
     padding-block: 22px;
     gap: 12px;
-    font-size: 12px;
+    font-size: 13.5px;
   }
   .gallery-summary-detail {
     display: none;
@@ -615,11 +617,11 @@
     gap: 0;
   }
   .native-gallery .preview-tab {
-    font-size: 11px;
+    font-size: 13px;
     padding: 9px 11px;
   }
   .native-gallery .preview-description {
-    font-size: 11px;
+    font-size: 13px;
   }
   .closing-journey .closing-downloads {
     padding-top: 56px;
@@ -636,7 +638,7 @@
     max-width: 320px;
     padding-top: 23px;
     padding-bottom: 0;
-    font-size: 12px;
+    font-size: 13.5px;
   }
   .download-leaf {
     width: 29px;
@@ -658,10 +660,10 @@
     right: 25px;
   }
   .closing-downloads .release-card > p {
-    font-size: 12px;
+    font-size: 13.5px;
   }
   .closing-downloads .release-card ul {
-    font-size: 10px;
+    font-size: 12px;
     margin-bottom: 24px;
   }
   .closing-downloads .closing-mobile {
@@ -673,7 +675,7 @@
     font-size: 27px;
   }
   .closing-mobile p {
-    font-size: 11px;
+    font-size: 13px;
   }
   .closing-flyer,
   .closing-leaf {
@@ -691,5 +693,66 @@
   }
   .closing-journey .journal-note {
     transform: rotate(3deg) !important;
+  }
+}
+
+/* iPhone and iPad card: state comes from src/site-config.js at build time. */
+.closing-downloads .closing-mobile {
+  justify-content: space-between;
+  gap: 22px;
+}
+.closing-mobile > div {
+  flex: 1;
+}
+.closing-mobile h3 {
+  margin-bottom: 6px;
+}
+.mobile-status {
+  flex: none;
+  border: 1px solid #9eb99266;
+  color: #c4d8b8;
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 13px;
+}
+.app-store-badge {
+  flex: none;
+  display: inline-block;
+  border-radius: 8px;
+}
+.app-store-badge img {
+  height: 40px;
+  width: auto;
+}
+.closing-downloads .release-grid {
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+}
+.closing-downloads .release-card:not(.is-primary) h3 {
+  font-size: 31px;
+}
+.closing-downloads .release-card {
+  /* Opaque enough that the orbit lines behind never cross the text. */
+  background:
+    linear-gradient(90deg, #071d2a22, transparent 18px),
+    #1f4236f2;
+}
+.closing-downloads .release-card.is-primary {
+  border-left-color: #cfe3b4a0;
+  background:
+    linear-gradient(90deg, #071d2a22, transparent 18px),
+    #24493cf5;
+}
+.release-checksum {
+  margin-top: 14px;
+  font-size: 12px;
+  color: #a5bca3;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 760px) {
+  .closing-downloads .release-grid {
+    grid-template-columns: 1fr;
+  }
+  .closing-downloads .closing-mobile {
+    flex-wrap: wrap;
   }
 }

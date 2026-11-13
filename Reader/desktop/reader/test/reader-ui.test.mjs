@@ -23,7 +23,7 @@ test('shared reader UI interactions, saved state and responsive themes',{timeout
  const page=await browser.newPage({viewport:{width:1180,height:860},reducedMotion:'reduce',colorScheme:'light'});const errors=[];page.on('pageerror',e=>{errors.push(e.message);console.error('Reader page error:',e.stack)});const outbound=[];await page.route('**/*',route=>{if(route.request().url().startsWith(origin+'/'))return route.continue();outbound.push(route.request().url());return route.abort()});
  await page.goto(origin+'/index.html');await page.waitForFunction(()=>Boolean(window.StillleafReader));
  await page.evaluate(()=>{window.saved=[];window.addEventListener('stillleaf-reader-event',e=>{if(e.detail.type==='state')window.saved.push(e.detail.state)})});
- const input=fixture();await page.evaluate(input=>window.StillleafReader.open(input),input);
+ const input=fixture();await page.evaluate(input=>window.StillleafReader.open(input),input);await page.evaluate(()=>window.StillleafReader.setPreferences({columns:'one',lineHeight:1.6}));
  // Closing during the resize debounce must not leave the next book permanently
  // marked as resizing. This failed deterministically before the teardown reset.
  await page.evaluate(()=>window.StillleafReader.setPreferences({}));
@@ -31,7 +31,7 @@ test('shared reader UI interactions, saved state and responsive themes',{timeout
   window.dispatchEvent(new Event('resize'));
   await window.StillleafReader.open(input);
   window.saved=[]; // Revision monotonicity below applies to this newly opened state.
-  await window.StillleafReader.setPreferences({});
+  await window.StillleafReader.setPreferences({columns:'one',lineHeight:1.6});
   return window.StillleafReader.next();
  },input);
  assert.equal(reopenedTurn,true,'Page turns work after reopening during a pending resize');
@@ -47,7 +47,7 @@ test('shared reader UI interactions, saved state and responsive themes',{timeout
  // Real DOM selection drives Readium's selection event, not a test-only API.
  await page.waitForFunction(()=>[...document.querySelectorAll('#reader iframe')].some(f=>f.contentDocument?.getElementById('passage')));
  await page.evaluate(()=>{const f=[...document.querySelectorAll('#reader iframe')].find(f=>f.contentDocument?.getElementById('passage'));const text=f.contentDocument.getElementById('passage').firstChild;const range=f.contentDocument.createRange();range.setStart(text,0);range.setEnd(text,text.length);const selection=f.contentWindow.getSelection();selection.removeAllRanges();selection.addRange(range);f.contentDocument.dispatchEvent(new f.contentWindow.PointerEvent('pointerup',{bubbles:true,isPrimary:true}))});
- await page.getByRole('button',{name:'Add note',exact:true}).click();await page.getByRole('textbox',{name:'Your note'}).fill('Return to this image of the garden.');await page.getByLabel('Sage',{exact:true}).check();await page.getByRole('button',{name:'Done',exact:true}).click();
+ await page.getByRole('button',{name:'Add note',exact:true}).click();await page.getByRole('textbox',{name:'Your note'}).fill('Return to this image of the garden.');await page.getByLabel('Green',{exact:true}).check();await page.getByRole('button',{name:'Done',exact:true}).click();
  assert.equal(await page.evaluate(()=>window.StillleafReader.exportState().annotations[0].note),'Return to this image of the garden.');
  await page.waitForFunction(()=>[...document.querySelectorAll('#reader iframe')].some(f=>[...(f.contentWindow.CSS.highlights?.values()??[])].some(h=>[...h].some(range=>range.toString().includes('A sentence worth keeping')))));
  await page.getByRole('button',{name:'Contents and saved passages'}).click();await page.getByRole('tab',{name:'Notes',exact:true}).click();await page.screenshot({path:path.join(artifacts,'reader-notes.png')});await page.getByRole('button',{name:'Edit note',exact:true}).click();await page.getByRole('textbox',{name:'Your note'}).fill('A revised thought.');await page.getByRole('button',{name:'Done',exact:true}).click();
@@ -62,7 +62,7 @@ test('shared reader UI interactions, saved state and responsive themes',{timeout
  const durable={...saved,bookmarks:Array.from({length:2000},(_,i)=>({id:'saved-'+i,locator:{href:'aside.html',type:'text/html',locations:{progression:0}},label:i===0?'L'.repeat(4096):'Saved',createdAt:'2026-09-24T00:00:00Z'})),annotations:[{id:'long-note',locator:{href:'aside.html',type:'text/html'},quote:'Q'.repeat(32768),note:'N'.repeat(65536),color:'sage',createdAt:'2026-09-24T00:00:00Z',updatedAt:'2026-09-24T00:00:00Z'}],preferences:{theme:'paper',fontFamily:'publisher',fontSize:.6,lineHeight:2.5,measure:100}};
  const durableInput={...input,resources:[...input.resources,{href:'aside.html',type:'text/html',dataBase64:Buffer.from('<p>Aside</p>').toString('base64')}],state:durable};
  await page.evaluate(input=>window.StillleafReader.open(input),durableInput);
- const retained=await page.evaluate(()=>window.StillleafReader.exportState());assert.deepEqual(retained.bookmarks,durable.bookmarks);assert.deepEqual(retained.annotations,durable.annotations);for(const [key,value]of Object.entries(durable.preferences))assert.deepEqual(retained.preferences[key],value);assert.equal(retained.preferences.scroll,false);assert.equal(retained.preferences.fontWeight,null);assert.equal(retained.preferences.columns,'one');
+ const retained=await page.evaluate(()=>window.StillleafReader.exportState());assert.deepEqual(retained.bookmarks,durable.bookmarks);assert.deepEqual(retained.annotations,durable.annotations);for(const [key,value]of Object.entries(durable.preferences))assert.deepEqual(retained.preferences[key],value);assert.equal(retained.preferences.scroll,false);assert.equal(retained.preferences.fontWeight,null);assert.equal(retained.preferences.columns,'two','a state saved before columns existed opens with the current default');
  const priorEmissions=await page.evaluate(()=>window.saved.length);
  const bad=await page.evaluate(async input=>{try{await window.StillleafReader.open(input);return ''}catch(e){return e.message}},{...durableInput,state:{...durable,annotations:[{...durable.annotations[0],note:'X'.repeat(65537)}]}});assert.match(bad,/not been overwritten/);assert.equal(await page.evaluate(()=>window.saved.length),priorEmissions+1);assert.deepEqual(await page.evaluate(()=>window.saved.at(-1).annotations),durable.annotations);
  // Portable locators may omit the engine ordinal; retain every stored anchor.
@@ -126,6 +126,8 @@ test('shared reader UI interactions, saved state and responsive themes',{timeout
  await page.setViewportSize({width:1440,height:900});await page.evaluate(input=>window.StillleafReader.open(input),{...input,state:saved});await page.evaluate(()=>window.StillleafReader.go({href:'one.html',type:'text/html',locations:{progression:0}}));
  await page.getByRole('button',{name:'Appearance',exact:true}).click();await page.getByRole('radiogroup',{name:'Weight',exact:true}).getByRole('radio',{name:'Bold',exact:true}).click();await page.getByText('Advanced',{exact:true}).click();await page.getByRole('radiogroup',{name:'Alignment',exact:true}).getByRole('radio',{name:'Justified',exact:true}).click();await page.getByRole('radiogroup',{name:'Hyphenation',exact:true}).getByRole('radio',{name:'Off',exact:true}).click();await page.keyboard.press('Escape');
  await page.evaluate(()=>window.StillleafReader.setPreferences({letterSpacing:.1,wordSpacing:.2}));await page.waitForTimeout(300);
+ // A relayout can outlast a fixed pause; wait for the chosen weight to reach the page, then read everything.
+ await page.waitForFunction(()=>{const f=[...document.querySelectorAll('#reader iframe')].find(f=>f.contentDocument?.getElementById('p0'));return f&&f.contentWindow.getComputedStyle(f.contentDocument.getElementById('p0')).fontWeight==='700'},null,{timeout:8000}).catch(()=>{});
  const typography=await page.evaluate(()=>{const f=[...document.querySelectorAll('#reader iframe')].find(f=>f.contentDocument?.getElementById('p0')),style=f.contentWindow.getComputedStyle(f.contentDocument.getElementById('p0'));return{weight:style.fontWeight,align:style.textAlign,hyphens:style.hyphens,letters:style.letterSpacing,words:style.wordSpacing}});console.log('Advanced typography '+JSON.stringify(typography));assert.equal(typography.weight,'700');assert.equal(typography.align,'justify');assert.equal(typography.hyphens,'none');assert.ok(parseFloat(typography.letters)>0);assert.ok(parseFloat(typography.words)>0);
  await page.evaluate(()=>window.StillleafReader.setPreferences({fontWeight:null,textAlign:'publisher',hyphens:null,letterSpacing:0,wordSpacing:0}));await page.waitForTimeout(200);assert.equal(await page.evaluate(()=>{const f=[...document.querySelectorAll('#reader iframe')].find(f=>f.contentDocument?.getElementById('p0'));return f.contentWindow.getComputedStyle(f.contentDocument.getElementById('p0')).fontWeight}),'400');
  await page.evaluate(()=>window.StillleafReader.go({href:'one.html',type:'text/html',locations:{cssSelector:'#p8'}}));const modeLocation=await page.evaluate(()=>window.StillleafReader.bookmark());console.log('Mode before '+JSON.stringify(modeLocation));
@@ -144,14 +146,15 @@ test('shared reader UI interactions, saved state and responsive themes',{timeout
   };
   try{
    const moved=await window.StillleafReader.next();
-   return {moved,records,width:document.querySelector('#reader').clientWidth,remaining:0};
+   return {moved,records,width:document.querySelector('#reader').clientWidth,travel:(r=>Math.max(r.width,r.right,innerWidth-r.left))(document.querySelector('#reader').getBoundingClientRect()),remaining:0};
   }finally{Element.prototype.animate=original}
  });
  assert.equal(slide.moved,true,JSON.stringify(slide));
  assert.equal(slide.records.length,1,'The facing-page turn must animate, including when observed after completion');
  assert.equal(slide.records[0].duration,SLIDE.duration);assert.equal(slide.records[0].easing,SLIDE.easing);
  assert.equal(slide.records[0].snapshots,2);
- assert.deepEqual(slide.records[0].keyframes,[{transform:'translate3d(0,0,0)'},{transform:`translate3d(${-slide.width}px,0,0)`}]);
+ // The page crosses the whole window (the measured Books turn), not just the text column.
+ assert.deepEqual(slide.records[0].keyframes,[{transform:'translate3d(0,0,0)'},{transform:`translate3d(${-slide.travel}px,0,0)`}]);
  assert.equal(slide.records[0].finished,true);
 
  await page.waitForFunction(target=>window.StillleafReader.bookmark()?.locations?.progression!==target,beforeTurn);await page.emulateMedia({reducedMotion:'reduce'});await page.evaluate(()=>window.StillleafReader.previous());await landedAt(beforeTurn);assert.equal(await page.evaluate(()=>document.querySelector('#reader').getAnimations().length),0);
