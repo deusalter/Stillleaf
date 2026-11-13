@@ -33,6 +33,8 @@ test('destination anchors retain prose styling '+JSON.stringify(options),{timeou
  t.diagnostic(JSON.stringify(result));assert.equal(await page.evaluate(()=>[...document.querySelectorAll('#reader iframe')].find(f=>getComputedStyle(f).visibility!=='hidden').contentDocument.querySelector('#intro').closest('a')?.id??null),null,'destination must not wrap prose');assert.equal(result['#intro'].color,result.body.color);assert.equal(result['#intro'].decoration,'none');assert.notEqual(result['#link'].color,result.body.color);assert.equal(result['#link'].decoration,'underline');
  const index=await page.evaluate(()=>{const d=[...document.querySelectorAll('#reader iframe')].find(f=>getComputedStyle(f).visibility!=='hidden').contentDocument;return {length:d.body.textContent.length,total:window.positions.at(-1).bookTotal,named:d.querySelector('a[name="named"]').textContent,target:d.getElementById('page-start').textContent}});assert.equal(index.total,index.length);assert.equal(index.named,'');assert.equal(index.target,'');
  await page.evaluate(()=>window.StillleafReader.go({href:'c.html',type:'text/html',locations:{progression:1}}));
+ // The position is reported a frame after the jump. Until it is, the last one is still the opening page, which would pass for the link's destination.
+ await page.waitForFunction(()=>window.positions.at(-1)?.page>1);
  await page.evaluate(()=>[...document.querySelectorAll('#reader iframe')].find(f=>getComputedStyle(f).visibility!=='hidden').contentDocument.getElementById('link').click());
  await page.waitForFunction(()=>window.positions.at(-1)?.page===1);
  assert.equal(await page.evaluate(()=>window.positions.at(-1).page),1,'internal link reaches named destination');
