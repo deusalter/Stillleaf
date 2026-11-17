@@ -44,7 +44,8 @@ final class ScreenshotTests: XCTestCase {
         // The app's tabs.
         let router = AppRouter()
         show(RootView(router: router).environmentObject(journal))
-        try await capture("01-reading-now", settle: 2)
+        // A freshly created simulator can still show its launch placeholder after two seconds.
+        try await capture("01-reading-now", settle: 4)
         router.tab = .library
         try await capture("02-library")
         router.tab = .journal

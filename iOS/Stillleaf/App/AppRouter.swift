@@ -40,11 +40,21 @@ final class AppRouter: ObservableObject {
 }
 
 extension View {
-    /// A tab's root screen: its title set large on the same row as the add and settings buttons, as in Books.
-    /// The standard large title sits on a row of its own below the buttons, which leaves an empty band at the top.
-    func tabScreen(_ title: String) -> some View {
-        navigationTitle(title)
-            .toolbarTitleDisplayMode(.inlineLarge)
+    /// A tab's root screen, with its title and the add and settings buttons.
+    func tabScreen(_ title: String) -> some View { modifier(TabScreen(title: title)) }
+}
+
+/// On a phone the title is set large on the same row as the buttons, as in Books: the standard large title sits on a
+/// row of its own below them, which leaves an empty band at the top. On an iPad the buttons share the tab bar's row,
+/// where an inline title has no room and is dropped, so the standard large title stays.
+private struct TabScreen: ViewModifier {
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    let title: String
+
+    func body(content: Content) -> some View {
+        content
+            .navigationTitle(title)
+            .toolbarTitleDisplayMode(sizeClass == .compact ? .inlineLarge : .automatic)
             .toolbar { AppToolbar() }
     }
 }
