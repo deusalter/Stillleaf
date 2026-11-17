@@ -1,0 +1,1711 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stillleaf: a garden that's always alive</title>
+<style>
+:root {
+  --ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+  --serif: ui-serif, "New York", "Iowan Old Style", Georgia, serif;
+  --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  --ease: cubic-bezier(.2, .7, .2, 1);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--page); color: var(--ink); font-family: var(--ui); -webkit-font-smoothing: antialiased; transition: background .5s, color .5s; }
+button { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.wrap { max-width: 1320px; margin: 0 auto; padding: 44px 32px 110px; }
+
+/* ---------- page chrome ---------- */
+.top { display: flex; justify-content: space-between; align-items: flex-start; gap: 32px; margin-bottom: 26px; }
+h1 { font: 600 36px/1.08 var(--serif); letter-spacing: -0.3px; margin: 0 0 12px; }
+.top p { margin: 0; color: var(--ink2); font-size: 15.5px; line-height: 1.5; max-width: 70ch; }
+.glass {
+  position: relative; background: var(--glass-fill);
+  -webkit-backdrop-filter: blur(14px) saturate(180%); backdrop-filter: blur(14px) saturate(180%);
+  border: 1px solid var(--glass-edge); box-shadow: inset 0 1px 0 var(--glass-hi), 0 12px 32px var(--glass-shadow);
+  transition: background .5s, border-color .5s, box-shadow .5s;
+}
+.glass.dense { background: var(--glass-dense); }
+.seg { display: inline-flex; padding: 3px; border-radius: 999px; gap: 2px; }
+.seg button { font: 500 13px var(--ui); background: transparent; border: 0; padding: 7px 13px; border-radius: 999px; cursor: pointer; transition: background .25s, color .25s; white-space: nowrap; }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
+
+.dirs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
+.dir { text-align: left; padding: 15px 17px 16px; border-radius: 16px; cursor: pointer; border: 1px solid var(--glass-edge); background: var(--glass-fill); box-shadow: inset 0 1px 0 var(--glass-hi); transition: background .3s, box-shadow .3s; }
+.dir b { display: block; font: 600 16px/1.2 var(--ui); margin-bottom: 6px; }
+.dir span { display: block; font-size: 13px; line-height: 1.42; color: var(--ink2); }
+.dir:hover { background: color-mix(in srgb, var(--accent) 7%, var(--glass-fill)); }
+.dir[aria-selected="true"] { background: color-mix(in srgb, var(--accent) 15%, var(--glass-fill)); box-shadow: inset 0 0 0 1.5px var(--accent), 0 10px 26px var(--glass-shadow); }
+
+.ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 22px; margin-bottom: 12px; }
+.group { display: inline-flex; align-items: center; gap: 8px; }
+.group > .k { font-size: 13px; color: var(--ink2); }
+.group[hidden] { display: none; }
+.replay { font: 500 13px var(--ui); border: 1px solid var(--glass-edge); background: var(--glass-fill); padding: 7px 14px; border-radius: 999px; cursor: pointer; }
+.status { display: flex; justify-content: space-between; align-items: baseline; gap: 20px; font-size: 13.5px; color: var(--ink2); min-height: 21px; margin: 0 2px 16px; }
+.status .meter { font-variant-numeric: tabular-nums; white-space: nowrap; font-size: 12.5px; }
+
+/* ---------- windows ---------- */
+.win { position: relative; border-radius: 14px; overflow: hidden; background: var(--canvas); box-shadow: var(--win-shadow); transition: background .5s; isolation: isolate; }
+canvas.garden { position: absolute; inset: 0; width: 100%; height: 100%; display: block; pointer-events: none; }
+/* The time-of-day wash tints the window behind the garden, so the vines keep their green. */
+.wash { position: absolute; inset: 0; pointer-events: none; opacity: 0; z-index: 0; }
+.win > canvas.garden, .mpanel > canvas.garden { z-index: 1; }
+.bar { position: absolute; top: 0; left: 0; height: 40px; display: flex; align-items: center; gap: 8px; padding: 0 16px; z-index: 6; }
+.tl { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
+.tl.r { background: #FF5F57; } .tl.y { background: #FEBC2E; } .tl.g { background: #28C840; }
+.ghost { position: absolute; left: 0; top: 0; width: 18px; height: 22px; z-index: 30; pointer-events: none; opacity: 0; transition: opacity .35s; will-change: transform; }
+.ghost.on { opacity: 1; }
+.veil { position: absolute; inset: 0; z-index: 40; display: flex; align-items: center; justify-content: center; text-align: center; padding: 24px; background: color-mix(in srgb, var(--page) 82%, transparent); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); color: var(--ink2); font-size: 14px; line-height: 1.5; opacity: 0; pointer-events: none; transition: opacity .4s; }
+.veil b { display: block; color: var(--ink); font-size: 15px; margin-bottom: 4px; }
+body.hidden-sim .veil { opacity: 1; }
+.par { will-change: transform; }
+
+/* dashboard */
+.dash { height: 600px; }
+.sidebar { position: absolute; top: 10px; left: 10px; bottom: 10px; width: 206px; border-radius: 18px; padding: 46px 10px 14px; z-index: 3; display: flex; flex-direction: column; }
+.nav { list-style: none; padding: 0; margin: 0; }
+.nav li { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: 10px; font-size: 13.5px; transition: background .25s; }
+.nav li .ic { width: 18px; text-align: center; font-family: var(--mono); color: var(--accent); font-size: 13px; }
+.nav li.on { background: color-mix(in srgb, var(--accent) 16%, transparent); font-weight: 600; }
+.nav li.hov:not(.on) { background: color-mix(in srgb, var(--accent) 9%, transparent); }
+.side-foot { margin-top: auto; padding: 10px; font-size: 11.5px; color: var(--ink2); line-height: 1.4; }
+.side-foot b { display: flex; align-items: center; gap: 6px; color: var(--ink); font-weight: 600; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent); display: inline-block; }
+.content { position: absolute; top: 0; bottom: 0; left: 216px; right: 0; padding: 48px 44px 30px; z-index: 3; display: flex; flex-direction: column; gap: 22px; }
+.head { display: flex; justify-content: space-between; align-items: flex-end; max-width: 880px; }
+.head h3 { font: 600 30px/1 var(--ui); letter-spacing: -0.4px; margin: 0 0 6px; }
+.head p { margin: 0; color: var(--ink2); font-size: 14px; }
+.pill { display: inline-flex; align-items: center; gap: 8px; padding: 7px 13px; border-radius: 999px; font-size: 12.5px; font-weight: 500; }
+.panel { border-radius: 18px; padding: 24px 26px; display: grid; grid-template-columns: 1fr 1.15fr; gap: 34px; max-width: 880px; }
+.lastread { display: flex; gap: 22px; align-items: center; min-width: 0; }
+.cover { width: 92px; height: 138px; flex-shrink: 0; border-radius: 4px 7px 7px 4px; background: linear-gradient(155deg, var(--cover-a), var(--cover-b) 70%); color: #F4F7F5; box-shadow: 0 10px 24px rgba(0,0,0,.3), inset 3px 0 0 rgba(255,255,255,.12); display: flex; flex-direction: column; justify-content: space-between; padding: 12px 11px; }
+.cover .t { font: 600 16px/1.1 var(--serif); }
+.cover .a { font: 500 10px var(--ui); opacity: .8; }
+.lr-info { flex: 1; min-width: 0; }
+.lr-info .k { font-size: 12.5px; color: var(--ink2); font-weight: 600; margin-bottom: 5px; }
+.lr-info h4 { font: 500 27px/1.05 var(--serif); margin: 0 0 3px; }
+.lr-info .by { color: var(--ink2); font-size: 13.5px; margin-bottom: 12px; }
+.prow { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+.prow canvas { flex: 1; height: 12px; min-width: 0; }
+.prow span { font-size: 12.5px; color: var(--ink2); font-variant-numeric: tabular-nums; }
+.actions { display: flex; gap: 8px; }
+.cta { font: 600 13px var(--ui); padding: 8px 15px; border-radius: 999px; border: 0; cursor: pointer; color: var(--ink); transition: transform .18s var(--ease), box-shadow .3s; white-space: nowrap; }
+.cta.primary { background: var(--accent); color: var(--on-accent); box-shadow: 0 6px 16px color-mix(in srgb, var(--accent) 35%, transparent); }
+.cta.press { transform: scale(.96); }
+.goal { display: flex; gap: 18px; align-items: center; min-width: 0; }
+.ring { position: relative; width: 158px; height: 144px; flex-shrink: 0; }
+.ring canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.ring .center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; padding-top: 8px; }
+.ring .big { font: 300 48px/1 var(--ui); font-variant-numeric: tabular-nums; letter-spacing: -1.5px; }
+.ring .small { font-size: 12px; color: var(--ink2); margin-top: 4px; }
+.goal-info { flex: 1; min-width: 0; }
+.goal-info h4 { font: 500 20px/1.2 var(--serif); margin: 0 0 14px; }
+.stats { display: flex; gap: 20px; margin-bottom: 14px; white-space: nowrap; }
+.stat .v { font: 400 23px/1 var(--ui); font-variant-numeric: tabular-nums; }
+.stat .l { font-size: 11.5px; color: var(--ink2); margin-top: 5px; }
+.week { font-family: var(--mono); display: flex; gap: 11px; }
+.week div { display: flex; flex-direction: column; align-items: center; gap: 3px; font-size: 10.5px; color: var(--ink3); }
+.week .bar-c { font-size: 19px; line-height: 1; color: var(--accent); }
+.week .today { color: var(--ink); font-weight: 700; }
+
+/* numbers that roll */
+.roll { display: inline-block; height: 1lh; overflow: hidden; vertical-align: top; }
+.roll-in { display: flex; flex-direction: column; transition: transform .48s var(--ease); }
+.roll-in > span { height: 1lh; display: block; }
+
+/* row 2 */
+.row2 { display: grid; grid-template-columns: 372px 1fr; gap: 24px; margin-top: 24px; }
+
+/* menu bar panel over a desktop */
+.desk { height: 640px; border-radius: 14px; overflow: hidden; position: relative; background: var(--wall); box-shadow: var(--win-shadow); }
+.menubar { position: absolute; top: 0; left: 0; right: 0; height: 26px; display: flex; align-items: center; justify-content: space-between; padding: 0 12px; font-size: 12.5px; background: var(--menubar); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); color: var(--ink); z-index: 2; }
+.menubar .l { display: flex; gap: 14px; } .menubar .l b { font-weight: 700; }
+.menubar .r { display: flex; gap: 12px; align-items: center; }
+.mb-leaf { display: inline-flex; padding: 2px 6px; border-radius: 5px; background: color-mix(in srgb, var(--ink) 16%, transparent); }
+.mpanel { position: absolute; top: 34px; right: 12px; width: 324px; height: 594px; border-radius: 18px; overflow: hidden; background: var(--shell); border: 1px solid var(--glass-edge); box-shadow: inset 0 1px 0 var(--glass-hi), 0 24px 60px rgba(0,0,0,.35); -webkit-backdrop-filter: blur(5px) saturate(150%); backdrop-filter: blur(5px) saturate(150%); isolation: isolate; }
+.mcard { position: absolute; top: 46px; bottom: 46px; left: 26px; right: 26px; border-radius: 16px; padding: 18px 16px 16px; z-index: 3; display: flex; flex-direction: column; justify-content: space-between; }
+.m-head { display: flex; align-items: center; gap: 8px; }
+.m-head b { font: 600 18px var(--serif); flex: 1; }
+.m-icon { width: 30px; height: 30px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--glass-edge); color: var(--ink2); font-size: 13px; }
+.m-book { display: flex; gap: 12px; align-items: center; }
+.mini-cover { width: 34px; height: 50px; border-radius: 2px 4px 4px 2px; background: linear-gradient(155deg, var(--cover-a), var(--cover-b) 70%); box-shadow: 0 4px 10px rgba(0,0,0,.25); flex-shrink: 0; }
+.m-title { font: 500 18px/1.15 var(--serif); }
+.m-sub { font-size: 12px; color: var(--ink2); display: flex; align-items: center; gap: 6px; margin-top: 3px; }
+.m-goal { display: flex; gap: 10px; align-items: center; margin-left: -6px; }
+.m-ring { position: relative; width: 124px; height: 114px; flex-shrink: 0; }
+.m-ring canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.m-ring .center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; padding-top: 6px; }
+.m-ring .big { font: 300 38px/1 var(--ui); font-variant-numeric: tabular-nums; letter-spacing: -1px; }
+.m-ring .small { font-size: 11px; color: var(--ink2); margin-top: 3px; }
+.m-goal-h { font: 500 16px/1.25 var(--serif); margin-bottom: 6px; white-space: nowrap; }
+.m-goal-s { font-size: 12px; color: var(--ink2); line-height: 1.5; font-variant-numeric: tabular-nums; }
+.m-streak b { display: block; font: 400 22px/1 var(--ui); color: var(--accent); font-variant-numeric: tabular-nums; }
+.m-streak span { font-size: 12px; color: var(--ink2); }
+.m-actions { display: flex; justify-content: space-between; }
+.m-actions .cta { background: color-mix(in srgb, var(--ink) 8%, transparent); border: 1px solid var(--glass-edge); }
+
+/* reader */
+.reader { height: 640px; background: var(--backdrop); }
+.rbar { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); width: min(520px, calc(100% - 150px)); height: 42px; border-radius: 999px; z-index: 5; display: flex; align-items: center; justify-content: space-between; padding: 0 8px 0 14px; font-size: 13px; }
+.rbar .ttl { font-weight: 600; }
+.rbtn { padding: 6px 10px; border-radius: 999px; transition: background .25s; }
+.rbtn.hov { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.rcard { position: absolute; top: 68px; bottom: 76px; left: 50%; width: 424px; margin-left: -212px; background: var(--paper); border-radius: 10px; box-shadow: 0 1px 0 var(--rule), 0 18px 50px var(--glass-shadow); padding: 38px 42px; overflow: hidden; z-index: 3; transition: background .5s; }
+.rchap { font: italic 400 13.5px var(--serif); color: var(--ink3); margin-bottom: 16px; }
+.rtext { transition: opacity .22s ease; }
+.rtext p { font: 400 15.5px/1.6 var(--serif); margin: 0 0 .9em; text-align: justify; hyphens: auto; color: var(--ink); }
+.rfoot { position: absolute; bottom: 16px; left: 50%; width: 424px; margin-left: -212px; height: 44px; border-radius: 999px; z-index: 5; display: flex; align-items: center; gap: 12px; padding: 0 16px; }
+.rfoot .pg { font-size: 12px; color: var(--ink2); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.rfoot .pl { position: relative; flex: 1; height: 38px; }
+
+/* ---------- spec ---------- */
+.spec { display: grid; grid-template-columns: 1.1fr 1fr 0.9fr; margin-top: 26px; border-radius: 20px; padding: 26px 6px 28px; }
+.spec[hidden] { display: none; }
+.spec section { padding: 0 24px; }
+.spec section + section { border-left: 1px solid var(--rule); }
+.spec h2 { font: 600 16px var(--ui); margin: 0 0 12px; }
+.spec ul { margin: 0; padding-left: 18px; color: var(--ink2); font-size: 14px; line-height: 1.55; }
+.spec li + li { margin-top: 7px; }
+.spec b { color: var(--ink); font-weight: 600; }
+.spec .note { font-size: 13px; color: var(--ink3); margin: 12px 0 0; line-height: 1.5; }
+.after { margin-top: 56px; display: grid; grid-template-columns: 1.35fr 1fr; gap: 36px; align-items: start; }
+.after h2 { font: 600 24px/1.15 var(--serif); margin: 0 0 14px; }
+.after p { color: var(--ink2); font-size: 15px; line-height: 1.6; margin: 0 0 12px; max-width: 64ch; }
+.after p b { color: var(--ink); }
+table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+th, td { text-align: left; padding: 10px 12px; vertical-align: top; border-bottom: 1px solid var(--rule); line-height: 1.45; }
+th { font-weight: 600; color: var(--ink); }
+td { color: var(--ink2); }
+td:first-child { color: var(--ink); font-weight: 500; white-space: nowrap; }
+.tablewrap { border-radius: 18px; padding: 8px 10px; }
+
+@media (max-width: 1100px) {
+  .dirs { grid-template-columns: repeat(2, 1fr); }
+  .row2 { grid-template-columns: 1fr; }
+  .spec, .after { grid-template-columns: 1fr; }
+  .spec section + section { border-left: 0; border-top: 1px solid var(--rule); padding-top: 18px; margin-top: 18px; }
+  .panel { grid-template-columns: 1fr; }
+  .dash { height: 860px; }
+  .top { flex-direction: column; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition-duration: .01ms !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>A garden that’s always alive</h1>
+      <p>Four ways to keep Stillleaf moving all day. Each one runs live below in the dashboard, the menu bar panel and the reader. Pick a direction, then use Simulate to see how it steps down for Low Power, Reduce Motion and a hidden window. Fast preview speeds up growth and weather, so a day’s motion fits into a minute.</p>
+    </div>
+    <div class="seg glass" role="group" aria-label="Appearance"><button data-theme="light">Light</button><button data-theme="dark">Dark</button></div>
+  </header>
+
+  <div class="dirs" role="tablist" aria-label="Direction">
+    <button class="dir" role="tab" data-dir="living"><b>Living garden</b><span>It never finishes growing. Old branches wither into spores, leaves move in a slow wind, and fireflies drift after dark.</span></button>
+    <button class="dir" role="tab" data-dir="reactive"><b>Responsive garden</b><span>Still until you act. Vines lean away from the pointer, the garden fills as you read, and its light follows the day.</span></button>
+    <button class="dir" role="tab" data-dir="weather"><b>Passing weather</b><span>Calm most of the time. Every few minutes a gust, soft rain or drifting seeds crosses the window, then it settles.</span></button>
+    <button class="dir" role="tab" data-dir="quiet"><b>Quiet UI</b><span>The garden stays as it ships today. The interface carries the life: counts, a breathing goal ring, ripples on hover.</span></button>
+  </div>
+
+  <div class="ctl">
+    <div class="group"><span class="k" id="sim-k">Simulate</span><div class="seg glass" role="group" aria-labelledby="sim-k">
+      <button data-tier="full">Full motion</button><button data-tier="calm">Low Power</button><button data-tier="still">Reduce Motion</button><button data-tier="hidden">Window hidden</button>
+    </div></div>
+    <div class="group"><span class="k" id="speed-k">Speed</span><div class="seg glass" role="group" aria-labelledby="speed-k">
+      <button data-speed="fast">Fast preview</button><button data-speed="real">Real time</button>
+    </div></div>
+    <div class="group" id="tod-group" hidden><span class="k" id="tod-k">Time of day</span><div class="seg glass" role="group" aria-labelledby="tod-k">
+      <button data-tod="cycle">Cycle</button><button data-tod="dawn">Dawn</button><button data-tod="day">Midday</button><button data-tod="dusk">Dusk</button><button data-tod="night">Night</button>
+    </div></div>
+    <div class="group" id="replay-group" hidden><button class="replay" id="replay">Replay entrance</button></div>
+  </div>
+  <div class="status"><span id="status" aria-live="polite"></span><span class="meter" id="meter"></span></div>
+
+  <!-- dashboard -->
+  <div class="win dash" id="dash">
+    <canvas class="garden" id="dash-garden"></canvas>
+    <div class="wash"></div>
+    <div class="bar"><span class="tl r"></span><span class="tl y"></span><span class="tl g"></span></div>
+    <aside class="sidebar glass par">
+      <ul class="nav">
+        <li class="on" data-ripple><span class="ic">☼</span>Today</li><li data-ripple><span class="ic">▤</span>Library</li><li data-ripple><span class="ic">◷</span>Timeline</li><li data-ripple><span class="ic">▦</span>History</li><li data-ripple><span class="ic">✎</span>Reviews</li><li data-ripple><span class="ic">⚙</span>Settings</li>
+      </ul>
+      <div class="side-foot"><b><i class="dot"></i>Reading Walden</b>History stays on this Mac</div>
+    </aside>
+    <main class="content">
+      <div class="head"><div class="head-text"><h3>Today</h3><p>Thursday, October 8</p></div><span class="pill glass par"><i class="dot"></i><span>Reading for <span data-k="session" data-suf="m">23m</span></span></span></div>
+      <section class="panel glass par">
+        <div class="lastread">
+          <div class="cover"><div class="a">Thoreau</div><div class="t">Walden</div></div>
+          <div class="lr-info"><div class="k">Last read</div><h4>Walden</h4><div class="by">Henry David Thoreau</div>
+            <div class="prow"><canvas id="dash-dots"></canvas><span>38%</span></div>
+            <div class="actions"><button class="cta primary" data-ripple>Continue reading</button><button class="cta glass" data-ripple>Details</button></div>
+          </div>
+        </div>
+        <div class="goal">
+          <div class="ring" id="dash-ring-box" data-ripple><canvas id="dash-ring"></canvas><div class="center"><div class="big" data-k="pages">19</div><div class="small">of 30 pages</div></div></div>
+          <div class="goal-info"><h4 data-k="goal-line">11 pages to your daily goal.</h4>
+            <div class="stats"><div class="stat"><div class="v" data-k="minutes" data-suf="m">43m</div><div class="l">Reading time</div></div><div class="stat"><div class="v" data-k="streak" data-suf=" days">6 days</div><div class="l">Goal streak</div></div><div class="stat"><div class="v" data-k="books">31</div><div class="l">This year</div></div></div>
+            <div class="week"><div><span class="bar-c">▅</span>F</div><div><span class="bar-c">▇</span>S</div><div><span class="bar-c">▃</span>S</div><div><span class="bar-c">▆</span>M</div><div><span class="bar-c">▂</span>T</div><div><span class="bar-c">▇</span>W</div><div class="today"><span class="bar-c">▄</span>T</div></div>
+          </div>
+        </div>
+      </section>
+    </main>
+    <svg class="ghost" viewBox="0 0 18 22" aria-hidden="true"><path d="M1.5 1.5v16.2l4.3-4.1 3 6.6 2.6-1.1-3-6.5h6z" fill="#111" stroke="#fff" stroke-width="1.3" stroke-linejoin="round"/></svg>
+    <div class="veil"><div><b>Window hidden</b>Nothing is drawn or scheduled. On return the garden catches up in one step.</div></div>
+  </div>
+
+  <div class="row2">
+    <!-- menu bar panel -->
+    <div class="desk" id="desk">
+      <div class="menubar"><span class="l"><b></b><b>Finder</b><span>File</span><span>Edit</span><span>View</span></span><span class="r"><span class="mb-leaf" aria-label="Stillleaf"><svg width="14" height="14" viewBox="0 0 14 14"><path d="M7 12.5C3.4 10.6 2.2 7.2 3.6 3.2 6.8 3.6 8.4 6.4 7 12.5zm0 0c3.6-1.9 4.8-5.3 3.4-9.3-3.2.4-4.8 3.2-3.4 9.3z" fill="currentColor"/></svg></span><span>Thu 8 Oct</span><span>9:41</span></span></div>
+      <div class="mpanel" id="mpanel">
+        <canvas class="garden" id="panel-garden"></canvas>
+        <div class="wash"></div>
+        <div class="mcard glass dense par">
+          <div class="m-head"><svg width="18" height="18" viewBox="0 0 14 14" style="color:var(--accent)"><path d="M7 12.5C3.4 10.6 2.2 7.2 3.6 3.2 6.8 3.6 8.4 6.4 7 12.5zm0 0c3.6-1.9 4.8-5.3 3.4-9.3-3.2.4-4.8 3.2-3.4 9.3z" fill="currentColor"/></svg><b>Stillleaf</b><span class="m-icon">↗</span></div>
+          <div class="m-book"><div class="mini-cover"></div><div><div class="m-title">Walden</div><div class="m-sub"><i class="dot"></i><span>Reading for <span data-k="session" data-suf="m">23m</span></span></div></div></div>
+          <div class="m-goal">
+            <div class="m-ring" id="panel-ring-box" data-ripple><canvas id="panel-ring"></canvas><div class="center"><div class="big" data-k="pages">19</div><div class="small">of 30 pages</div></div></div>
+            <div><div class="m-goal-h" data-k="goal-short">11 pages to go</div><div class="m-goal-s"><span data-k="minutes" data-suf="m">43m</span> read today</div></div>
+          </div>
+          <div class="m-streak"><b data-k="streak" data-suf=" days">6 days</b><span>Goal streak</span></div>
+          <div class="m-actions"><button class="cta m-pause" data-ripple>Pause</button><button class="cta m-more" data-ripple aria-label="More">•••</button></div>
+        </div>
+        <svg class="ghost" viewBox="0 0 18 22" aria-hidden="true"><path d="M1.5 1.5v16.2l4.3-4.1 3 6.6 2.6-1.1-3-6.5h6z" fill="#111" stroke="#fff" stroke-width="1.3" stroke-linejoin="round"/></svg>
+        <div class="veil"><div><b>Panel closed</b>No growth, breathing or redraws.</div></div>
+      </div>
+    </div>
+
+    <!-- reader -->
+    <div class="win reader" id="reader">
+      <canvas class="garden" id="reader-garden"></canvas>
+      <div class="wash"></div>
+      <div class="bar"><span class="tl r"></span><span class="tl y"></span><span class="tl g"></span></div>
+      <div class="rbar glass"><span class="rbtn">‹ Library</span><span class="ttl">Walden</span><span><span class="rbtn rb-aa" data-ripple>Aa</span><span class="rbtn" data-ripple>☰</span></span></div>
+      <article class="rcard"><div class="rchap" id="rchap">Where I Lived, and What I Lived For</div><div class="rtext" id="rtext"></div></article>
+      <div class="rfoot glass"><span class="pg" id="rpage">Page <span id="rpage-n">112</span> of 297</span><div class="pl"><canvas class="garden" id="reader-line"></canvas></div><span class="pg"><span id="rpct">34</span>%</span></div>
+      <svg class="ghost" viewBox="0 0 18 22" aria-hidden="true"><path d="M1.5 1.5v16.2l4.3-4.1 3 6.6 2.6-1.1-3-6.5h6z" fill="#111" stroke="#fff" stroke-width="1.3" stroke-linejoin="round"/></svg>
+      <div class="veil"><div><b>Window hidden</b>The margin garden freezes. Pages read meanwhile grow it in one step on return.</div></div>
+    </div>
+  </div>
+
+  <!-- ===== specs, one per direction ===== -->
+  <div class="spec glass" data-spec="living">
+    <section><h2>What moves, and how often</h2><ul>
+      <li><b>A new shoot every 30 to 60 s.</b> It grows about one cell every 1.5 s behind a soft glowing tip. One to three grow at once.</li>
+      <li><b>Old growth recycles.</b> Past its cell budget, the oldest branch withers from its tip back to its stem over about 20 s and lets go of a few spores. The garden keeps the same density all day.</li>
+      <li><b>Wind.</b> Slow bands of wind cross the window about every 10 s. Leaves flutter and lean as one passes. Stems stay put.</li>
+      <li><b>Petals.</b> A bloom sheds one about every 10 s. It tumbles down and fades before it reaches anything.</li>
+      <li><b>Fireflies after dark, pollen motes by day.</b> 8 on the dashboard, 3 around the menu panel and 2 in each reader margin, blinking on 3 to 6 s cycles.</li>
+      <li><b>The reader keeps its rule.</b> Margins still grow only with reading. Wind, petals and fireflies move there, outside the page.</li>
+    </ul></section>
+    <section><h2>How the app would run it</h2><ul>
+      <li><b>Settled growth is one raster in 256 pt tiles.</b> A tile is redrawn only when a cell in it settles or withers, about once every 1 to 2 s.</li>
+      <li><b>Growing tips draw on a small live layer</b> the size of their bounds, at 15 fps, in under 1 ms of main-thread time per frame.</li>
+      <li><b>Wind costs no frames.</b> Two leaf rasters (still and fluttered) cross-fade under a gradient mask that Core Animation moves, like today’s breathing band.</li>
+      <li><b>Petals and fireflies are a CAEmitterLayer</b> with glyph images, animated by the render server.</li>
+      <li><b>Target: 1 to 1.5% CPU at idle</b> on Apple silicon (15 fps × 1 ms), plus render-server time, which shows in the energy gauge.</li>
+      <li><b>Hidden, occluded or minimised:</b> the live layer stops and emitters pause. Growth is a function of the clock and the day seed, so on return the garden catches up in one step.</li>
+    </ul></section>
+    <section><h2>How it steps down</h2><ul>
+      <li><b>Low Power (Calm):</b> new growth lands once a minute as one cross-fade, with no glowing tips, petals or fireflies. Wind and breathing stay because the render server runs them.</li>
+      <li><b>Reduce Motion (Still):</b> today’s garden as one image. It changes only when the window reopens. No wind, petals or fireflies.</li>
+      <li><b>Off:</b> no garden, as today.</li>
+    </ul><p class="note">Risk: constant motion beside text. In the reader, wind and fireflies stay at least two cells from the page.</p></section>
+  </div>
+
+  <div class="spec glass" data-spec="reactive" hidden>
+    <section><h2>What moves, and how often</h2><ul>
+      <li><b>The pointer.</b> Vines within about 7 cells lean away, leaves open and pollen thins, then spring back over 0.6 s. Nothing moves while the pointer rests or is outside the window. Here a ghost cursor stands in until you move yours.</li>
+      <li><b>Reading.</b> The dashboard and menu panel gardens fill with today’s goal: 35% of the garden at zero pages, all of it when the goal is met, and then every bloom opens. Each page adds a few cells that fade in. In this preview the reader turns a page every 7 s.</li>
+      <li><b>Page turns.</b> The reader’s margin leaves rustle in a wave that runs out from the page edge, 0.8 s.</li>
+      <li><b>Time of day.</b> Dawn is peach, midday neutral, golden hour amber, dusk ember and night cool blue. At night blooms close and pollen dims. The colour shifts every 10 minutes with a 30 s cross-fade. Page paper is never tinted.</li>
+    </ul></section>
+    <section><h2>How the app would run it</h2><ul>
+      <li><b>Idle cost is today’s:</b> one raster with the breathing band on the render server, and no app frames when nobody acts.</li>
+      <li><b>Pointer:</b> a tracking area reports moves only over the garden. Only the cells near it redraw, into a 120 pt overlay at up to 60 fps, about 0.3 ms per frame. It stops 0.6 s after the last move.</li>
+      <li><b>Reading growth</b> re-rasterises once per page, with the new cells in a short fade layer.</li>
+      <li><b>Time of day</b> is a colour filter on the garden layer, set every 10 minutes.</li>
+      <li><b>Target: 0% at idle,</b> under 3% while the pointer sweeps through vines, and a short spike per page.</li>
+      <li><b>Hidden:</b> tracking areas are removed, and the tint is recomputed on return.</li>
+    </ul></section>
+    <section><h2>How it steps down</h2><ul>
+      <li><b>Low Power (Calm):</b> no pointer lean and no rustle. Reading growth and time-of-day colour stay, since they cost nothing between events.</li>
+      <li><b>Reduce Motion (Still):</b> no lean or rustle. Growth appears as a plain cross-fade, and the tint changes in one step.</li>
+      <li><b>Increase Contrast:</b> no tint.</li>
+    </ul><p class="note">Risk: the lean can feel like a toy if it’s too strong. Keep it under half a cell, and only the glyph swap gives the motion away.</p></section>
+  </div>
+
+  <div class="spec glass" data-spec="weather" hidden>
+    <section><h2>What moves, and how often</h2><ul>
+      <li><b>Between events, the garden is as calm as it is today.</b></li>
+      <li><b>Every 4 to 10 minutes something passes,</b> chosen by the day’s seed. No network is used: it isn’t real weather, and history stays on this Mac.</li>
+      <li><b>Gust</b> (most often, 6 s): wind streaks cross the window. Leaves flip and stems lean as it passes, and loose petals ride along.</li>
+      <li><b>Soft rain</b> (twice a day at most, 25 s): thin drops fall and stop on the top edges of glass panels and the page with a small splash. The leaves glisten for 20 s afterwards.</li>
+      <li><b>Drifting seeds</b> (evenings, 15 s): dandelion seeds rise slowly out of the vines.</li>
+      <li><b>In the reader,</b> weather stays in the margins, waits for a page turn to begin, and never starts while you scroll.</li>
+    </ul></section>
+    <section><h2>How the app would run it</h2><ul>
+      <li><b>Between events nothing is scheduled.</b> The cost is today’s.</li>
+      <li><b>A gust is a mask band</b> moving over a pre-rendered “gusted” raster, plus an emitter of streak glyphs. Building that raster takes about 5 ms, once per gust.</li>
+      <li><b>Rain is two emitters</b> for drops and splashes. The splash emitter is a line along the tops of the glass panels. Capped at 300 particles.</li>
+      <li><b>Glisten</b> is a short opacity animation on a sparkle layer.</li>
+      <li><b>Target: under 0.5% averaged over an hour.</b> During an event the app thread is nearly idle while the GPU does the work.</li>
+      <li><b>Hidden:</b> events are skipped, never queued, so you don’t come back to a backlog of weather.</li>
+    </ul></section>
+    <section><h2>How it steps down</h2><ul>
+      <li><b>Low Power (Calm):</b> gusts only, as the leaf flutter without streaks. No rain or seeds.</li>
+      <li><b>Reduce Motion (Still):</b> no weather.</li>
+      <li><b>Off:</b> no weather.</li>
+    </ul><p class="note">Risk: rain is the busiest thing on this page. It could be its own setting, off by default.</p></section>
+  </div>
+
+  <div class="spec glass" data-spec="quiet" hidden>
+    <section><h2>What moves, and how often</h2><ul>
+      <li><b>The garden</b> grows once, then breathes, as it ships today.</li>
+      <li><b>Numbers count up</b> when a screen appears (0.6 to 0.9 s, tabular digits so nothing shifts) and roll when they change, like pages and minutes while you read.</li>
+      <li><b>The goal ring fills dot by dot</b> when it appears. Its leading dot breathes on a 4 s cycle, and while you read, a light runs along the filled dots every 8 s.</li>
+      <li><b>Hover a sidebar item or button</b> and a ripple spreads through the glyphs behind the glass. A click sends a stronger one.</li>
+      <li><b>Glass panels shift up to 2 pt</b> against the garden as the pointer moves, for a sense of depth.</li>
+      <li><b>Reader:</b> the page number rolls and the footer vine grows to its new place on each page turn.</li>
+    </ul></section>
+    <section><h2>How the app would run it</h2><ul>
+      <li><b>Every transform and fade runs in Core Animation</b> on the render server. Counts use SwiftUI numeric content transitions on macOS 14 and later, and a cross-fade on 13.</li>
+      <li><b>The leading-dot pulse and the light</b> are repeating animations on one layer each, so they need no app frames.</li>
+      <li><b>Ripples are the only drawing:</b> a 1 s overlay over the touched area, about 0.4 ms per frame.</li>
+      <li><b>Parallax moves layer positions only,</b> snapped to whole pixels at rest so text stays crisp.</li>
+      <li><b>Target: about 0.1% at idle.</b></li>
+      <li><b>Hidden:</b> repeating animations are removed. Counts don’t replay on return unless the value changed.</li>
+    </ul></section>
+    <section><h2>How it steps down</h2><ul>
+      <li><b>Low Power (Calm):</b> no pulse, light, ripples or parallax. Counts stay because they’re short.</li>
+      <li><b>Reduce Motion (Still):</b> values appear at their final state and the ring shows filled. No parallax or ripples.</li>
+    </ul><p class="note">Risk: counting numbers can feel like a game. Keep counts to first appearance and real changes.</p></section>
+  </div>
+
+  <div class="after">
+    <div>
+      <h2>Side by side</h2>
+      <div class="tablewrap glass">
+        <table>
+          <thead><tr><th></th><th>Moves without input</th><th>App CPU at idle</th><th>App frames at idle</th><th>Main risk</th></tr></thead>
+          <tbody>
+            <tr><td>Living garden</td><td>Always: growth, wind, petals, fireflies</td><td>1–1.5%</td><td>15 fps live layer while a tip grows</td><td>Motion beside text, tile churn</td></tr>
+            <tr><td>Responsive garden</td><td>Only time-of-day colour</td><td>0%</td><td>None</td><td>Lean feels like a toy if overdone</td></tr>
+            <tr><td>Passing weather</td><td>Every few minutes, for seconds</td><td>Under 0.5% averaged</td><td>None between events</td><td>Rain feels busy</td></tr>
+            <tr><td>Quiet UI</td><td>Ring pulse only</td><td>About 0.1%</td><td>None</td><td>Counting feels like a game</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div>
+      <h2>Recommendation</h2>
+      <p><b>Make Living garden the base.</b> It’s the only one that answers “stuff constantly moving”, and with tiled rasters, a mask band for wind and emitters for particles, it fits the 2–3% budget.</p>
+      <p><b>Borrow three pieces from the others:</b> time-of-day colour and the pointer lean from Responsive, and the counts with the breathing ring from Quiet UI. Keep weather to gusts, and make rain an option.</p>
+      <p><b>Use one ladder for every direction:</b> Full, Calm (Low Power, render server only), Still (Reduce Motion) and Off. Calm would replace the current spec rule that Low Power forces Still.</p>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+"use strict";
+const TAU = Math.PI * 2;
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const params = new URLSearchParams(location.search);
+const systemReduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+/* ---------------- helpers (shared with design/glass-vines) ---------------- */
+function rng(seed) { let s = (seed >>> 0) || 7; return () => { s ^= s << 13; s ^= s >>> 17; s ^= s << 5; return (s >>> 0) / 4294967296; }; }
+const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+const angDiff = (a, b) => { let d = (a - b) % TAU; if (d > Math.PI) d -= TAU; if (d < -Math.PI) d += TAU; return d; };
+const easeOut = p => 1 - Math.pow(1 - Math.min(1, Math.max(0, p)), 3);
+const easeInOut = p => { p = Math.min(1, Math.max(0, p)); return p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2; };
+function hash2(x, y) { let h = (x * 374761393 + y * 668265263) | 0; h = (h ^ (h >>> 13)) * 1274126177; return ((h ^ (h >>> 16)) >>> 0) / 4294967296; }
+function vnoise(x, y) {
+  const xi = Math.floor(x), yi = Math.floor(y), xf = x - xi, yf = y - yi;
+  const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf);
+  const a = hash2(xi, yi), b = hash2(xi + 1, yi), c = hash2(xi, yi + 1), d = hash2(xi + 1, yi + 1);
+  return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
+}
+function stemChar(dx, dy) {
+  let deg = Math.atan2(dy, dx) * 180 / Math.PI; if (deg < 0) deg += 180;
+  if (deg < 22.5 || deg >= 157.5) return "─";
+  if (deg < 67.5) return "╲";
+  if (deg < 112.5) return "│";
+  return "╱";
+}
+const LEAVES = [["(", ")"], ["{", "}"], ["6", "9"], ["@", "@"], ["o", "o"], ["(", ")"]];
+const FLUTTER = { "(": "{", ")": "}", "{": "(", "}": ")", "6": "(", "9": ")", "@": "o", "o": "@" };
+const BLOOMS = ["✿", "❀", "✽", "*", "❁", "✻"];
+const SPORES = ["·", "∙", "°", "˚"];
+const PETALS = ["'", "`", ",", "˙"];
+const STREAKS = ["~", "~", "≈", "-", "∼", "~"];
+const SEEDS = ["*", "˚", "*", "°"];
+function linePath(x0, y0, x1, y1, step = 0.5) {
+  const pts = [], n = Math.ceil(Math.hypot(x1 - x0, y1 - y0) / step);
+  for (let i = 0; i <= n; i++) pts.push({ x: x0 + (x1 - x0) * i / n, y: y0 + (y1 - y0) * i / n });
+  return pts;
+}
+function relRect(el, root) {
+  const a = el.getBoundingClientRect(), b = root.getBoundingClientRect();
+  return { left: a.left - b.left, top: a.top - b.top, right: a.right - b.left, bottom: a.bottom - b.top, width: a.width, height: a.height };
+}
+const grow = (r, p) => ({ left: r.left - p, top: r.top - p, right: r.right + p, bottom: r.bottom + p });
+const cellsOf = (g, r) => ({ x0: Math.floor(r.left / g.cw), y0: Math.floor(r.top / g.ch), x1: Math.ceil(r.right / g.cw), y1: Math.ceil(r.bottom / g.ch) });
+const inside = (c, x, y, pad = 0) => x >= c.x0 - pad && x < c.x1 + pad && y >= c.y0 - pad && y < c.y1 + pad;
+
+/* ---------------- theme (Stillleaf values from Theme.swift) ---------------- */
+const hexRGB = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+const toHex = rgb => "#" + rgb.map(v => Math.round(Math.max(0, Math.min(255, v))).toString(16).padStart(2, "0")).join("");
+const mix = (a, b, t) => { const x = hexRGB(a), y = hexRGB(b); return toHex(x.map((v, i) => v + (y[i] - v) * t)); };
+const rgba = (h, a) => { const [r, g, b] = hexRGB(h); return `rgba(${r},${g},${b},${a})`; };
+function toHSL(hex) {
+  const [r, g, b] = hexRGB(hex).map(v => v / 255), mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2;
+  if (mx === mn) return [0, 0, l];
+  const d = mx - mn, s = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn);
+  const h = mx === r ? (g - b) / d + (g < b ? 6 : 0) : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return [h * 60, s, l];
+}
+function fromHSL(h, s, l) {
+  h = ((h % 360) + 360) % 360; s = Math.max(0, Math.min(1, s)); l = Math.max(0, Math.min(1, l));
+  const c = (1 - Math.abs(2 * l - 1)) * s, x = c * (1 - Math.abs((h / 60) % 2 - 1)), m = l - c / 2;
+  const [r, g, b] = h < 60 ? [c, x, 0] : h < 120 ? [x, c, 0] : h < 180 ? [0, c, x] : h < 240 ? [0, x, c] : h < 300 ? [x, 0, c] : [c, 0, x];
+  return toHex([(r + m) * 255, (g + m) * 255, (b + m) * 255]);
+}
+const T = (canvas, surface, elevated, ink, ink2, accent, onAccent, border, chart) => ({ canvas, surface, elevated, ink, ink2, accent, onAccent, border, chart });
+const THEME = {
+  light: T("#F5F8F5", "#E9F1ED", "#DCE9E2", "#183D33", "#4B6A5E", "#176650", "#FFFFFF", "#D0DED6", ["#176650", "#9A6424", "#6E877C"]),
+  dark: T("#111A18", "#18251F", "#22332D", "#E6F1EB", "#A3BAAF", "#6FD4AE", "#0E2E23", "#2A3B35", ["#6FD4AE", "#E2B574", "#7F978C"])
+};
+function vinePal(c, dark) {
+  const [h, sat] = toHSL(c.accent), s = Math.max(0.38, Math.min(0.8, sat));
+  const leafL = dark ? [0.64, 0.71, 0.57, 0.75, 0.67] : [0.36, 0.42, 0.32, 0.29, 0.40];
+  const leaf = [0, 16, -14, 30, -28].map((dh, i) => fromHSL(h + dh, s, leafL[i]));
+  const stem = [c.accent, mix(c.accent, c.ink, 0.25), mix(c.accent, c.chart[2], 0.35), fromHSL(h, s * 0.9, dark ? 0.46 : 0.26)];
+  const bloom = [c.chart[1], dark ? "#F5C65E" : "#D48E14", fromHSL(h + 150, 0.62, dark ? 0.72 : 0.52), fromHSL(h + 205, 0.55, dark ? 0.74 : 0.5)];
+  return {
+    stem, leaf, bloom, dark,
+    head: dark ? mix(c.accent, "#FFFFFF", 0.7) : mix(c.accent, "#000000", 0.35),
+    field: c.accent, fieldMax: dark ? 0.19 : 0.24, track: rgba(c.ink, dark ? 0.2 : 0.22), spore: leaf[1], base: dark ? 0.85 : 0.96,
+    fly: dark ? "#E6F59A" : "#C48A12", rain: dark ? "#9CC9F2" : "#3F79AE",
+    streak: dark ? leaf[3] : stem[1], seed: dark ? "#E9F2EA" : mix(c.ink2, c.accent, 0.3),
+    accent: c.accent, ink: c.ink, shimmer: dark ? "#EFFFF8" : mix(c.accent, "#FFFFFF", 0.55)
+  };
+}
+let appearance = params.get("theme") || (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+let P = null;
+function applyTheme() {
+  const c = THEME[appearance], dark = appearance === "dark";
+  P = vinePal(c, dark);
+  const paper = dark ? c.surface : mix(c.canvas, "#FFFFFF", 0.6);
+  const [h, sat] = toHSL(c.accent);
+  const vars = {
+    "--page": dark ? mix(c.canvas, "#000000", 0.38) : mix(c.canvas, c.border, 0.55),
+    "--canvas": c.canvas, "--paper": paper,
+    "--backdrop": dark ? mix(paper, "#000000", 0.42) : mix(paper, c.ink, 0.07),
+    "--ink": c.ink, "--ink2": c.ink2, "--ink3": mix(c.ink2, c.canvas, 0.3),
+    "--accent": c.accent, "--on-accent": c.onAccent,
+    "--glass-fill": rgba(dark ? c.surface : c.canvas, dark ? 0.55 : 0.6),
+    "--glass-dense": rgba(dark ? c.surface : c.canvas, dark ? 0.92 : 0.8),
+    "--shell": rgba(c.canvas, dark ? 0.4 : 0.34),
+    "--glass-edge": dark ? rgba(c.ink, 0.12) : "rgba(255,255,255,0.75)",
+    "--glass-hi": dark ? "rgba(255,255,255,0.07)" : "rgba(255,255,255,0.95)",
+    "--glass-shadow": dark ? "rgba(0,0,0,0.38)" : rgba(c.ink, 0.12),
+    "--rule": rgba(c.ink, dark ? 0.1 : 0.12),
+    "--win-shadow": dark ? "0 30px 90px rgba(0,0,0,0.6), 0 2px 10px rgba(0,0,0,0.4)" : `0 30px 80px ${rgba(c.ink, 0.2)}, 0 2px 8px ${rgba(c.ink, 0.1)}`,
+    "--cover-a": fromHSL(h, Math.min(0.6, sat), 0.36), "--cover-b": fromHSL(h, Math.min(0.6, sat), 0.15),
+    "--wall": dark
+      ? "radial-gradient(120% 80% at 10% 0%, #24485C 0%, transparent 60%), radial-gradient(110% 90% at 100% 100%, #46295F 0%, transparent 62%), #0F151C"
+      : "radial-gradient(120% 80% at 10% 0%, #BCD8EE 0%, transparent 60%), radial-gradient(110% 90% at 100% 100%, #F0D2E4 0%, transparent 62%), #E8EDF2",
+    "--menubar": dark ? "rgba(22,26,32,0.45)" : "rgba(255,255,255,0.5)"
+  };
+  for (const [k, v] of Object.entries(vars)) document.body.style.setProperty(k, v);
+  $$("[data-theme]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.theme === appearance)));
+  glows.clear();
+  for (const w of WINS) { w.dirty = true; w.garden.dirtyField = true; }
+  ringsDirty = true;
+}
+
+/* ---------------- glyph atlas: each glyph and colour is rasterised once, like the native pre-resolved glyphs ---------------- */
+class Atlas {
+  constructor(px, dpr) {
+    this.dpr = dpr; this.font = `${px}px ui-monospace, "SF Mono", Menlo, monospace`;
+    const probe = document.createElement("canvas").getContext("2d"); probe.font = this.font;
+    this.cw = Math.ceil(probe.measureText("M").width * 100) / 100; this.chh = Math.round(px * 1.22);
+    this.pad = Math.ceil(px * 0.4);
+    this.sw = Math.ceil((this.cw + this.pad * 2) * dpr); this.sh = Math.ceil((this.chh + this.pad * 2) * dpr);
+    this.dw = this.sw / dpr; this.dh = this.sh / dpr;
+    this.canvas = document.createElement("canvas"); this.canvas.width = this.canvas.height = 2048;
+    this.ctx = this.canvas.getContext("2d");
+    this.perRow = Math.floor(2048 / this.sw); this.max = this.perRow * Math.floor(2048 / this.sh);
+    this.map = new Map(); this.n = 0;
+  }
+  get(ch, color) {
+    const key = color + ch; let s = this.map.get(key);
+    if (s) return s;
+    if (this.n >= this.max) { this.map.clear(); this.n = 0; this.ctx.setTransform(1, 0, 0, 1, 0, 0); this.ctx.clearRect(0, 0, 2048, 2048); }
+    const i = this.n++; s = { x: (i % this.perRow) * this.sw, y: Math.floor(i / this.perRow) * this.sh };
+    const c = this.ctx; c.setTransform(this.dpr, 0, 0, this.dpr, s.x, s.y);
+    c.font = this.font; c.textBaseline = "top"; c.textAlign = "left"; c.fillStyle = color; c.fillText(ch, this.pad, this.pad);
+    this.map.set(key, s); return s;
+  }
+}
+const atlases = new Map();
+function atlasFor(px, dpr) { const k = px + "@" + dpr; if (!atlases.has(k)) atlases.set(k, new Atlas(px, dpr)); return atlases.get(k); }
+const glows = new Map();
+function glowSprite(color) {
+  let s = glows.get(color); if (s) return s;
+  s = document.createElement("canvas"); s.width = s.height = 64;
+  const c = s.getContext("2d"), gr = c.createRadialGradient(32, 32, 0, 32, 32, 32);
+  gr.addColorStop(0, rgba(color, 0.95)); gr.addColorStop(0.18, rgba(color, 0.45)); gr.addColorStop(0.5, rgba(color, 0.12)); gr.addColorStop(1, rgba(color, 0));
+  c.fillStyle = gr; c.fillRect(0, 0, 64, 64); glows.set(color, s); return s;
+}
+
+/* ---------------- the garden engine (port of the glass-vines reference) ---------------- */
+let tipIds = 0;
+class Garden {
+  constructor(canvas, o) {
+    this.canvas = canvas; this.ctx = canvas.getContext("2d");
+    this.o = Object.assign({ px: 13, seed: 1, budget: 2000, maxTips: 60, speed: 16, field: false }, o);
+    this.cells = new Map(); this.tips = []; this.parts = []; this.flies = []; this.info = new Map();
+    this.avoid = []; this.roofs = []; this.mask = null; this.budget = this.o.budget; this.cap = Infinity; this.seq = 0;
+    this.liveSpeed = 7; this.liveCount = 0; this.instant = false; this.particlesOK = true;
+  }
+  resize() {
+    const r = this.canvas.getBoundingClientRect(), dpr = Math.min(2, window.devicePixelRatio || 1);
+    this.dpr = dpr; this.w = Math.max(1, r.width); this.h = Math.max(1, r.height);
+    this.canvas.width = Math.round(this.w * dpr); this.canvas.height = Math.round(this.h * dpr);
+    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    this.A = atlasFor(this.o.px, dpr); this.cw = this.A.cw; this.ch = this.A.chh;
+    this.cols = Math.ceil(this.w / this.cw); this.rows = Math.ceil(this.h / this.ch);
+    this.fieldGlyphs = null;
+  }
+  reset() {
+    this.cells = new Map(); this.tips = []; this.info = new Map(); this.seq = 0;
+    this.rand = rng(this.o.seed * 9973 + 17);
+    this.avoid = []; this.roofs = []; this.mask = null; this.zones = null;
+    if (this.o.setup) this.o.setup(this);
+  }
+  growOut(now) {
+    this.instant = true;
+    for (let i = 0; i < 20000 && this.tips.length && this.cells.size < this.budget; i++) this.step(1000 / this.o.speed, now, this.o.speed, true);
+    this.instant = false;
+  }
+  /* Grow straight to `budget`, already settled. */
+  plant(now, budget = this.o.budget) {
+    this.reset(); this.budget = budget; this.cap = Infinity;
+    this.growOut(now); this.tips = [];
+    for (const c of this.cells.values()) c.born = now - 10000;
+    this.mutated = false;
+  }
+  /* Move to a new budget without replaying: kept cells stay, new ones fade in one after another, lost ones fade out. */
+  regrow(now, budget, stagger = 7) {
+    const prev = this.cells;
+    this.reset(); this.budget = budget; this.cap = Infinity; this.growOut(now); this.tips = [];
+    let n = 0;
+    for (const [k, c] of this.cells) { const p = prev.get(k); c.born = (p && !p.dying) ? p.born : now + (n++) * stagger; }
+    for (const [k, p] of prev) if (!this.cells.has(k)) { if (!p.dying) p.dying = now + Math.random() * 300; this.cells.set(k, p); }
+    this.mutated = false;
+    return n * stagger + 900;
+  }
+  inBounds(x, y) { return x >= 0 && y >= 0 && x < this.cols && y < this.rows; }
+  allowed(x, y) { return this.inBounds(x, y) && (!this.mask || this.mask(x, y)); }
+  put(x, y, ch, kind, palKey, ci, now, t) {
+    if (!this.allowed(x, y)) return false;
+    const k = y * this.cols + x, prev = this.cells.get(k);
+    const rank = kind === "stem" ? 1 : kind === "leaf" ? 2 : 3;
+    if (prev && !prev.dying && prev.rank >= rank) return false;
+    if (this.cells.size >= this.cap) return false;
+    this.cells.set(k, { x, y, ch, kind, rank, pal: palKey, ci, born: now, phase: this.rand() * TAU, dying: 0, alt: FLUTTER[ch], tid: t ? t.id : 0, gen: t ? t.gen : 0, seq: this.seq++ });
+    return true;
+  }
+  tip(t) {
+    const pxX = (t.x + 0.5) * this.cw, pxY = (t.y + 0.5) * this.ch;
+    const tip = Object.assign({ px: pxX, py: pxY, a: -Math.PI / 2, da: 0, life: 40, gen: 0, hue: 0, acc: 0, bias: null, bs: 0.06, lx: t.x, ly: t.y, i: 0, ph: this.rand() * TAU, speedMul: 1, parent: 0, id: ++tipIds, born: performance.now() }, t);
+    this.info.set(tip.id, { parent: tip.parent, gen: tip.gen });
+    this.tips.push(tip);
+    return tip;
+  }
+  step(dt, now, speed, budgeted) {
+    if (budgeted && this.cells.size >= this.budget) return;
+    for (let i = this.tips.length - 1; i >= 0; i--) {
+      const t = this.tips[i];
+      if (!t) continue;
+      t.acc += dt * speed * t.speedMul / 1000;
+      while (t.acc >= 1 && t.life > 0) { t.acc -= 1; t.path ? this.followPath(t, now) : this.wander(t, now); }
+      if (t.life <= 0) { this.finish(t, now); this.tips.splice(i, 1); }
+    }
+  }
+  wander(t, now) {
+    const r = this.rand;
+    t.da = t.da * 0.82 + (r() - 0.5) * 0.42;
+    t.a += t.da;
+    if (t.bias !== null) t.a += angDiff(t.bias, t.a) * t.bs;
+    if (t.curl) t.a += t.curl;
+    let moved = false;
+    for (let tries = 0; tries < 3 && !moved; tries++) {
+      const step = 0.999 / Math.max(Math.abs(Math.cos(t.a)) / this.cw, Math.abs(Math.sin(t.a)) / this.ch);
+      const nx = t.px + Math.cos(t.a) * step, ny = t.py + Math.sin(t.a) * step;
+      const cx = Math.floor(nx / this.cw), cy = Math.floor(ny / this.ch);
+      if (!this.allowed(cx, cy)) { t.a += (r() < 0.5 ? -1 : 1) * (0.7 + r() * 0.6); continue; }
+      const dx = nx - t.px, dy = ny - t.py;
+      t.px = nx; t.py = ny; moved = true;
+      if (cx === t.lx && cy === t.ly) return;
+      const turn = Math.abs(t.da) > 0.32;
+      let ch = stemChar(dx, dy);
+      if (t.gen >= 2 && turn) ch = t.da > 0 ? ")" : "(";
+      else if (t.gen >= 2 && ch === "─") ch = "~";
+      this.put(cx, cy, ch, "stem", "stem", (t.gen + t.hue) % 4, now, t);
+      this.sprout(t, cx, cy, dx, dy, now);
+      t.lx = cx; t.ly = cy;
+    }
+    if (!moved) t.life = 0;
+    t.life--;
+  }
+  followPath(t, now) {
+    const p = t.path;
+    if (t.i >= p.length - 1) { t.life = 0; return; }
+    let placed = false;
+    while (!placed && t.i < p.length - 1) {
+      t.i++;
+      const a = p[t.i - 1], b = p[t.i];
+      const tx = b.x - a.x, ty = b.y - a.y, len = Math.hypot(tx, ty) || 1;
+      const nx = -ty / len, ny = tx / len;
+      const off = (t.amp || 0) * Math.sin(t.i * (t.freq || 0.33) + t.ph);
+      const fx = b.x + nx * off, fy = b.y + ny * off * 0.6;
+      const cx = Math.round(fx), cy = Math.round(fy);
+      t.px = (fx + 0.5) * this.cw; t.py = (fy + 0.5) * this.ch;
+      if (cx === t.lx && cy === t.ly) continue;
+      const dx = (cx - t.lx) * this.cw, dy = (cy - t.ly) * this.ch;
+      this.put(cx, cy, stemChar(dx, dy), "stem", "stem", (t.hue || 0) % 4, now, t);
+      if (t.leafy !== false) this.sprout(t, cx, cy, dx, dy, now);
+      t.lx = cx; t.ly = cy; placed = true;
+    }
+    if (t.i >= p.length - 1) t.life = 0;
+  }
+  sprout(t, cx, cy, dx, dy, now) {
+    const r = this.rand;
+    const leafP = (t.leafP ?? 0.24) * (t.gen > 1 ? 0.7 : 1);
+    if (r() < leafP) {
+      const vertical = Math.abs(dy) > Math.abs(dx) * 0.6;
+      const side = r() < 0.5 ? -1 : 1;
+      const lx = vertical ? cx + side : cx, ly = vertical ? cy : cy + side;
+      const pair = LEAVES[Math.floor(r() * LEAVES.length)];
+      const ch = vertical ? pair[side < 0 ? 0 : 1] : pair[Math.floor(r() * 2)];
+      this.put(lx, ly, ch, "leaf", "leaf", Math.floor(r() * 5), now, t);
+    }
+    const branchP = t.branchP ?? 0.06;
+    if (t.gen < (t.maxGen ?? 3) && r() < branchP && this.tips.length < this.o.maxTips) {
+      const a = Math.atan2(dy, dx) + (r() < 0.5 ? -1 : 1) * (0.55 + r() * 0.65);
+      this.tip({ x: cx, y: cy, a, life: Math.floor((t.branchLife || 14) * (0.4 + r() * 0.8)), gen: t.gen + 1, parent: t.id, bias: t.path ? null : t.bias, bs: (t.bs || 0.05) * 0.6, hue: (t.hue || 0) + 1, branchP: (t.branchP ?? 0.06) * 0.7, leafP: t.leafP, maxGen: t.maxGen, curl: (r() - 0.5) * 0.08, live: t.live });
+    }
+  }
+  finish(t, now) {
+    const r = this.rand;
+    if (t.noBloom) return;
+    if (r() < (t.bloomP ?? 0.75)) {
+      const ox = Math.round(Math.cos(t.a)), oy = Math.round(Math.sin(t.a));
+      if (this.put(t.lx + ox, t.ly + oy, BLOOMS[Math.floor(r() * BLOOMS.length)], "bloom", "bloom", Math.floor(r() * 4), now, t) && !this.instant && this.particlesOK) {
+        for (let s = 0; s < 2; s++) this.spore((t.lx + ox + 0.5) * this.cw, (t.ly + oy) * this.ch, now);
+      }
+    }
+  }
+  spore(x, y, now) {
+    if (this.parts.length > 260) return;
+    this.parts.push({ kind: "spore", x, y, vx: (Math.random() - 0.5) * 6, vy: -(6 + Math.random() * 10), born: now, life: 4500 + Math.random() * 4000, ch: SPORES[Math.floor(Math.random() * SPORES.length)], ph: Math.random() * TAU });
+  }
+
+  /* ----- Living garden: endless growth and recycling ----- */
+  spawnShoot(now) {
+    const stems = [];
+    for (const c of this.cells.values()) if (c.kind === "stem" && !c.dying && c.gen < 2 && c.y > 3) stems.push(c);
+    if ((!stems.length || Math.random() < 0.3) && this.o.root) { this.tip(Object.assign(this.o.root(this), { live: true })); }
+    else if (stems.length) {
+      const c = stems[Math.floor(Math.random() * stems.length)], side = Math.random() < 0.5 ? -1 : 1;
+      this.tip({ x: c.x, y: c.y, a: -Math.PI / 2 + side * (0.55 + Math.random() * 0.6), life: 10 + Math.floor(Math.random() * 14), gen: c.gen + 1, parent: c.tid,
+        bias: -Math.PI / 2 + side * 0.4, bs: 0.03, hue: Math.floor(Math.random() * 4), branchP: 0.05, branchLife: 9, leafP: 0.32, maxGen: 3, curl: (Math.random() - 0.5) * 0.08, live: true });
+    }
+    this.mutated = true;
+  }
+  /* Low Power: a shoot lands all at once as one staggered fade. */
+  growLiveInstant(now) {
+    const before = new Set(this.cells.keys());
+    this.instant = true;
+    for (let i = 0; i < 400 && this.tips.length; i++) this.step(1000, now, 1, false);
+    this.instant = false;
+    let n = 0;
+    for (const [k, c] of this.cells) if (!before.has(k)) c.born = now + (n++) * 40;
+  }
+  /* The oldest settled branch, with everything that grew from it, withers from its tip back to its base. */
+  compost(now, dur) {
+    const active = new Set(this.tips.map(t => t.id));
+    const counts = new Map();
+    for (const c of this.cells.values()) if (!c.dying && c.tid) counts.set(c.tid, (counts.get(c.tid) || 0) + 1);
+    const kids = new Map();
+    for (const [id, inf] of this.info) { if (!kids.has(inf.parent)) kids.set(inf.parent, []); kids.get(inf.parent).push(id); }
+    const ids = [...this.info.keys()].sort((a, b) => a - b);
+    for (const id of ids) {
+      const inf = this.info.get(id);
+      if (inf.gen < 1 || inf.gone || active.has(id) || (counts.get(id) || 0) < 5) continue;
+      const doomed = new Set(), stack = [id];
+      let busy = false;
+      while (stack.length) { const d = stack.pop(); if (doomed.has(d)) continue; if (active.has(d)) { busy = true; break; } doomed.add(d); (kids.get(d) || []).forEach(k => stack.push(k)); }
+      if (busy) continue;
+      const list = [...this.cells.values()].filter(c => !c.dying && doomed.has(c.tid)).sort((a, b) => b.seq - a.seq);
+      list.forEach((c, i) => {
+        c.dying = now + (i / list.length) * dur;
+        if (c.kind !== "stem" && this.particlesOK && Math.random() < 0.5) {
+          const at = c.dying - now, x = (c.x + 0.5) * this.cw, y = c.y * this.ch;
+          setTimeout(() => this.spore(x, y, performance.now()), at);
+        }
+      });
+      doomed.forEach(d => { const i = this.info.get(d); if (i) i.gone = true; });
+      this.mutated = true;
+      return true;
+    }
+    return false;
+  }
+
+  /* ----- drawing ----- */
+  avoidFade(x, y) {
+    let a = 1;
+    for (const r of this.avoid) {
+      const dx = Math.max(r.left - x, 0, x - r.right), dy = Math.max(r.top - y, 0, y - r.bottom);
+      a = Math.min(a, smooth(0, 16, Math.hypot(dx, dy)));
+    }
+    return a;
+  }
+  render(now, dt, F) {
+    const ctx = this.ctx, A = this.A, cw = this.cw, ch = this.ch, pad = A.pad, dw = A.dw, dh = A.dh, atlas = A.canvas, sw = A.sw, sh = A.sh;
+    ctx.globalCompositeOperation = "source-over";
+    ctx.globalAlpha = 1;
+    ctx.clearRect(0, 0, this.w, this.h);
+    const draw = (g, color, x, y, a) => {
+      if (a <= 0.01) return;
+      const s = A.get(g, color);
+      ctx.globalAlpha = a > 1 ? 1 : a;
+      ctx.drawImage(atlas, s.x, s.y, sw, sh, x - pad, y - pad, dw, dh);
+    };
+    this.draw = draw;
+    const t = now / 1000;
+    if (this.o.field) {
+      // The pollen field drifts slowly: draw it into its own layer at 20 fps and reuse it between,
+      // unless a pointer or ripple is pushing it this frame.
+      const live = F.push || F.ripple;
+      if (!this.fieldLayer || this.fieldLayer.width !== this.canvas.width || this.fieldLayer.height !== this.canvas.height) {
+        this.fieldLayer = document.createElement("canvas"); this.fieldLayer.width = this.canvas.width; this.fieldLayer.height = this.canvas.height; this.fieldAt = -1e9;
+      }
+      if (live || now - this.fieldAt > 50 || this.dirtyField) {
+        const fc = this.fieldLayer.getContext("2d"), main = this.ctx;
+        fc.setTransform(this.dpr, 0, 0, this.dpr, 0, 0); fc.globalAlpha = 1; fc.clearRect(0, 0, this.w, this.h);
+        const drawTo = (g, color, x, y, a) => { if (a <= 0.01) return; const s = A.get(g, color); fc.globalAlpha = a > 1 ? 1 : a; fc.drawImage(atlas, s.x, s.y, sw, sh, x - pad, y - pad, dw, dh); };
+        this.renderField(now, F, drawTo);
+        this.fieldAt = now; this.dirtyField = false; void main;
+      }
+      ctx.globalAlpha = 1; ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(this.fieldLayer, 0, 0); ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    }
+    if (this.o.under) this.o.under(this, now, draw);
+    const base = P.base * (F.dim ?? 1);
+    let live = 0;
+    for (const [k, c] of this.cells) {
+      let a = smooth(0, 700, now - c.born) * base;
+      if (c.dying) {
+        if (now - c.dying > 900) { this.cells.delete(k); continue; }
+        a *= 1 - smooth(c.dying, c.dying + 900, now);
+      } else live++;
+      if (a <= 0.01) continue;
+      if (F.breathe) a *= 0.84 + 0.16 * Math.sin(t * 0.9 + c.phase * 0.35 + c.x * 0.11 - c.y * 0.17);
+      const kind = c.kind;
+      if (kind === "stem") a *= 0.9;
+      let x = c.x * cw, y = c.y * ch, flip = 0, lean = 0, boost = 0;
+      const cx = x + cw * 0.5, cy = y + ch * 0.5;
+      if (F.wind) {
+        const w = F.wind(cx, cy);
+        if (w > 0.01) {
+          if (kind === "leaf") { flip = smooth(0.3, 0.75, w); x += w * cw * 0.3; }
+          else if (kind === "bloom") x += w * cw * 0.18;
+        }
+      }
+      if (F.band) {
+        const b = F.band(cx, cy);
+        if (b > 0.01) {
+          if (kind === "leaf") { flip = Math.max(flip, smooth(0.2, 0.6, b)); x += b * cw * 0.5; }
+          else if (kind === "stem") { lean = b; x += b * cw * 0.12; }
+          else x += b * cw * 0.35;
+        }
+      }
+      if (F.push) {
+        const p = F.push(cx, cy);
+        if (p) {
+          x += p.dx * (kind === "stem" ? 0.55 : 1); y += p.dy * (kind === "stem" ? 0.4 : 1);
+          if (kind === "leaf") flip = Math.max(flip, smooth(0.12, 0.45, p.s));
+          else if (kind === "stem" && Math.abs(p.lean) > Math.abs(lean)) lean = p.lean;
+          boost = Math.max(boost, p.s * 0.45);
+        }
+      }
+      if (F.wave) {
+        const v = F.wave(cx, cy);
+        if (v !== 0) {
+          const m = Math.abs(v);
+          x += v * cw * 0.45;
+          if (kind === "leaf") flip = Math.max(flip, smooth(0.15, 0.55, m));
+          else if (kind === "stem" && m > Math.abs(lean)) lean = v;
+          boost = Math.max(boost, m * 0.35);
+        }
+      }
+      if (F.ripple) {
+        const r = F.ripple(cx, cy);
+        if (r > 0.01) {
+          boost = Math.max(boost, r); y -= r * 2.4;
+          if (kind === "leaf") flip = Math.max(flip, smooth(0.3, 0.8, r));
+        }
+      }
+      if (F.glisten && kind === "leaf") boost = Math.max(boost, F.glisten * smooth(0.9, 1, Math.sin(t * 1.9 + c.phase * 7)));
+      const pal = P[c.pal], color = pal[c.ci % pal.length];
+      const g = c.ch;
+      if (kind === "bloom" && F.night > 0.01) {
+        const n = F.night;
+        draw(g, color, x, y, a * (1 - n * 0.85));
+        draw("o", color, x, y, a * n * 0.55);
+        continue;
+      }
+      if (kind === "stem" && lean !== 0 && g === "│") {
+        const f = smooth(0.25, 0.65, Math.abs(lean));
+        draw(g, color, x, y, a * (1 - f)); if (f > 0) draw(lean > 0 ? "╱" : "╲", color, x, y, a * f);
+      } else if (flip > 0 && c.alt) {
+        draw(g, color, x, y, a * (1 - flip)); draw(c.alt, color, x, y, a * flip);
+      } else draw(g, color, x, y, a);
+      if (boost > 0.03) draw(flip > 0.5 && c.alt ? c.alt : g, P.head, x, y, a * boost * 0.9);
+      if (kind === "bloom") {
+        const pop = 1 - smooth(0, 900, now - c.born);
+        if (pop > 0) draw(g, color, x, y - pop * 2, pop * 0.6);
+        if (F.bloomFlash) draw(g, P.head, x, y - F.bloomFlash, F.bloomFlash * 0.7);
+      }
+    }
+    this.liveCount = live;
+    // Growing tips glide between cells as soft bright heads.
+    if (F.tips) {
+      for (const tp of this.tips) {
+        if (!tp.live || tp.path) continue;
+        const k = Math.min(1, tp.acc);
+        const hx = tp.px + Math.cos(tp.a) * cw * k * 0.8, hy = tp.py + Math.sin(tp.a) * ch * k * 0.8;
+        draw("•", P.head, hx - cw * 0.5, hy - ch * 0.55, 0.85 * smooth(0, 500, now - tp.born));
+      }
+    }
+    if (this.o.over) this.o.over(this, now, draw);
+    this.renderParticles(now, dt, F, draw);
+    if (F.tint && F.tint.k > 0.004) {
+      ctx.globalCompositeOperation = "source-atop"; ctx.globalAlpha = F.tint.k; ctx.fillStyle = F.tint.color; ctx.fillRect(0, 0, this.w, this.h);
+      ctx.globalCompositeOperation = "source-over";
+    }
+    ctx.globalAlpha = 1;
+  }
+  renderField(now, F, draw) {
+    if (!this.fieldGlyphs) {
+      this.fieldGlyphs = [];
+      const set = [".", "·", ":", "˙", "'", "`", ",", "·"];
+      for (let y = 0; y < this.rows; y++) for (let x = 0; x < this.cols; x += 2) {
+        if (this.fieldMask && !this.fieldMask(x, y)) continue;
+        this.fieldGlyphs.push([x, y, set[Math.floor(hash2(x * 7, y * 13) * set.length)]]);
+      }
+    }
+    const t = F.breathe ? now / 1000 : 0, color = P.field, fm = P.fieldMax * (F.fieldDim ?? 1), cw = this.cw, ch = this.ch;
+    for (const [gx, gy, g] of this.fieldGlyphs) {
+      const n = vnoise(gx * 0.055 + t * 0.09, gy * 0.11 - t * 0.05) * 0.65 + vnoise(gx * 0.13 - t * 0.04, gy * 0.23 + t * 0.07) * 0.35;
+      let a = fm * smooth(0.42, 0.85, n), x = gx * cw, y = gy * ch, ring = 0;
+      // A ripple lights every pollen glyph it crosses, so it reads as a dotted ring even where the field is bare.
+      if (F.ripple) { ring = F.ripple(x, y); if (ring > 0.01) { a = Math.max(a, 0) + ring * (P.dark ? 0.75 : 0.6); y -= ring * 3; } }
+      if (a < 0.012) continue;
+      if (F.fieldShift) x += F.fieldShift(x, y);
+      if (F.push) { const p = F.push(x, y); if (p) { x += p.dx * 1.5; y += p.dy * 1.5; a *= 1 - p.s * 0.7; } }
+      draw(ring > 0.3 ? "·" : g, ring > 0.3 ? P.head : color, x, y, a);
+    }
+  }
+  renderParticles(now, dt, F, draw) {
+    const k = dt / 1000, ctx = this.ctx, t = now / 1000;
+    for (let i = this.parts.length - 1; i >= 0; i--) {
+      const p = this.parts[i], age = now - p.born;
+      if (age > p.life || p.y > this.h + 20 || p.x > this.w + 60) { this.parts.splice(i, 1); continue; }
+      let a = 1, x, y, g = p.ch, color;
+      switch (p.kind) {
+        case "spore": {
+          const s = age / 1000; x = p.x + p.vx * s + Math.sin(s * 1.3 + p.ph) * 6; y = p.y + p.vy * s;
+          a = 0.7 * smooth(0, 800, age) * (1 - smooth(p.life - 1600, p.life, age)); color = P.spore; break;
+        }
+        case "petal": {
+          const push = (F.band ? F.band(p.x, p.y) * 420 : 0) + (F.wind ? F.wind(p.x, p.y) * 40 : 0);
+          p.x += (p.vx + push) * k; p.y += p.vy * k; x = p.x + Math.sin(age / 1000 * 1.7 + p.ph) * 9; y = p.y;
+          g = PETALS[Math.floor(age / 340 + p.ph) % PETALS.length];
+          a = 0.85 * smooth(0, 500, age) * (1 - smooth(p.life - 1500, p.life, age)); color = P.bloom[p.ci]; break;
+        }
+        case "drop": {
+          const py = p.y; p.x += p.vx * k; p.y += p.vy * k; x = p.x; y = p.y;
+          let hit = null;
+          for (const r of this.roofs) if (p.x > r.left + 4 && p.x < r.right - 4 && py <= r.top && p.y + this.ch > r.top) { hit = r; break; }
+          if (hit) {
+            for (let s = 0; s < 2; s++) this.parts.push({ kind: "splash", x: p.x, y: hit.top - this.ch * 0.7, vx: (s ? 1 : -1) * (18 + Math.random() * 30), vy: -(30 + Math.random() * 40), born: now, life: 420, ch: s ? "." : "˙" });
+            this.parts.splice(i, 1); continue;
+          }
+          a = p.far ? 0.28 : 0.5; color = P.rain; break;
+        }
+        case "splash": {
+          p.vy += 260 * k; p.x += p.vx * k; p.y += p.vy * k; x = p.x; y = p.y;
+          a = 0.6 * (1 - age / p.life); color = P.rain; break;
+        }
+        case "streak": {
+          p.x += p.vx * k; x = p.x; y = p.y + Math.sin(age / 1000 * 4 + p.ph) * 3;
+          a = 0.55 * Math.sin(Math.PI * age / p.life); color = P.streak; break;
+        }
+        case "seed": {
+          const push = F.band ? F.band(p.x, p.y) * 200 : 0;
+          p.x += (p.vx + push) * k; p.y += p.vy * k; x = p.x + Math.sin(age / 1000 * 1.1 + p.ph) * 14; y = p.y;
+          a = 0.75 * smooth(0, 1200, age) * (1 - smooth(p.life - 2500, p.life, age)); color = P.seed; break;
+        }
+        default: continue;
+      }
+      a *= this.avoidFade(x, y);
+      draw(g, color, x, y, a);
+    }
+    // Fireflies (pollen motes in light mode) fade in and out with the direction.
+    if (this.flies.length && this.flyAlpha > 0.01) {
+      const glow = glowSprite(P.fly), dark = P.dark;
+      for (const f of this.flies) {
+        const ang = vnoise(f.x * 0.006 + f.s, f.y * 0.006 + t * 0.12) * TAU * 2;
+        const z = f.zone, sp = dark ? 15 : 10;
+        let vx = Math.cos(ang) * sp, vy = Math.sin(ang) * sp - (dark ? 0 : 3);
+        if (f.x < z.left || f.x > z.right || f.y < z.top || f.y > z.bottom) { const cx = (z.left + z.right) / 2, cy = (z.top + z.bottom) / 2, d = Math.hypot(cx - f.x, cy - f.y) || 1; vx += (cx - f.x) / d * 22; vy += (cy - f.y) / d * 22; }
+        if (F.band) vx += F.band(f.x, f.y) * 180;
+        f.x += vx * k; f.y += vy * k;
+        const blink = dark ? 0.12 + 0.88 * smooth(0.45, 1, Math.sin(t * f.om + f.ph)) : 0.45 + 0.4 * Math.sin(t * f.om + f.ph);
+        const al = blink * this.flyAlpha * this.avoidFade(f.x, f.y);
+        if (al < 0.01) continue;
+        const gs = dark ? 46 : 26;
+        ctx.globalAlpha = al * (dark ? 0.8 : 0.5); ctx.drawImage(glow, f.x - gs / 2, f.y - gs / 2, gs, gs);
+        ctx.globalAlpha = al; ctx.fillStyle = dark ? "#FBFFE0" : P.fly;
+        ctx.beginPath(); ctx.arc(f.x, f.y, dark ? 1.8 : 1.5, 0, TAU); ctx.fill();
+      }
+    }
+  }
+}
+
+/* ---------------- the three windows ---------------- */
+const dashEl = $("#dash"), panelEl = $("#mpanel"), readerEl = $("#reader");
+const D = { pages: 19, minutes: 43, session: 23, streak: 6, books: 31, goal: 30 };
+const R = { page: 112, prog: 0.34, turns: 0, chapter: 2 };
+
+const dashG = new Garden($("#dash-garden"), {
+  seed: 21, budget: 2300, maxTips: 70, field: true,
+  setup(g) {
+    const headR = relRect($(".head-text", dashEl), dashEl);
+    const head = cellsOf(g, headR);
+    g.avoid = [grow(headR, 8)];
+    g.mask = (x, y) => !inside(head, x, y, 1);
+    g.fieldMask = (x, y) => !inside(head, x, y, 1);
+    g.roofs = [$(".sidebar", dashEl), $(".panel", dashEl), $(".pill", dashEl)].map(el => relRect(el, dashEl));
+    g.zones = [{ left: 230, top: 60, right: g.w - 20, bottom: g.h - 16 }];
+    const R0 = g.rows - 1, n = 9;
+    for (let i = 0; i < n; i++) {
+      const x = Math.round((i + 0.5) * g.cols / n + (g.rand() - 0.5) * 6);
+      g.tip({ x, y: R0, a: -Math.PI / 2 + (g.rand() - 0.5) * 0.6, bias: -Math.PI / 2, bs: 0.035, life: 30 + Math.floor(g.rand() * 26), hue: i, branchP: 0.085, branchLife: 18 });
+    }
+    g.tip({ x: g.cols - 1, y: 2, a: 2.6, bias: 2.0, bs: 0.04, life: 40, hue: 2 });
+    g.tip({ x: 0, y: 6, a: 0.5, bias: 0.9, bs: 0.04, life: 36, hue: 1 });
+  },
+  root(g) { return { x: Math.floor(Math.random() * g.cols), y: g.rows - 1, a: -Math.PI / 2 + (Math.random() - 0.5) * 0.5, bias: -Math.PI / 2, bs: 0.035, life: 18 + Math.floor(Math.random() * 16), hue: Math.floor(Math.random() * 4), branchP: 0.06, branchLife: 10, gen: 0 }; }
+});
+
+const panelG = new Garden($("#panel-garden"), {
+  seed: 31, budget: 560, maxTips: 40, px: 12,
+  setup(g) {
+    const band = 3, side = Math.max(3, Math.round(26 / g.cw));
+    g.mask = (x, y) => y < band || y >= g.rows - band || x < side || x >= g.cols - side;
+    g.roofs = [relRect($(".mcard", panelEl), panelEl)];
+    g.zones = [{ left: 8, top: 8, right: g.w - 8, bottom: g.h - 8 }];
+    const B = g.rows - 2, Rr = g.cols - 2;
+    const trellis = [
+      { x: 1, y: 1, a: 0.1, bias: 0 }, { x: Rr, y: 1, a: Math.PI - 0.1, bias: Math.PI },
+      { x: 1, y: B, a: -0.1, bias: 0 }, { x: Rr, y: B, a: Math.PI + 0.1, bias: Math.PI },
+      { x: Math.floor(g.cols / 2), y: 0, a: 0.3, bias: 0 }, { x: Math.floor(g.cols / 2), y: g.rows - 1, a: Math.PI - 0.3, bias: Math.PI }
+    ];
+    trellis.forEach((t, i) => g.tip(Object.assign({ life: 34, hue: i, bs: 0.09, branchP: 0.05, branchLife: 6, leafP: 0.36, maxGen: 2 }, t)));
+    [{ x: 1, y: g.rows - band - 1, a: -Math.PI / 2, bias: -Math.PI / 2 }, { x: Rr, y: g.rows - band - 1, a: -Math.PI / 2, bias: -Math.PI / 2 },
+     { x: 1, y: band, a: Math.PI / 2, bias: Math.PI / 2 }, { x: Rr, y: band, a: Math.PI / 2, bias: Math.PI / 2 }]
+      .forEach((t, i) => g.tip(Object.assign({ life: 22, hue: i + 2, bs: 0.08, branchP: 0.04, branchLife: 5, leafP: 0.4, maxGen: 2 }, t)));
+  }
+});
+
+const MIN_COLS = 7;
+const readerG = new Garden($("#reader-garden"), {
+  seed: 5, budget: 1400, maxTips: 50,
+  setup(g) {
+    const cardR = relRect($(".rcard", readerEl), readerEl);
+    const card = cellsOf(g, cardR);
+    const bars = [".rbar", ".rfoot"].map(s => cellsOf(g, relRect($(s, readerEl), readerEl)));
+    const leftOK = card.x0 - 2 >= MIN_COLS, rightOK = g.cols - card.x1 - 2 >= MIN_COLS;
+    g.cardPx = cardR;
+    g.mask = (x, y) => {
+      if (inside(card, x, y, 2) || bars.some(b => inside(b, x, y, 1))) return false;
+      if (x < card.x0) return leftOK;
+      if (x >= card.x1) return rightOK;
+      return false;
+    };
+    g.roofs = [cardR, relRect($(".rbar", readerEl), readerEl), relRect($(".rfoot", readerEl), readerEl)];
+    const gap = 2 * g.cw + 4;
+    g.zones = [{ left: 14, top: 70, right: cardR.left - gap, bottom: g.h - 20 }, { left: cardR.right + gap, top: 70, right: g.w - 14, bottom: g.h - 20 }];
+    // Particles never cross the page.
+    g.avoid = [grow(cardR, 2 * g.cw)];
+    const R0 = g.rows - 1, seeds = [];
+    if (leftOK) { const L = card.x0 - 3; seeds.push({ x: 3, y: R0, a: -1.3, bias: -1.5 }, { x: Math.max(2, L), y: R0, a: -1.75, bias: -1.6 }, { x: Math.floor(L / 2), y: R0, a: -1.5, bias: -1.5 }, { x: 1, y: 6, a: 0.7, bias: 1.25 }); }
+    if (rightOK) { const Rt = card.x1 + 2; seeds.push({ x: g.cols - 4, y: R0, a: -1.8, bias: -1.6 }, { x: Math.min(g.cols - 2, Rt), y: R0, a: -1.4, bias: -1.55 }, { x: Math.floor((Rt + g.cols) / 2), y: R0, a: -1.6, bias: -1.6 }, { x: g.cols - 2, y: 6, a: 2.45, bias: 1.9 }); }
+    seeds.forEach((t, i) => g.tip(Object.assign({ life: 56, hue: i, bs: 0.045, branchP: 0.09, branchLife: 16 }, t)));
+  }
+});
+
+const lineG = new Garden($("#reader-line"), {
+  seed: 3, budget: 400, px: 12,
+  setup(g) { const y = Math.floor(g.rows / 2); g.lineY = y; g.full = linePath(0, y, g.cols - 1, y, 1); },
+  under(g, now, draw) {
+    for (const p of g.full) { const x = Math.round(p.x), key = g.lineY * g.cols + x, c = g.cells.get(key); if (c && !c.dying && now - c.born > 300) continue; draw("·", P.track, x * g.cw, g.lineY * g.ch, 0.95); }
+  }
+});
+lineG.idx = 0;
+lineG.growTo = (f, now, instant) => {
+  const n = Math.max(2, Math.round(lineG.full.length * f));
+  if (n < lineG.idx) { for (const c of lineG.cells.values()) if (!c.dying) c.dying = now; lineG.idx = 0; }
+  const from = Math.max(0, lineG.idx - 1), path = lineG.full.slice(from, n);
+  lineG.tips = [];
+  if (path.length > 1) {
+    lineG.tip({ x: Math.round(path[0].x), y: lineG.lineY, path, amp: 0, life: 9999, hue: 0, leafP: 0.42, branchP: 0, noBloom: true, live: true });
+    if (instant) { lineG.instant = true; for (let i = 0; i < 400 && lineG.tips.length; i++) lineG.step(1000, now, 1, false); lineG.instant = false; }
+  }
+  lineG.idx = n;
+};
+
+const WINS = [
+  { id: "dash", el: dashEl, garden: dashG, flies: 8 },
+  { id: "panel", el: panelEl, garden: panelG, flies: 3 },
+  { id: "reader", el: readerEl, garden: readerG, flies: 4, line: lineG }
+];
+for (const w of WINS) {
+  Object.assign(w, { pointer: { x: -9999, y: -9999, real: false, last: 0, trail: [] }, ripples: [], wave: 0, flash: 0, onscreen: true, dirty: true, animUntil: 0, nextShoot: 0, nextBatch: 0, nextCompost: 0, nextPetal: 0, ghost: $(".ghost", w.el), wash: $(".wash", w.el), par: { x: 0, y: 0 }, q: { i: -1, t0: 0, from: null, to: null } });
+  w.garden.flyAlpha = 0;
+}
+const W = Object.fromEntries(WINS.map(w => [w.id, w]));
+
+/* ---------------- state ---------------- */
+const S = {
+  dir: params.get("dir") || "living",
+  tier: params.get("tier") || (systemReduce ? "still" : "full"),
+  speed: params.get("speed") || "fast",
+  tod: params.get("tod") || "cycle"
+};
+const fast = () => S.speed === "fast";
+let ringsDirty = true;
+
+/* ---------------- wind, pointer, ripples, weather, time of day ---------------- */
+const windLiving = (x, y, t) => smooth(0.5, 0.88, vnoise(x * 0.0055 - t * 0.32, y * 0.011 + t * 0.04));
+
+function addTrail(w, x, y, now) {
+  const tr = w.pointer.trail, last = tr[tr.length - 1];
+  w.pointer.x = x; w.pointer.y = y;
+  if (!last || now - last.t > 35 || Math.hypot(x - last.x, y - last.y) > 8) tr.push({ x, y, t: now });
+  while (tr.length && (tr.length > 18 || now - tr[0].t > 900)) tr.shift();
+}
+function pushFn(w, now) {
+  const pts = [];
+  for (const p of w.pointer.trail) { const age = now - p.t; if (age < 850) pts.push([p.x, p.y, Math.exp(-age / 300)]); }
+  if (!pts.length) return null;
+  const Rr = 112, R2 = Rr * Rr;
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const [x, y] of pts) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
+  x0 -= Rr; y0 -= Rr; x1 += Rr; y1 += Rr;
+  return (x, y) => {
+    if (x < x0 || x > x1 || y < y0 || y > y1) return null;
+    let s = 0, dx = 0, dy = 0;
+    for (const [px, py, wt] of pts) {
+      const ex = x - px, ey = y - py, d2 = ex * ex + ey * ey;
+      if (d2 > R2) continue;
+      const d = Math.sqrt(d2) + 0.001, kk = 1 - d / Rr, f = kk * kk * wt;
+      if (f > s) s = f; dx += ex / d * f; dy += ey / d * f;
+    }
+    if (s < 0.01) return null;
+    const m = Math.hypot(dx, dy) || 1, ux = dx / m, uy = dy / m;
+    return { dx: ux * s * 13, dy: uy * s * 6, s, lean: Math.sign(ux) * Math.min(1, s * 1.8) };
+  };
+}
+function rippleFn(w, now) {
+  w.ripples = w.ripples.filter(r => now - r.t < 1600);
+  if (!w.ripples.length) return null;
+  return (x, y) => {
+    let b = 0;
+    for (const r of w.ripples) {
+      const age = now - r.t; if (age < 0) continue;
+      const rad = 8 + age * 0.4, ex = x - r.x, ey = y - r.y, d = Math.sqrt(ex * ex + ey * ey);
+      if (d > rad + 50 || d < rad - 50) continue;
+      const q = (d - rad) / 15, v = Math.exp(-q * q) * Math.pow(1 - age / 1600, 1.4) * r.s;
+      if (v > b) b = v;
+    }
+    return b;
+  };
+}
+function addRipple(w, x, y, s, now = performance.now()) {
+  if (S.dir !== "quiet" || S.tier !== "full") return;
+  w.ripples.push({ x, y, s, t: now });
+}
+function waveFn(w, now) {
+  const age = now - w.wave; if (!w.wave || age > 1300) return null;
+  const c = w.garden.cardPx, r = age * 0.42, env = 1 - age / 1300;
+  return (x, y) => {
+    const d = x < c.left ? c.left - x : x > c.right ? x - c.right : -1;
+    if (d < 0) return 0;
+    const q = (d - r) / 34; return Math.exp(-q * q) * env * (x < c.left ? -1 : 1);
+  };
+}
+
+const WX_PLAN = {
+  fast: { period: 66, events: [{ kind: "gust", at: 3, dur: 6 }, { kind: "rain", at: 13, dur: 18, tail: 8 }, { kind: "gust", at: 42, dur: 6 }, { kind: "seeds", at: 51, dur: 13 }] },
+  real: { period: 1800, events: [{ kind: "gust", at: 240, dur: 6 }, { kind: "rain", at: 720, dur: 25, tail: 20 }, { kind: "gust", at: 1140, dur: 6 }, { kind: "seeds", at: 1560, dur: 15 }] }
+};
+const WX = { t0: 0, s: {} };
+function weatherState(now) {
+  const plan = WX_PLAN[S.speed], el = ((now - WX.t0) / 1000) % plan.period, s = { kind: "calm" };
+  for (const e of plan.events) {
+    const end = e.at + e.dur + (e.tail || 0);
+    if (el >= e.at && el < end) {
+      const u = el - e.at;
+      s.kind = e.kind; s.prog = Math.min(1, u / e.dur); s.left = Math.max(0, e.dur - u);
+      if (e.kind === "gust") s.env = Math.sin(Math.PI * s.prog);
+      if (e.kind === "rain") { s.rain = smooth(0, 3, u) * (1 - smooth(e.dur - 3, e.dur, u)); s.glisten = smooth(e.dur - 2, e.dur + 1, u) * (1 - smooth(e.dur + e.tail - 3, e.dur + e.tail, u)); if (u > e.dur) s.kind = "after"; }
+      if (e.kind === "seeds") s.seeds = smooth(0, 2, u) * (1 - smooth(e.dur - 3, e.dur, u));
+      return s;
+    }
+  }
+  let next = null;
+  for (const e of plan.events) if (e.at > el) { next = e; break; }
+  if (!next) next = { ...plan.events[0], at: plan.events[0].at + plan.period };
+  s.next = next.kind; s.inS = next.at - el;
+  return s;
+}
+
+const TOD_KEYS = [[0, "night"], [4.6, "night"], [6.2, "dawn"], [8.2, "golden"], [10.5, "day"], [16.3, "day"], [18.1, "golden"], [19.5, "dusk"], [21.2, "night"], [24, "night"]];
+const TOD_LOOK = {
+  night: { light: ["#3A57BE", 0.13], dark: ["#6F8DFF", 0.17], night: 1, name: "night" },
+  dawn: { light: ["#E8906A", 0.16], dark: ["#FFB08A", 0.2], night: 0.3, name: "dawn" },
+  golden: { light: ["#D99A2B", 0.17], dark: ["#FFC66E", 0.2], night: 0, name: "golden hour" },
+  day: { light: ["#FFFFFF", 0], dark: ["#FFFFFF", 0], night: 0, name: "midday" },
+  dusk: { light: ["#C9663F", 0.18], dark: ["#FF8E63", 0.22], night: 0.4, name: "dusk" }
+};
+const TOD_FIXED = { dawn: 6.3, day: 13, dusk: 19.5, night: 23 };
+let todStart = 0;
+function todHours(now) {
+  if (S.tod !== "cycle") return TOD_FIXED[S.tod];
+  const h = (5.2 + (now - todStart) / 1000 * 0.6) % 24;
+  return S.tier === "still" ? Math.floor(h) : h; // Reduce Motion: the colour changes in steps
+}
+function todLook(h) {
+  let i = 0; while (i < TOD_KEYS.length - 2 && TOD_KEYS[i + 1][0] <= h) i++;
+  const [h0, k0] = TOD_KEYS[i], [h1, k1] = TOD_KEYS[i + 1], f = smooth(0, 1, (h - h0) / (h1 - h0 || 1));
+  const a = TOD_LOOK[k0], b = TOD_LOOK[k1], m = appearance;
+  return { color: mix(a[m][0], b[m][0], f), k: a[m][1] + (b[m][1] - a[m][1]) * f, night: a.night + (b.night - a.night) * f, name: (f < 0.5 ? a : b).name };
+}
+const clockText = h => { const hh = Math.floor(h), mm = Math.floor((h - hh) * 60), am = hh < 12, h12 = ((hh + 11) % 12) + 1; return `${h12}:${String(mm).padStart(2, "0")} ${am ? "am" : "pm"}`; };
+
+/* ---------------- per-frame effects for one window ---------------- */
+function effects(w, now) {
+  const g = w.garden, t = now / 1000, full = S.tier === "full", still = S.tier === "still", F = { breathe: !still, tips: full };
+  if (S.dir === "living") {
+    if (!still) { F.wind = (x, y) => windLiving(x, y, t); F.fieldShift = (x, y) => windLiving(x, y, t) * 4; }
+  } else if (S.dir === "reactive") {
+    if (full) { F.push = pushFn(w, now); F.wave = waveFn(w, now); }
+    const look = todLook(todHours(now));
+    F.tint = { color: look.color, k: look.k * 0.5 }; // light touch on the glyphs so the vines stay green F.night = look.night; F.fieldDim = 1 - 0.5 * look.night;
+    if (w.flash && S.tier !== "still") { const a = now - w.flash; if (a < 2600) F.bloomFlash = smooth(0, 300, a) * (1 - smooth(900, 2600, a)) * 2; }
+    w.look = look;
+  } else if (S.dir === "weather" && !still) {
+    const s = WX.s;
+    if (s.kind === "gust") {
+      const gx = (-0.2 + 1.4 * s.prog) * g.w, width = 80 + g.w * 0.09, env = s.env, hh = g.h;
+      F.band = (x, y) => { const q = ((x - gx) + (y - hh / 2) * 0.3) / width; return env * Math.exp(-q * q); };
+      F.fieldShift = (x, y) => F.band(x, y) * 10;
+    }
+    if (s.rain && full) F.dim = 1 - 0.16 * s.rain;
+    if (s.glisten && full) F.glisten = s.glisten;
+  } else if (S.dir === "quiet") {
+    if (full) F.ripple = rippleFn(w, now);
+  }
+  return F;
+}
+
+/* ---------------- particles each direction emits ---------------- */
+function emit(w, now, dt) {
+  const g = w.garden, full = S.tier === "full", k = dt / 1000;
+  g.particlesOK = full;
+  const blooms = () => { const b = []; for (const c of g.cells.values()) if (c.kind === "bloom" && !c.dying) b.push(c); return b; };
+  if (S.dir === "living" && full && now > w.nextPetal) {
+    w.nextPetal = now + (fast() ? 1200 : 9000) * (0.6 + Math.random() * 0.8) * (w.id === "dash" ? 1 : 2);
+    const b = blooms();
+    if (b.length) { const c = b[Math.floor(Math.random() * b.length)]; g.parts.push({ kind: "petal", x: (c.x + 0.5) * g.cw, y: (c.y + 0.6) * g.ch, vx: 6 + Math.random() * 8, vy: 14 + Math.random() * 12, born: now, life: 6500 + Math.random() * 3000, ph: Math.random() * TAU, ci: c.ci % 4 }); }
+  }
+  if (S.dir === "weather" && full) {
+    const s = WX.s, scale = g.w / 1000;
+    if (s.kind === "gust" && s.env > 0.05) {
+      const gx = (-0.2 + 1.4 * s.prog) * g.w;
+      let n = 46 * scale * s.env * k * (1 + g.h / 600); while (n > 0) { if (Math.random() < n) g.parts.push({ kind: "streak", x: gx - 160 + Math.random() * 140, y: 30 + Math.random() * (g.h - 40), vx: 380 + Math.random() * 220, born: now, life: 900 + Math.random() * 600, ch: STREAKS[Math.floor(Math.random() * STREAKS.length)], ph: Math.random() * TAU }); n -= 1; }
+      if (Math.random() < 3 * k * s.env) { const b = blooms().filter(c => Math.abs((c.x + 0.5) * g.cw - gx) < 160); if (b.length) { const c = b[Math.floor(Math.random() * b.length)]; g.parts.push({ kind: "petal", x: (c.x + 0.5) * g.cw, y: c.y * g.ch, vx: 30, vy: 10, born: now, life: 4500, ph: Math.random() * TAU, ci: c.ci % 4 }); } }
+    }
+    if (s.rain > 0.01) {
+      let n = 120 * scale * s.rain * k * (g.h / 600) * 1.6;
+      while (n > 0) { if (Math.random() < n) { const far = Math.random() < 0.45; g.parts.push({ kind: "drop", far, x: -40 + Math.random() * (g.w + 40), y: -12, vx: far ? 30 : 46, vy: far ? 300 + Math.random() * 60 : 430 + Math.random() * 120, born: now, life: 4000, ch: far ? "'" : "|" }); } n -= 1; }
+    }
+    if (s.seeds > 0.01 && Math.random() < 2.4 * scale * s.seeds * k * 2) {
+      const b = blooms(); const c = b.length ? b[Math.floor(Math.random() * b.length)] : null;
+      const x = c ? (c.x + 0.5) * g.cw : Math.random() * g.w, y = c ? c.y * g.ch : g.h - 20;
+      g.parts.push({ kind: "seed", x, y, vx: 6 + Math.random() * 6, vy: -(12 + Math.random() * 12), born: now, life: 9000 + Math.random() * 4000, ch: SEEDS[Math.floor(Math.random() * SEEDS.length)], ph: Math.random() * TAU });
+    }
+  }
+  // Fireflies follow the Living direction at full motion only.
+  const want = S.dir === "living" && full ? 1 : 0;
+  g.flyAlpha += (want - g.flyAlpha) * Math.min(1, k * 2.5);
+  if (want && !g.flies.length) {
+    const zones = g.zones || [{ left: 0, top: 0, right: g.w, bottom: g.h }];
+    for (let i = 0; i < w.flies; i++) { const z = zones[i % zones.length]; g.flies.push({ x: z.left + Math.random() * (z.right - z.left), y: z.top + Math.random() * (z.bottom - z.top), s: Math.random() * 50, ph: Math.random() * TAU, om: 0.9 + Math.random() * 1.1, zone: z }); }
+  }
+  if (!want && g.flyAlpha < 0.01) g.flies = [];
+}
+
+/* ---------------- Living garden: growth that never finishes ---------------- */
+function livingTick(w, now) {
+  const g = w.garden;
+  if (w.id === "reader") return; // the reader grows only with reading
+  if (S.tier === "full") {
+    g.liveSpeed = fast() ? 7 : 0.67;
+    if (now > w.nextShoot) {
+      w.nextShoot = now + (fast() ? 2400 : 40000) * (0.6 + Math.random() * 0.8);
+      if (g.tips.length < 3) g.spawnShoot(now);
+    }
+  } else if (S.tier === "calm") {
+    if (now > w.nextBatch) { w.nextBatch = now + (fast() ? 6000 : 60000); g.spawnShoot(now); g.growLiveInstant(now); w.animUntil = now + 3000; }
+  }
+  if (now > w.nextCompost && g.liveCount > g.budget) {
+    // Back off whether or not a branch was ready, so the search never runs every frame.
+    w.nextCompost = now + (g.compost(now, fast() ? 2600 : 20000) ? (fast() ? 3000 : 24000) : 1000);
+  }
+}
+
+/* ---------------- ghost cursor and scripted interactions ---------------- */
+function centerOf(el, w) { const r = relRect(el, w.el); return { x: (r.left + r.right) / 2, y: (r.top + r.bottom) / 2, el }; }
+const QUIET_SCRIPT = {
+  dash: w => [
+    { ...centerOf($$(".nav li", dashEl)[1], w), act: "hover" },
+    { ...centerOf($(".cta.primary", dashEl), w), act: "click" },
+    { x: w.el.clientWidth * 0.88, y: w.el.clientHeight * 0.86, act: "click" },
+    { ...centerOf($("#dash-ring-box"), w), act: "hover" },
+    { ...centerOf($$(".nav li", dashEl)[3], w), act: "hover" }
+  ],
+  panel: w => [
+    { ...centerOf($(".m-pause", panelEl), w), act: "click" },
+    { ...centerOf($("#panel-ring-box"), w), act: "hover" },
+    { x: w.el.clientWidth * 0.5, y: w.el.clientHeight - 22, act: "click" },
+    { ...centerOf($(".m-more", panelEl), w), act: "hover" }
+  ],
+  reader: w => [
+    { ...centerOf($(".rb-aa", readerEl), w), act: "hover" },
+    { x: w.el.clientWidth * 0.1, y: w.el.clientHeight * 0.62, act: "click" },
+    { x: w.el.clientWidth * 0.9, y: w.el.clientHeight * 0.4, act: "click" }
+  ]
+};
+function ghostPos(w, now) {
+  const t = now / 1000, Wd = w.el.clientWidth, H = w.el.clientHeight;
+  if (S.dir === "reactive") {
+    if (w.id === "dash") return { x: Wd * (0.6 + 0.33 * Math.sin(t * 0.27)), y: H * (0.8 + 0.12 * Math.sin(t * 0.53 + 0.7)) };
+    if (w.id === "panel") { const u = (t * 0.07) % 1, per = 2 * (Wd + H); let d = u * per; const m = 16; if (d < Wd) return { x: d, y: H - m }; d -= Wd; if (d < H) return { x: Wd - m, y: H - d }; d -= H; if (d < Wd) return { x: Wd - d, y: m }; d -= Wd; return { x: m, y: d }; }
+    return { x: Wd * (0.5 + 0.46 * Math.sin(t * 0.19)), y: H * (0.6 + 0.3 * Math.sin(t * 0.47 + 1)) };
+  }
+  // Quiet UI: move between targets, hover or click on arrival.
+  const q = w.q, MOVE = 950, HOLD = 1300;
+  if (q.i < 0 || now - q.t0 > MOVE + HOLD) {
+    const list = QUIET_SCRIPT[w.id](w);
+    q.i = (q.i + 1) % list.length; q.from = q.to || { x: Wd * 0.5, y: H * 0.5 }; q.to = list[q.i]; q.t0 = now; q.done = false;
+  }
+  const p = easeInOut((now - q.t0) / MOVE);
+  const pos = { x: q.from.x + (q.to.x - q.from.x) * p, y: q.from.y + (q.to.y - q.from.y) * p };
+  if (p >= 1 && !q.done) {
+    q.done = true;
+    addRipple(w, pos.x, pos.y, q.to.act === "click" ? 1 : 0.5, now);
+    const el = q.to.el && (q.to.el.closest(".nav li, .rbtn") || q.to.el);
+    if (el) {
+      const cls = q.to.act === "click" && el.classList.contains("cta") ? "press" : "hov";
+      el.classList.add(cls); setTimeout(() => el.classList.remove(cls), cls === "press" ? 200 : HOLD - 100);
+    }
+  }
+  return pos;
+}
+function updatePointer(w, now) {
+  const wantsPointer = (S.dir === "reactive" || S.dir === "quiet") && S.tier !== "still" && S.tier !== "hidden";
+  const realActive = w.pointer.real && now - w.pointer.last < 2500;
+  const showGhost = wantsPointer && !realActive && S.tier === "full";
+  w.ghost.classList.toggle("on", showGhost);
+  if (showGhost) {
+    const p = ghostPos(w, now);
+    w.ghost.style.transform = `translate(${p.x - 2}px, ${p.y - 2}px)`;
+    addTrail(w, p.x, p.y, now);
+  }
+  // Quiet UI parallax: glass drifts against the garden.
+  const on = S.dir === "quiet" && S.tier === "full" && (showGhost || realActive);
+  const Wd = w.el.clientWidth, H = w.el.clientHeight;
+  const tx = on ? ((w.pointer.x / Wd) - 0.5) * -4 : 0, ty = on ? ((w.pointer.y / H) - 0.5) * -3 : 0;
+  const nx = w.par.x + (tx - w.par.x) * 0.08, ny = w.par.y + (ty - w.par.y) * 0.08;
+  if (Math.abs(nx - w.par.x) > 0.004 || Math.abs(ny - w.par.y) > 0.004 || (!on && (w.par.x || w.par.y))) {
+    const settled = !on && Math.abs(nx) < 0.05 && Math.abs(ny) < 0.05;
+    w.par.x = settled ? 0 : nx; w.par.y = settled ? 0 : ny;
+    const tr = settled ? "" : `translate3d(${w.par.x.toFixed(2)}px, ${w.par.y.toFixed(2)}px, 0)`;
+    $$(".par", w.el).forEach(el => { el.style.translate = settled ? "" : `${w.par.x.toFixed(2)}px ${w.par.y.toFixed(2)}px`; });
+    w.garden.canvas.style.transform = settled ? "" : `translate3d(${(-w.par.x / 2).toFixed(2)}px, ${(-w.par.y / 2).toFixed(2)}px, 0)`;
+    void tr;
+  }
+}
+for (const w of WINS) {
+  w.el.addEventListener("pointermove", e => {
+    const r = w.el.getBoundingClientRect(), now = performance.now();
+    w.pointer.real = true; w.pointer.last = now;
+    addTrail(w, e.clientX - r.left, e.clientY - r.top, now);
+    const target = e.target.closest && e.target.closest("[data-ripple]");
+    if (target !== w.hoverEl) { w.hoverEl = target; if (target) addRipple(w, e.clientX - r.left, e.clientY - r.top, 0.5, now); }
+  });
+  w.el.addEventListener("pointerdown", e => { const r = w.el.getBoundingClientRect(); addRipple(w, e.clientX - r.left, e.clientY - r.top, 1); });
+  w.el.addEventListener("pointerleave", () => { w.pointer.real = false; w.hoverEl = null; });
+}
+
+/* ---------------- numbers: count up, roll, rings ---------------- */
+const tweens = [];
+function fmtK(el, v) { return v + (el.dataset.suf || ""); }
+function setNum(el, text, roll) {
+  if (el.textContent === text && !el.querySelector(".roll")) return;
+  clearTimeout(el._t);
+  if (!roll) { el.textContent = text; return; }
+  const old = el.querySelector(".roll") ? el.dataset.last || el.textContent : el.textContent;
+  el.dataset.last = text;
+  el.innerHTML = `<span class="roll"><span class="roll-in"><span>${old}</span><span>${text}</span></span></span>`;
+  const inner = $(".roll-in", el);
+  requestAnimationFrame(() => requestAnimationFrame(() => { inner.style.transform = "translateY(-50%)"; }));
+  el._t = setTimeout(() => { el.textContent = text; }, 560);
+}
+function renderData(roll) {
+  const vals = { pages: D.pages, minutes: D.minutes, session: D.session, streak: D.streak, books: D.books };
+  for (const el of $$("[data-k]")) {
+    const k = el.dataset.k;
+    if (k in vals) { if (!tweens.some(t => t.el === el)) setNum(el, fmtK(el, vals[k]), roll); }
+    else if (k === "goal-line") el.textContent = D.pages >= D.goal ? "Goal reached. Every bloom is open." : `${D.goal - D.pages} pages to your daily goal.`;
+    else if (k === "goal-short") el.textContent = D.pages >= D.goal ? "Goal reached" : `${D.goal - D.pages} pages to go`;
+  }
+  $("#rpage-n").textContent = R.page; $("#rpct").textContent = Math.round(R.prog * 100);
+  ringsDirty = true;
+}
+let reveal = { t0: -1e9 };
+function playEntrance(now) {
+  if (S.tier === "still" || S.tier === "hidden") { renderData(false); return; }
+  reveal.t0 = now;
+  const vals = { pages: D.pages, minutes: D.minutes, session: D.session, streak: D.streak, books: D.books };
+  tweens.length = 0;
+  for (const el of $$("[data-k]")) if (el.dataset.k in vals) tweens.push({ el, to: vals[el.dataset.k], t0: now, dur: el.dataset.k === "pages" ? 900 : 700 });
+}
+function runTweens(now) {
+  for (let i = tweens.length - 1; i >= 0; i--) {
+    const tw = tweens[i], p = (now - tw.t0) / tw.dur;
+    tw.el.textContent = fmtK(tw.el, Math.round(tw.to * easeOut(p)));
+    if (p >= 1) tweens.splice(i, 1);
+  }
+}
+function prepCanvas(cv) {
+  const r = cv.getBoundingClientRect(), d = Math.min(2, devicePixelRatio || 1);
+  const W2 = Math.round(r.width * d), H2 = Math.round(r.height * d);
+  if (cv.width !== W2 || cv.height !== H2) { cv.width = W2; cv.height = H2; }
+  const ctx = cv.getContext("2d"); ctx.setTransform(d, 0, 0, d, 0, 0); ctx.clearRect(0, 0, r.width, r.height);
+  return { ctx, w: r.width, h: r.height };
+}
+function dot(ctx, x, y, r, color, a) { if (a <= 0.01) return; ctx.globalAlpha = Math.min(1, a); ctx.fillStyle = color; ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill(); }
+/* The dotted goal ring: two rows of dots on a 260° arc with a smooth leading edge (ReadingProgress.swift). */
+function drawRing(cv, frac, o) {
+  const { ctx, w, h } = prepCanvas(cv);
+  const big = o.big, cx = w / 2, cy = h * 0.54, R0 = Math.min(w / 2, h * 0.6) - 6, gapR = big ? 9 : 7.5;
+  const start = (90 + 50) * Math.PI / 180, sweep = 260 * Math.PI / 180, track = P.track, acc = P.accent;
+  for (const [rad, size] of [[R0, big ? 2.2 : 1.9], [R0 - gapR, big ? 1.8 : 1.55]]) {
+    const n = Math.round(sweep * rad / (big ? 8 : 7));
+    for (let i = 0; i <= n; i++) {
+      const u = i / n, a = start + sweep * u, x = cx + Math.cos(a) * rad, y = cy + Math.sin(a) * rad;
+      const fill = smooth(u - 0.04, u + 0.004, frac);
+      dot(ctx, x, y, size, track, 1 - fill);
+      dot(ctx, x, y, size, acc, fill);
+      if (o.shimmer != null) { const s = Math.exp(-(((u - o.shimmer) / 0.035) ** 2)) * fill; dot(ctx, x, y, size * 1.15, P.shimmer, s * 0.95); }
+    }
+  }
+  if (o.pulse != null && frac > 0.01) {
+    const a = start + sweep * Math.min(1, frac), rr = R0 - gapR / 2, x = cx + Math.cos(a) * rr, y = cy + Math.sin(a) * rr;
+    const g = glowSprite(acc), s = (big ? 26 : 20) * (0.8 + 0.45 * o.pulse);
+    ctx.globalAlpha = 0.35 + 0.4 * o.pulse; ctx.drawImage(g, x - s / 2, y - s / 2, s, s);
+  }
+  ctx.globalAlpha = 1;
+}
+function drawDots(cv, frac, o) {
+  const { ctx, w, h } = prepCanvas(cv);
+  const n = Math.floor(w / 8), y = h / 2;
+  for (let i = 0; i < n; i++) {
+    const u = i / (n - 1), x = 3 + i * ((w - 6) / (n - 1)), fill = smooth(u - 0.05, u + 0.004, frac);
+    dot(ctx, x, y, 2, P.track, 1 - fill); dot(ctx, x, y, 2, P.accent, fill);
+  }
+  if (o.pulse != null) { const x = 3 + frac * (w - 6), g = glowSprite(P.accent), s = 18 * (0.8 + 0.4 * o.pulse); ctx.globalAlpha = 0.3 + 0.4 * o.pulse; ctx.drawImage(g, x - s / 2, y - s / 2, s, s); }
+  ctx.globalAlpha = 1;
+}
+function renderRings(now) {
+  const quietFull = S.dir === "quiet" && S.tier === "full", t = now / 1000;
+  const r = S.dir === "quiet" && S.tier !== "still" ? easeOut((now - reveal.t0) / 1100) : 1;
+  const animating = quietFull || now - reveal.t0 < 1200;
+  if (!animating && !ringsDirty) return;
+  ringsDirty = false;
+  const frac = Math.min(1, D.pages / D.goal) * r;
+  const cyc = t % 8, shimmer = quietFull && cyc < 1.6 ? (cyc / 1.6) * frac : null;
+  const pulse = quietFull ? 0.5 + 0.5 * Math.sin(t * TAU / 4) : null;
+  drawRing($("#dash-ring"), frac, { big: true, pulse, shimmer });
+  drawRing($("#panel-ring"), frac, { big: false, pulse, shimmer });
+  drawDots($("#dash-dots"), 0.38 * r, { pulse });
+}
+
+/* ---------------- reader pages ---------------- */
+const PAGES = [
+  "I went to the woods because I wished to live deliberately, to front only the essential facts of life, and see if I could not learn what it had to teach, and not, when I came to die, discover that I had not lived.|I did not wish to live what was not life, living is so dear; nor did I wish to practise resignation, unless it was quite necessary.|I wanted to live deep and suck out all the marrow of life, to live so sturdily and Spartan-like as to put to rout all that was not life, to cut a broad swath and shave close.",
+  "Our life is frittered away by detail. An honest man has hardly need to count more than his ten fingers, or in extreme cases he may add his ten toes, and lump the rest.|Simplicity, simplicity, simplicity! I say, let your affairs be as two or three, and not a hundred or a thousand; instead of a million count half a dozen, and keep your accounts on your thumb-nail.|In the midst of this chopping sea of civilized life, such are the clouds and storms and quicksands that a man has to live, if he would not founder and go to the bottom.",
+  "Time is but the stream I go a-fishing in. I drink at it; but while I drink I see the sandy bottom and detect how shallow it is. Its thin current slides away, but eternity remains.|I would drink deeper; fish in the sky, whose bottom is pebbly with stars. I cannot count one. I know not the first letter of the alphabet.|I have always been regretting that I was not as wise as the day I was born. The intellect is a cleaver; it discerns and rifts its way into the secret of things.",
+  "Let us spend one day as deliberately as Nature, and not be thrown off the track by every nutshell and mosquito’s wing that falls on the rails. Let us rise early and fast, or break fast, gently and without perturbation.|Let company come and let company go, let the bells ring and the children cry, determined to make a day of it.|Why should we knock under and go with the stream? Let us not be upset and overwhelmed in that terrible rapid and whirlpool called a dinner, situated in the meridian shallows."
+];
+function setPageText(instant) {
+  const el = $("#rtext"), html = PAGES[R.turns % PAGES.length].split("|").map(p => `<p>${p}</p>`).join("");
+  if (instant) { el.innerHTML = html; return; }
+  el.style.opacity = "0";
+  setTimeout(() => { el.innerHTML = html; el.style.opacity = "1"; }, 200);
+}
+function readerBudget() { return Math.max(24, Math.round(readerG.fullCount * R.prog)); }
+function progressBudget(g) { return Math.round(g.fullCount * (0.35 + 0.65 * Math.min(1, D.pages / D.goal))); }
+let nextTurn = 0;
+function turnPage(now) {
+  const still = S.tier === "still", roll = S.dir === "quiet" && !still;
+  R.turns++; R.page++;
+  R.prog += 0.045;
+  let newChapter = false;
+  if (R.prog > 1.001) { R.prog = 0.045; newChapter = true; R.chapter++; }
+  const goalBefore = D.pages >= D.goal;
+  D.pages++; if (R.turns % 2 === 0) { D.minutes++; D.session++; }
+  let dayRolled = false;
+  if (D.pages > 34) { D.pages = 14; dayRolled = true; }
+  renderData(roll);
+  setPageText(still);
+  $("#rchap").textContent = newChapter ? (R.chapter % 2 ? "Reading" : "Where I Lived, and What I Lived For") : $("#rchap").textContent;
+  const rw = W.reader;
+  if (newChapter) { for (const c of readerG.cells.values()) if (!c.dying) c.dying = now; setTimeout(() => { const n2 = performance.now(); rw.animUntil = n2 + readerG.regrow(n2, readerBudget(), 14); }, 1000); }
+  else rw.animUntil = now + readerG.regrow(now, readerBudget(), 14);
+  lineG.growTo(R.prog, now, still);
+  rw.animUntil = Math.max(rw.animUntil, now + 2500);
+  if (S.dir === "reactive") {
+    if (S.tier === "full") rw.wave = now;
+    for (const w of [W.dash, W.panel]) {
+      w.animUntil = now + w.garden.regrow(now, progressBudget(w.garden), dayRolled ? 2 : 22) + 1000;
+      if (!goalBefore && D.pages >= D.goal) w.flash = now;
+    }
+  }
+  if (S.dir === "quiet" && S.tier === "full") {
+    const fr = relRect($(".rfoot", readerEl), readerEl), x = fr.left + 120 + (fr.width - 200) * R.prog;
+    addRipple(rw, x, (fr.top + fr.bottom) / 2, 0.7, now);
+  }
+}
+
+/* ---------------- direction, tier, speed ---------------- */
+function syncGardens(now) {
+  for (const w of [W.dash, W.panel]) {
+    const g = w.garden;
+    g.tips = [];
+    const target = S.dir === "reactive" ? progressBudget(g) : g.fullCount;
+    if (g.mutated || g.budget !== target) { w.animUntil = now + g.regrow(now, target, S.dir === "reactive" ? 3 : 2) + 1200; }
+    w.nextShoot = now + 600; w.nextCompost = now + 2500; w.nextBatch = now + 1500;
+  }
+}
+function setDir(d, first) {
+  S.dir = d;
+  $$("[data-dir]").forEach(b => b.setAttribute("aria-selected", String(b.dataset.dir === d)));
+  $$("[data-spec]").forEach(s => { s.hidden = s.dataset.spec !== d; });
+  $("#tod-group").hidden = d !== "reactive";
+  $("#replay-group").hidden = d !== "quiet";
+  const now = performance.now();
+  for (const w of WINS) {
+    w.ripples = []; w.wave = 0; w.q.i = -1; w.q.to = null; w.dirty = true;
+    w.garden.parts = w.garden.parts.filter(p => p.kind === "spore");
+    w.wash.style.opacity = "0";
+  }
+  if (!first) syncGardens(now);
+  if (d === "weather") WX.t0 = now;
+  if (d === "reactive") todStart = now;
+  if (d === "quiet") playEntrance(now); else { tweens.length = 0; renderData(false); }
+  ringsDirty = true;
+  writeURL();
+}
+let raf = 0;
+function setTier(t) {
+  S.tier = t;
+  $$("[data-tier]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.tier === t)));
+  document.body.classList.toggle("hidden-sim", t === "hidden");
+  const now = performance.now();
+  for (const w of WINS) {
+    w.dirty = true;
+    if (t !== "full") { w.garden.parts = []; w.ripples = []; w.wave = 0; }
+    if (t === "still") { w.garden.tips = w.garden.tips.filter(tp => tp.path); }
+  }
+  if (t === "hidden") { if (raf) cancelAnimationFrame(raf); raf = 0; $("#meter").textContent = "0 frames drawn"; }
+  else if (!raf) { last = now; raf = requestAnimationFrame(frame); }
+  ringsDirty = true;
+  writeURL();
+}
+function setSpeed(s) {
+  S.speed = s;
+  $$("[data-speed]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.speed === s)));
+  const now = performance.now();
+  for (const w of WINS) { w.nextShoot = now + 500; w.nextBatch = now + 1000; }
+  WX.t0 = now; writeURL();
+}
+function setTod(v) {
+  S.tod = v; todStart = performance.now();
+  $$("[data-tod]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.tod === v)));
+  for (const w of WINS) w.dirty = true;
+  writeURL();
+}
+function writeURL() {
+  const q = new URLSearchParams({ dir: S.dir, tier: S.tier, speed: S.speed, theme: appearance });
+  if (S.dir === "reactive") q.set("tod", S.tod);
+  history.replaceState(null, "", "?" + q.toString());
+}
+$$("[data-dir]").forEach(b => b.addEventListener("click", () => setDir(b.dataset.dir)));
+$$("[data-tier]").forEach(b => b.addEventListener("click", () => setTier(b.dataset.tier)));
+$$("[data-speed]").forEach(b => b.addEventListener("click", () => setSpeed(b.dataset.speed)));
+$$("[data-tod]").forEach(b => b.addEventListener("click", () => setTod(b.dataset.tod)));
+$$("[data-theme]").forEach(b => b.addEventListener("click", () => { appearance = b.dataset.theme; applyTheme(); writeURL(); }));
+$("#replay").addEventListener("click", () => playEntrance(performance.now()));
+// Arrow keys move between direction tabs.
+$(".dirs").addEventListener("keydown", e => {
+  const tabs = $$("[data-dir]"), i = tabs.indexOf(document.activeElement);
+  if (i < 0 || (e.key !== "ArrowRight" && e.key !== "ArrowLeft")) return;
+  const n = tabs[(i + (e.key === "ArrowRight" ? 1 : tabs.length - 1)) % tabs.length]; n.focus(); n.click(); e.preventDefault();
+});
+
+/* ---------------- status line ---------------- */
+function statusText(now) {
+  const g = dashG, t = S.tier;
+  if (t === "hidden") return "Window hidden: nothing is drawn or scheduled. Pick another option to bring the windows back.";
+  const secs = s => s >= 90 ? `${Math.floor(s / 60)} min ${Math.round(s % 60)} s` : `${Math.ceil(s)} s`;
+  switch (S.dir) {
+    case "living": {
+      if (t === "still") return "Reduce Motion: today’s garden as one still image. It changes when the window reopens.";
+      if (t === "calm") return "Low Power: a new shoot lands as one fade every " + (fast() ? "6 s here (a minute in the app)" : "minute") + ". No glowing tips, petals or fireflies.";
+      const growing = WINS.reduce((n, w) => n + w.garden.tips.filter(tp => tp.live).length, 0);
+      const withering = [...g.cells.values()].some(c => c.dying > now);
+      return `${growing} ${growing === 1 ? "shoot" : "shoots"} growing, ${withering ? "an old branch withering" : "nothing withering right now"}, ${P.dark ? "fireflies" : "pollen motes"} out.`;
+    }
+    case "reactive": {
+      const look = todLook(todHours(now)), pct = Math.round((0.35 + 0.65 * Math.min(1, D.pages / D.goal)) * 100);
+      const lead = t === "full" ? "Move your pointer over a window. " : t === "calm" ? "Low Power: no lean or rustle. " : "Reduce Motion: no lean or rustle; colour changes in steps. ";
+      return `${lead}It’s ${clockText(todHours(now))}, ${look.name}. ${D.pages} of ${D.goal} pages today, so the garden is ${pct}% grown.`;
+    }
+    case "weather": {
+      if (t === "still") return "Reduce Motion: no weather passes.";
+      const s = WX.s;
+      const calmNote = t === "calm" ? " Low Power: gusts only, without streaks." : "";
+      if (s.kind === "calm") return `Calm. Next: ${s.next === "seeds" ? "drifting seeds" : s.next === "rain" ? (t === "calm" ? "rain, skipped in Low Power" : "soft rain") : "a gust"} in ${secs(s.inS)}.${calmNote}`;
+      if (s.kind === "gust") return "A gust is passing." + calmNote;
+      if (s.kind === "rain") return t === "calm" ? "Rain is skipped in Low Power." : `Soft rain, ${secs(s.left)} left.`;
+      if (s.kind === "after") return t === "calm" ? "Calm." : "After the rain, the leaves glisten.";
+      if (s.kind === "seeds") return t === "calm" ? "Seeds are skipped in Low Power." : "Seeds are drifting up.";
+      return "";
+    }
+    case "quiet":
+      if (t === "still") return "Reduce Motion: values appear at their final state; no ripples or parallax.";
+      if (t === "calm") return "Low Power: counts stay; the ring pulse, ripples and parallax are off.";
+      return "Hover or click in any window to send a ripple. Replay entrance shows the counts again.";
+  }
+  return "";
+}
+
+/* ---------------- main loop ---------------- */
+let last = performance.now(), statusAt = 0, meterAt = performance.now(), meterFrames = 0, meterMs = 0;
+function frame(now) {
+  raf = 0;
+  if (S.tier === "hidden") return;
+  const dt = Math.min(64, now - last); last = now;
+  if (S.dir === "weather") WX.s = weatherState(now);
+  if (now > nextTurn) { nextTurn = now + 7000; turnPage(now); }
+  runTweens(now);
+  const t0 = performance.now();
+  let drew = 0;
+  for (const w of WINS) {
+    updatePointer(w, now);
+    if (!w.onscreen) continue;
+    const g = w.garden;
+    if (S.dir === "living" && S.tier !== "still") livingTick(w, now);
+    if (g.tips.length && S.tier === "full") g.step(dt, now, g.liveSpeed, false);
+    else if (g.tips.length && S.tier !== "full") g.tips = [];
+    if (w.line && w.line.tips.length) w.line.step(dt, now, 26, false);
+    const F = effects(w, now);
+    emit(w, now, dt);
+    if (S.dir === "reactive" && w.look) { w.wash.style.background = w.look.color; w.wash.style.opacity = String(w.look.k * 0.75); }
+    if (S.tier === "still" && !w.dirty && now > w.animUntil) continue;
+    g.render(now, dt, F);
+    if (w.line) w.line.render(now, dt, { breathe: S.tier !== "still", tint: F.tint });
+    w.dirty = false; drew++;
+  }
+  renderRings(now);
+  meterMs += performance.now() - t0; if (drew) meterFrames++;
+  if (now - meterAt > 1000) {
+    const fps = Math.round(meterFrames * 1000 / (now - meterAt)), ms = meterFrames ? meterMs / meterFrames : 0;
+    $("#meter").textContent = `This page draws ${fps} ${fps === 1 ? "frame" : "frames"} a second, ${ms.toFixed(1)} ms each`;
+    meterAt = now; meterFrames = 0; meterMs = 0;
+  }
+  if (now - statusAt > 250) { statusAt = now; $("#status").textContent = statusText(now); }
+  raf = requestAnimationFrame(frame);
+}
+
+/* ---------------- start ---------------- */
+function plantAll(now) {
+  for (const w of [W.dash, W.panel]) { const g = w.garden; g.resize(); g.plant(now, g.o.budget); g.fullCount = g.cells.size; g.flies = []; }
+  readerG.resize(); readerG.plant(now, Infinity); readerG.fullCount = readerG.cells.size; readerG.plant(now, readerBudget()); readerG.flies = [];
+  lineG.resize(); lineG.reset(); lineG.idx = 0; lineG.growTo(R.prog, now, true);
+  for (const c of lineG.cells.values()) c.born = now - 5000;
+  if (S.dir === "reactive") syncGardens(now);
+  for (const w of WINS) w.dirty = true;
+}
+applyTheme();
+$$("[data-speed]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.speed === S.speed)));
+$$("[data-tod]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.tod === S.tod)));
+setPageText(true);
+renderData(false);
+const ready = document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve();
+ready.then(() => requestAnimationFrame(() => {
+  const now = performance.now();
+  plantAll(now);
+  nextTurn = now + 4000;
+  setDir(S.dir, true);
+  setTier(S.tier);
+  const io = new IntersectionObserver(es => { for (const e of es) { const w = WINS.find(x => x.el === e.target || x.el.contains(e.target)); if (w) { w.onscreen = e.isIntersecting; w.dirty = true; } } }, { threshold: 0 });
+  WINS.forEach(w => io.observe(w.el));
+}));
+let rt;
+addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(() => plantAll(performance.now()), 250); });
+document.addEventListener("visibilitychange", () => { if (!document.hidden && S.tier !== "hidden" && !raf) { last = performance.now(); raf = requestAnimationFrame(frame); } });
+
+window.mock = { setDir, setTier, setSpeed, setTod, setTheme: t => { appearance = t; applyTheme(); writeURL(); }, turnPage: () => turnPage(performance.now()), state: S, wins: WINS, ripple: (id, x, y, s = 1) => addRipple(W[id], x, y, s) };
+})();
+</script>
+</body>
+</html>
