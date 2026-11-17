@@ -46,16 +46,20 @@ extension View {
 
 /// On a phone the title is set large on the same row as the buttons, as in Books: the standard large title sits on a
 /// row of its own below them, which leaves an empty band at the top. On an iPad the buttons share the tab bar's row,
-/// where an inline title has no room and is dropped, so the standard large title stays.
+/// where an inline title has no room and is dropped, so the iPad keeps the standard title. Setting any title display
+/// mode there, even `.automatic`, drops the title too, so the iPad gets no mode at all.
 private struct TabScreen: ViewModifier {
-    @Environment(\.horizontalSizeClass) private var sizeClass
     let title: String
 
-    func body(content: Content) -> some View {
-        content
+    @ViewBuilder func body(content: Content) -> some View {
+        let screen = content
             .navigationTitle(title)
-            .toolbarTitleDisplayMode(sizeClass == .compact ? .inlineLarge : .automatic)
             .toolbar { AppToolbar() }
+        if UIDevice.current.userInterfaceIdiom == .phone {
+            screen.toolbarTitleDisplayMode(.inlineLarge)
+        } else {
+            screen
+        }
     }
 }
 
