@@ -39,6 +39,16 @@ final class AppRouter: ObservableObject {
     func open(_ edition: Edition) { reading = edition }
 }
 
+extension View {
+    /// A tab's root screen: its title set large on the same row as the add and settings buttons, as in Books.
+    /// The standard large title sits on a row of its own below the buttons, which leaves an empty band at the top.
+    func tabScreen(_ title: String) -> some View {
+        navigationTitle(title)
+            .toolbarTitleDisplayMode(.inlineLarge)
+            .toolbar { AppToolbar() }
+    }
+}
+
 /// The two actions every tab offers: add something, and settings.
 struct AppToolbar: ToolbarContent {
     @EnvironmentObject private var router: AppRouter

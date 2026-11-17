@@ -23,8 +23,7 @@ struct JournalView: View {
                 case .reviews: ReviewsList()
                 }
             }
-            .navigationTitle("Journal")
-            .toolbar { AppToolbar() }
+            .tabScreen("Journal")
             .navigationDestination(for: String.self) { BookDetailView(bookID: $0) }
         }
     }
