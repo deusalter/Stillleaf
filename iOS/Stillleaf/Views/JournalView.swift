@@ -14,6 +14,7 @@ struct JournalView: View {
                         ForEach(AppRouter.JournalMode.allCases) { Text($0.rawValue).tag($0) }
                     }
                     .pickerStyle(.segmented)
+                    .switchWidth()
                     .listRowInsets(EdgeInsets())
                     .listRowBackground(Color.clear)
                 }
@@ -31,21 +32,27 @@ struct JournalView: View {
     }
 }
 
-/// Streaks and totals at a glance, above the calendar.
+/// Streaks and totals at a glance: a row above the calendar, or a column beside it on an iPad.
 private struct JournalSummary: View {
     @EnvironmentObject private var journal: Journal
+    var vertical = false
 
     var body: some View {
         let streak = journal.history.dailyGoalStreak
         let week = journal.history.days.suffix(7).reduce(0) { $0 + $1.creditedSeconds }
-        HStack(spacing: 0) {
+        let layout = vertical ? AnyLayout(VStackLayout(spacing: 0)) : AnyLayout(HStackLayout(spacing: 0))
+        layout {
             stat("\(streak.current)", "day streak", symbol: "flame.fill")
-            Divider().frame(height: 34)
+            separator
             stat("\(streak.longest)", "longest", symbol: "trophy.fill")
-            Divider().frame(height: 34)
+            separator
             stat(ReadingText.duration(week), "last 7 days", symbol: "clock.fill")
         }
         .padding(.vertical, 4)
+    }
+
+    @ViewBuilder private var separator: some View {
+        if vertical { Divider().frame(width: 120) } else { Divider().frame(height: 34) }
     }
 
     private func stat(_ value: String, _ caption: String, symbol: String) -> some View {
@@ -55,7 +62,7 @@ private struct JournalSummary: View {
             Text(caption).font(.caption2).foregroundStyle(.secondary)
         }
         .padding(.horizontal, 6)
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: vertical ? .infinity : nil)
         .accessibilityElement(children: .combine)
     }
 }
@@ -64,6 +71,7 @@ private struct JournalSummary: View {
 private struct CalendarHistory: View {
     @EnvironmentObject private var journal: Journal
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.isWideLayout) private var wide
     @State private var month = Date()
     @State private var selected = Date()
     @State private var deleting: ReadingSessionGroup?
@@ -80,8 +88,21 @@ private struct CalendarHistory: View {
         let selectedKey = ReadingStatistics.dayKey(selected, timezoneID: journal.timezoneID)
         let sessions = journal.sessions(onDay: selectedKey)
         Group {
-            Section { JournalSummary() }
-            Section { monthGrid }
+            if wide {
+                // A month stretched across an iPad spreads its days far apart, so it keeps a calendar's width
+                // and the totals take the rest of the card, as tall as the month.
+                Section {
+                    HStack(spacing: 0) {
+                        monthGrid.frame(maxWidth: 620).padding(.trailing, 20)
+                        Divider()
+                        JournalSummary(vertical: true).frame(maxWidth: .infinity)
+                    }
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+            } else {
+                Section { JournalSummary() }
+                Section { monthGrid }
+            }
             Section {
                 daySummary(selectedKey)
                     .confirmationDialog("Delete this session?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),

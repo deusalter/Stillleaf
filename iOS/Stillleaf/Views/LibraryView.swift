@@ -11,6 +11,7 @@ struct LibraryView: View {
     @EnvironmentObject private var journal: Journal
     @EnvironmentObject private var router: AppRouter
     @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(\.isWideLayout) private var wide
     @State private var path: [String] = []
     @State private var query = ""
     @State private var shelf: Shelf = .all
@@ -42,10 +43,11 @@ struct LibraryView: View {
                         ForEach(Shelf.allCases) { Text($0.rawValue).tag($0) }
                     }
                     .pickerStyle(.segmented)
+                    .switchWidth()
                     .padding(.horizontal, 20)
                     .padding(.top, 4)
                 }
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: typeSize.isAccessibilitySize ? 140 : 100, maximum: 190), spacing: 20, alignment: .top)], spacing: 26) {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: wide ? 136 : typeSize.isAccessibilitySize ? 140 : 100, maximum: wide ? 180 : 190), spacing: wide ? 28 : 20, alignment: .top)], spacing: wide ? 32 : 26) {
                     ForEach(books) { book in
                         Button { select(book) } label: { BookCard(book: book) }
                             .buttonStyle(.plain)

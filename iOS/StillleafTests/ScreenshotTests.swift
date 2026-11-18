@@ -44,10 +44,14 @@ final class ScreenshotTests: XCTestCase {
         // The app's tabs.
         let router = AppRouter()
         show(RootView(router: router).environmentObject(journal))
-        // A freshly created simulator can still show its launch placeholder after two seconds.
-        try await capture("01-reading-now", settle: 4)
+        // A freshly created simulator can still show its launch placeholder seconds after the window is up, longer
+        // on an iPad, so one picture is taken and thrown away before the first that counts.
+        try await capture("00-warm-up", settle: 4)
+        try? FileManager.default.removeItem(at: folder.appendingPathComponent(devicePrefix + "00-warm-up.png"))
+        try await capture("01-reading-now", settle: 2)
         router.tab = .library
-        try await capture("02-library")
+        // The library's covers are drawn as they first appear.
+        try await capture("02-library", settle: 2)
         router.tab = .journal
         try await capture("03-journal-calendar")
         router.journalMode = .finished
