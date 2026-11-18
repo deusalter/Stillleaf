@@ -124,7 +124,6 @@ private struct PaletteStrip: View {
                 .font(.caption.weight(selected ? .bold : .medium))
                 .padding(.horizontal, 7).frame(height: 25)
             }
-            .background(ReadingPalette.canvas)
             .clipShape(shape)
             .overlay(shape.strokeBorder(selected ? ReadingPalette.accent : ReadingPalette.border, lineWidth: selected ? 2 : 1))
             .contentShape(shape)

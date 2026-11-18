@@ -109,7 +109,7 @@ struct SettingsView: View {
                 }
             }
         }
-        .background(ReadingPalette.canvas.ignoresSafeArea())
+        .background(ReadingPalette.paper.ignoresSafeArea())
         .environment(\.gardenBackdrop, false)
         .readingSheetSurface()
         // The dashboard owns drafts across destination and theme changes.
