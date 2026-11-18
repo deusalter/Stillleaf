@@ -11,7 +11,7 @@ struct ReadingNowView: View {
         let shelf = journal.readingNow
         NavigationStack {
             GeometryReader { proxy in
-                // The whole screen, bars included: it does not change as the large title collapses, so the cover holds its size while scrolling.
+                // The whole screen, bars included: it does not change as the bars change while scrolling, so the cover holds its size while scrolling.
                 let insets = proxy.safeAreaInsets
                 let screen = CGSize(width: proxy.size.width + insets.leading + insets.trailing, height: proxy.size.height + insets.top + insets.bottom)
                 ScrollView {
@@ -32,8 +32,7 @@ struct ReadingNowView: View {
                     .frame(maxWidth: .infinity)
                 }
             }
-            .navigationTitle("Reading Now")
-            .toolbar { AppToolbar() }
+            .tabScreen("Reading Now")
         }
     }
 }

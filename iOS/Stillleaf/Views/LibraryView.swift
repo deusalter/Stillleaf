@@ -73,9 +73,8 @@ struct LibraryView: View {
                     }
                 }
             }
-            .navigationTitle("Library")
+            .tabScreen("Library")
             .searchable(text: $query, prompt: "Title or author")
-            .toolbar { AppToolbar() }
             .navigationDestination(for: String.self) { id in BookDetailView(bookID: id) }
             .confirmationDialog("Delete “\(deleting?.title ?? "")”?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
                                 titleVisibility: .visible, presenting: deleting) { book in

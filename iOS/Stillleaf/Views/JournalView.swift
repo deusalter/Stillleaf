@@ -23,8 +23,9 @@ struct JournalView: View {
                 case .reviews: ReviewsList()
                 }
             }
-            .navigationTitle("Journal")
-            .toolbar { AppToolbar() }
+            // The switch sits close under the title rather than a section's height below it.
+            .contentMargins(.top, 4, for: .scrollContent)
+            .tabScreen("Journal")
             .navigationDestination(for: String.self) { BookDetailView(bookID: $0) }
         }
     }

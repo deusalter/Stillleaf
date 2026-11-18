@@ -39,6 +39,30 @@ final class AppRouter: ObservableObject {
     func open(_ edition: Edition) { reading = edition }
 }
 
+extension View {
+    /// A tab's root screen, with its title and the add and settings buttons.
+    func tabScreen(_ title: String) -> some View { modifier(TabScreen(title: title)) }
+}
+
+/// On a phone the title is set large on the same row as the buttons, as in Books: the standard large title sits on a
+/// row of its own below them, which leaves an empty band at the top. On an iPad the buttons share the tab bar's row,
+/// where an inline title has no room and is dropped, so the iPad keeps the standard title. Setting any title display
+/// mode there, even `.automatic`, drops the title too, so the iPad gets no mode at all.
+private struct TabScreen: ViewModifier {
+    let title: String
+
+    @ViewBuilder func body(content: Content) -> some View {
+        let screen = content
+            .navigationTitle(title)
+            .toolbar { AppToolbar() }
+        if UIDevice.current.userInterfaceIdiom == .phone {
+            screen.toolbarTitleDisplayMode(.inlineLarge)
+        } else {
+            screen
+        }
+    }
+}
+
 /// The two actions every tab offers: add something, and settings.
 struct AppToolbar: ToolbarContent {
     @EnvironmentObject private var router: AppRouter
