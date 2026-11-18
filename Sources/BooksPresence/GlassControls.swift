@@ -59,9 +59,10 @@ extension View {
 ///
 /// - `.value` marks a value choice (Pages or Minutes) with a solid accent pill.
 /// - `.navigation` switches a page's category and uses the same quiet accent tint
-///   as the dashboard sidebar, so a screen of tabs does not shout.
+///   as the dashboard sidebar.
+/// - `.underline` marks the selected Settings category on a plain tab strip.
 struct GlassSegmentedControl<Value: Hashable>: View {
-    enum Style { case value, navigation }
+    enum Style { case value, navigation, underline }
 
     let label: String
     let options: [Value]
@@ -86,13 +87,13 @@ struct GlassSegmentedControl<Value: Hashable>: View {
 
     var body: some View {
         let motionOff = previewReduceMotion ?? reduceMotion
-        HStack(spacing: 2) {
+        HStack(spacing: style == .underline ? 20 : 2) {
             ForEach(options, id: \.self) { option in
                 segment(option)
             }
         }
-        .padding(3)
-        .modifier(SegmentedTrack(onGlass: onGlass))
+        .padding(style == .underline ? 0 : 3)
+        .modifier(SegmentedTrack(onGlass: onGlass, underline: style == .underline))
         .animation(motionOff ? nil : ReadingMotion.selection, value: selection)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(label)
@@ -128,10 +129,15 @@ struct GlassSegmentedControl<Value: Hashable>: View {
             }
             .font(.system(size: 12.5, weight: selected ? .semibold : .medium))
             .foregroundStyle(foreground)
-            .padding(.horizontal, 14)
-            .frame(maxWidth: equalWidth ? .infinity : nil, minHeight: 28)
+            .padding(.horizontal, style == .underline ? 2 : 14)
+            .frame(maxWidth: equalWidth ? .infinity : nil, minHeight: style == .underline ? 40 : 28)
             .background {
-                if selected {
+                if selected && style == .underline {
+                    VStack(spacing: 0) {
+                        Spacer()
+                        Rectangle().fill(ReadingPalette.accent).frame(height: 2)
+                    }
+                } else if selected {
                     Capsule()
                         .fill(prominent ? ReadingPalette.accent : ReadingPalette.accent.opacity(0.26))
                         .overlay(Capsule().stroke(ReadingPalette.accent.opacity(prominent ? 0 : 0.35), lineWidth: 1))
@@ -150,8 +156,9 @@ struct GlassSegmentedControl<Value: Hashable>: View {
 
 private struct SegmentedTrack: ViewModifier {
     let onGlass: Bool
+    let underline: Bool
     @ViewBuilder func body(content: Content) -> some View {
-        if onGlass { content.glassSurface(cornerRadius: 20) } else { content.glassWell(Capsule()) }
+        if underline { content } else if onGlass { content.glassSurface(cornerRadius: 20) } else { content.glassWell(Capsule()) }
     }
 }
 

@@ -17,6 +17,15 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         }
     }
 
+    var subtitle: String {
+        switch self {
+        case .reading: return "Set your goals and choose how reading is tracked."
+        case .appearance: return "Choose the colors and garden you see in Stillleaf."
+        case .discord: return "Choose what appears on your Discord profile."
+        case .data: return "Manage your reading history, devices, and backups."
+        }
+    }
+
     var icon: String {
         switch self {
         case .reading: return "book.closed"
@@ -66,32 +75,43 @@ struct SettingsView: View {
     private static let topAnchor = "settings-top"
 
     var body: some View {
-        ScrollViewReader { scroller in
-            ScrollView {
-                VStack(alignment: .leading, spacing: ReadingMetrics.Space.xl) {
-                    PageHeader("Settings", subtitle: nil).id(Self.topAnchor)
-                    // One surface per category: the tabs lead it, and the groups below are
-                    // told apart by spacing and their headings, not by a card each.
-                    VStack(alignment: .leading, spacing: ReadingMetrics.Space.xxl) {
-                        categoryTabs
-                        // Category controls keep focus across live theme changes.
-                        // Theme changes re-key inside the entrance so the category never replays its fade.
-                        categoryDetail
-                            .id(Self.categoryKey(for: category, revision: theme.revision))
-                            .modifier(SettingsCategoryEntrance(direction: slide)).id(category)
+        GeometryReader { geometry in
+            let inset: CGFloat = geometry.size.width < 720 ? 24 : ReadingMetrics.pageInset
+            let width = min(ReadingMetrics.listWidth, max(0, geometry.size.width - 2 * inset))
+            VStack(spacing: 0) {
+                categoryTabs
+                    .frame(width: width, alignment: .leading)
+                    .padding(.top, 12)
+                Hairline()
+                ScrollViewReader { scroller in
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 21) {
+                            VStack(alignment: .leading, spacing: 5) {
+                                Text(category.title)
+                                    .font(.system(size: 40, weight: .regular, design: .serif))
+                                    .accessibilityAddTraits(.isHeader)
+                                Text(category.subtitle).font(.body).foregroundStyle(ReadingPalette.secondaryInk)
+                            }
+                            .id(Self.topAnchor)
+                            categoryDetail
+                                .id(Self.categoryKey(for: category, revision: theme.revision))
+                                .modifier(SettingsCategoryEntrance(direction: slide)).id(category)
+                        }
+                        .environment(\.settingsIndexWidth, width >= 730 ? 148 : nil)
+                        .frame(width: width, alignment: .leading)
+                        .padding(.top, 22).padding(.bottom, Self.barClearance)
+                        .frame(maxWidth: .infinity)
                     }
-                    .readingPanel()
-                    // The save bar floats over the page, so room for it is always reserved
-                    // and the page never changes height when changes appear.
-                    Color.clear.frame(height: Self.barClearance)
+                    .onChange(of: category) { _ in
+                        clearFeedback()
+                        scroller.scrollTo(Self.topAnchor, anchor: .top)
+                    }
                 }
-                .readingPage(maxWidth: ReadingMetrics.listWidth)
-            }
-            .onChange(of: category) { _ in
-                clearFeedback()
-                scroller.scrollTo(Self.topAnchor, anchor: .top)
             }
         }
+        .background(ReadingPalette.canvas.ignoresSafeArea())
+        .environment(\.gardenBackdrop, false)
+        .readingSheetSurface()
         // The dashboard owns drafts across destination and theme changes.
         .overlay(alignment: .bottom) { floatingBar }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -121,12 +141,10 @@ struct SettingsView: View {
 
     // MARK: Navigation
 
-    /// A tab strip rather than a second sidebar: the dashboard already has one, and four
-    /// categories fit comfortably in a row. It sits inside the page's surface as a well.
     private var categoryTabs: some View {
         GlassSegmentedControl(
             label: "Settings category", options: SettingsCategory.allCases, selection: categoryBinding,
-            title: { $0.title }, systemImage: { $0.icon }, style: .navigation, equalWidth: false,
+            title: { $0.title }, style: .underline, equalWidth: false,
             marker: { ($0 == .reading && readingDirty) || ($0 == .discord && discordDirty) })
             .fixedSize()
             .accessibilityIdentifier("settings-category")
@@ -144,7 +162,7 @@ struct SettingsView: View {
     @ViewBuilder private var categoryDetail: some View {
         switch category {
         case .reading: readingSettings
-        case .appearance: AppearancePicker(store: theme)
+        case .appearance: AppearancePicker(store: theme, goal: model.todayGoal)
         case .discord: discordSettings
         case .data: dataSettings
         }
@@ -153,17 +171,19 @@ struct SettingsView: View {
     // MARK: Reading
 
     private var readingSettings: some View {
-        VStack(alignment: .leading, spacing: ReadingMetrics.Space.xxl) {
-            ReadingSection("Daily goal") {
+        VStack(alignment: .leading, spacing: ReadingMetrics.Space.m) {
+            SettingsGroup("Daily reading goal") {
                 VStack(spacing: 0) {
-                    SettingsRow(title: "Goal unit", description: "What your daily goal counts.") {
-                        GlassSegmentedControl(label: "Daily goal unit", options: [DailyGoalUnit.pages, .minutes],
-                            selection: edited($drafts.dailyUnitDraft), title: { $0 == .pages ? "Pages" : "Minutes" })
-                            .frame(width: 210)
+                    SettingsRow(title: "Measure in", description: "Tracked and manually logged reading both count.") {
+                        Picker("Daily goal unit", selection: edited($drafts.dailyUnitDraft)) {
+                            Text("Pages").tag(DailyGoalUnit.pages)
+                            Text("Minutes").tag(DailyGoalUnit.minutes)
+                        }
+                        .labelsHidden().pickerStyle(.segmented).frame(width: 150)
                     }
                     SettingsDivider()
                     SettingsRow(title: "Daily target",
-                                description: drafts.dailyUnitDraft == .pages ? "Tracked and manually logged pages. Changes apply from today." : "Tracked and manually logged minutes. Changes apply from today.") {
+                                description: "Changes apply from today.") {
                         if drafts.dailyUnitDraft == .pages {
                             GlassNumberField(label: "Daily page goal", unit: "pages", text: edited($drafts.pageGoalDraft),
                                              range: ReadingGoalLimits.dailyPages, onCommit: { applyReadingDrafts() })
@@ -174,7 +194,7 @@ struct SettingsView: View {
                     }
                 }
             }
-            ReadingSection("Books in \(String(model.goalYear))") {
+            SettingsGroup("Books in \(String(model.goalYear))") {
                 VStack(spacing: 0) {
                     SettingsRow(title: "Yearly goal", description: "Counts books with a finish date this year.") {
                         GlassSwitch(label: "Set a yearly books goal", isOn: edited($drafts.annualEnabledDraft))
@@ -190,12 +210,12 @@ struct SettingsView: View {
                 }
                 .animation(rowAnimation, value: drafts.annualEnabledDraft)
             }
-            ReadingSection("Your day") {
+            SettingsGroup("Your day") {
                 SettingsRow(title: "Time zone", description: "Decides when a new reading day begins.") {
                     TimeZoneChooser(selection: edited($drafts.timezoneDraft)).controlSize(.small)
                 }
             }
-            ReadingSection("Tracking") {
+            SettingsGroup("Tracking") {
                 VStack(spacing: 0) {
                     SettingsRow(title: "Track reading", description: "Record active reading time and progress in Stillleaf and supported readers.") {
                         GlassSwitch(label: "Track reading", isOn: trackingBinding)
@@ -235,8 +255,8 @@ struct SettingsView: View {
     // MARK: Sharing
 
     private var discordSettings: some View {
-        VStack(alignment: .leading, spacing: ReadingMetrics.Space.xxl) {
-            ReadingSection("Discord") {
+        VStack(alignment: .leading, spacing: ReadingMetrics.Space.m) {
+            SettingsGroup("Discord presence") {
                 VStack(alignment: .leading, spacing: 0) {
                     SettingsRow(title: "Share reading on Discord", description: "Show your book while reading in Stillleaf or Apple Books.") {
                         GlassSwitch(label: "Share reading on Discord", isOn: discordBinding)
@@ -255,7 +275,7 @@ struct SettingsView: View {
                     }
                 }
             }
-            ReadingSection("Connection") {
+            SettingsGroup("Connection") {
                 GlassDisclosure(title: model.discordNeedsSetup ? "Finish Discord setup" : "Application ID and artwork",
                                 subtitle: model.discordNeedsSetup ? "Add your Discord Application ID to start sharing." : nil,
                                 systemImage: "link",
@@ -300,8 +320,8 @@ struct SettingsView: View {
     }
 
     private var dataSettings: some View {
-        VStack(alignment: .leading, spacing: ReadingMetrics.Space.xxl) {
-            ReadingSection("Apple Books") {
+        VStack(alignment: .leading, spacing: ReadingMetrics.Space.m) {
+            SettingsGroup("Apple Books") {
                 VStack(spacing: 0) {
                     SettingsRow(title: "Sync finished books", description: "Bring completion dates from Apple Books into your library. No pages or reading time are added.") {
                         GlassSwitch(label: "Sync finished books", isOn: appleHistorySyncBinding)
@@ -313,7 +333,7 @@ struct SettingsView: View {
                     }
                 }
             }
-            ReadingSection("Your devices") {
+            SettingsGroup("Your devices") {
                 VStack(spacing: 0) {
                     SettingsRow(title: model.sync.enabled ? "Sync folder: \(model.sync.folderName ?? "")" : "Sync with your other devices",
                                 description: model.sync.enabled
@@ -332,7 +352,7 @@ struct SettingsView: View {
                     }
                 }
             }
-            ReadingSection("Backups & export") {
+            SettingsGroup("Backups & export") {
                 VStack(spacing: 0) {
                     SettingsRow(title: "Backup", description: "Your reading history is stored on this Mac.") {
                         HStack(spacing: ReadingMetrics.Space.s) {
@@ -353,7 +373,7 @@ struct SettingsView: View {
                 }
             }
             UpdateSettingsSection(updates: model.updates)
-            ReadingSection("Help") {
+            SettingsGroup("Help") {
                 VStack(spacing: 0) {
                     SettingsRow(title: "Trouble with tracking?", description: "Check permissions and recent tracking issues.") {
                         Button("Troubleshooting") { present(.trackingHelp) }.controlSize(.small)
@@ -368,7 +388,7 @@ struct SettingsView: View {
                     }
                 }
             }
-            ReadingSection("Reset") {
+            SettingsGroup("Reset") {
                 GlassDisclosure(title: "Reset or uninstall", subtitle: "Delete reading data or remove Stillleaf from this Mac.",
                                 isExpanded: $showRemoval) {
                     VStack(alignment: .leading, spacing: ReadingMetrics.Space.m) {
@@ -435,9 +455,8 @@ struct SettingsView: View {
             .disabled(!valid)
         }
         .padding(.horizontal, ReadingMetrics.Space.l).padding(.vertical, ReadingMetrics.Space.m)
-        // Cards scroll under the bar. Glass alone lets their text show through, so it sits on a near-opaque backing.
-        .background(ReadingPalette.canvas.opacity(0.94), in: RoundedRectangle(cornerRadius: ReadingMetrics.Radius.card, style: .continuous))
-        .glassSurface(cornerRadius: ReadingMetrics.Radius.card)
+        .background(ReadingPalette.surface, in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(ReadingPalette.border))
         .id(theme.revision)
     }
 
@@ -446,8 +465,8 @@ struct SettingsView: View {
             .font(.callout.weight(.medium))
             .foregroundStyle(applyFailed ? ReadingPalette.warning : ReadingPalette.accent)
             .padding(.horizontal, ReadingMetrics.Space.l).padding(.vertical, ReadingMetrics.Space.s + 2)
-            .background(ReadingPalette.canvas.opacity(0.94), in: Capsule())
-            .glassSurface(cornerRadius: 20)
+            .background(ReadingPalette.surface, in: Capsule())
+            .overlay(Capsule().strokeBorder(ReadingPalette.border))
             .id(theme.revision)
             .accessibilityElement(children: .combine)
     }

@@ -319,7 +319,7 @@ func runUISmoke() throws {
         throw BooksAccessErrorForUI.failed("Theme re-keying would reset settings drafts or the focused appearance picker")
     }
     var views: [(String, AnyView)] = [
-        ("appearance", AnyView(AppearancePicker(store: store))),
+        ("appearance", AnyView(AppearancePicker(store: store, goal: model.todayGoal))),
         ("timeline-present", AnyView(ReadingTimelineView(model: model, present: { _ in }))),
         ("reading-dates", AnyView(ReadingDatesEditor(title: marked.title, dates: originalDates,
             timezoneID: model.timezoneID, save: { _ in "Synthetic failure; draft must stay open." }))),

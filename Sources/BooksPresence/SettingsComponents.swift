@@ -1,5 +1,45 @@
 import SwiftUI
 
+private struct SettingsIndexWidthKey: EnvironmentKey {
+    static let defaultValue: CGFloat? = nil
+}
+
+extension EnvironmentValues {
+    var settingsIndexWidth: CGFloat? {
+        get { self[SettingsIndexWidthKey.self] }
+        set { self[SettingsIndexWidthKey.self] = newValue }
+    }
+}
+
+/// Wide pages use a margin for group titles. Both layouts retain the same field identities.
+struct SettingsGroup<Content: View>: View {
+    let title: String
+    let content: Content
+    @Environment(\.settingsIndexWidth) private var indexWidth
+
+    init(_ title: String, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.content = content()
+    }
+
+    var body: some View {
+        let layout = indexWidth == nil
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 5))
+            : AnyLayout(HStackLayout(alignment: .top, spacing: 20))
+        VStack(alignment: .leading, spacing: 8) {
+            Hairline()
+            layout {
+                Text(title)
+                    .font(.system(size: 19, weight: .medium, design: .serif))
+                    .frame(width: indexWidth, alignment: .leading)
+                    .padding(.top, 6)
+                    .accessibilityAddTraits(.isHeader)
+                content.frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+}
+
 /// One setting: a title, an optional description under it, and the control on the
 /// trailing edge. Every settings card is a stack of these, so labels, descriptions
 /// and controls line up the same way on every page.
