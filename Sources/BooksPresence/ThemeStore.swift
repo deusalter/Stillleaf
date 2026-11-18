@@ -192,6 +192,7 @@ enum ReadingPalette {
     static func fixed(_ hex: UInt32) -> Color { Color(nsColor(hex)) }
 
     static var canvas: Color { token("canvas") { $0.canvas } }
+    static var paper: Color { token("paper") { $0.paper ?? $0.canvas } }
     static var surface: Color { token("surface") { $0.surface } }
     static var elevated: Color { token("elevated") { $0.elevated } }
     static var ink: Color { token("ink") { $0.ink } }

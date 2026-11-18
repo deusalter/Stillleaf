@@ -130,7 +130,7 @@ private enum BareTextAudit {
         func tinted(_ colors: ThemeColors) -> ThemeColors {
             var colors = colors
             colors.ink = magenta; colors.secondaryInk = magenta; colors.warning = magenta
-            colors.surface = cyan; colors.elevated = cyan
+            colors.surface = cyan; colors.elevated = cyan; colors.paper = cyan
             return colors
         }
         ThemeSnapshot.update(light: tinted(theme.light), dark: tinted(theme.dark))
@@ -267,6 +267,11 @@ func checkBareTextOverGarden(populated: AppModel, emptyRoot: URL, defaults: User
     }
     for section in DashboardSection.allCases {
         cases.append(.init(name: "\(section.rawValue)", view: dashboard(populated, section)))
+    }
+    // Reading is covered by the default Settings destination above.
+    for category in SettingsCategory.allCases where category != .reading {
+        cases.append(.init(name: "settings-\(category.rawValue)", view: AnyView(
+            DashboardView(model: populated, initialSection: .settings, initialSettingsCategory: category))))
     }
     // History is audited at full height, wide and at the narrowest window, where the day card
     // stacks under the calendar instead of sitting beside it.

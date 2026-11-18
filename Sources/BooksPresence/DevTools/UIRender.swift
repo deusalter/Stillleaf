@@ -151,7 +151,12 @@ func renderUIPreviews(to destination: URL) throws {
         }
         previews.append(("history-content-compact", AnyView(HistoryView(model: model))))
         for category in SettingsCategory.allCases {
-            previews.append(("settings-\(category.rawValue.lowercased())", AnyView(DashboardView(model: model, initialSection: .settings, initialSettingsCategory: category))))
+            let name = "settings-\(category.rawValue.lowercased())"
+            let dashboard = AnyView(DashboardView(model: model, initialSection: .settings, initialSettingsCategory: category))
+            previews.append((name, dashboard))
+            if filter?.contains(name + "-compact") == true {
+                previews.append((name + "-compact", dashboard))
+            }
         }
         // Full-height and stateful Settings pages, so the parts below the fold and the
         // floating save bar can be reviewed. The panels are drawn over the plain canvas.
@@ -242,6 +247,7 @@ func renderUIPreviews(to destination: URL) throws {
                 "settings-reading-unsaved": NSSize(width: 960, height: 760), "settings-reading-invalid": NSSize(width: 960, height: 760),
                 "settings-data-tall": NSSize(width: 960, height: 1500), "settings-discord-setup": NSSize(width: 960, height: 1000),
                 "popover-desktop": PopoverDesktopFixture<EmptyView>.size, "popover-desktop-empty": PopoverDesktopFixture<EmptyView>.size]
+            if name.hasPrefix("settings-") && name.hasSuffix("-compact") { sizes[name] = NSSize(width: 920, height: 660) }
             if name.hasPrefix("manual-add") { sizes[name] = sheetSize }
             try renderNativeView(AnyView(view), size: name.hasPrefix("onboarding-") ? OnboardingView.size : sizes[name] ?? NSSize(width: 1180, height: 820), appearance: appearance,
                                  to: destination.appendingPathComponent("\(name)-\(dark ? "dark" : "light").png"))

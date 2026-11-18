@@ -156,7 +156,7 @@ struct UpdateSettingsSection: View {
     @ObservedObject var updates: UpdateController
 
     var body: some View {
-        ReadingSection("Updates") {
+        SettingsGroup("Updates") {
             VStack(spacing: 0) {
                 SettingsRow(title: "Check automatically", description: "Once a day, ask the Stillleaf website whether a newer version exists. The request carries only the app version.") {
                     GlassSwitch(label: "Check for updates automatically", isOn: $updates.automaticChecks)

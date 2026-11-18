@@ -4,6 +4,8 @@ import Foundation
 /// contrast smoke can compile this file on its own.
 struct ThemeColors: Equatable {
     var canvas: UInt32
+    /// An opaque page laid over the garden. Themes default to their canvas color.
+    var paper: UInt32? = nil
     var surface: UInt32
     var elevated: UInt32
     var ink: UInt32
