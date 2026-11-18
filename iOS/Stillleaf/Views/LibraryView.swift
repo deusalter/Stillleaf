@@ -47,7 +47,7 @@ struct LibraryView: View {
                     .padding(.horizontal, 20)
                     .padding(.top, 4)
                 }
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: wide ? 150 : typeSize.isAccessibilitySize ? 140 : 100, maximum: wide ? 210 : 190), spacing: wide ? 28 : 20, alignment: .top)], spacing: wide ? 32 : 26) {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: wide ? 136 : typeSize.isAccessibilitySize ? 140 : 100, maximum: wide ? 180 : 190), spacing: wide ? 28 : 20, alignment: .top)], spacing: wide ? 32 : 26) {
                     ForEach(books) { book in
                         Button { select(book) } label: { BookCard(book: book) }
                             .buttonStyle(.plain)
