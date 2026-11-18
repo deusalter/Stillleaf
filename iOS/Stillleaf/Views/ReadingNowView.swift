@@ -6,6 +6,7 @@ import BooksCore
 struct ReadingNowView: View {
     @EnvironmentObject private var journal: Journal
     @EnvironmentObject private var router: AppRouter
+    @Environment(\.isWideLayout) private var wide
 
     var body: some View {
         let shelf = journal.readingNow
@@ -15,25 +16,66 @@ struct ReadingNowView: View {
                 let insets = proxy.safeAreaInsets
                 let screen = CGSize(width: proxy.size.width + insets.leading + insets.trailing, height: proxy.size.height + insets.top + insets.bottom)
                 ScrollView {
-                    VStack(spacing: 28) {
-                        if let book = shelf.first, let edition = journal.edition(forBook: book.id) {
-                            CurrentBook(book: book, edition: edition, screen: screen)
-                        } else {
-                            EmptyShelf(hasBooks: !journal.editions.isEmpty)
+                    if wide {
+                        wideLayout(shelf, columns: proxy.size.width >= 960)
+                            .padding(.horizontal, 20)
+                            .padding(.top, 8)
+                            .padding(.bottom, 32)
+                    } else {
+                        VStack(spacing: 28) {
+                            current(shelf, screen: screen)
+                            TodayCard()
+                            if shelf.count > 1 { UpNext(books: Array(shelf.dropFirst())) }
+                            year
                         }
-                        TodayCard()
-                        if shelf.count > 1 { UpNext(books: Array(shelf.dropFirst())) }
-                        if let target = journal.history.annualBookGoal { YearCard(target: target, finished: journal.history.annualBooksFinished) }
+                        .padding(.horizontal, 20)
+                        .padding(.top, 8)
+                        .padding(.bottom, 32)
+                        .frame(maxWidth: 640)
+                        .frame(maxWidth: .infinity)
                     }
-                    .padding(.horizontal, 20)
-                    .padding(.top, 8)
-                    .padding(.bottom, 32)
-                    .frame(maxWidth: 640)
-                    .frame(maxWidth: .infinity)
                 }
             }
             .tabScreen("Reading Now")
         }
+    }
+
+    /// An iPad's width, used rather than a phone's column floating in the middle: everything starts at the
+    /// title's edge, the cover beside its words, and today's goal beside the book when there is room.
+    @ViewBuilder
+    private func wideLayout(_ shelf: [BookRecord], columns: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 36) {
+            if columns {
+                HStack(alignment: .center, spacing: 36) {
+                    current(shelf, screen: .zero).frame(maxWidth: .infinity, alignment: .leading)
+                    VStack(spacing: 16) {
+                        TodayCard()
+                        year
+                    }
+                    .frame(width: 420)
+                }
+            } else {
+                current(shelf, screen: .zero)
+                TodayCard()
+                year
+            }
+            if shelf.count > 1 { UpNext(books: Array(shelf.dropFirst()), coverWidth: 132) }
+        }
+    }
+
+    @ViewBuilder
+    private func current(_ shelf: [BookRecord], screen: CGSize) -> some View {
+        if let book = shelf.first, let edition = journal.edition(forBook: book.id) {
+            CurrentBook(book: book, edition: edition, screen: screen, wide: wide)
+        } else {
+            EmptyShelf(hasBooks: !journal.editions.isEmpty)
+                .frame(maxWidth: wide ? 440 : nil)
+        }
+    }
+
+    @ViewBuilder
+    private var year: some View {
+        if let target = journal.history.annualBookGoal { YearCard(target: target, finished: journal.history.annualBooksFinished) }
     }
 }
 
@@ -45,15 +87,28 @@ private struct CurrentBook: View {
     let book: BookRecord
     let edition: Edition
     let screen: CGSize
+    var wide = false
 
     var body: some View {
-        if screen.height < 500, screen.width > screen.height {
+        if wide {
+            // An iPad: the cover beside the words, all at the leading edge under the title.
+            HStack(alignment: .center, spacing: 32) {
+                cover(width: 220)
+                VStack(alignment: .leading, spacing: 16) {
+                    titles(.leading, font: .system(.title, design: .serif).weight(.semibold))
+                    progress(.leading)
+                    action.frame(maxWidth: 300)
+                }
+                .frame(maxWidth: 380, alignment: .leading)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        } else if screen.height < 500, screen.width > screen.height {
             // A phone on its side: the cover beside the words, as tall as the bars allow.
             HStack(alignment: .center, spacing: 28) {
                 cover(width: max(100, screen.height - 150) * 2 / 3)
                 VStack(alignment: .leading, spacing: 14) {
                     titles(.leading)
-                    progress
+                    progress(.center)
                     action
                 }
                 .frame(maxWidth: 320, alignment: .leading)
@@ -65,7 +120,7 @@ private struct CurrentBook: View {
                 // What is left once the bars, the words and the button have their room, as a 2:3 cover.
                 cover(width: min(200, max(110, (screen.height - 440) * 2 / 3)))
                 titles(.center)
-                progress
+                progress(.center)
                 action
             }
             .frame(maxWidth: .infinity)
@@ -85,10 +140,10 @@ private struct CurrentBook: View {
         .accessibilityLabel("Open \(book.title)")
     }
 
-    private func titles(_ alignment: HorizontalAlignment) -> some View {
+    private func titles(_ alignment: HorizontalAlignment, font: Font = .system(.title2, design: .serif).weight(.semibold)) -> some View {
         VStack(alignment: alignment, spacing: 5) {
             Text(book.title)
-                .font(.system(.title2, design: .serif).weight(.semibold))
+                .font(font)
                 .multilineTextAlignment(alignment == .center ? .center : .leading)
                 .lineLimit(3)
             if let author = book.author {
@@ -98,9 +153,9 @@ private struct CurrentBook: View {
     }
 
     @ViewBuilder
-    private var progress: some View {
+    private func progress(_ alignment: HorizontalAlignment) -> some View {
         if let fraction = position?.fraction {
-            VStack(spacing: 7) {
+            VStack(alignment: alignment, spacing: 7) {
                 ProgressView(value: min(1, max(0, fraction)))
                     .frame(maxWidth: 220)
                 Text(ReadingText.place(fraction: fraction, location: position?.location))
@@ -241,6 +296,7 @@ private struct UpNext: View {
     @EnvironmentObject private var journal: Journal
     @EnvironmentObject private var router: AppRouter
     let books: [BookRecord]
+    var coverWidth: CGFloat = 104
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -249,7 +305,7 @@ private struct UpNext: View {
                 HStack(alignment: .top, spacing: 16) {
                     ForEach(books) { book in
                         if let edition = journal.edition(forBook: book.id) {
-                            Button { router.open(edition) } label: { BookCard(book: book).frame(width: 104) }
+                            Button { router.open(edition) } label: { BookCard(book: book).frame(width: coverWidth) }
                                 .buttonStyle(.plain)
                         }
                     }

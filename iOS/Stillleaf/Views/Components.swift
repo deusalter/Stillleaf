@@ -184,3 +184,17 @@ struct ExportFile: FileDocument {
 extension UTType {
     static let stillleafBackup = UTType(filenameExtension: "sqlite", conformingTo: .database) ?? .database
 }
+
+extension View {
+    /// A segmented switch keeps a phone's width on an iPad, at the leading edge under the title, rather than
+    /// stretching its few segments across the screen.
+    func switchWidth() -> some View {
+        frame(maxWidth: 420).frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+extension EnvironmentValues {
+    /// A full-screen iPad, or one sharing the screen at a wide width. A large phone on its side has a regular
+    /// width too, but a compact height, and keeps the phone's layout.
+    var isWideLayout: Bool { horizontalSizeClass == .regular && verticalSizeClass == .regular }
+}
